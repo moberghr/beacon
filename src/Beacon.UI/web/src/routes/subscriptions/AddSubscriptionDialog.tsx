@@ -339,7 +339,7 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
               renderItem={r => (
                 <span className="flex items-center gap-2">
                   <span className="font-medium">{r.name}</span>
-                  <span className="text-text-muted mono text-xs truncate">{r.destination}</span>
+                  {r.description && <span className="text-text-muted text-xs truncate">{r.description}</span>}
                   <Pill className="ml-auto">{NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}</Pill>
                 </span>
               )}
@@ -548,7 +548,7 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
                     {selectedRecipients.map(r => (
                       <span key={r.id}>
                         {r.name}{' '}
-                        <span className="text-text-muted mono text-xs">{r.destination}</span>
+                        <span className="text-text-muted text-xs">{NOTIFICATION_TYPE_LABEL[r.notificationType] ?? r.notificationType}</span>
                       </span>
                     ))}
                   </div>

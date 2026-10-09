@@ -50,6 +50,9 @@ public class RecipientQueryResult
 
     public int? NotificationId { get; init; }
 
+    /// <summary>The recipient being notified, for delivery logs.</summary>
+    public int? RecipientId { get; init; }
+
     public AnomalyEvaluationResult? AnomalyEvaluation { get; init; }
 
     public string? HeadersJson { get; init; }

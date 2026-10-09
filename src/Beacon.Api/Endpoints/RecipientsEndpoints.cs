@@ -9,11 +9,14 @@ internal static class RecipientsEndpoints
     {
         var recipients = group.MapGroup("/recipients").WithTags("Recipients");
 
+        // Any reader may list recipients (names and types, to attach them); destinations and headers come back masked,
+        // and to Admins only. Creating, changing and deleting a recipient decides where Beacon sends data: Admins only.
         recipients.MapGet("/", ([AsParameters] GetRecipientsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetRecipients");
 
         recipients.MapPost("/", (CreateRecipientCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
-            .WithName("CreateRecipient");
+            .WithName("CreateRecipient")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         recipients.MapPut("/{id:int}", async (int id, UpdateRecipientBody body, IMediator m, CancellationToken ct) =>
         {
@@ -21,13 +24,13 @@ internal static class RecipientsEndpoints
                 id, body.Name, body.Description, body.Destination,
                 body.NotificationType, body.HeadersJson, body.BodyTemplate), ct);
             return TypedResults.NoContent();
-        }).WithName("UpdateRecipient");
+        }).WithName("UpdateRecipient").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         recipients.MapDelete("/{id:int}", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new DeleteRecipientCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteRecipient");
+        }).WithName("DeleteRecipient").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         return group;
     }
@@ -36,7 +39,7 @@ internal static class RecipientsEndpoints
 internal sealed record UpdateRecipientBody(
     string Name,
     string? Description,
-    string Destination,
+    string? Destination,
     int NotificationType,
     string? HeadersJson,
     string? BodyTemplate);

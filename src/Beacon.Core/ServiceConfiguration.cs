@@ -14,6 +14,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Interceptors;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Embed;
 using Beacon.Core.Services.Retention;
@@ -93,6 +94,22 @@ public static class ServiceConfiguration
 
         // Keyed hash for MCP caller audit identities; derives its own purpose-bound key from the encryption key.
         services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(encryptionKey));
+
+        // Notification channels (Beacon:Notifications): where recipients may point, the one outbound HTTP policy the
+        // adapters use, and encryption of recipient secrets at rest. ValidateOnStart so a malformed allow-list entry
+        // fails the host at boot.
+        services.AddOptions<Configuration.NotificationChannelOptions>()
+            .Bind(configuration.GetSection(Configuration.NotificationChannelOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.NotificationChannelOptions>, Configuration.NotificationChannelOptionsValidator>());
+        services.TryAddSingleton<IHostAddressResolver, DnsHostAddressResolver>();
+        services.TryAddSingleton<OutboundAddressPolicy>();
+        services.TryAddSingleton<NotificationDestinationPolicy>();
+        services.TryAddSingleton<RecipientSecretProtector>();
+        services.TryAddSingleton<RecipientSecretEditor>();
+        services.TryAddSingleton<NotificationHttpSender>();
+        services.TryAddTransient<IRecipientSecretEncryptionService, RecipientSecretEncryptionService>();
+        services.AddNotificationHttpClient();
 
         services.AddSingleton<IAdapter, TeamsAdapter>();
         services.AddSingleton<IAdapter, SlackAdapter>();

@@ -1,25 +1,73 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Adapters;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.QueryExecutionHistory;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
-internal class NotificationService(IDbContextFactory<BeaconContext> contextFactory, AdapterFactory adapterFactory) : INotificationService
+internal class NotificationService(
+    IDbContextFactory<BeaconContext> contextFactory,
+    AdapterFactory adapterFactory,
+    RecipientSecretProtector secretProtector,
+    NotificationDestinationPolicy destinationPolicy,
+    IOptions<NotificationChannelOptions> options,
+    ILogger<NotificationService> logger) : INotificationService
 {
+    private static int _plaintextWarningLogged;
+
+    /// <summary>
+    /// The single path to every notification adapter. The stored destination and headers are decrypted here and checked
+    /// against the destination policy again, so a recipient saved before the policy (or under a looser configuration)
+    /// is never sent to. Every failure is logged at Warning (type, notification and recipient ids, reason, HTTP status,
+    /// exception types; never a message, URL or body) and leaves as a <see cref="NotificationDeliveryException"/> whose
+    /// message is a generic reason.
+    /// </summary>
     public async Task SendNotification(
         RecipientQueryResult recipientQueryResult,
         int? lastExecutedQueryResultCount,
         CancellationToken cancellationToken = default)
     {
-        // Task creation is handled in JobService.ExecuteQuery; here we fan out to the
-        // configured notification adapter (Email/Slack/Teams/Jira/Webhook). The token
-        // flows so a shutdown signal aborts an in-flight HTTP call rather than letting
-        // a slow third-party hang the worker.
-        var adapter = adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
-        await adapter.SendNotificationAsync(recipientQueryResult, lastExecutedQueryResultCount, cancellationToken);
+        try
+        {
+            var resolved = ResolveDestination(recipientQueryResult);
+
+            // Task creation is handled in JobService.ExecuteQuery; here we fan out to the
+            // configured notification adapter (Email/Slack/Teams/Jira/Webhook). The token
+            // flows so a shutdown signal aborts an in-flight HTTP call rather than letting
+            // a slow third-party hang the worker.
+            var adapter = adapterFactory.GetAdapterService(recipientQueryResult.RecipientNotificationType);
+            await adapter.SendNotificationAsync(resolved, lastExecutedQueryResultCount, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var reason = NotificationFailureReasons.For(ex);
+            var statusCode = NotificationFailureReasons.StatusOf(ex);
+            logger.LogWarning(
+                "{NotificationType} notification {NotificationId} to recipient {RecipientId} failed: {Reason} (HTTP {StatusCode}; {ExceptionTypes})",
+                recipientQueryResult.RecipientNotificationType,
+                recipientQueryResult.NotificationId,
+                recipientQueryResult.RecipientId,
+                reason,
+                (int?)statusCode,
+                NotificationHttpClient.TypeChain(ex));
+
+            if (ex is NotificationDeliveryException)
+            {
+                throw;
+            }
+
+            throw new NotificationDeliveryException(reason, statusCode);
+        }
     }
 
     public async Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
@@ -263,5 +311,68 @@ internal class NotificationService(IDbContextFactory<BeaconContext> contextFacto
             }).ToList(),
             Tasks = tasks
         };
+    }
+
+    private RecipientQueryResult ResolveDestination(RecipientQueryResult recipientQueryResult)
+    {
+        var storedInPlaintext = !RecipientSecretProtector.IsProtected(recipientQueryResult.RecipientDestination)
+            || (!string.IsNullOrEmpty(recipientQueryResult.HeadersJson) && !RecipientSecretProtector.IsProtected(recipientQueryResult.HeadersJson));
+
+        if (storedInPlaintext && options.Value.RequireEncryptedSecrets)
+        {
+            throw new NotificationDeliveryException(NotificationFailureReasons.DestinationNotEncrypted);
+        }
+
+        if (storedInPlaintext)
+        {
+            WarnOnceStoredInPlaintext();
+        }
+
+        string destination;
+        string? headersJson;
+        try
+        {
+            destination = secretProtector.Unprotect(recipientQueryResult.RecipientDestination);
+            headersJson = secretProtector.UnprotectOptional(recipientQueryResult.HeadersJson);
+        }
+        catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException)
+        {
+            throw new NotificationDeliveryException(NotificationFailureReasons.DestinationUnreadable);
+        }
+
+        try
+        {
+            destination = destinationPolicy.EnsureAllowed(recipientQueryResult.RecipientNotificationType, destination);
+            destinationPolicy.ParseHeaders(headersJson);
+        }
+        catch (InvalidOperationException)
+        {
+            throw new NotificationDeliveryException(NotificationFailureReasons.DestinationNotAllowed);
+        }
+
+        return new RecipientQueryResult
+        {
+            RecipientDestination = destination,
+            RecipientNotificationType = recipientQueryResult.RecipientNotificationType,
+            QueryResult = recipientQueryResult.QueryResult,
+            QueryResultFile = recipientQueryResult.QueryResultFile,
+            NotificationId = recipientQueryResult.NotificationId,
+            RecipientId = recipientQueryResult.RecipientId,
+            AnomalyEvaluation = recipientQueryResult.AnomalyEvaluation,
+            HeadersJson = headersJson,
+            BodyTemplate = recipientQueryResult.BodyTemplate,
+        };
+    }
+
+    // A recipient saved before secrets were encrypted at rest still works (unless RequireEncryptedSecrets is on), but
+    // stays readable in the database until the host runs IRecipientSecretEncryptionService or the recipient is saved
+    // again. Logged once per process, no data.
+    private void WarnOnceStoredInPlaintext()
+    {
+        if (Interlocked.Exchange(ref _plaintextWarningLogged, 1) == 0)
+        {
+            logger.LogWarning(
+                "Notification recipient secrets are stored unencrypted; run IRecipientSecretEncryptionService.EncryptStoredSecretsAsync to encrypt them");
+        }
     }
 }

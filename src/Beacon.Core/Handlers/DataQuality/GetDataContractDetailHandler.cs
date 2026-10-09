@@ -48,13 +48,16 @@ internal sealed class GetDataContractDetailHandler(
                     Weight = r.Weight,
                     IsEnabled = r.IsEnabled
                 }).ToList(),
-                Recipients = c.Recipients.Select(r => new DataContractRecipientData
-                {
-                    Id = r.Id,
-                    Name = r.Name,
-                    Destination = r.Destination,
-                    NotificationType = r.NotificationType
-                }).ToList()
+                // Destinations are secrets: never part of a contract read (admins see them masked on recipients).
+                Recipients = c.Recipients
+                    .Select(r =>
+                        new DataContractRecipientData
+                        {
+                            Id = r.Id,
+                            Name = r.Name,
+                            NotificationType = r.NotificationType
+                        })
+                    .ToList()
             })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");

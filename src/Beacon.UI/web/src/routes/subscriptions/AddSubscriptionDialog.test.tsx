@@ -45,7 +45,7 @@ function stubRecipients(items: unknown[]) {
 const OPS_RECIPIENT = {
   id: 7,
   name: 'Ops',
-  description: null,
+  description: 'Operations inbox',
   destination: 'ops@example.com',
   notificationType: 2,
   headersJson: null,
@@ -92,8 +92,10 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     await waitForQuery(12);
     next();
 
-    // Notify — pick Ops.
+    // Notify — pick Ops. The picker shows the description and type, never the destination.
     await screen.findByText(/Ops/);
+    expect(screen.getByText('Operations inbox')).toBeInTheDocument();
+    expect(screen.queryByText('ops@example.com')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
     next();
 

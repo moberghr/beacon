@@ -289,6 +289,58 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
+  getSsoConfig(): Promise<SsoConfigResponse> {
+    let url_ = this.baseUrl + "/beacon/api/auth/sso";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetSsoConfig(_response);
+    });
+  }
+
+  protected processGetSsoConfig(
+    response: Response,
+  ): Promise<SsoConfigResponse> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as SsoConfigResponse);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<SsoConfigResponse>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
   getCurrentPermissions(): Promise<CurrentPermissionsResponse> {
     let url_ = this.baseUrl + "/beacon/api/auth/permissions";
     url_ = url_.replace(/[?&]$/, "");
@@ -379,13 +431,31 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getQueryVersions(queryId: number): Promise<QueryVersionSummary[]> {
-    let url_ = this.baseUrl + "/beacon/api/queries/{queryId}/versions";
+  getQueryVersions(
+    queryId: number,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfQueryVersionSummary> {
+    let url_ = this.baseUrl + "/beacon/api/queries/{queryId}/versions?";
     if (queryId === undefined || queryId === null)
       throw new Error("The parameter 'queryId' must be defined.");
     url_ = url_.replace("{queryId}", encodeURIComponent("" + queryId));
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -402,7 +472,7 @@ export class BeaconApiClient {
 
   protected processGetQueryVersions(
     response: Response,
-  ): Promise<QueryVersionSummary[]> {
+  ): Promise<PagedListOfQueryVersionSummary> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -417,7 +487,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as QueryVersionSummary[]);
+              ) as PagedListOfQueryVersionSummary);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -430,7 +500,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<QueryVersionSummary[]>(null as any);
+    return Promise.resolve<PagedListOfQueryVersionSummary>(null as any);
   }
 
   /**
@@ -710,10 +780,33 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param search (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getProjects(): Promise<GetProjectsResult> {
-    let url_ = this.baseUrl + "/beacon/api/projects";
+  getProjects(
+    search: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfProjectSummaryEntry> {
+    let url_ = this.baseUrl + "/beacon/api/projects?";
+    if (search === null)
+      throw new Error("The parameter 'search' cannot be null.");
+    else if (search !== undefined)
+      url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -728,7 +821,9 @@ export class BeaconApiClient {
     });
   }
 
-  protected processGetProjects(response: Response): Promise<GetProjectsResult> {
+  protected processGetProjects(
+    response: Response,
+  ): Promise<PagedListOfProjectSummaryEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -743,7 +838,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetProjectsResult);
+              ) as PagedListOfProjectSummaryEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -756,7 +851,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetProjectsResult>(null as any);
+    return Promise.resolve<PagedListOfProjectSummaryEntry>(null as any);
   }
 
   /**
@@ -978,6 +1073,128 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<GetProjectDocumentationResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getImportedDocuments(id: number): Promise<GetImportedDocumentsResult> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/imported-documents";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetImportedDocuments(_response);
+    });
+  }
+
+  protected processGetImportedDocuments(
+    response: Response,
+  ): Promise<GetImportedDocumentsResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetImportedDocumentsResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetImportedDocumentsResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getImportedDocument(
+    id: number,
+    documentId: number,
+  ): Promise<GetImportedDocumentResult> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/projects/{id}/imported-documents/{documentId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (documentId === undefined || documentId === null)
+      throw new Error("The parameter 'documentId' must be defined.");
+    url_ = url_.replace("{documentId}", encodeURIComponent("" + documentId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetImportedDocument(_response);
+    });
+  }
+
+  protected processGetImportedDocument(
+    response: Response,
+  ): Promise<GetImportedDocumentResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetImportedDocumentResult);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetImportedDocumentResult>(null as any);
   }
 
   /**
@@ -1584,6 +1801,7 @@ export class BeaconApiClient {
    * @param searchTerm (optional)
    * @param page (optional)
    * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getQueries(
@@ -1594,35 +1812,39 @@ export class BeaconApiClient {
     searchTerm: string | undefined,
     page: number | undefined,
     pageSize: number | undefined,
+    sort: string | undefined,
   ): Promise<PagedListOfQueryData> {
     let url_ = this.baseUrl + "/beacon/api/queries?";
     if (queryId === null)
       throw new Error("The parameter 'queryId' cannot be null.");
     else if (queryId !== undefined)
-      url_ += "queryId=" + encodeURIComponent("" + queryId) + "&";
+      url_ += "QueryId=" + encodeURIComponent("" + queryId) + "&";
     if (dataSourceId === null)
       throw new Error("The parameter 'dataSourceId' cannot be null.");
     else if (dataSourceId !== undefined)
-      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
     if (queryName === null)
       throw new Error("The parameter 'queryName' cannot be null.");
     else if (queryName !== undefined)
-      url_ += "queryName=" + encodeURIComponent("" + queryName) + "&";
+      url_ += "QueryName=" + encodeURIComponent("" + queryName) + "&";
     if (folderId === null)
       throw new Error("The parameter 'folderId' cannot be null.");
     else if (folderId !== undefined)
-      url_ += "folderId=" + encodeURIComponent("" + folderId) + "&";
+      url_ += "FolderId=" + encodeURIComponent("" + folderId) + "&";
     if (searchTerm === null)
       throw new Error("The parameter 'searchTerm' cannot be null.");
     else if (searchTerm !== undefined)
-      url_ += "searchTerm=" + encodeURIComponent("" + searchTerm) + "&";
+      url_ += "SearchTerm=" + encodeURIComponent("" + searchTerm) + "&";
     if (page === null) throw new Error("The parameter 'page' cannot be null.");
     else if (page !== undefined)
-      url_ += "page=" + encodeURIComponent("" + page) + "&";
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
     if (pageSize === null)
       throw new Error("The parameter 'pageSize' cannot be null.");
     else if (pageSize !== undefined)
-      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -1839,68 +2061,6 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  setQueryMcpTool(
-    id: number,
-    body: SetQueryMcpToolRequest,
-  ): Promise<SetQueryMcpToolResult> {
-    let url_ = this.baseUrl + "/beacon/api/queries/{id}/mcp-tool";
-    if (id === undefined || id === null)
-      throw new Error("The parameter 'id' must be defined.");
-    url_ = url_.replace("{id}", encodeURIComponent("" + id));
-    url_ = url_.replace(/[?&]$/, "");
-
-    const content_ = JSON.stringify(body);
-
-    let options_: RequestInit = {
-      body: content_,
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-    };
-
-    return this.http.fetch(url_, options_).then((_response: Response) => {
-      return this.processSetQueryMcpTool(_response);
-    });
-  }
-
-  protected processSetQueryMcpTool(
-    response: Response,
-  ): Promise<SetQueryMcpToolResult> {
-    const status = response.status;
-    let _headers: any = {};
-    if (response.headers && response.headers.forEach) {
-      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
-    }
-    if (status === 200) {
-      return response.text().then((_responseText) => {
-        let result200: any = null;
-        result200 =
-          _responseText === ""
-            ? null
-            : (JSON.parse(
-                _responseText,
-                this.jsonParseReviver,
-              ) as SetQueryMcpToolResult);
-        return result200;
-      });
-    } else if (status !== 200 && status !== 204) {
-      return response.text().then((_responseText) => {
-        return throwException(
-          "An unexpected server error occurred.",
-          status,
-          _responseText,
-          _headers,
-        );
-      });
-    }
-    return Promise.resolve<SetQueryMcpToolResult>(null as any);
-  }
-
-  /**
-   * @return OK
-   */
   toggleQueryLock(
     id: number,
     body: ToggleQueryLockRequest,
@@ -1965,47 +2125,57 @@ export class BeaconApiClient {
    * @param changeSource (optional)
    * @param fromDate (optional)
    * @param toDate (optional)
-   * @param maxResults (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getQueryChangeHistory(
-    id: number,
+    queryId: number,
     stepId: number | undefined,
     changeSource: ChangeSource | undefined,
     fromDate: Date | undefined,
     toDate: Date | undefined,
-    maxResults: number | undefined,
-  ): Promise<GetQueryChangeHistoryResult> {
-    let url_ = this.baseUrl + "/beacon/api/queries/{id}/change-history?";
-    if (id === undefined || id === null)
-      throw new Error("The parameter 'id' must be defined.");
-    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfQueryChangeHistoryItem> {
+    let url_ = this.baseUrl + "/beacon/api/queries/{queryId}/change-history?";
+    if (queryId === undefined || queryId === null)
+      throw new Error("The parameter 'queryId' must be defined.");
+    url_ = url_.replace("{queryId}", encodeURIComponent("" + queryId));
     if (stepId === null)
       throw new Error("The parameter 'stepId' cannot be null.");
     else if (stepId !== undefined)
-      url_ += "stepId=" + encodeURIComponent("" + stepId) + "&";
+      url_ += "StepId=" + encodeURIComponent("" + stepId) + "&";
     if (changeSource === null)
       throw new Error("The parameter 'changeSource' cannot be null.");
     else if (changeSource !== undefined)
-      url_ += "changeSource=" + encodeURIComponent("" + changeSource) + "&";
+      url_ += "ChangeSource=" + encodeURIComponent("" + changeSource) + "&";
     if (fromDate === null)
       throw new Error("The parameter 'fromDate' cannot be null.");
     else if (fromDate !== undefined)
       url_ +=
-        "fromDate=" +
+        "FromDate=" +
         encodeURIComponent(fromDate ? "" + fromDate.toISOString() : "") +
         "&";
     if (toDate === null)
       throw new Error("The parameter 'toDate' cannot be null.");
     else if (toDate !== undefined)
       url_ +=
-        "toDate=" +
+        "ToDate=" +
         encodeURIComponent(toDate ? "" + toDate.toISOString() : "") +
         "&";
-    if (maxResults === null)
-      throw new Error("The parameter 'maxResults' cannot be null.");
-    else if (maxResults !== undefined)
-      url_ += "maxResults=" + encodeURIComponent("" + maxResults) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -2022,7 +2192,7 @@ export class BeaconApiClient {
 
   protected processGetQueryChangeHistory(
     response: Response,
-  ): Promise<GetQueryChangeHistoryResult> {
+  ): Promise<PagedListOfQueryChangeHistoryItem> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -2037,7 +2207,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetQueryChangeHistoryResult);
+              ) as PagedListOfQueryChangeHistoryItem);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -2050,22 +2220,108 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetQueryChangeHistoryResult>(null as any);
+    return Promise.resolve<PagedListOfQueryChangeHistoryItem>(null as any);
   }
 
   /**
    * @return OK
    */
-  executeQueryPreview(id: number): Promise<QueryExecutionResult> {
-    let url_ = this.baseUrl + "/beacon/api/queries/{id}/preview";
+  setQueryMcpTool(
+    id: number,
+    body: SetQueryMcpToolRequest,
+  ): Promise<SetQueryMcpToolResult> {
+    let url_ = this.baseUrl + "/beacon/api/queries/{id}/mcp-tool";
     if (id === undefined || id === null)
       throw new Error("The parameter 'id' must be defined.");
     url_ = url_.replace("{id}", encodeURIComponent("" + id));
     url_ = url_.replace(/[?&]$/, "");
 
+    const content_ = JSON.stringify(body);
+
     let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSetQueryMcpTool(_response);
+    });
+  }
+
+  protected processSetQueryMcpTool(
+    response: Response,
+  ): Promise<SetQueryMcpToolResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as SetQueryMcpToolResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<SetQueryMcpToolResult>(null as any);
+  }
+
+  /**
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @param body (optional)
+   * @return OK
+   */
+  executeQueryPreview(
+    id: number,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+    body: ExecuteQueryPreviewRequest | null | undefined,
+  ): Promise<QueryPreviewResult> {
+    let url_ = this.baseUrl + "/beacon/api/queries/{id}/preview?";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
       method: "POST",
       headers: {
+        "Content-Type": "application/json",
         Accept: "application/json",
       },
     };
@@ -2077,7 +2333,7 @@ export class BeaconApiClient {
 
   protected processExecuteQueryPreview(
     response: Response,
-  ): Promise<QueryExecutionResult> {
+  ): Promise<QueryPreviewResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -2092,7 +2348,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as QueryExecutionResult);
+              ) as QueryPreviewResult);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -2105,26 +2361,42 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<QueryExecutionResult>(null as any);
+    return Promise.resolve<QueryPreviewResult>(null as any);
   }
 
   /**
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @param body (optional)
    * @return OK
    */
   executeStepPreview(
     id: number,
     stepOrder: number,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
     body: ExecuteStepPreviewRequest | null | undefined,
-  ): Promise<QueryStepResult> {
+  ): Promise<QueryPreviewResult> {
     let url_ =
-      this.baseUrl + "/beacon/api/queries/{id}/steps/{stepOrder}/preview";
+      this.baseUrl + "/beacon/api/queries/{id}/steps/{stepOrder}/preview?";
     if (id === undefined || id === null)
       throw new Error("The parameter 'id' must be defined.");
     url_ = url_.replace("{id}", encodeURIComponent("" + id));
     if (stepOrder === undefined || stepOrder === null)
       throw new Error("The parameter 'stepOrder' must be defined.");
     url_ = url_.replace("{stepOrder}", encodeURIComponent("" + stepOrder));
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     const content_ = JSON.stringify(body);
@@ -2145,7 +2417,7 @@ export class BeaconApiClient {
 
   protected processExecuteStepPreview(
     response: Response,
-  ): Promise<QueryStepResult> {
+  ): Promise<QueryPreviewResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -2160,7 +2432,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as QueryStepResult);
+              ) as QueryPreviewResult);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -2173,7 +2445,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<QueryStepResult>(null as any);
+    return Promise.resolve<QueryPreviewResult>(null as any);
   }
 
   /**
@@ -2357,16 +2629,32 @@ export class BeaconApiClient {
 
   /**
    * @param queryId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getPendingApprovals(
     queryId: number | undefined,
-  ): Promise<ApprovalRequestSummary[]> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfApprovalRequestSummary> {
     let url_ = this.baseUrl + "/beacon/api/approvals/pending?";
     if (queryId === null)
       throw new Error("The parameter 'queryId' cannot be null.");
     else if (queryId !== undefined)
-      url_ += "queryId=" + encodeURIComponent("" + queryId) + "&";
+      url_ += "QueryId=" + encodeURIComponent("" + queryId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -2383,7 +2671,7 @@ export class BeaconApiClient {
 
   protected processGetPendingApprovals(
     response: Response,
-  ): Promise<ApprovalRequestSummary[]> {
+  ): Promise<PagedListOfApprovalRequestSummary> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -2398,7 +2686,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as ApprovalRequestSummary[]);
+              ) as PagedListOfApprovalRequestSummary);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -2411,7 +2699,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<ApprovalRequestSummary[]>(null as any);
+    return Promise.resolve<PagedListOfApprovalRequestSummary>(null as any);
   }
 
   /**
@@ -2570,10 +2858,27 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getApiKeys(): Promise<GetApiKeysResult> {
-    let url_ = this.baseUrl + "/beacon/api/api-keys";
+  getApiKeys(
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfApiKeyEntry> {
+    let url_ = this.baseUrl + "/beacon/api/api-keys?";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -2588,7 +2893,9 @@ export class BeaconApiClient {
     });
   }
 
-  protected processGetApiKeys(response: Response): Promise<GetApiKeysResult> {
+  protected processGetApiKeys(
+    response: Response,
+  ): Promise<PagedListOfApiKeyEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -2603,7 +2910,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetApiKeysResult);
+              ) as PagedListOfApiKeyEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -2616,7 +2923,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetApiKeysResult>(null as any);
+    return Promise.resolve<PagedListOfApiKeyEntry>(null as any);
   }
 
   /**
@@ -2724,6 +3031,7 @@ export class BeaconApiClient {
    * @param searchKeyword (optional)
    * @param page (optional)
    * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getDashboards(
@@ -2732,7 +3040,8 @@ export class BeaconApiClient {
     searchKeyword: string | undefined,
     page: number | undefined,
     pageSize: number | undefined,
-  ): Promise<DashboardsListData> {
+    sort: string | undefined,
+  ): Promise<PagedListOfDashboardListData> {
     let url_ = this.baseUrl + "/beacon/api/dashboards?";
     if (isShared === null)
       throw new Error("The parameter 'isShared' cannot be null.");
@@ -2753,6 +3062,9 @@ export class BeaconApiClient {
       throw new Error("The parameter 'pageSize' cannot be null.");
     else if (pageSize !== undefined)
       url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -2769,7 +3081,7 @@ export class BeaconApiClient {
 
   protected processGetDashboards(
     response: Response,
-  ): Promise<DashboardsListData> {
+  ): Promise<PagedListOfDashboardListData> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -2784,7 +3096,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as DashboardsListData);
+              ) as PagedListOfDashboardListData);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -2797,7 +3109,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<DashboardsListData>(null as any);
+    return Promise.resolve<PagedListOfDashboardListData>(null as any);
   }
 
   /**
@@ -3379,16 +3691,32 @@ export class BeaconApiClient {
 
   /**
    * @param dataSourceId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getDataContracts(
     dataSourceId: number | undefined,
-  ): Promise<DataContractData[]> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfDataContractData> {
     let url_ = this.baseUrl + "/beacon/api/data-quality/contracts?";
     if (dataSourceId === null)
       throw new Error("The parameter 'dataSourceId' cannot be null.");
     else if (dataSourceId !== undefined)
-      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -3405,7 +3733,7 @@ export class BeaconApiClient {
 
   protected processGetDataContracts(
     response: Response,
-  ): Promise<DataContractData[]> {
+  ): Promise<PagedListOfDataContractData> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -3420,7 +3748,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as DataContractData[]);
+              ) as PagedListOfDataContractData);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -3433,7 +3761,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<DataContractData[]>(null as any);
+    return Promise.resolve<PagedListOfDataContractData>(null as any);
   }
 
   /**
@@ -3856,9 +4184,6 @@ export class BeaconApiClient {
     return Promise.resolve<void>(null as any);
   }
 
-  // ---- Hand-added (Wave 0.2, spec mcp-project-settings). `npm run codegen` could not run on the
-  // authoring host; regenerate from /openapi/v1.json and these two operations are re-emitted. ----
-
   /**
    * @return OK
    */
@@ -3867,7 +4192,7 @@ export class BeaconApiClient {
   ): Promise<GetMcpProjectSettingsResult> {
     let url_ = this.baseUrl + "/beacon/api/mcp/projects/{projectId}/settings";
     if (projectId === undefined || projectId === null)
-      throw new globalThis.Error("The parameter 'projectId' must be defined.");
+      throw new Error("The parameter 'projectId' must be defined.");
     url_ = url_.replace("{projectId}", encodeURIComponent("" + projectId));
     url_ = url_.replace(/[?&]$/, "");
 
@@ -3925,7 +4250,7 @@ export class BeaconApiClient {
   ): Promise<void> {
     let url_ = this.baseUrl + "/beacon/api/mcp/projects/{projectId}/settings";
     if (projectId === undefined || projectId === null)
-      throw new globalThis.Error("The parameter 'projectId' must be defined.");
+      throw new Error("The parameter 'projectId' must be defined.");
     url_ = url_.replace("{projectId}", encodeURIComponent("" + projectId));
     url_ = url_.replace(/[?&]$/, "");
 
@@ -3973,6 +4298,9 @@ export class BeaconApiClient {
    * @param status (optional)
    * @param patternType (optional)
    * @param tableName (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getLearnedPatterns(
@@ -3981,28 +4309,41 @@ export class BeaconApiClient {
     status: McpPatternStatus | undefined,
     patternType: McpPatternType | undefined,
     tableName: string | undefined,
-  ): Promise<GetLearnedPatternsResult> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfLearnedPatternEntry> {
     let url_ = this.baseUrl + "/beacon/api/mcp/learned-patterns?";
     if (projectId === null)
       throw new Error("The parameter 'projectId' cannot be null.");
     else if (projectId !== undefined)
-      url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+      url_ += "ProjectId=" + encodeURIComponent("" + projectId) + "&";
     if (dataSourceId === null)
       throw new Error("The parameter 'dataSourceId' cannot be null.");
     else if (dataSourceId !== undefined)
-      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
     if (status === null)
       throw new Error("The parameter 'status' cannot be null.");
     else if (status !== undefined)
-      url_ += "status=" + encodeURIComponent("" + status) + "&";
+      url_ += "Status=" + encodeURIComponent("" + status) + "&";
     if (patternType === null)
       throw new Error("The parameter 'patternType' cannot be null.");
     else if (patternType !== undefined)
-      url_ += "patternType=" + encodeURIComponent("" + patternType) + "&";
+      url_ += "PatternType=" + encodeURIComponent("" + patternType) + "&";
     if (tableName === null)
       throw new Error("The parameter 'tableName' cannot be null.");
     else if (tableName !== undefined)
-      url_ += "tableName=" + encodeURIComponent("" + tableName) + "&";
+      url_ += "TableName=" + encodeURIComponent("" + tableName) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -4019,7 +4360,7 @@ export class BeaconApiClient {
 
   protected processGetLearnedPatterns(
     response: Response,
-  ): Promise<GetLearnedPatternsResult> {
+  ): Promise<PagedListOfLearnedPatternEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -4034,7 +4375,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetLearnedPatternsResult);
+              ) as PagedListOfLearnedPatternEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -4047,7 +4388,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetLearnedPatternsResult>(null as any);
+    return Promise.resolve<PagedListOfLearnedPatternEntry>(null as any);
   }
 
   /**
@@ -4104,21 +4445,37 @@ export class BeaconApiClient {
   /**
    * @param projectId (optional)
    * @param status (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getDocumentationPatches(
     projectId: number | undefined,
     status: McpDocPatchStatus | undefined,
-  ): Promise<GetDocumentationPatchesResult> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfDocumentationPatchEntry> {
     let url_ = this.baseUrl + "/beacon/api/mcp/documentation-patches?";
     if (projectId === null)
       throw new Error("The parameter 'projectId' cannot be null.");
     else if (projectId !== undefined)
-      url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+      url_ += "ProjectId=" + encodeURIComponent("" + projectId) + "&";
     if (status === null)
       throw new Error("The parameter 'status' cannot be null.");
     else if (status !== undefined)
-      url_ += "status=" + encodeURIComponent("" + status) + "&";
+      url_ += "Status=" + encodeURIComponent("" + status) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -4135,7 +4492,7 @@ export class BeaconApiClient {
 
   protected processGetDocumentationPatches(
     response: Response,
-  ): Promise<GetDocumentationPatchesResult> {
+  ): Promise<PagedListOfDocumentationPatchEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -4150,7 +4507,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetDocumentationPatchesResult);
+              ) as PagedListOfDocumentationPatchEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -4163,7 +4520,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetDocumentationPatchesResult>(null as any);
+    return Promise.resolve<PagedListOfDocumentationPatchEntry>(null as any);
   }
 
   /**
@@ -4418,24 +4775,749 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param projectId (optional)
+   * @param tool (optional)
+   * @param callerHash (optional)
+   * @param userId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @return OK
+   */
+  getMcpAuditLogs(
+    from: Date,
+    to: Date,
+    projectId: number | undefined,
+    tool: string | undefined,
+    callerHash: string | undefined,
+    userId: number | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+  ): Promise<GetMcpAuditLogsResult> {
+    let url_ = this.baseUrl + "/beacon/api/mcp/audit?";
+    if (from === undefined || from === null)
+      throw new Error(
+        "The parameter 'from' must be defined and cannot be null.",
+      );
+    else
+      url_ +=
+        "from=" + encodeURIComponent(from ? "" + from.toISOString() : "") + "&";
+    if (to === undefined || to === null)
+      throw new Error("The parameter 'to' must be defined and cannot be null.");
+    else
+      url_ += "to=" + encodeURIComponent(to ? "" + to.toISOString() : "") + "&";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+    if (tool === null) throw new Error("The parameter 'tool' cannot be null.");
+    else if (tool !== undefined)
+      url_ += "tool=" + encodeURIComponent("" + tool) + "&";
+    if (callerHash === null)
+      throw new Error("The parameter 'callerHash' cannot be null.");
+    else if (callerHash !== undefined)
+      url_ += "callerHash=" + encodeURIComponent("" + callerHash) + "&";
+    if (userId === null)
+      throw new Error("The parameter 'userId' cannot be null.");
+    else if (userId !== undefined)
+      url_ += "userId=" + encodeURIComponent("" + userId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetMcpAuditLogs(_response);
+    });
+  }
+
+  protected processGetMcpAuditLogs(
+    response: Response,
+  ): Promise<GetMcpAuditLogsResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetMcpAuditLogsResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetMcpAuditLogsResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  promoteSignalToGolden(
+    body: PromoteSignalToGoldenBody,
+  ): Promise<PromoteSignalToGoldenResult> {
+    let url_ = this.baseUrl + "/beacon/api/eval/golden/promote";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processPromoteSignalToGolden(_response);
+    });
+  }
+
+  protected processPromoteSignalToGolden(
+    response: Response,
+  ): Promise<PromoteSignalToGoldenResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PromoteSignalToGoldenResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PromoteSignalToGoldenResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  recordQueryFeedback(body: RecordQueryFeedbackBody): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/eval/feedback";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRecordQueryFeedback(_response);
+    });
+  }
+
+  protected processRecordQueryFeedback(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param projectId (optional)
+   * @param dataSourceId (optional)
+   * @return OK
+   */
+  getGoldenCases(
+    projectId: number | undefined,
+    dataSourceId: number | undefined,
+  ): Promise<GoldenCaseItem[]> {
+    let url_ = this.baseUrl + "/beacon/api/eval/golden?";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+    if (dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' cannot be null.");
+    else if (dataSourceId !== undefined)
+      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetGoldenCases(_response);
+    });
+  }
+
+  protected processGetGoldenCases(
+    response: Response,
+  ): Promise<GoldenCaseItem[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GoldenCaseItem[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GoldenCaseItem[]>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  updateGoldenCase(id: number, body: UpdateGoldenCaseBody): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/eval/golden/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processUpdateGoldenCase(_response);
+    });
+  }
+
+  protected processUpdateGoldenCase(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  runEval(body: RunEvalBody): Promise<RunEvalResult> {
+    let url_ = this.baseUrl + "/beacon/api/eval/runs";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRunEval(_response);
+    });
+  }
+
+  protected processRunEval(response: Response): Promise<RunEvalResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as RunEvalResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<RunEvalResult>(null as any);
+  }
+
+  /**
+   * @param projectId (optional)
+   * @param take (optional)
+   * @return OK
+   */
+  getEvalRuns(
+    projectId: number | undefined,
+    take: number | undefined,
+  ): Promise<EvalRunListItem[]> {
+    let url_ = this.baseUrl + "/beacon/api/eval/runs?";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+    if (take === null) throw new Error("The parameter 'take' cannot be null.");
+    else if (take !== undefined)
+      url_ += "take=" + encodeURIComponent("" + take) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetEvalRuns(_response);
+    });
+  }
+
+  protected processGetEvalRuns(response: Response): Promise<EvalRunListItem[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as EvalRunListItem[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<EvalRunListItem[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getEvalResults(runId: number): Promise<EvalResultItem[]> {
+    let url_ = this.baseUrl + "/beacon/api/eval/runs/{runId}/results";
+    if (runId === undefined || runId === null)
+      throw new Error("The parameter 'runId' must be defined.");
+    url_ = url_.replace("{runId}", encodeURIComponent("" + runId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetEvalResults(_response);
+    });
+  }
+
+  protected processGetEvalResults(
+    response: Response,
+  ): Promise<EvalResultItem[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as EvalResultItem[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<EvalResultItem[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  createGlossaryTerm(
+    body: CreateGlossaryTermBody,
+  ): Promise<CreateGlossaryTermResult> {
+    let url_ = this.baseUrl + "/beacon/api/glossary";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCreateGlossaryTerm(_response);
+    });
+  }
+
+  protected processCreateGlossaryTerm(
+    response: Response,
+  ): Promise<CreateGlossaryTermResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as CreateGlossaryTermResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<CreateGlossaryTermResult>(null as any);
+  }
+
+  /**
+   * @param dataSourceId (optional)
+   * @return OK
+   */
+  getGlossaryTerms(
+    projectId: number,
+    dataSourceId: number | undefined,
+    includeInactive: boolean,
+  ): Promise<GlossaryTermItem[]> {
+    let url_ = this.baseUrl + "/beacon/api/glossary?";
+    if (projectId === undefined || projectId === null)
+      throw new Error(
+        "The parameter 'projectId' must be defined and cannot be null.",
+      );
+    else url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+    if (dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' cannot be null.");
+    else if (dataSourceId !== undefined)
+      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+    if (includeInactive === undefined || includeInactive === null)
+      throw new Error(
+        "The parameter 'includeInactive' must be defined and cannot be null.",
+      );
+    else
+      url_ +=
+        "includeInactive=" + encodeURIComponent("" + includeInactive) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetGlossaryTerms(_response);
+    });
+  }
+
+  protected processGetGlossaryTerms(
+    response: Response,
+  ): Promise<GlossaryTermItem[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GlossaryTermItem[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GlossaryTermItem[]>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  updateGlossaryTerm(id: number, body: UpdateGlossaryTermBody): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/glossary/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processUpdateGlossaryTerm(_response);
+    });
+  }
+
+  protected processUpdateGlossaryTerm(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  deleteGlossaryTerm(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/glossary/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDeleteGlossaryTerm(_response);
+    });
+  }
+
+  protected processDeleteGlossaryTerm(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @param dataSourceId (optional)
    * @param includeArchived (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getAiActorList(
     dataSourceId: number | undefined,
     includeArchived: boolean | undefined,
-  ): Promise<GetAiActorListResult> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfAiActorListItem> {
     let url_ = this.baseUrl + "/beacon/api/ai-actors?";
     if (dataSourceId === null)
       throw new Error("The parameter 'dataSourceId' cannot be null.");
     else if (dataSourceId !== undefined)
-      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
     if (includeArchived === null)
       throw new Error("The parameter 'includeArchived' cannot be null.");
     else if (includeArchived !== undefined)
       url_ +=
-        "includeArchived=" + encodeURIComponent("" + includeArchived) + "&";
+        "IncludeArchived=" + encodeURIComponent("" + includeArchived) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -4452,7 +5534,7 @@ export class BeaconApiClient {
 
   protected processGetAiActorList(
     response: Response,
-  ): Promise<GetAiActorListResult> {
+  ): Promise<PagedListOfAiActorListItem> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -4467,7 +5549,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetAiActorListResult);
+              ) as PagedListOfAiActorListItem);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -4480,7 +5562,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetAiActorListResult>(null as any);
+    return Promise.resolve<PagedListOfAiActorListItem>(null as any);
   }
 
   /**
@@ -5195,34 +6277,39 @@ export class BeaconApiClient {
   }
 
   /**
-   * @param page (optional)
-   * @param pageSize (optional)
    * @param status (optional)
    * @param subscriptionId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getNotifications(
-    page: number | undefined,
-    pageSize: number | undefined,
     status: NotificationStatus | undefined,
     subscriptionId: number | undefined,
-  ): Promise<GetNotificationsResult> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfNotificationEntry> {
     let url_ = this.baseUrl + "/beacon/api/notifications?";
-    if (page === null) throw new Error("The parameter 'page' cannot be null.");
-    else if (page !== undefined)
-      url_ += "page=" + encodeURIComponent("" + page) + "&";
-    if (pageSize === null)
-      throw new Error("The parameter 'pageSize' cannot be null.");
-    else if (pageSize !== undefined)
-      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
     if (status === null)
       throw new Error("The parameter 'status' cannot be null.");
     else if (status !== undefined)
-      url_ += "status=" + encodeURIComponent("" + status) + "&";
+      url_ += "Status=" + encodeURIComponent("" + status) + "&";
     if (subscriptionId === null)
       throw new Error("The parameter 'subscriptionId' cannot be null.");
     else if (subscriptionId !== undefined)
-      url_ += "subscriptionId=" + encodeURIComponent("" + subscriptionId) + "&";
+      url_ += "SubscriptionId=" + encodeURIComponent("" + subscriptionId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -5239,7 +6326,7 @@ export class BeaconApiClient {
 
   protected processGetNotifications(
     response: Response,
-  ): Promise<GetNotificationsResult> {
+  ): Promise<PagedListOfNotificationEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5254,7 +6341,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetNotificationsResult);
+              ) as PagedListOfNotificationEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -5267,7 +6354,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetNotificationsResult>(null as any);
+    return Promise.resolve<PagedListOfNotificationEntry>(null as any);
   }
 
   /**
@@ -5422,67 +6509,66 @@ export class BeaconApiClient {
   }
 
   /**
-   * @param page (optional)
-   * @param pageSize (optional)
    * @param dataSourceId (optional)
    * @param folderId (optional)
    * @param healthStatus (optional)
    * @param hasUnresolvedTasks (optional)
    * @param searchKeyword (optional)
    * @param timeRangeDays (optional)
-   * @param sortBy (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getControlTowerHealth(
-    page: number | undefined,
-    pageSize: number | undefined,
     dataSourceId: number | undefined,
     folderId: number | undefined,
     healthStatus: HealthStatus | undefined,
     hasUnresolvedTasks: boolean | undefined,
     searchKeyword: string | undefined,
     timeRangeDays: number | undefined,
-    sortBy: ControlTowerSortBy | undefined,
-  ): Promise<GetControlTowerHealthResult> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfControlTowerSubscriptionHealthData> {
     let url_ = this.baseUrl + "/beacon/api/control-tower/health?";
-    if (page === null) throw new Error("The parameter 'page' cannot be null.");
-    else if (page !== undefined)
-      url_ += "page=" + encodeURIComponent("" + page) + "&";
-    if (pageSize === null)
-      throw new Error("The parameter 'pageSize' cannot be null.");
-    else if (pageSize !== undefined)
-      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
     if (dataSourceId === null)
       throw new Error("The parameter 'dataSourceId' cannot be null.");
     else if (dataSourceId !== undefined)
-      url_ += "dataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
     if (folderId === null)
       throw new Error("The parameter 'folderId' cannot be null.");
     else if (folderId !== undefined)
-      url_ += "folderId=" + encodeURIComponent("" + folderId) + "&";
+      url_ += "FolderId=" + encodeURIComponent("" + folderId) + "&";
     if (healthStatus === null)
       throw new Error("The parameter 'healthStatus' cannot be null.");
     else if (healthStatus !== undefined)
-      url_ += "healthStatus=" + encodeURIComponent("" + healthStatus) + "&";
+      url_ += "HealthStatus=" + encodeURIComponent("" + healthStatus) + "&";
     if (hasUnresolvedTasks === null)
       throw new Error("The parameter 'hasUnresolvedTasks' cannot be null.");
     else if (hasUnresolvedTasks !== undefined)
       url_ +=
-        "hasUnresolvedTasks=" +
+        "HasUnresolvedTasks=" +
         encodeURIComponent("" + hasUnresolvedTasks) +
         "&";
     if (searchKeyword === null)
       throw new Error("The parameter 'searchKeyword' cannot be null.");
     else if (searchKeyword !== undefined)
-      url_ += "searchKeyword=" + encodeURIComponent("" + searchKeyword) + "&";
+      url_ += "SearchKeyword=" + encodeURIComponent("" + searchKeyword) + "&";
     if (timeRangeDays === null)
       throw new Error("The parameter 'timeRangeDays' cannot be null.");
     else if (timeRangeDays !== undefined)
-      url_ += "timeRangeDays=" + encodeURIComponent("" + timeRangeDays) + "&";
-    if (sortBy === null)
-      throw new Error("The parameter 'sortBy' cannot be null.");
-    else if (sortBy !== undefined)
-      url_ += "sortBy=" + encodeURIComponent("" + sortBy) + "&";
+      url_ += "TimeRangeDays=" + encodeURIComponent("" + timeRangeDays) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -5499,7 +6585,7 @@ export class BeaconApiClient {
 
   protected processGetControlTowerHealth(
     response: Response,
-  ): Promise<GetControlTowerHealthResult> {
+  ): Promise<PagedListOfControlTowerSubscriptionHealthData> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5514,7 +6600,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetControlTowerHealthResult);
+              ) as PagedListOfControlTowerSubscriptionHealthData);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -5527,7 +6613,9 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetControlTowerHealthResult>(null as any);
+    return Promise.resolve<PagedListOfControlTowerSubscriptionHealthData>(
+      null as any,
+    );
   }
 
   /**
@@ -5597,10 +6685,33 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param search (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getMigrationJobs(): Promise<GetMigrationJobsResult> {
-    let url_ = this.baseUrl + "/beacon/api/migrations/jobs";
+  getMigrationJobs(
+    search: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfMigrationJobListItem> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs?";
+    if (search === null)
+      throw new Error("The parameter 'search' cannot be null.");
+    else if (search !== undefined)
+      url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -5617,7 +6728,7 @@ export class BeaconApiClient {
 
   protected processGetMigrationJobs(
     response: Response,
-  ): Promise<GetMigrationJobsResult> {
+  ): Promise<PagedListOfMigrationJobListItem> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5632,7 +6743,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetMigrationJobsResult);
+              ) as PagedListOfMigrationJobListItem);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -5645,7 +6756,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetMigrationJobsResult>(null as any);
+    return Promise.resolve<PagedListOfMigrationJobListItem>(null as any);
   }
 
   /**
@@ -5709,28 +6820,28 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  runMigrationJob(id: number): Promise<RunMigrationJobResult> {
-    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/run";
+  getMigrationJob(id: number): Promise<MigrationJobListItem> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}";
     if (id === undefined || id === null)
       throw new Error("The parameter 'id' must be defined.");
     url_ = url_.replace("{id}", encodeURIComponent("" + id));
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
-      method: "POST",
+      method: "GET",
       headers: {
         Accept: "application/json",
       },
     };
 
     return this.http.fetch(url_, options_).then((_response: Response) => {
-      return this.processRunMigrationJob(_response);
+      return this.processGetMigrationJob(_response);
     });
   }
 
-  protected processRunMigrationJob(
+  protected processGetMigrationJob(
     response: Response,
-  ): Promise<RunMigrationJobResult> {
+  ): Promise<MigrationJobListItem> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5745,8 +6856,12 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as RunMigrationJobResult);
+              ) as MigrationJobListItem);
         return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
       });
     } else if (status !== 200 && status !== 204) {
       return response.text().then((_responseText) => {
@@ -5758,7 +6873,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<RunMigrationJobResult>(null as any);
+    return Promise.resolve<MigrationJobListItem>(null as any);
   }
 
   /**
@@ -5825,12 +6940,68 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return OK
+   */
+  runMigrationJob(id: number): Promise<RunMigrationJobResult> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/run";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRunMigrationJob(_response);
+    });
+  }
+
+  protected processRunMigrationJob(
+    response: Response,
+  ): Promise<RunMigrationJobResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as RunMigrationJobResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<RunMigrationJobResult>(null as any);
+  }
+
+  /**
    * @param migrationJobId (optional)
    * @param status (optional)
    * @param startDate (optional)
    * @param endDate (optional)
-   * @param skip (optional)
-   * @param take (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getMigrationExecutions(
@@ -5838,38 +7009,43 @@ export class BeaconApiClient {
     status: MigrationStatus | undefined,
     startDate: Date | undefined,
     endDate: Date | undefined,
-    skip: number | undefined,
-    take: number | undefined,
-  ): Promise<GetMigrationExecutionsResult> {
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfMigrationExecutionDto> {
     let url_ = this.baseUrl + "/beacon/api/migrations/executions?";
     if (migrationJobId === null)
       throw new Error("The parameter 'migrationJobId' cannot be null.");
     else if (migrationJobId !== undefined)
-      url_ += "migrationJobId=" + encodeURIComponent("" + migrationJobId) + "&";
+      url_ += "MigrationJobId=" + encodeURIComponent("" + migrationJobId) + "&";
     if (status === null)
       throw new Error("The parameter 'status' cannot be null.");
     else if (status !== undefined)
-      url_ += "status=" + encodeURIComponent("" + status) + "&";
+      url_ += "Status=" + encodeURIComponent("" + status) + "&";
     if (startDate === null)
       throw new Error("The parameter 'startDate' cannot be null.");
     else if (startDate !== undefined)
       url_ +=
-        "startDate=" +
+        "StartDate=" +
         encodeURIComponent(startDate ? "" + startDate.toISOString() : "") +
         "&";
     if (endDate === null)
       throw new Error("The parameter 'endDate' cannot be null.");
     else if (endDate !== undefined)
       url_ +=
-        "endDate=" +
+        "EndDate=" +
         encodeURIComponent(endDate ? "" + endDate.toISOString() : "") +
         "&";
-    if (skip === null) throw new Error("The parameter 'skip' cannot be null.");
-    else if (skip !== undefined)
-      url_ += "skip=" + encodeURIComponent("" + skip) + "&";
-    if (take === null) throw new Error("The parameter 'take' cannot be null.");
-    else if (take !== undefined)
-      url_ += "take=" + encodeURIComponent("" + take) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -5886,7 +7062,7 @@ export class BeaconApiClient {
 
   protected processGetMigrationExecutions(
     response: Response,
-  ): Promise<GetMigrationExecutionsResult> {
+  ): Promise<PagedListOfMigrationExecutionDto> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5901,7 +7077,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetMigrationExecutionsResult);
+              ) as PagedListOfMigrationExecutionDto);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -5914,14 +7090,37 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetMigrationExecutionsResult>(null as any);
+    return Promise.resolve<PagedListOfMigrationExecutionDto>(null as any);
   }
 
   /**
+   * @param search (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getRecipients(): Promise<GetRecipientsResult> {
-    let url_ = this.baseUrl + "/beacon/api/recipients";
+  getRecipients(
+    search: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfRecipientEntry> {
+    let url_ = this.baseUrl + "/beacon/api/recipients?";
+    if (search === null)
+      throw new Error("The parameter 'search' cannot be null.");
+    else if (search !== undefined)
+      url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -5938,7 +7137,7 @@ export class BeaconApiClient {
 
   protected processGetRecipients(
     response: Response,
-  ): Promise<GetRecipientsResult> {
+  ): Promise<PagedListOfRecipientEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5953,7 +7152,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetRecipientsResult);
+              ) as PagedListOfRecipientEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -5966,7 +7165,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetRecipientsResult>(null as any);
+    return Promise.resolve<PagedListOfRecipientEntry>(null as any);
   }
 
   /**
@@ -6120,16 +7319,38 @@ export class BeaconApiClient {
 
   /**
    * @param search (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getSubscriptions(
     search: string | undefined,
-  ): Promise<GetSubscriptionsResult> {
+    archived: boolean,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfSubscriptionEntry> {
     let url_ = this.baseUrl + "/beacon/api/subscriptions?";
     if (search === null)
       throw new Error("The parameter 'search' cannot be null.");
     else if (search !== undefined)
-      url_ += "search=" + encodeURIComponent("" + search) + "&";
+      url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (archived === undefined || archived === null)
+      throw new Error(
+        "The parameter 'archived' must be defined and cannot be null.",
+      );
+    else url_ += "Archived=" + encodeURIComponent("" + archived) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -6146,7 +7367,7 @@ export class BeaconApiClient {
 
   protected processGetSubscriptions(
     response: Response,
-  ): Promise<GetSubscriptionsResult> {
+  ): Promise<PagedListOfSubscriptionEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -6161,7 +7382,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetSubscriptionsResult);
+              ) as PagedListOfSubscriptionEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -6174,7 +7395,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetSubscriptionsResult>(null as any);
+    return Promise.resolve<PagedListOfSubscriptionEntry>(null as any);
   }
 
   /**
@@ -6632,10 +7853,39 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param search (optional)
+   * @param databaseOnly (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getDataSources(): Promise<GetDataSourcesResult> {
-    let url_ = this.baseUrl + "/beacon/api/data-sources";
+  getDataSources(
+    search: string | undefined,
+    databaseOnly: boolean | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfDataSourceEntry> {
+    let url_ = this.baseUrl + "/beacon/api/data-sources?";
+    if (search === null)
+      throw new Error("The parameter 'search' cannot be null.");
+    else if (search !== undefined)
+      url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (databaseOnly === null)
+      throw new Error("The parameter 'databaseOnly' cannot be null.");
+    else if (databaseOnly !== undefined)
+      url_ += "DatabaseOnly=" + encodeURIComponent("" + databaseOnly) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -6652,7 +7902,7 @@ export class BeaconApiClient {
 
   protected processGetDataSources(
     response: Response,
-  ): Promise<GetDataSourcesResult> {
+  ): Promise<PagedListOfDataSourceEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -6667,7 +7917,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetDataSourcesResult);
+              ) as PagedListOfDataSourceEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -6680,7 +7930,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetDataSourcesResult>(null as any);
+    return Promise.resolve<PagedListOfDataSourceEntry>(null as any);
   }
 
   /**
@@ -6739,6 +7989,106 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<CreateDataSourceResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getDataSource(id: number): Promise<DataSourceEntry> {
+    let url_ = this.baseUrl + "/beacon/api/data-sources/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetDataSource(_response);
+    });
+  }
+
+  protected processGetDataSource(response: Response): Promise<DataSourceEntry> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as DataSourceEntry);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<DataSourceEntry>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  deleteDataSource(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/data-sources/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDeleteDataSource(_response);
+    });
+  }
+
+  protected processDeleteDataSource(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
   }
 
   /**
@@ -6910,26 +8260,194 @@ export class BeaconApiClient {
   }
 
   /**
-   * @return No Content
+   * @param origin (optional)
+   * @param verifiedOnly (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
    */
-  deleteDataSource(id: number): Promise<void> {
-    let url_ = this.baseUrl + "/beacon/api/data-sources/{id}";
-    if (id === undefined || id === null)
-      throw new Error("The parameter 'id' must be defined.");
-    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+  getSchemaRelationships(
+    dataSourceId: number,
+    origin: SchemaRelationshipOrigin | undefined,
+    verifiedOnly: boolean | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfSchemaRelationshipItem> {
+    let url_ =
+      this.baseUrl + "/beacon/api/data-sources/{dataSourceId}/relationships?";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
+    if (origin === null)
+      throw new Error("The parameter 'origin' cannot be null.");
+    else if (origin !== undefined)
+      url_ += "Origin=" + encodeURIComponent("" + origin) + "&";
+    if (verifiedOnly === null)
+      throw new Error("The parameter 'verifiedOnly' cannot be null.");
+    else if (verifiedOnly !== undefined)
+      url_ += "VerifiedOnly=" + encodeURIComponent("" + verifiedOnly) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
-      method: "DELETE",
-      headers: {},
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
     };
 
     return this.http.fetch(url_, options_).then((_response: Response) => {
-      return this.processDeleteDataSource(_response);
+      return this.processGetSchemaRelationships(_response);
     });
   }
 
-  protected processDeleteDataSource(response: Response): Promise<void> {
+  protected processGetSchemaRelationships(
+    response: Response,
+  ): Promise<PagedListOfSchemaRelationshipItem> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfSchemaRelationshipItem);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfSchemaRelationshipItem>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  createSchemaRelationship(
+    dataSourceId: number,
+    body: CreateSchemaRelationshipBody,
+  ): Promise<CreateSchemaRelationshipResult> {
+    let url_ =
+      this.baseUrl + "/beacon/api/data-sources/{dataSourceId}/relationships";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCreateSchemaRelationship(_response);
+    });
+  }
+
+  protected processCreateSchemaRelationship(
+    response: Response,
+  ): Promise<CreateSchemaRelationshipResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as CreateSchemaRelationshipResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<CreateSchemaRelationshipResult>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  updateSchemaRelationship(
+    relationshipId: number,
+    body: UpdateSchemaRelationshipBody,
+  ): Promise<void> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}";
+    if (relationshipId === undefined || relationshipId === null)
+      throw new Error("The parameter 'relationshipId' must be defined.");
+    url_ = url_.replace(
+      "{relationshipId}",
+      encodeURIComponent("" + relationshipId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processUpdateSchemaRelationship(_response);
+    });
+  }
+
+  protected processUpdateSchemaRelationship(response: Response): Promise<void> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -6950,6 +8468,233 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  deleteSchemaRelationship(relationshipId: number): Promise<void> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}";
+    if (relationshipId === undefined || relationshipId === null)
+      throw new Error("The parameter 'relationshipId' must be defined.");
+    url_ = url_.replace(
+      "{relationshipId}",
+      encodeURIComponent("" + relationshipId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDeleteSchemaRelationship(_response);
+    });
+  }
+
+  protected processDeleteSchemaRelationship(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  verifySchemaRelationship(
+    relationshipId: number,
+    body: VerifySchemaRelationshipBody,
+  ): Promise<void> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}/verify";
+    if (relationshipId === undefined || relationshipId === null)
+      throw new Error("The parameter 'relationshipId' must be defined.");
+    url_ = url_.replace(
+      "{relationshipId}",
+      encodeURIComponent("" + relationshipId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processVerifySchemaRelationship(_response);
+    });
+  }
+
+  protected processVerifySchemaRelationship(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  previewSchemaRelationshipDiscovery(
+    dataSourceId: number,
+  ): Promise<PreviewSchemaRelationshipDiscoveryResult> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/data-sources/{dataSourceId}/relationships/discover-preview";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processPreviewSchemaRelationshipDiscovery(_response);
+    });
+  }
+
+  protected processPreviewSchemaRelationshipDiscovery(
+    response: Response,
+  ): Promise<PreviewSchemaRelationshipDiscoveryResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PreviewSchemaRelationshipDiscoveryResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PreviewSchemaRelationshipDiscoveryResult>(
+      null as any,
+    );
+  }
+
+  /**
+   * @return OK
+   */
+  getSchemaHealth(dataSourceId: number): Promise<GetSchemaHealthResult> {
+    let url_ =
+      this.baseUrl + "/beacon/api/data-sources/{dataSourceId}/schema-health";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetSchemaHealth(_response);
+    });
+  }
+
+  protected processGetSchemaHealth(
+    response: Response,
+  ): Promise<GetSchemaHealthResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetSchemaHealthResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetSchemaHealthResult>(null as any);
   }
 
   /**
@@ -7207,44 +8952,37 @@ export class BeaconApiClient {
   /**
    * @param subscriptionId (optional)
    * @param resolved (optional)
-   * @param sortColumn (optional)
-   * @param sortDescending (optional)
    * @param page (optional)
    * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
   getTasks(
     subscriptionId: number | undefined,
     resolved: boolean | undefined,
-    sortColumn: string | undefined,
-    sortDescending: boolean | undefined,
     page: number | undefined,
     pageSize: number | undefined,
-  ): Promise<GetTasksResult> {
+    sort: string | undefined,
+  ): Promise<PagedListOfTaskEntry> {
     let url_ = this.baseUrl + "/beacon/api/tasks?";
     if (subscriptionId === null)
       throw new Error("The parameter 'subscriptionId' cannot be null.");
     else if (subscriptionId !== undefined)
-      url_ += "subscriptionId=" + encodeURIComponent("" + subscriptionId) + "&";
+      url_ += "SubscriptionId=" + encodeURIComponent("" + subscriptionId) + "&";
     if (resolved === null)
       throw new Error("The parameter 'resolved' cannot be null.");
     else if (resolved !== undefined)
-      url_ += "resolved=" + encodeURIComponent("" + resolved) + "&";
-    if (sortColumn === null)
-      throw new Error("The parameter 'sortColumn' cannot be null.");
-    else if (sortColumn !== undefined)
-      url_ += "sortColumn=" + encodeURIComponent("" + sortColumn) + "&";
-    if (sortDescending === null)
-      throw new Error("The parameter 'sortDescending' cannot be null.");
-    else if (sortDescending !== undefined)
-      url_ += "sortDescending=" + encodeURIComponent("" + sortDescending) + "&";
+      url_ += "Resolved=" + encodeURIComponent("" + resolved) + "&";
     if (page === null) throw new Error("The parameter 'page' cannot be null.");
     else if (page !== undefined)
-      url_ += "page=" + encodeURIComponent("" + page) + "&";
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
     if (pageSize === null)
       throw new Error("The parameter 'pageSize' cannot be null.");
     else if (pageSize !== undefined)
-      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -7259,7 +8997,7 @@ export class BeaconApiClient {
     });
   }
 
-  protected processGetTasks(response: Response): Promise<GetTasksResult> {
+  protected processGetTasks(response: Response): Promise<PagedListOfTaskEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -7274,7 +9012,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetTasksResult);
+              ) as PagedListOfTaskEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -7287,7 +9025,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetTasksResult>(null as any);
+    return Promise.resolve<PagedListOfTaskEntry>(null as any);
   }
 
   /**
@@ -7911,14 +9649,32 @@ export class BeaconApiClient {
 
   /**
    * @param search (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
    * @return OK
    */
-  getUsers(search: string | undefined): Promise<GetUsersResult> {
+  getUsers(
+    search: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfUserEntry> {
     let url_ = this.baseUrl + "/beacon/api/users?";
     if (search === null)
       throw new Error("The parameter 'search' cannot be null.");
     else if (search !== undefined)
-      url_ += "search=" + encodeURIComponent("" + search) + "&";
+      url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -7933,7 +9689,7 @@ export class BeaconApiClient {
     });
   }
 
-  protected processGetUsers(response: Response): Promise<GetUsersResult> {
+  protected processGetUsers(response: Response): Promise<PagedListOfUserEntry> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -7948,7 +9704,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as GetUsersResult);
+              ) as PagedListOfUserEntry);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -7961,7 +9717,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<GetUsersResult>(null as any);
+    return Promise.resolve<PagedListOfUserEntry>(null as any);
   }
 
   /**
@@ -8198,7 +9954,7 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  status(): Promise<void> {
+  statusGET(): Promise<void> {
     let url_ = this.baseUrl + "/beacon/api/setup/status";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -8208,11 +9964,11 @@ export class BeaconApiClient {
     };
 
     return this.http.fetch(url_, options_).then((_response: Response) => {
-      return this.processStatus(_response);
+      return this.processStatusGET(_response);
     });
   }
 
-  protected processStatus(response: Response): Promise<void> {
+  protected processStatusGET(response: Response): Promise<void> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -8238,7 +9994,7 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  superadmin(body: CreateSuperAdminRequest): Promise<void> {
+  createSuperAdmin(body: CreateSuperAdminRequest): Promise<void> {
     let url_ = this.baseUrl + "/beacon/api/setup/superadmin";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -8253,11 +10009,11 @@ export class BeaconApiClient {
     };
 
     return this.http.fetch(url_, options_).then((_response: Response) => {
-      return this.processSuperadmin(_response);
+      return this.processCreateSuperAdmin(_response);
     });
   }
 
-  protected processSuperadmin(response: Response): Promise<void> {
+  protected processCreateSuperAdmin(response: Response): Promise<void> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -8318,6 +10074,5775 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  statusGET2(): Promise<DashboardStatistics> {
+    let url_ = this.baseUrl + "/warp/api/status";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStatusGET2(_response);
+    });
+  }
+
+  protected processStatusGET2(
+    response: Response,
+  ): Promise<DashboardStatistics> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as DashboardStatistics);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<DashboardStatistics>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  enqueued(
+    page: number,
+    pageSize: number,
+    application: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/enqueued?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processEnqueued(_response);
+    });
+  }
+
+  protected processEnqueued(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  completed(
+    page: number,
+    pageSize: number,
+    application: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/completed?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCompleted(_response);
+    });
+  }
+
+  protected processCompleted(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  failed(
+    page: number,
+    pageSize: number,
+    application: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/failed?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processFailed(_response);
+    });
+  }
+
+  protected processFailed(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  typesAll(): Promise<TypeCountModel[]> {
+    let url_ = this.baseUrl + "/warp/api/jobs/failed/types";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTypesAll(_response);
+    });
+  }
+
+  protected processTypesAll(response: Response): Promise<TypeCountModel[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as TypeCountModel[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<TypeCountModel[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  byType(
+    page: number,
+    pageSize: number,
+    type: string,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/failed/by-type?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (type === undefined || type === null)
+      throw new Error(
+        "The parameter 'type' must be defined and cannot be null.",
+      );
+    else url_ += "type=" + encodeURIComponent("" + type) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processByType(_response);
+    });
+  }
+
+  protected processByType(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @param state (optional)
+   * @param application (optional)
+   * @return OK
+   */
+  byType2(
+    page: number,
+    pageSize: number,
+    type: string,
+    state: string | undefined,
+    application: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/by-type?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (type === undefined || type === null)
+      throw new Error(
+        "The parameter 'type' must be defined and cannot be null.",
+      );
+    else url_ += "type=" + encodeURIComponent("" + type) + "&";
+    if (state === null)
+      throw new Error("The parameter 'state' cannot be null.");
+    else if (state !== undefined)
+      url_ += "state=" + encodeURIComponent("" + state) + "&";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processByType2(_response);
+    });
+  }
+
+  protected processByType2(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  deleteByType(type: string): Promise<BulkResultModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/failed/delete-by-type?";
+    if (type === undefined || type === null)
+      throw new Error(
+        "The parameter 'type' must be defined and cannot be null.",
+      );
+    else url_ += "type=" + encodeURIComponent("" + type) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDeleteByType(_response);
+    });
+  }
+
+  protected processDeleteByType(response: Response): Promise<BulkResultModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BulkResultModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BulkResultModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  requeueByType(type: string): Promise<BulkResultModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/failed/requeue-by-type?";
+    if (type === undefined || type === null)
+      throw new Error(
+        "The parameter 'type' must be defined and cannot be null.",
+      );
+    else url_ += "type=" + encodeURIComponent("" + type) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRequeueByType(_response);
+    });
+  }
+
+  protected processRequeueByType(response: Response): Promise<BulkResultModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BulkResultModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BulkResultModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  processing(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/processing?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processProcessing(_response);
+    });
+  }
+
+  protected processProcessing(
+    response: Response,
+  ): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  scheduled(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/scheduled?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processScheduled(_response);
+    });
+  }
+
+  protected processScheduled(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  awaiting(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/awaiting?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processAwaiting(_response);
+    });
+  }
+
+  protected processAwaiting(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  deleted(
+    page: number,
+    pageSize: number,
+    application: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/deleted?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDeleted(_response);
+    });
+  }
+
+  protected processDeleted(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  siblings(
+    jobId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/{jobId}/siblings?";
+    if (jobId === undefined || jobId === null)
+      throw new Error("The parameter 'jobId' must be defined.");
+    url_ = url_.replace("{jobId}", encodeURIComponent("" + jobId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSiblings(_response);
+    });
+  }
+
+  protected processSiblings(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  children(
+    jobId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/{jobId}/children?";
+    if (jobId === undefined || jobId === null)
+      throw new Error("The parameter 'jobId' must be defined.");
+    url_ = url_.replace("{jobId}", encodeURIComponent("" + jobId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processChildren(_response);
+    });
+  }
+
+  protected processChildren(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  trace(
+    jobId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/{jobId}/trace?";
+    if (jobId === undefined || jobId === null)
+      throw new Error("The parameter 'jobId' must be defined.");
+    url_ = url_.replace("{jobId}", encodeURIComponent("" + jobId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTrace(_response);
+    });
+  }
+
+  protected processTrace(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  traceAll(traceId: string): Promise<TraceJobModel[]> {
+    let url_ = this.baseUrl + "/warp/api/trace/{traceId}";
+    if (traceId === undefined || traceId === null)
+      throw new Error("The parameter 'traceId' must be defined.");
+    url_ = url_.replace("{traceId}", encodeURIComponent("" + traceId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTraceAll(_response);
+    });
+  }
+
+  protected processTraceAll(response: Response): Promise<TraceJobModel[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as TraceJobModel[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<TraceJobModel[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  traces(traceId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/traces/{traceId}";
+    if (traceId === undefined || traceId === null)
+      throw new Error("The parameter 'traceId' must be defined.");
+    url_ = url_.replace("{traceId}", encodeURIComponent("" + traceId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTraces(_response);
+    });
+  }
+
+  protected processTraces(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  detail(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/detail/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDetail(_response);
+    });
+  }
+
+  protected processDetail(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  requeue(jobId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/jobs/{jobId}/requeue";
+    if (jobId === undefined || jobId === null)
+      throw new Error("The parameter 'jobId' must be defined.");
+    url_ = url_.replace("{jobId}", encodeURIComponent("" + jobId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRequeue(_response);
+    });
+  }
+
+  protected processRequeue(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  delete(jobId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/jobs/{jobId}/delete";
+    if (jobId === undefined || jobId === null)
+      throw new Error("The parameter 'jobId' must be defined.");
+    url_ = url_.replace("{jobId}", encodeURIComponent("" + jobId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDelete(_response);
+    });
+  }
+
+  protected processDelete(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  delete2(body: BulkJobRequest): Promise<BulkResultModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/bulk/delete";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDelete2(_response);
+    });
+  }
+
+  protected processDelete2(response: Response): Promise<BulkResultModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BulkResultModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BulkResultModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  requeue2(body: BulkJobRequest): Promise<BulkResultModel> {
+    let url_ = this.baseUrl + "/warp/api/jobs/bulk/requeue";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRequeue2(_response);
+    });
+  }
+
+  protected processRequeue2(response: Response): Promise<BulkResultModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BulkResultModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BulkResultModel>(null as any);
+  }
+
+  /**
+   * @param state (optional)
+   * @return OK
+   */
+  messages(
+    page: number,
+    pageSize: number,
+    state: string | undefined,
+  ): Promise<PagedListOfJobGroupModel> {
+    let url_ = this.baseUrl + "/warp/api/messages?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (state === null)
+      throw new Error("The parameter 'state' cannot be null.");
+    else if (state !== undefined)
+      url_ += "state=" + encodeURIComponent("" + state) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processMessages(_response);
+    });
+  }
+
+  protected processMessages(
+    response: Response,
+  ): Promise<PagedListOfJobGroupModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobGroupModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobGroupModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  messages2(messageId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/messages/{messageId}";
+    if (messageId === undefined || messageId === null)
+      throw new Error("The parameter 'messageId' must be defined.");
+    url_ = url_.replace("{messageId}", encodeURIComponent("" + messageId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processMessages2(_response);
+    });
+  }
+
+  protected processMessages2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param state (optional)
+   * @return OK
+   */
+  jobs(
+    messageId: string,
+    page: number,
+    pageSize: number,
+    state: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/messages/{messageId}/jobs?";
+    if (messageId === undefined || messageId === null)
+      throw new Error("The parameter 'messageId' must be defined.");
+    url_ = url_.replace("{messageId}", encodeURIComponent("" + messageId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (state === null)
+      throw new Error("The parameter 'state' cannot be null.");
+    else if (state !== undefined)
+      url_ += "state=" + encodeURIComponent("" + state) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processJobs(_response);
+    });
+  }
+
+  protected processJobs(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  counts(messageId: string): Promise<{ [key: string]: number }> {
+    let url_ = this.baseUrl + "/warp/api/messages/{messageId}/jobs/counts";
+    if (messageId === undefined || messageId === null)
+      throw new Error("The parameter 'messageId' must be defined.");
+    url_ = url_.replace("{messageId}", encodeURIComponent("" + messageId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCounts(_response);
+    });
+  }
+
+  protected processCounts(
+    response: Response,
+  ): Promise<{ [key: string]: number }> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(_responseText, this.jsonParseReviver) as {
+                [key: string]: number;
+              });
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<{ [key: string]: number }>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  recurringGET(
+    page: number,
+    pageSize: number,
+  ): Promise<PagedListOfRecurringJobModel> {
+    let url_ = this.baseUrl + "/warp/api/recurring?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRecurringGET(_response);
+    });
+  }
+
+  protected processRecurringGET(
+    response: Response,
+  ): Promise<PagedListOfRecurringJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfRecurringJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfRecurringJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  recurringGET2(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/recurring/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRecurringGET2(_response);
+    });
+  }
+
+  protected processRecurringGET2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  recurringDELETE(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/recurring/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRecurringDELETE(_response);
+    });
+  }
+
+  protected processRecurringDELETE(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  jobs2(
+    id: number,
+    page: number,
+    pageSize: number,
+  ): Promise<PagedListOfRecurringJobHistoryModel> {
+    let url_ = this.baseUrl + "/warp/api/recurring/{id}/jobs?";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processJobs2(_response);
+    });
+  }
+
+  protected processJobs2(
+    response: Response,
+  ): Promise<PagedListOfRecurringJobHistoryModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfRecurringJobHistoryModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfRecurringJobHistoryModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  trigger(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/recurring/{id}/trigger";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTrigger(_response);
+    });
+  }
+
+  protected processTrigger(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  enable(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/recurring/{id}/enable";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processEnable(_response);
+    });
+  }
+
+  protected processEnable(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  disable(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/recurring/{id}/disable";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processDisable(_response);
+    });
+  }
+
+  protected processDisable(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param state (optional)
+   * @return OK
+   */
+  batches(
+    page: number,
+    pageSize: number,
+    state: string | undefined,
+  ): Promise<PagedListOfJobGroupModel> {
+    let url_ = this.baseUrl + "/warp/api/batches?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (state === null)
+      throw new Error("The parameter 'state' cannot be null.");
+    else if (state !== undefined)
+      url_ += "state=" + encodeURIComponent("" + state) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processBatches(_response);
+    });
+  }
+
+  protected processBatches(
+    response: Response,
+  ): Promise<PagedListOfJobGroupModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobGroupModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobGroupModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  batches2(batchId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/batches/{batchId}";
+    if (batchId === undefined || batchId === null)
+      throw new Error("The parameter 'batchId' must be defined.");
+    url_ = url_.replace("{batchId}", encodeURIComponent("" + batchId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processBatches2(_response);
+    });
+  }
+
+  protected processBatches2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param state (optional)
+   * @return OK
+   */
+  jobs3(
+    batchId: string,
+    page: number,
+    pageSize: number,
+    state: string | undefined,
+  ): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/batches/{batchId}/jobs?";
+    if (batchId === undefined || batchId === null)
+      throw new Error("The parameter 'batchId' must be defined.");
+    url_ = url_.replace("{batchId}", encodeURIComponent("" + batchId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (state === null)
+      throw new Error("The parameter 'state' cannot be null.");
+    else if (state !== undefined)
+      url_ += "state=" + encodeURIComponent("" + state) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processJobs3(_response);
+    });
+  }
+
+  protected processJobs3(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  counts2(batchId: string): Promise<{ [key: string]: number }> {
+    let url_ = this.baseUrl + "/warp/api/batches/{batchId}/jobs/counts";
+    if (batchId === undefined || batchId === null)
+      throw new Error("The parameter 'batchId' must be defined.");
+    url_ = url_.replace("{batchId}", encodeURIComponent("" + batchId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCounts2(_response);
+    });
+  }
+
+  protected processCounts2(
+    response: Response,
+  ): Promise<{ [key: string]: number }> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(_responseText, this.jsonParseReviver) as {
+                [key: string]: number;
+              });
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<{ [key: string]: number }>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  cancel(batchId: string): Promise<BulkResultModel> {
+    let url_ = this.baseUrl + "/warp/api/batches/{batchId}/cancel";
+    if (batchId === undefined || batchId === null)
+      throw new Error("The parameter 'batchId' must be defined.");
+    url_ = url_.replace("{batchId}", encodeURIComponent("" + batchId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCancel(_response);
+    });
+  }
+
+  protected processCancel(response: Response): Promise<BulkResultModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BulkResultModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BulkResultModel>(null as any);
+  }
+
+  /**
+   * @param hours (optional)
+   * @return OK
+   */
+  historyAll(hours: number | undefined): Promise<StatsHistoryPoint[]> {
+    let url_ = this.baseUrl + "/warp/api/stats/history?";
+    if (hours === null)
+      throw new Error("The parameter 'hours' cannot be null.");
+    else if (hours !== undefined)
+      url_ += "hours=" + encodeURIComponent("" + hours) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processHistoryAll(_response);
+    });
+  }
+
+  protected processHistoryAll(
+    response: Response,
+  ): Promise<StatsHistoryPoint[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as StatsHistoryPoint[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<StatsHistoryPoint[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  counters(): Promise<CounterModel[]> {
+    let url_ = this.baseUrl + "/warp/api/stats/counters";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCounters(_response);
+    });
+  }
+
+  protected processCounters(response: Response): Promise<CounterModel[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as CounterModel[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<CounterModel[]>(null as any);
+  }
+
+  /**
+   * @param hours (optional)
+   * @return OK
+   */
+  historyAll2(hours: number | undefined): Promise<CounterHistoryPoint[]> {
+    let url_ = this.baseUrl + "/warp/api/stats/counters/history?";
+    if (hours === null)
+      throw new Error("The parameter 'hours' cannot be null.");
+    else if (hours !== undefined)
+      url_ += "hours=" + encodeURIComponent("" + hours) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processHistoryAll2(_response);
+    });
+  }
+
+  protected processHistoryAll2(
+    response: Response,
+  ): Promise<CounterHistoryPoint[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as CounterHistoryPoint[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<CounterHistoryPoint[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  addons(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/addons";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processAddons(_response);
+    });
+  }
+
+  protected processAddons(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  concurrencyGET(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/concurrency";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processConcurrencyGET(_response);
+    });
+  }
+
+  protected processConcurrencyGET(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  concurrencyPOST(body: UpsertConcurrencyLimitRequest): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/concurrency";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processConcurrencyPOST(_response);
+    });
+  }
+
+  protected processConcurrencyPOST(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  concurrencyGET2(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/concurrency/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processConcurrencyGET2(_response);
+    });
+  }
+
+  protected processConcurrencyGET2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  concurrencyPUT(
+    name: string,
+    body: UpdateConcurrencyLimitRequest,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/concurrency/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processConcurrencyPUT(_response);
+    });
+  }
+
+  protected processConcurrencyPUT(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  concurrencyDELETE(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/concurrency/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processConcurrencyDELETE(_response);
+    });
+  }
+
+  protected processConcurrencyDELETE(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  ratelimitsGET(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/ratelimits";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRatelimitsGET(_response);
+    });
+  }
+
+  protected processRatelimitsGET(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  ratelimitsPOST(body: UpsertRateLimitRequest): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/ratelimits";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRatelimitsPOST(_response);
+    });
+  }
+
+  protected processRatelimitsPOST(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  ratelimitsGET2(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/ratelimits/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRatelimitsGET2(_response);
+    });
+  }
+
+  protected processRatelimitsGET2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  ratelimitsPUT(name: string, body: UpdateRateLimitRequest): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/ratelimits/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRatelimitsPUT(_response);
+    });
+  }
+
+  protected processRatelimitsPUT(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  ratelimitsDELETE(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/ratelimits/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRatelimitsDELETE(_response);
+    });
+  }
+
+  protected processRatelimitsDELETE(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  serversAll(): Promise<ServerModel[]> {
+    let url_ = this.baseUrl + "/warp/api/servers";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processServersAll(_response);
+    });
+  }
+
+  protected processServersAll(response: Response): Promise<ServerModel[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as ServerModel[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<ServerModel[]>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  servers(serverId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/servers/{serverId}";
+    if (serverId === undefined || serverId === null)
+      throw new Error("The parameter 'serverId' must be defined.");
+    url_ = url_.replace("{serverId}", encodeURIComponent("" + serverId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processServers(_response);
+    });
+  }
+
+  protected processServers(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  tasks(serverId: string): Promise<ServerTaskSummary[]> {
+    let url_ = this.baseUrl + "/warp/api/servers/{serverId}/tasks";
+    if (serverId === undefined || serverId === null)
+      throw new Error("The parameter 'serverId' must be defined.");
+    url_ = url_.replace("{serverId}", encodeURIComponent("" + serverId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTasks(_response);
+    });
+  }
+
+  protected processTasks(response: Response): Promise<ServerTaskSummary[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as ServerTaskSummary[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<ServerTaskSummary[]>(null as any);
+  }
+
+  /**
+   * @param taskName (optional)
+   * @return OK
+   */
+  logs(
+    serverId: string,
+    page: number,
+    pageSize: number,
+    taskName: string | undefined,
+  ): Promise<PagedListOfServerLogModel> {
+    let url_ = this.baseUrl + "/warp/api/servers/{serverId}/logs?";
+    if (serverId === undefined || serverId === null)
+      throw new Error("The parameter 'serverId' must be defined.");
+    url_ = url_.replace("{serverId}", encodeURIComponent("" + serverId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (taskName === null)
+      throw new Error("The parameter 'taskName' cannot be null.");
+    else if (taskName !== undefined)
+      url_ += "taskName=" + encodeURIComponent("" + taskName) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processLogs(_response);
+    });
+  }
+
+  protected processLogs(
+    response: Response,
+  ): Promise<PagedListOfServerLogModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfServerLogModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfServerLogModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  pause(serverId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/servers/{serverId}/pause";
+    if (serverId === undefined || serverId === null)
+      throw new Error("The parameter 'serverId' must be defined.");
+    url_ = url_.replace("{serverId}", encodeURIComponent("" + serverId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processPause(_response);
+    });
+  }
+
+  protected processPause(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  resume(serverId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/servers/{serverId}/resume";
+    if (serverId === undefined || serverId === null)
+      throw new Error("The parameter 'serverId' must be defined.");
+    url_ = url_.replace("{serverId}", encodeURIComponent("" + serverId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processResume(_response);
+    });
+  }
+
+  protected processResume(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  pause2(groupId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/groups/{groupId}/pause";
+    if (groupId === undefined || groupId === null)
+      throw new Error("The parameter 'groupId' must be defined.");
+    url_ = url_.replace("{groupId}", encodeURIComponent("" + groupId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processPause2(_response);
+    });
+  }
+
+  protected processPause2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  resume2(groupId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/groups/{groupId}/resume";
+    if (groupId === undefined || groupId === null)
+      throw new Error("The parameter 'groupId' must be defined.");
+    url_ = url_.replace("{groupId}", encodeURIComponent("" + groupId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processResume2(_response);
+    });
+  }
+
+  protected processResume2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  workers(workerId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/workers/{workerId}";
+    if (workerId === undefined || workerId === null)
+      throw new Error("The parameter 'workerId' must be defined.");
+    url_ = url_.replace("{workerId}", encodeURIComponent("" + workerId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processWorkers(_response);
+    });
+  }
+
+  protected processWorkers(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  logs2(
+    workerId: string,
+    page: number,
+    pageSize: number,
+  ): Promise<PagedListOfWorkerJobLogModel> {
+    let url_ = this.baseUrl + "/warp/api/workers/{workerId}/logs?";
+    if (workerId === undefined || workerId === null)
+      throw new Error("The parameter 'workerId' must be defined.");
+    url_ = url_.replace("{workerId}", encodeURIComponent("" + workerId));
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processLogs2(_response);
+    });
+  }
+
+  protected processLogs2(
+    response: Response,
+  ): Promise<PagedListOfWorkerJobLogModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfWorkerJobLogModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfWorkerJobLogModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  created(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/created?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCreated(_response);
+    });
+  }
+
+  protected processCreated(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  completed2(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/completed?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCompleted2(_response);
+    });
+  }
+
+  protected processCompleted2(
+    response: Response,
+  ): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  failed2(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/failed?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processFailed2(_response);
+    });
+  }
+
+  protected processFailed2(response: Response): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  processing2(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/processing?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processProcessing2(_response);
+    });
+  }
+
+  protected processProcessing2(
+    response: Response,
+  ): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  scheduled2(page: number, pageSize: number): Promise<PagedListOfJobModel> {
+    let url_ = this.baseUrl + "/warp/api/scheduled?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processScheduled2(_response);
+    });
+  }
+
+  protected processScheduled2(
+    response: Response,
+  ): Promise<PagedListOfJobModel> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfJobModel);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfJobModel>(null as any);
+  }
+
+  /**
+   * @param type (optional)
+   * @param key (optional)
+   * @return OK
+   */
+  sagasGET(
+    page: number,
+    pageSize: number,
+    type: string | undefined,
+    key: string | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/sagas?";
+    if (page === undefined || page === null)
+      throw new Error(
+        "The parameter 'page' must be defined and cannot be null.",
+      );
+    else url_ += "page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === undefined || pageSize === null)
+      throw new Error(
+        "The parameter 'pageSize' must be defined and cannot be null.",
+      );
+    else url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (type === null) throw new Error("The parameter 'type' cannot be null.");
+    else if (type !== undefined)
+      url_ += "type=" + encodeURIComponent("" + type) + "&";
+    if (key === null) throw new Error("The parameter 'key' cannot be null.");
+    else if (key !== undefined)
+      url_ += "key=" + encodeURIComponent("" + key) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSagasGET(_response);
+    });
+  }
+
+  protected processSagasGET(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  types(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/sagas/types";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processTypes(_response);
+    });
+  }
+
+  protected processTypes(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  stats(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/sagas/stats";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStats(_response);
+    });
+  }
+
+  protected processStats(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sagasGET2(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/sagas/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSagasGET2(_response);
+    });
+  }
+
+  protected processSagasGET2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sagasDELETE(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/sagas/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSagasDELETE(_response);
+    });
+  }
+
+  protected processSagasDELETE(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  activity(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/sagas/{id}/activity";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processActivity(_response);
+    });
+  }
+
+  protected processActivity(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  adapters(application: string | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/adapters?";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processAdapters(_response);
+    });
+  }
+
+  protected processAdapters(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  history(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/adapters/history";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processHistory(_response);
+    });
+  }
+
+  protected processHistory(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  adapters2(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/adapters/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processAdapters2(_response);
+    });
+  }
+
+  protected processAdapters2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  calls(name: string, id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/adapters/{name}/calls/{id}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCalls(_response);
+    });
+  }
+
+  protected processCalls(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  endpoints(application: string | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/endpoints?";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processEndpoints(_response);
+    });
+  }
+
+  protected processEndpoints(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  history2(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/endpoints/history";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processHistory2(_response);
+    });
+  }
+
+  protected processHistory2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  endpoints2(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/endpoints/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processEndpoints2(_response);
+    });
+  }
+
+  protected processEndpoints2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  calls2(id: string, callId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/endpoints/{id}/calls/{callId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (callId === undefined || callId === null)
+      throw new Error("The parameter 'callId' must be defined.");
+    url_ = url_.replace("{callId}", encodeURIComponent("" + callId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCalls2(_response);
+    });
+  }
+
+  protected processCalls2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  summary(application: string | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/client/summary?";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSummary(_response);
+    });
+  }
+
+  protected processSummary(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  applications(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/client/applications";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processApplications(_response);
+    });
+  }
+
+  protected processApplications(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @param type (optional)
+   * @param session (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @return OK
+   */
+  events(
+    application: string | undefined,
+    type: string | undefined,
+    session: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/client/events?";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    if (type === null) throw new Error("The parameter 'type' cannot be null.");
+    else if (type !== undefined)
+      url_ += "type=" + encodeURIComponent("" + type) + "&";
+    if (session === null)
+      throw new Error("The parameter 'session' cannot be null.");
+    else if (session !== undefined)
+      url_ += "session=" + encodeURIComponent("" + session) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processEvents(_response);
+    });
+  }
+
+  protected processEvents(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  events2(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/client/events/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processEvents2(_response);
+    });
+  }
+
+  protected processEvents2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sessions(sessionId: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/client/sessions/{sessionId}";
+    if (sessionId === undefined || sessionId === null)
+      throw new Error("The parameter 'sessionId' must be defined.");
+    url_ = url_.replace("{sessionId}", encodeURIComponent("" + sessionId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSessions(_response);
+    });
+  }
+
+  protected processSessions(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param source (optional)
+   * @param status (optional)
+   * @param application (optional)
+   * @param kind (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @return OK
+   */
+  issues(
+    source: string | undefined,
+    status: string | undefined,
+    application: string | undefined,
+    kind: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/issues?";
+    if (source === null)
+      throw new Error("The parameter 'source' cannot be null.");
+    else if (source !== undefined)
+      url_ += "source=" + encodeURIComponent("" + source) + "&";
+    if (status === null)
+      throw new Error("The parameter 'status' cannot be null.");
+    else if (status !== undefined)
+      url_ += "status=" + encodeURIComponent("" + status) + "&";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    if (kind === null) throw new Error("The parameter 'kind' cannot be null.");
+    else if (kind !== undefined)
+      url_ += "kind=" + encodeURIComponent("" + kind) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processIssues(_response);
+    });
+  }
+
+  protected processIssues(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  issues2(fingerprint: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/issues/{fingerprint}";
+    if (fingerprint === undefined || fingerprint === null)
+      throw new Error("The parameter 'fingerprint' must be defined.");
+    url_ = url_.replace("{fingerprint}", encodeURIComponent("" + fingerprint));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processIssues2(_response);
+    });
+  }
+
+  protected processIssues2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  statusPOST(
+    fingerprint: string,
+    body: ErrorGroupStatusRequest,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/issues/{fingerprint}/status";
+    if (fingerprint === undefined || fingerprint === null)
+      throw new Error("The parameter 'fingerprint' must be defined.");
+    url_ = url_.replace("{fingerprint}", encodeURIComponent("" + fingerprint));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStatusPOST(_response);
+    });
+  }
+
+  protected processStatusPOST(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sloGET(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/slo";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSloGET(_response);
+    });
+  }
+
+  protected processSloGET(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sloPOST(body: SloUpsertRequest): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/slo";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSloPOST(_response);
+    });
+  }
+
+  protected processSloPOST(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sloGET2(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/slo/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSloGET2(_response);
+    });
+  }
+
+  protected processSloGET2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  sloDELETE(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/slo/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSloDELETE(_response);
+    });
+  }
+
+  protected processSloDELETE(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  ack(id: number, body: SloAckRequest): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/slo/{id}/ack";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processAck(_response);
+    });
+  }
+
+  protected processAck(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param status (optional)
+   * @param eventType (optional)
+   * @param reference (optional)
+   * @param group (optional)
+   * @param since (optional)
+   * @param until (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @return OK
+   */
+  webhooks(
+    status: number | undefined,
+    eventType: string | undefined,
+    reference: string | undefined,
+    group: string | undefined,
+    since: Date | undefined,
+    until: Date | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/webhooks?";
+    if (status === null)
+      throw new Error("The parameter 'status' cannot be null.");
+    else if (status !== undefined)
+      url_ += "status=" + encodeURIComponent("" + status) + "&";
+    if (eventType === null)
+      throw new Error("The parameter 'eventType' cannot be null.");
+    else if (eventType !== undefined)
+      url_ += "eventType=" + encodeURIComponent("" + eventType) + "&";
+    if (reference === null)
+      throw new Error("The parameter 'reference' cannot be null.");
+    else if (reference !== undefined)
+      url_ += "reference=" + encodeURIComponent("" + reference) + "&";
+    if (group === null)
+      throw new Error("The parameter 'group' cannot be null.");
+    else if (group !== undefined)
+      url_ += "group=" + encodeURIComponent("" + group) + "&";
+    if (since === null)
+      throw new Error("The parameter 'since' cannot be null.");
+    else if (since !== undefined)
+      url_ +=
+        "since=" +
+        encodeURIComponent(since ? "" + since.toISOString() : "") +
+        "&";
+    if (until === null)
+      throw new Error("The parameter 'until' cannot be null.");
+    else if (until !== undefined)
+      url_ +=
+        "until=" +
+        encodeURIComponent(until ? "" + until.toISOString() : "") +
+        "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "pageSize=" + encodeURIComponent("" + pageSize) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processWebhooks(_response);
+    });
+  }
+
+  protected processWebhooks(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param by (optional)
+   * @return OK
+   */
+  groups(by: string | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/webhooks/groups?";
+    if (by === null) throw new Error("The parameter 'by' cannot be null.");
+    else if (by !== undefined)
+      url_ += "by=" + encodeURIComponent("" + by) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGroups(_response);
+    });
+  }
+
+  protected processGroups(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param eventType (optional)
+   * @param group (optional)
+   * @return OK
+   */
+  history3(
+    eventType: string | undefined,
+    group: string | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/webhooks/history?";
+    if (eventType === null)
+      throw new Error("The parameter 'eventType' cannot be null.");
+    else if (eventType !== undefined)
+      url_ += "eventType=" + encodeURIComponent("" + eventType) + "&";
+    if (group === null)
+      throw new Error("The parameter 'group' cannot be null.");
+    else if (group !== undefined)
+      url_ += "group=" + encodeURIComponent("" + group) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processHistory3(_response);
+    });
+  }
+
+  protected processHistory3(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  summary2(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/webhooks/summary";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSummary2(_response);
+    });
+  }
+
+  protected processSummary2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  webhooks2(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/webhooks/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processWebhooks2(_response);
+    });
+  }
+
+  protected processWebhooks2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  redeliver(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/webhooks/{id}/redeliver";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRedeliver(_response);
+    });
+  }
+
+  protected processRedeliver(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  services(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/services";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processServices(_response);
+    });
+  }
+
+  protected processServices(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  services2(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/services/{name}";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processServices2(_response);
+    });
+  }
+
+  protected processServices2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param source (optional)
+   * @param level (optional)
+   * @param fromId (optional)
+   * @param limit (optional)
+   * @return OK
+   */
+  logs3(
+    name: string,
+    source: BackgroundServiceLogSource | undefined,
+    level: number | undefined,
+    fromId: number | undefined,
+    limit: number | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/services/{name}/logs?";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    if (source === null)
+      throw new Error("The parameter 'source' cannot be null.");
+    else if (source !== undefined)
+      url_ += "source=" + encodeURIComponent("" + source) + "&";
+    if (level === null)
+      throw new Error("The parameter 'level' cannot be null.");
+    else if (level !== undefined)
+      url_ += "level=" + encodeURIComponent("" + level) + "&";
+    if (fromId === null)
+      throw new Error("The parameter 'fromId' cannot be null.");
+    else if (fromId !== undefined)
+      url_ += "fromId=" + encodeURIComponent("" + fromId) + "&";
+    if (limit === null)
+      throw new Error("The parameter 'limit' cannot be null.");
+    else if (limit !== undefined)
+      url_ += "limit=" + encodeURIComponent("" + limit) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processLogs3(_response);
+    });
+  }
+
+  protected processLogs3(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  lease(name: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/services/{name}/lease";
+    if (name === undefined || name === null)
+      throw new Error("The parameter 'name' must be defined.");
+    url_ = url_.replace("{name}", encodeURIComponent("" + name));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processLease(_response);
+    });
+  }
+
+  protected processLease(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  applications2(): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/applications";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processApplications2(_response);
+    });
+  }
+
+  protected processApplications2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  applications3(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/applications/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processApplications3(_response);
+    });
+  }
+
+  protected processApplications3(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  instances(id: string, instanceId: string): Promise<void> {
+    let url_ =
+      this.baseUrl + "/warp/api/applications/{id}/instances/{instanceId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (instanceId === undefined || instanceId === null)
+      throw new Error("The parameter 'instanceId' must be defined.");
+    url_ = url_.replace("{instanceId}", encodeURIComponent("" + instanceId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processInstances(_response);
+    });
+  }
+
+  protected processInstances(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  metrics(application: string | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/jobs/metrics?";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processMetrics(_response);
+    });
+  }
+
+  protected processMetrics(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param application (optional)
+   * @return OK
+   */
+  metrics2(application: string | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/queues/metrics?";
+    if (application === null)
+      throw new Error("The parameter 'application' cannot be null.");
+    else if (application !== undefined)
+      url_ += "application=" + encodeURIComponent("" + application) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processMetrics2(_response);
+    });
+  }
+
+  protected processMetrics2(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  jobstats(id: string): Promise<void> {
+    let url_ = this.baseUrl + "/warp/api/applications/{id}/jobstats";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processJobstats(_response);
+    });
+  }
+
+  protected processJobstats(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  extensions(): Promise<UIExtensionManifest[]> {
+    let url_ = this.baseUrl + "/warp/api/extensions";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processExtensions(_response);
+    });
+  }
+
+  protected processExtensions(
+    response: Response,
+  ): Promise<UIExtensionManifest[]> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as UIExtensionManifest[]);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<UIExtensionManifest[]>(null as any);
   }
 }
 
@@ -8558,8 +16083,8 @@ export interface ApprovalRequestDetail {
   changeSummary?: string | null;
   createdTime?: Date;
   proposedVersion?: QueryVersionDetail;
-  currentActiveVersion?: QueryVersionDetail2 | null;
-  autoDiff?: QueryVersionDiff2 | null;
+  currentActiveVersion?: QueryVersionDetail | null;
+  autoDiff?: QueryVersionDiff | null;
 
   [key: string]: any;
 }
@@ -8617,10 +16142,33 @@ export interface AssignTaskBody {
   [key: string]: any;
 }
 
+export enum BackgroundServiceLogSource {
+  Lifecycle = 1,
+  User = 2,
+}
+
 export enum BedrockAuthMode {
   IamRole = 0,
   AccessKey = 1,
   TemporaryCredentials = 2,
+}
+
+export interface BulkJobRequest {
+  jobIds?: string[];
+
+  [key: string]: any;
+}
+
+export interface BulkResultModel {
+  succeeded?: number;
+  skipped?: number;
+
+  [key: string]: any;
+}
+
+export enum CancellationMode {
+  None = 0,
+  Graceful = 1,
 }
 
 export interface ChangeOwnPasswordCommand {
@@ -8655,8 +16203,16 @@ export interface ColumnMetadataDto {
   maxLength: number | null;
   description: string | null;
   sampleValues?: string[] | null;
+  foreignKeySchema?: string | null;
+  foreignKeyConstraintName?: string | null;
+  sampleValuesComplete?: boolean;
 
   [key: string]: any;
+}
+
+export enum ContinuationOptions {
+  OnlyOnSucceeded = 1,
+  OnAnyFinishedState = 2,
 }
 
 export interface ControlTowerAnomaly {
@@ -8690,16 +16246,6 @@ export interface ControlTowerOpenTask {
   assigneeUserId?: string | null;
 
   [key: string]: any;
-}
-
-export enum ControlTowerSortBy {
-  WorstFirst = 0,
-  Name = 1,
-  SuccessRate = 2,
-  Executions = 3,
-  OpenTasks = 4,
-  Anomalies = 5,
-  LastExecution = 6,
 }
 
 export interface ControlTowerStatistics {
@@ -8741,7 +16287,7 @@ export interface ControlTowerSubscriptionHealthData {
   failedExecutions?: number;
   successRate?: number;
   lastExecutionTime?: Date | null;
-  lastExecutionStatus?: NotificationStatus2 | null;
+  lastExecutionStatus?: NotificationStatus | null;
   lastResultCount?: number | null;
   unresolvedTaskCount?: number;
   totalTaskCount?: number;
@@ -8753,6 +16299,21 @@ export interface ControlTowerSubscriptionHealthData {
   hasAnomalyDetection?: boolean;
   aiActorId?: number | null;
   aiActorName?: string | null;
+
+  [key: string]: any;
+}
+
+export interface CounterHistoryPoint {
+  hour?: Date;
+  key?: string;
+  value?: number;
+
+  [key: string]: any;
+}
+
+export interface CounterModel {
+  key?: string;
+  value?: number;
 
   [key: string]: any;
 }
@@ -8866,6 +16427,26 @@ export interface CreateExternalUserCommand {
   [key: string]: any;
 }
 
+export interface CreateGlossaryTermBody {
+  projectId: number;
+  dataSourceId: number | null;
+  term: string;
+  synonyms: string | null;
+  definition: string;
+  targetSchema: string | null;
+  targetTable: string | null;
+  targetColumn: string | null;
+  metricExpression: string | null;
+
+  [key: string]: any;
+}
+
+export interface CreateGlossaryTermResult {
+  id: number;
+
+  [key: string]: any;
+}
+
 export interface CreateInternalUserCommand {
   userName: string;
   email: string | null;
@@ -8883,7 +16464,7 @@ export interface CreateMigrationJobCommand {
   queryText: string;
   destinationDataSourceId: number;
   destinationTable: string;
-  mode?: MigrationMode2;
+  mode?: MigrationMode;
   isEnabled?: boolean;
   schedule?: string | null;
   maxRetries?: number;
@@ -8963,6 +16544,25 @@ export interface CreateRecipientResult {
   [key: string]: any;
 }
 
+export interface CreateSchemaRelationshipBody {
+  sourceSchema: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetSchema: string;
+  targetTable: string;
+  targetColumn: string;
+  label: string | null;
+  cardinality: SchemaRelationshipCardinality;
+
+  [key: string]: any;
+}
+
+export interface CreateSchemaRelationshipResult {
+  id: number;
+
+  [key: string]: any;
+}
+
 export interface CreateSubscriptionAnomalyConfig {
   detectionMethod: AnomalyDetectionMethod;
   sensitivity: AnomalySensitivity;
@@ -9031,6 +16631,8 @@ export interface CurrentUserResponse {
   email: string | null;
   isAuthenticated: boolean;
   roles: string[];
+  realtimeEnabled: boolean;
+  externalLogin: ExternalLoginResponse | null;
 
   [key: string]: any;
 }
@@ -9058,6 +16660,7 @@ export interface DashboardListData {
   description?: string | null;
   isShared?: boolean;
   isDefault?: boolean;
+  sortOrder?: number;
   widgetCount?: number;
   createdTime?: Date;
   isOwner?: boolean;
@@ -9070,7 +16673,7 @@ export interface DashboardPermissionData {
   id?: number;
   userId?: string;
   userName?: string;
-  permissionLevel?: DashboardPermissionLevel2;
+  permissionLevel?: DashboardPermissionLevel;
   grantedAt?: Date;
 
   [key: string]: any;
@@ -9082,15 +16685,36 @@ export enum DashboardPermissionLevel {
   Admin = 3,
 }
 
-export enum DashboardPermissionLevel2 {
-  View = 1,
-  Edit = 2,
-  Admin = 3,
-}
-
-export interface DashboardsListData {
-  data?: DashboardListData[];
-  totalCount?: number | null;
+export interface DashboardStatistics {
+  total?: number;
+  pending?: number;
+  scheduled?: number;
+  created?: number;
+  failed?: number;
+  completed?: number;
+  processing?: number;
+  servers?: number;
+  awaiting?: number;
+  deleted?: number;
+  messages?: number;
+  totalSucceeded?: number;
+  totalFailed?: number;
+  totalDeleted?: number;
+  totalCreated?: number;
+  adapterRecordsDropped?: number;
+  endpointRecordsDropped?: number;
+  clientRecordsDropped?: number;
+  batches?: number;
+  batchesProcessing?: number;
+  batchesCompleted?: number;
+  batchesFailed?: number;
+  batchesAwaiting?: number;
+  batchesDeleted?: number;
+  messagesEnqueued?: number;
+  messagesProcessing?: number;
+  messagesCompleted?: number;
+  messagesFailed?: number;
+  databaseConnection?: string | null;
 
   [key: string]: any;
 }
@@ -9111,15 +16735,6 @@ export interface DashboardWidgetData {
 }
 
 export enum DatabaseEngineType {
-  PostgreSQL = 1,
-  MSSQL = 2,
-  MySQL = 3,
-  SQLite = 4,
-  AzureSynapse = 5,
-  Snowflake = 6,
-}
-
-export enum DatabaseEngineType2 {
   PostgreSQL = 1,
   MSSQL = 2,
   MySQL = 3,
@@ -9161,7 +16776,7 @@ export interface DataContractData {
 export interface DataContractRecipientData {
   id?: number;
   name?: string;
-  destination?: string;
+  destination?: string | null;
   notificationType?: NotificationType;
 
   [key: string]: any;
@@ -9260,13 +16875,13 @@ export enum DataQualityTrendDirection {
 }
 
 export interface DataSourceEntry {
-  id: number;
-  name: string;
-  dataSourceType: string;
-  databaseEngineType: string | null;
-  queryCount: number;
-  migrationJobsCount: number;
-  metadataLoadingEnabled: boolean;
+  id?: number;
+  name?: string;
+  dataSourceType?: string;
+  databaseEngineType?: string | null;
+  queryCount?: number;
+  migrationJobsCount?: number;
+  metadataLoadingEnabled?: boolean;
 
   [key: string]: any;
 }
@@ -9306,6 +16921,48 @@ export interface DocumentationPatchEntry {
   [key: string]: any;
 }
 
+export enum ErrorGroupStatus {
+  Unresolved = 1,
+  Resolved = 2,
+  Ignored = 3,
+}
+
+export interface ErrorGroupStatusRequest {
+  status: ErrorGroupStatus;
+
+  [key: string]: any;
+}
+
+export interface EvalResultItem {
+  id?: number;
+  evalRunId?: number;
+  evalCaseId?: number;
+  generatedSql?: string | null;
+  passed?: boolean;
+  failureTag?: McpEvalFailureTag;
+  executionError?: string | null;
+  judgeUsed?: boolean;
+  judgeVerdict?: string | null;
+  resultRowCount?: number | null;
+  executionTimeMs?: number;
+
+  [key: string]: any;
+}
+
+export interface EvalRunListItem {
+  id?: number;
+  projectId?: number | null;
+  triggeredByUserId?: number | null;
+  totalCases?: number;
+  passedCases?: number;
+  executionAccuracy?: number;
+  status?: string;
+  judgeEnabled?: boolean;
+  createdTime?: Date;
+
+  [key: string]: any;
+}
+
 export interface ExecuteAiActorThinkCycleResult {
   success?: boolean;
   executionId?: number;
@@ -9336,8 +16993,15 @@ export interface ExecutedActionInfo {
   [key: string]: any;
 }
 
+export interface ExecuteQueryPreviewRequest {
+  draft: QueryDraft | null;
+
+  [key: string]: any;
+}
+
 export interface ExecuteStepPreviewRequest {
   parameters: ParameterValue[] | null;
+  draft: QueryDraft | null;
 
   [key: string]: any;
 }
@@ -9347,6 +17011,13 @@ export interface ExecutionTimeDataPoint {
   avgExecutionTimeMs?: number;
   minExecutionTimeMs?: number;
   maxExecutionTimeMs?: number;
+
+  [key: string]: any;
+}
+
+export interface ExternalLoginResponse {
+  loginUrl: string;
+  returnUrlParameter: string;
 
   [key: string]: any;
 }
@@ -9396,12 +17067,6 @@ export interface GetAiActorDetailsResult {
   [key: string]: any;
 }
 
-export interface GetAiActorListResult {
-  actors?: AiActorListItem[];
-
-  [key: string]: any;
-}
-
 export interface GetAiActorPlanResult {
   planId?: number;
   actorId?: number;
@@ -9426,19 +17091,6 @@ export interface GetAiActorPlanResult {
   [key: string]: any;
 }
 
-export interface GetApiKeysResult {
-  entries: ApiKeyEntry[];
-
-  [key: string]: any;
-}
-
-export interface GetControlTowerHealthResult {
-  entries: ControlTowerSubscriptionHealthData[];
-  totalCount: number;
-
-  [key: string]: any;
-}
-
 export interface GetControlTowerStatisticsResult {
   statistics: ControlTowerStatistics;
 
@@ -9447,18 +17099,6 @@ export interface GetControlTowerStatisticsResult {
 
 export interface GetControlTowerSubscriptionDetailResult {
   detail: ControlTowerSubscriptionDetail;
-
-  [key: string]: any;
-}
-
-export interface GetDataSourcesResult {
-  entries: DataSourceEntry[];
-
-  [key: string]: any;
-}
-
-export interface GetDocumentationPatchesResult {
-  patches: DocumentationPatchEntry[];
 
   [key: string]: any;
 }
@@ -9530,8 +17170,33 @@ export interface GetHomeTrendsResult {
   [key: string]: any;
 }
 
-export interface GetLearnedPatternsResult {
-  patterns: LearnedPatternEntry[];
+export interface GetImportedDocumentResult {
+  document: ImportedDocumentContent | null;
+
+  [key: string]: any;
+}
+
+export interface GetImportedDocumentsResult {
+  documents: ImportedDocumentSummary[];
+
+  [key: string]: any;
+}
+
+export interface GetMcpAuditLogsResult {
+  items: McpAuditLogItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+
+  [key: string]: any;
+}
+
+export interface GetMcpProjectSettingsResult {
+  projectId: number;
+  overrides: McpProjectSettingsData;
+  effective: McpSettingsData;
+  lockedFields: string[];
+  clampedFields: string[];
 
   [key: string]: any;
 }
@@ -9542,29 +17207,8 @@ export interface GetMcpToolsResult {
   [key: string]: any;
 }
 
-export interface GetMigrationExecutionsResult {
-  executions: MigrationExecutionDto[];
-  totalCount: number;
-  hasMore: boolean;
-
-  [key: string]: any;
-}
-
-export interface GetMigrationJobsResult {
-  jobs: MigrationJobListItem[];
-
-  [key: string]: any;
-}
-
 export interface GetNotificationDetailResult {
   entry: NotificationDetailEntry | null;
-
-  [key: string]: any;
-}
-
-export interface GetNotificationsResult {
-  entries: NotificationEntry[];
-  totalCount: number;
 
   [key: string]: any;
 }
@@ -9594,19 +17238,6 @@ export interface GetProjectMcpContextResult {
   [key: string]: any;
 }
 
-export interface GetProjectsResult {
-  entries: ProjectSummaryEntry[];
-
-  [key: string]: any;
-}
-
-export interface GetQueryChangeHistoryResult {
-  queryId?: number;
-  changes?: QueryChangeHistoryItem[];
-
-  [key: string]: any;
-}
-
 export interface GetQueryFoldersResult {
   folders?: QueryFolderData[];
   rootLevelQueryCount?: number;
@@ -9615,14 +17246,21 @@ export interface GetQueryFoldersResult {
   [key: string]: any;
 }
 
-export interface GetRecipientsResult {
-  entries: RecipientEntry[];
+export interface GetRolesResult {
+  entries: RoleEntry[];
 
   [key: string]: any;
 }
 
-export interface GetRolesResult {
-  entries: RoleEntry[];
+export interface GetSchemaHealthResult {
+  tableCount?: number;
+  relationshipCount?: number;
+  verifiedRelationshipCount?: number;
+  unverifiedRelationshipCount?: number;
+  componentCount?: number;
+  largestComponentSize?: number;
+  isolatedTables?: string[];
+  junctionTables?: string[];
 
   [key: string]: any;
 }
@@ -9643,27 +17281,39 @@ export interface GetSubscriptionDetailResult {
   [key: string]: any;
 }
 
-export interface GetSubscriptionsResult {
-  entries: SubscriptionEntry[];
-
-  [key: string]: any;
-}
-
-export interface GetTasksResult {
-  entries: TaskEntry[];
-  totalCount: number;
-
-  [key: string]: any;
-}
-
 export interface GetUserSettingsResult {
   user: UserSettingsView;
 
   [key: string]: any;
 }
 
-export interface GetUsersResult {
-  entries: UserEntry[];
+export interface GlossaryTermItem {
+  id?: number;
+  projectId?: number;
+  dataSourceId?: number | null;
+  term?: string;
+  synonyms?: string | null;
+  definition?: string;
+  targetSchema?: string | null;
+  targetTable?: string | null;
+  targetColumn?: string | null;
+  metricExpression?: string | null;
+  isActive?: boolean;
+  createdTime?: Date;
+
+  [key: string]: any;
+}
+
+export interface GoldenCaseItem {
+  id?: number;
+  projectId?: number;
+  dataSourceId?: number;
+  question?: string;
+  goldSql?: string;
+  sourceSignalId?: number | null;
+  isActive?: boolean;
+  notes?: string | null;
+  createdTime?: Date;
 
   [key: string]: any;
 }
@@ -9695,6 +17345,28 @@ export interface HomePerfBucket {
   [key: string]: any;
 }
 
+export interface ImportedDocumentContent {
+  id: number;
+  sourceKey: string;
+  path: string;
+  title: string;
+  content: string;
+  frontmatterJson: string | null;
+  importedTime: Date;
+
+  [key: string]: any;
+}
+
+export interface ImportedDocumentSummary {
+  id: number;
+  sourceKey: string;
+  path: string;
+  title: string;
+  importedTime: Date;
+
+  [key: string]: any;
+}
+
 export interface IndexMetadataDto {
   indexName: string;
   isUnique: boolean;
@@ -9712,6 +17384,43 @@ export interface InstructDocumentationRequest {
 
 export interface InstructDocumentationResult {
   updatedContent: string;
+
+  [key: string]: any;
+}
+
+export interface JobGroupModel {
+  id?: string;
+  kind?: JobKind;
+  currentState?: State;
+  jobCount?: number;
+  createTime?: Date;
+  type?: string | null;
+  payload?: string | null;
+  queue?: string | null;
+  totalJobs?: number;
+  continuationOptions?: ContinuationOptions | null;
+  completedJobs?: number;
+  failedJobs?: number;
+
+  [key: string]: any;
+}
+
+export enum JobKind {
+  Job = 1,
+  Message = 2,
+  Batch = 3,
+}
+
+export interface JobModel {
+  id?: string;
+  type?: string | null;
+  message?: string | null;
+  createTime?: Date;
+  scheduleTime?: Date | null;
+  processedTime?: Date | null;
+  currentState?: State;
+  cancellationMode?: CancellationMode;
+  handlerType?: string | null;
 
   [key: string]: any;
 }
@@ -9759,6 +17468,29 @@ export interface LoginRequest {
   [key: string]: any;
 }
 
+export interface McpAuditLogItem {
+  id: number;
+  createdTime: Date;
+  sessionId: number | null;
+  userId: number | null;
+  tool: string;
+  parameters: string | null;
+  dataSourceId: number | null;
+  projectId: number | null;
+  executionTimeMs: number;
+  resultRowCount: number | null;
+  errorMessage: string | null;
+  callerKind: string | null;
+  callerHash: string | null;
+  traceId: string | null;
+  spanId: string | null;
+  mcpSessionId: string | null;
+  upstreamRequestId: string | null;
+  apiKeyId: number | null;
+
+  [key: string]: any;
+}
+
 export enum McpDocPatchStatus {
   Proposed = 0,
   Applied = 1,
@@ -9771,11 +17503,20 @@ export enum McpDocPatchTarget {
   DocumentationSection = 2,
 }
 
+export enum McpEvalFailureTag {
+  None = 0,
+  RetrievalFailure = 1,
+  SqlReasoningFailure = 2,
+  ExecutionError = 3,
+  HarnessError = 4,
+}
+
 export enum McpPatternStatus {
   Pending = 0,
   Approved = 1,
   Rejected = 2,
   AutoApproved = 3,
+  NeedsEvidence = 4,
 }
 
 export enum McpPatternType {
@@ -9787,35 +17528,6 @@ export enum McpPatternType {
   DocumentationGap = 5,
 }
 
-export interface McpSettingsData {
-  askSystemPrompt?: string | null;
-  globalInstruction?: string | null;
-  getContextDescription?: string | null;
-  queryDescription?: string | null;
-  getDocumentationDescription?: string | null;
-  askDescription?: string | null;
-  searchDescription?: string | null;
-  maxRowLimit?: number;
-  enforceReadOnly?: boolean;
-  enablePiiDetection?: boolean;
-  customPiiPatterns?: string[];
-  enableSampleValueCollection?: boolean;
-  enableLearning?: boolean;
-  learningAutoApproveThreshold?: number;
-  learningInjectionBudgetChars?: number;
-  learningSignalRetentionDays?: number;
-  retainQueryContent?: boolean;
-  statementTimeoutSeconds?: number;
-  maxResultBytes?: number;
-  maxExplainCost?: number | null;
-  maxConcurrentQueriesPerKey?: number;
-  allowExplicitFeedbackContent?: boolean;
-
-  [key: string]: any;
-}
-
-// ---- Hand-added (Wave 0.2, spec mcp-project-settings). `npm run codegen` could not run on the
-// authoring host; regenerate from /openapi/v1.json and this block is replaced by the generator. ----
 export interface McpProjectSettingsData {
   maxRowLimit?: number | null;
   enforceReadOnly?: boolean | null;
@@ -9855,14 +17567,56 @@ export interface McpProjectSettingsData {
   [key: string]: any;
 }
 
-export interface GetMcpProjectSettingsResult {
-  projectId: number;
-  overrides: McpProjectSettingsData;
-  effective: McpSettingsData;
-  lockedFields: string[];
-  clampedFields: string[];
+export interface McpSettingsData {
+  askSystemPrompt?: string | null;
+  globalInstruction?: string | null;
+  getContextDescription?: string | null;
+  queryDescription?: string | null;
+  getDocumentationDescription?: string | null;
+  askDescription?: string | null;
+  searchDescription?: string | null;
+  maxRowLimit?: number;
+  enforceReadOnly?: boolean;
+  enablePiiDetection?: boolean;
+  customPiiPatterns?: string[];
+  enableSampleValueCollection?: boolean;
+  enableLearning?: boolean;
+  learningAutoApproveThreshold?: number;
+  learningInjectionBudgetChars?: number;
+  learningSignalRetentionDays?: number;
+  enableSelfConsistency?: boolean;
+  selfConsistencyCandidateCount?: number;
+  enableEvalJudge?: boolean;
+  enableSemanticRetrieval?: boolean;
+  exemplarTopK?: number;
+  enableReplayVerification?: boolean;
+  learningReplayMinFlips?: number;
+  enableContextualRetrieval?: boolean;
+  docChunkWindowSentences?: number;
+  docChunkOverlapSentences?: number;
+  glossaryTopK?: number;
+  docChunkTopK?: number;
+  enableGoldenExemplars?: boolean;
+  goldenExemplarTopK?: number;
+  goldenExemplarBudgetChars?: number;
+  enableValueGrounding?: boolean;
+  valueGroundingMaxProbes?: number;
+  enableSemanticLint?: boolean;
+  selfConsistencyMinTables?: number;
+  retainQueryContent?: boolean;
+  statementTimeoutSeconds?: number;
+  maxResultBytes?: number;
+  maxExplainCost?: number | null;
+  maxConcurrentQueriesPerKey?: number;
+  allowExplicitFeedbackContent?: boolean;
 
   [key: string]: any;
+}
+
+export enum McpUserVerdict {
+  Unset = 0,
+  Correct = 1,
+  Incorrect = 2,
 }
 
 export interface MigrationExecutionDto {
@@ -9886,29 +17640,23 @@ export interface MigrationExecutionDto {
 }
 
 export interface MigrationJobListItem {
-  id: number;
-  name: string;
-  description: string;
-  dataSourceId: number;
-  dataSourceName: string;
-  destinationDataSourceId: number;
-  destinationDataSourceName: string;
-  destinationTable: string;
-  mode: MigrationMode;
-  isEnabled: boolean;
-  schedule: string | null;
-  createdTime: Date;
+  id?: number;
+  name?: string;
+  description?: string;
+  dataSourceId?: number;
+  dataSourceName?: string;
+  destinationDataSourceId?: number;
+  destinationDataSourceName?: string;
+  destinationTable?: string;
+  mode?: MigrationMode;
+  isEnabled?: boolean;
+  schedule?: string | null;
+  createdTime?: Date;
 
   [key: string]: any;
 }
 
 export enum MigrationMode {
-  Insert = 1,
-  Upsert = 2,
-  Truncate = 3,
-}
-
-export enum MigrationMode2 {
   Insert = 1,
   Upsert = 2,
   Truncate = 3,
@@ -9982,16 +17730,6 @@ export enum NotificationStatus {
   Failed = 7,
 }
 
-export enum NotificationStatus2 {
-  Created = 1,
-  NotificationSent = 2,
-  NotificationSilenced = 3,
-  NoResults = 4,
-  Timeout = 5,
-  BelowThreshold = 6,
-  Failed = 7,
-}
-
 export enum NotificationTrigger {
   OnResultCountChange = 1,
   Always = 2,
@@ -10006,9 +17744,218 @@ export enum NotificationType {
   Webhook = 5,
 }
 
+export interface PagedListOfAiActorListItem {
+  items: AiActorListItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfApiKeyEntry {
+  items: ApiKeyEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfApprovalRequestSummary {
+  items: ApprovalRequestSummary[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfControlTowerSubscriptionHealthData {
+  items: ControlTowerSubscriptionHealthData[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfDashboardListData {
+  items: DashboardListData[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfDataContractData {
+  items: DataContractData[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfDataSourceEntry {
+  items: DataSourceEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfDocumentationPatchEntry {
+  items: DocumentationPatchEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfJobGroupModel {
+  totalCount: number;
+  pageCount: number;
+  items: JobGroupModel[];
+
+  [key: string]: any;
+}
+
+export interface PagedListOfJobModel {
+  totalCount: number;
+  pageCount: number;
+  items: JobModel[];
+
+  [key: string]: any;
+}
+
+export interface PagedListOfLearnedPatternEntry {
+  items: LearnedPatternEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfMigrationExecutionDto {
+  items: MigrationExecutionDto[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfMigrationJobListItem {
+  items: MigrationJobListItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfNotificationEntry {
+  items: NotificationEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfProjectSummaryEntry {
+  items: ProjectSummaryEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfQueryChangeHistoryItem {
+  items: QueryChangeHistoryItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
 export interface PagedListOfQueryData {
-  totalCount?: number | null;
-  items?: QueryData[];
+  items: QueryData[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfQueryVersionSummary {
+  items: QueryVersionSummary[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfRecipientEntry {
+  items: RecipientEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfRecurringJobHistoryModel {
+  totalCount: number;
+  pageCount: number;
+  items: RecurringJobHistoryModel[];
+
+  [key: string]: any;
+}
+
+export interface PagedListOfRecurringJobModel {
+  totalCount: number;
+  pageCount: number;
+  items: RecurringJobModel[];
+
+  [key: string]: any;
+}
+
+export interface PagedListOfSchemaRelationshipItem {
+  items: SchemaRelationshipItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfServerLogModel {
+  totalCount: number;
+  pageCount: number;
+  items: ServerLogModel[];
+
+  [key: string]: any;
+}
+
+export interface PagedListOfSubscriptionEntry {
+  items: SubscriptionEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfTaskEntry {
+  items: TaskEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfUserEntry {
+  items: UserEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfWorkerJobLogModel {
+  totalCount: number;
+  pageCount: number;
+  items: WorkerJobLogModel[];
 
   [key: string]: any;
 }
@@ -10044,6 +17991,12 @@ export interface PendingPlanSummary {
   version?: number;
   tokensUsed?: number;
   estimatedCost?: number;
+
+  [key: string]: any;
+}
+
+export interface PreviewSchemaRelationshipDiscoveryResult {
+  proposals: ProposedRelationshipItem[];
 
   [key: string]: any;
 }
@@ -10156,6 +18109,19 @@ export interface ProjectSummaryEntry {
   [key: string]: any;
 }
 
+export interface PromoteSignalToGoldenBody {
+  signalId: number;
+  notes: string | null;
+
+  [key: string]: any;
+}
+
+export interface PromoteSignalToGoldenResult {
+  evalCaseId: number;
+
+  [key: string]: any;
+}
+
 export interface ProposedAction {
   actionType?: AiActorActionType;
   reasoning?: string;
@@ -10165,6 +18131,21 @@ export interface ProposedAction {
   isLocked?: boolean;
   targetQueryName?: string | null;
   targetQueryId?: number | null;
+
+  [key: string]: any;
+}
+
+export interface ProposedRelationshipItem {
+  sourceSchema: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetSchema: string;
+  targetTable: string;
+  targetColumn: string;
+  label: string;
+  origin?: SchemaRelationshipOrigin;
+  cardinality?: SchemaRelationshipCardinality;
+  confidence?: number;
 
   [key: string]: any;
 }
@@ -10203,7 +18184,7 @@ export interface QueryData {
   isCrossDataSource?: boolean;
   isCrossDatabase?: boolean;
   dataSourceNames?: string[] | null;
-  databaseEngines?: DatabaseEngineType2[] | null;
+  databaseEngines?: DatabaseEngineType[] | null;
   aiActorId?: number | null;
   aiActorName?: string | null;
   sqlValue?: string;
@@ -10242,7 +18223,7 @@ export interface QueryDetailsData {
   isCrossDataSource?: boolean;
   isCrossDatabase?: boolean;
   dataSourceNames?: string[] | null;
-  databaseEngines?: DatabaseEngineType2[] | null;
+  databaseEngines?: DatabaseEngineType[] | null;
   sqlValue?: string | null;
   dataSourceName?: string | null;
   parameters?: QueryParameterData[] | null;
@@ -10250,18 +18231,9 @@ export interface QueryDetailsData {
   [key: string]: any;
 }
 
-export interface QueryExecutionResult {
-  stepResults?: QueryStepResult[];
-  finalResult?: QueryResult | null;
-  success?: boolean;
-  errorMessage?: string | null;
-  totalExecutionTimeMs?: number;
-  isMultiStep?: boolean;
-  isCrossDataSource?: boolean;
-  isCrossDatabase?: boolean;
-  dataSourcesInvolved?: string[];
-  databaseEnginesUsed?: DatabaseEngineType2[];
-  executionTimeByDataSource?: { [key: string]: number };
+export interface QueryDraft {
+  steps?: QueryStepData[];
+  finalQuery?: string | null;
 
   [key: string]: any;
 }
@@ -10288,21 +18260,39 @@ export interface QueryParameterData {
   [key: string]: any;
 }
 
-export interface QueryResult {
-  queryResults: string;
-  totalRecords: number;
-  dataSourceName: string;
-  sqlQuery: string;
-  showQuery?: boolean;
-  maxRows?: number | null;
-  recipients?: RecipientData[];
-  topRecords?: any[];
-  allRecords?: any[];
-  subscriptionName: string;
-  subscriptionId: number | null;
+export interface QueryPreviewResult {
+  success?: boolean;
+  errorMessage?: string | null;
+  totalExecutionTimeMs?: number;
+  dataSourcesInvolved?: string[];
+  steps?: QueryPreviewStep[];
+  result?: QueryResultPage | null;
+
+  [key: string]: any;
+}
+
+export interface QueryPreviewStep {
+  stepOrder?: number;
+  stepName?: string;
+  dataSourceName?: string;
+  databaseEngine?: string;
+  success?: boolean;
+  errorMessage?: string | null;
   executionTimeMs?: number;
-  saveResults?: boolean;
-  timedOut?: boolean;
+  totalRows?: number;
+  previewRows?: any[];
+
+  [key: string]: any;
+}
+
+export interface QueryResultPage {
+  rows?: any[];
+  totalCount?: number;
+  pageCount?: number;
+  page?: number;
+  pageSize?: number;
+  sortable?: boolean;
+  sort?: string | null;
 
   [key: string]: any;
 }
@@ -10341,36 +18331,7 @@ export interface QueryStepParameterSnapshot {
   [key: string]: any;
 }
 
-export interface QueryStepResult {
-  stepOrder?: number;
-  stepName?: string;
-  sqlQuery?: string;
-  dataSourceName?: string;
-  databaseEngine?: string;
-  databaseEngineType?: DatabaseEngineType2;
-  previewResults?: any[];
-  allResults?: any[];
-  totalRows?: number;
-  executionTimeMs?: number;
-  success?: boolean;
-  errorMessage?: string | null;
-
-  [key: string]: any;
-}
-
 export interface QueryStepSnapshot {
-  stepOrder?: number;
-  sqlValue?: string;
-  dataSourceId?: number;
-  dataSourceName?: string;
-  name?: string | null;
-  description?: string | null;
-  parameters?: QueryStepParameterSnapshot[];
-
-  [key: string]: any;
-}
-
-export interface QueryStepSnapshot2 {
   stepOrder?: number;
   sqlValue?: string;
   dataSourceId?: number;
@@ -10392,23 +18353,7 @@ export interface QueryVersionDetail {
   finalQuery?: string | null;
   createdTime?: Date;
   createdByUserId?: string | null;
-  changeSource?: string | null;
-  changeReason?: string | null;
-  steps?: QueryStepSnapshot[];
-
-  [key: string]: any;
-}
-
-export interface QueryVersionDetail2 {
-  id?: number;
-  versionNumber?: number;
-  label?: string | null;
-  status?: QueryVersionStatus;
-  name?: string;
-  description?: string | null;
-  finalQuery?: string | null;
-  createdTime?: Date;
-  createdByUserId?: string | null;
+  createdByUserName?: string | null;
   changeSource?: string | null;
   changeReason?: string | null;
   steps?: QueryStepSnapshot[];
@@ -10417,17 +18362,6 @@ export interface QueryVersionDetail2 {
 }
 
 export interface QueryVersionDiff {
-  versionA?: QueryVersionDetail;
-  versionB?: QueryVersionDetail;
-  nameChanged?: boolean;
-  descriptionChanged?: boolean;
-  finalQueryChanged?: boolean;
-  stepDiffs?: StepDiff[];
-
-  [key: string]: any;
-}
-
-export interface QueryVersionDiff2 {
   versionA?: QueryVersionDetail;
   versionB?: QueryVersionDetail;
   nameChanged?: boolean;
@@ -10453,6 +18387,7 @@ export interface QueryVersionSummary {
   name?: string;
   createdTime?: Date;
   createdByUserId?: string | null;
+  createdByUserName?: string | null;
   changeSource?: string | null;
   changeReason?: string | null;
   stepCount?: number;
@@ -10460,27 +18395,49 @@ export interface QueryVersionSummary {
   [key: string]: any;
 }
 
-export interface RecipientData {
-  recipientId?: number | null;
+export interface RecipientEntry {
+  id?: number;
   name?: string;
   description?: string | null;
-  destination?: string;
-  notificationType?: NotificationType;
+  destination?: string | null;
+  notificationType?: number;
   headersJson?: string | null;
   bodyTemplate?: string | null;
+  secretsUnreadable?: boolean;
+  subscriptionCount?: number;
 
   [key: string]: any;
 }
 
-export interface RecipientEntry {
-  id: number;
-  name: string;
-  description: string | null;
-  destination: string;
-  notificationType: number;
-  headersJson: string | null;
-  bodyTemplate: string | null;
-  subscriptionCount: number;
+export interface RecordQueryFeedbackBody {
+  signalId: number;
+  verdict: McpUserVerdict;
+  correctedSql: string | null;
+  note: string | null;
+
+  [key: string]: any;
+}
+
+export interface RecurringJobHistoryModel {
+  jobId?: string | null;
+  createdAt?: Date;
+  jobExists?: boolean;
+  type?: string | null;
+  currentState?: State | null;
+  skipped?: boolean;
+
+  [key: string]: any;
+}
+
+export interface RecurringJobModel {
+  id?: number;
+  name?: string;
+  cron?: string;
+  type?: string;
+  nextExecution?: Date | null;
+  lastExecution?: Date | null;
+  createdAt?: Date;
+  disabledAt?: Date | null;
 
   [key: string]: any;
 }
@@ -10556,6 +18513,18 @@ export interface RoleEntry {
   [key: string]: any;
 }
 
+export interface RunEvalBody {
+  projectId: number | null;
+
+  [key: string]: any;
+}
+
+export interface RunEvalResult {
+  runId: number;
+
+  [key: string]: any;
+}
+
 export interface RunMcpToolCommand {
   toolName: string;
   projectId: number;
@@ -10585,6 +18554,73 @@ export interface RunMigrationJobResult {
 export interface ScanAllRepositoriesResult {
   scannedCount: number;
   errors: string[];
+
+  [key: string]: any;
+}
+
+export enum SchemaRelationshipCardinality {
+  Unknown = 0,
+  OneToOne = 1,
+  OneToMany = 2,
+  ManyToMany = 3,
+}
+
+export interface SchemaRelationshipItem {
+  id?: number;
+  sourceSchema: string;
+  sourceTable: string;
+  sourceColumn: string;
+  targetSchema: string;
+  targetTable: string;
+  targetColumn: string;
+  label: string;
+  origin?: SchemaRelationshipOrigin;
+  cardinality?: SchemaRelationshipCardinality;
+  confidence?: number;
+  isVerified?: boolean;
+  verifiedTime?: Date | null;
+
+  [key: string]: any;
+}
+
+export enum SchemaRelationshipOrigin {
+  ForeignKey = 0,
+  Inferred = 1,
+  Manual = 2,
+}
+
+export interface ServerLogModel {
+  id?: number;
+  taskName?: string;
+  status?: string;
+  message?: string | null;
+  timestamp?: Date;
+  durationMs?: number | null;
+
+  [key: string]: any;
+}
+
+export interface ServerModel {
+  id?: string;
+  serverName?: string;
+  startedTime?: Date;
+  lastHeartbeatTime?: Date;
+  serviceCount?: number;
+  cpuUsagePercent?: number | null;
+  memoryWorkingSetBytes?: number | null;
+  pausedAt?: Date | null;
+  workers?: WorkerModel[];
+
+  [key: string]: any;
+}
+
+export interface ServerTaskSummary {
+  taskName?: string;
+  lastStatus?: string | null;
+  lastMessage?: string | null;
+  lastRun?: Date | null;
+  lastDurationMs?: number | null;
+  intervalSeconds?: number | null;
 
   [key: string]: any;
 }
@@ -10623,7 +18659,35 @@ export interface SetTaskPriorityBody {
 
 export interface ShareDashboardBody {
   userId: string;
-  permissionLevel: DashboardPermissionLevel2;
+  permissionLevel: DashboardPermissionLevel;
+
+  [key: string]: any;
+}
+
+export interface SloAckRequest {
+  minutes: number;
+
+  [key: string]: any;
+}
+
+export enum SloKind {
+  SuccessRate = 1,
+  QueueWaitLatency = 2,
+  ExecutionLatency = 3,
+  BacklogDepth = 4,
+  DeadlineAttainment = 5,
+}
+
+export interface SloUpsertRequest {
+  id: number;
+  name: string;
+  kind: SloKind;
+  dimension: string;
+  application: string | null;
+  targetValue: number;
+  percentile: number | null;
+  windowSeconds: number;
+  enabled: boolean;
 
   [key: string]: any;
 }
@@ -10634,11 +18698,35 @@ export interface SnoozeTaskBody {
   [key: string]: any;
 }
 
+export interface SsoConfigResponse {
+  enabled: boolean;
+
+  [key: string]: any;
+}
+
+export enum State {
+  Enqueued = 1,
+  Awaiting = 2,
+  Processing = 3,
+  Completed = 4,
+  Failed = 5,
+  Deleted = 6,
+  Scheduled = 7,
+}
+
+export interface StatsHistoryPoint {
+  hour?: Date;
+  succeeded?: number;
+  failed?: number;
+
+  [key: string]: any;
+}
+
 export interface StepDiff {
   stepOrder?: number;
   diffType?: StepDiffType;
-  stepA?: QueryStepSnapshot2 | null;
-  stepB?: QueryStepSnapshot2 | null;
+  stepA?: QueryStepSnapshot | null;
+  stepB?: QueryStepSnapshot | null;
 
   [key: string]: any;
 }
@@ -10699,23 +18787,23 @@ export interface SubscriptionDetailRecipient {
   id: number;
   name: string;
   description: string | null;
-  destination: string;
+  destination: string | null;
   notificationType: NotificationType;
 
   [key: string]: any;
 }
 
 export interface SubscriptionEntry {
-  id: number;
-  queryId: number;
-  queryName: string;
-  cronExpression: string;
-  recipientCount: number;
-  recipientNames: string[];
-  aiActorId: number | null;
-  aiActorName: string | null;
-  createTasks: boolean;
-  storeResults: boolean;
+  id?: number;
+  queryId?: number;
+  queryName?: string;
+  cronExpression?: string;
+  recipientCount?: number;
+  recipientNames?: string[];
+  aiActorId?: number | null;
+  aiActorName?: string | null;
+  createTasks?: boolean;
+  storeResults?: boolean;
 
   [key: string]: any;
 }
@@ -10917,6 +19005,42 @@ export interface ToggleQueryLockResult {
   [key: string]: any;
 }
 
+export interface TraceJobModel {
+  id?: string;
+  kind?: JobKind;
+  type?: string | null;
+  handlerType?: string | null;
+  currentState?: State;
+  parentJobId?: string | null;
+  spawnedByJobId?: string | null;
+  createTime?: Date;
+
+  [key: string]: any;
+}
+
+export interface TypeCountModel {
+  type?: string;
+  count?: number;
+
+  [key: string]: any;
+}
+
+export interface UIExtensionManifest {
+  name: string;
+  scriptUrl: string;
+  pages?: UIExtensionPage[];
+
+  [key: string]: any;
+}
+
+export interface UIExtensionPage {
+  path: string;
+  label: string;
+  icon?: string | null;
+
+  [key: string]: any;
+}
+
 export interface UpdateAdminSettingsCommand {
   baseUrl: string | null;
   llmProvider: AiProvider | null;
@@ -10933,6 +19057,12 @@ export interface UpdateAdminSettingsCommand {
   llmTokensPerMinute: number;
   llmRequestsPerMinute: number;
   llmMonthlyBudget: number;
+
+  [key: string]: any;
+}
+
+export interface UpdateConcurrencyLimitRequest {
+  limit: number;
 
   [key: string]: any;
 }
@@ -10970,15 +19100,37 @@ export interface UpdateDocumentationSectionRequest {
   [key: string]: any;
 }
 
-export interface UpdateMcpSettingsBody {
-  data: McpSettingsData;
+export interface UpdateGlossaryTermBody {
+  dataSourceId: number | null;
+  term: string | null;
+  synonyms: string | null;
+  definition: string | null;
+  targetSchema: string | null;
+  targetTable: string | null;
+  targetColumn: string | null;
+  metricExpression: string | null;
+  isActive: boolean | null;
 
   [key: string]: any;
 }
 
-// Hand-added (Wave 0.2, spec mcp-project-settings) — see McpProjectSettingsData.
+export interface UpdateGoldenCaseBody {
+  question: string | null;
+  goldSql: string | null;
+  isActive: boolean | null;
+  notes: string | null;
+
+  [key: string]: any;
+}
+
 export interface UpdateMcpProjectSettingsBody {
   data: McpProjectSettingsData;
+
+  [key: string]: any;
+}
+
+export interface UpdateMcpSettingsBody {
+  data: McpSettingsData;
 
   [key: string]: any;
 }
@@ -10999,6 +19151,14 @@ export interface UpdateQueryFolderRequest {
 export interface UpdateQueryResult {
   queryId: number;
   success: boolean;
+  message?: string | null;
+
+  [key: string]: any;
+}
+
+export interface UpdateRateLimitRequest {
+  count: number;
+  windowSeconds: number;
 
   [key: string]: any;
 }
@@ -11006,7 +19166,7 @@ export interface UpdateQueryResult {
 export interface UpdateRecipientBody {
   name: string;
   description: string | null;
-  destination: string;
+  destination: string | null;
   notificationType: number;
   headersJson: string | null;
   bodyTemplate: string | null;
@@ -11020,6 +19180,13 @@ export interface UpdateRepositoryTokenRequest {
   [key: string]: any;
 }
 
+export interface UpdateSchemaRelationshipBody {
+  label: string | null;
+  cardinality: SchemaRelationshipCardinality;
+
+  [key: string]: any;
+}
+
 export interface UpdateUserBody {
   userName: string;
   email: string | null;
@@ -11029,16 +19196,31 @@ export interface UpdateUserBody {
   [key: string]: any;
 }
 
+export interface UpsertConcurrencyLimitRequest {
+  name: string;
+  limit: number;
+
+  [key: string]: any;
+}
+
+export interface UpsertRateLimitRequest {
+  name: string;
+  count: number;
+  windowSeconds: number;
+
+  [key: string]: any;
+}
+
 export interface UserEntry {
-  id: number;
-  userName: string;
-  email: string | null;
-  displayName: string | null;
-  isInternalUser: boolean;
-  isSuperAdmin: boolean;
-  isEnabled: boolean;
-  lastLoginAt: Date | null;
-  roles: UserRoleEntry[];
+  id?: number;
+  userName?: string;
+  email?: string | null;
+  displayName?: string | null;
+  isInternalUser?: boolean;
+  isSuperAdmin?: boolean;
+  isEnabled?: boolean;
+  lastLoginAt?: Date | null;
+  roles?: UserRoleEntry[];
 
   [key: string]: any;
 }
@@ -11061,6 +19243,12 @@ export interface UserSettingsView {
   [key: string]: any;
 }
 
+export interface VerifySchemaRelationshipBody {
+  isVerified: boolean;
+
+  [key: string]: any;
+}
+
 export enum WidgetType {
   KpiCard = 1,
   LineChart = 2,
@@ -11069,6 +19257,34 @@ export enum WidgetType {
   Table = 5,
   Gauge = 6,
   Mermaid = 7,
+}
+
+export interface WorkerJobLogModel {
+  id?: string;
+  jobId?: string;
+  jobType?: string | null;
+  eventType?: string;
+  timestamp?: Date;
+  level?: string;
+  message?: string;
+  exception?: string | null;
+  durationMs?: number | null;
+
+  [key: string]: any;
+}
+
+export interface WorkerModel {
+  workerId?: string;
+  startedTime?: Date;
+  lastHeartbeatTime?: Date | null;
+  currentJobId?: string | null;
+  currentJobType?: string | null;
+  queues?: string | null;
+  pollingIntervalMs?: number | null;
+  workerGroupId?: string | null;
+  workerGroupPausedAt?: Date | null;
+
+  [key: string]: any;
 }
 
 export class ApiException extends Error {

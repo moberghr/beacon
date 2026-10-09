@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
-import { Button, Field, Input, Select, Textarea } from '@/components/beacon';
+import { Banner, Button, Field, Input, Select, Textarea } from '@/components/beacon';
 import { NotificationType } from '@/lib/enums';
 import {
   NOTIFICATION_TYPE_LABEL,
@@ -23,6 +23,9 @@ const SCHEMA = z.object({
 });
 
 type FormValues = z.infer<typeof SCHEMA>;
+
+/** What the server shows in place of a stored secret; sending it back unchanged keeps the secret. */
+const MASK = '********';
 
 interface RecipientDialogProps {
   open: boolean;
@@ -69,6 +72,8 @@ function destinationHint(type: number): string {
 
 export function RecipientDialog({ open, onClose, recipient }: RecipientDialogProps) {
   const isEdit = recipient != null;
+  // A stored value that cannot be decrypted cannot be kept: the form starts empty and must be filled in again.
+  const unreadable = recipient?.secretsUnreadable === true;
 
   const {
     register,
@@ -96,22 +101,29 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
     reset({
       name: recipient?.name ?? '',
       description: recipient?.description ?? '',
-      destination: recipient?.destination ?? '',
+      destination: unreadable ? '' : recipient?.destination ?? '',
       notificationType: (recipient?.notificationType as NotificationType) ?? NotificationType.Email,
-      headersJson: recipient?.headersJson ?? '',
+      headersJson: unreadable ? '' : recipient?.headersJson ?? '',
       bodyTemplate: recipient?.bodyTemplate ?? '',
     });
-  }, [open, recipient, reset]);
+  }, [open, recipient, reset, unreadable]);
 
   const notificationType = watch('notificationType');
 
   const onSubmit = handleSubmit(async values => {
+    const sendsHeaders = Number(values.notificationType) === NotificationType.Webhook;
     const payload = {
       name: values.name,
       description: values.description?.trim() ? values.description.trim() : null,
       destination: values.destination,
       notificationType: values.notificationType as NotificationType,
-      headersJson: values.headersJson?.trim() ? values.headersJson.trim() : null,
+      // Only webhooks send custom headers. An empty headers field keeps the stored headers on update, so clearing
+      // them sends an empty object.
+      headersJson: !sendsHeaders
+        ? null
+        : values.headersJson?.trim()
+          ? values.headersJson.trim()
+          : isEdit && (recipient?.headersJson || unreadable) ? '{}' : null,
       bodyTemplate: values.bodyTemplate?.trim() ? values.bodyTemplate.trim() : null,
     };
 
@@ -150,6 +162,14 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
       }
     >
       <form id="recipient-form" onSubmit={onSubmit} noValidate className="flex flex-col gap-3.5">
+        {unreadable && (
+          <Banner
+            tone="crit"
+            title="The stored destination cannot be read"
+            sub="It was saved with another encryption key. Enter the destination (and any custom headers) again to keep this recipient working."
+          />
+        )}
+
         <Field label={<>Notification type <span className="text-crit">*</span></>}>
           <Select
             id="recipient-type"
@@ -176,7 +196,9 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
 
         <Field
           label={<>{destinationLabel(Number(notificationType))} <span className="text-crit">*</span></>}
-          hint={destinationHint(Number(notificationType))}
+          hint={isEdit
+            ? `${destinationHint(Number(notificationType))} Leave the masked part (${MASK}) as is to keep the stored secret.`
+            : destinationHint(Number(notificationType))}
         >
           <Input
             id="recipient-destination"
@@ -199,7 +221,12 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
 
         {isWebhook && (
           <>
-            <Field label="Custom headers (JSON)" hint="Optional JSON object of HTTP headers to send with the webhook.">
+            <Field
+              label="Custom headers (JSON)"
+              hint={isEdit
+                ? `Optional JSON object of HTTP headers. A ${MASK} value keeps the stored one; clear the field to remove all headers.`
+                : 'Optional JSON object of HTTP headers to send with the webhook. Allowed: Authorization, Api-Key, Ocp-Apim-Subscription-Key and X- headers.'}
+            >
               <Textarea
                 id="recipient-headers"
                 rows={3}

@@ -7,6 +7,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatNumber } from '@/lib/format';
+import { useIsAdmin } from '@/auth/useAuth';
 import {
   NOTIFICATION_TYPE_LABEL,
   useDeleteRecipient,
@@ -21,6 +22,8 @@ export default function RecipientsListPage() {
   const list = useRecipientsList();
   const { data, isLoading, isError, error, refetch } = list;
   const deleteMutation = useDeleteRecipient();
+  // Only admins create, edit or delete recipients (the server enforces it); others list names and types.
+  const isAdmin = useIsAdmin() === true;
 
   const [editing, setEditing] = useState<RecipientEntry | null | undefined>(undefined); // undefined = closed
   const [deleting, setDeleting] = useState<RecipientEntry | null>(null);
@@ -36,9 +39,12 @@ export default function RecipientsListPage() {
     },
     {
       key: 'destination',
-      sortKey: 'destination',
       header: 'Destination',
-      render: r => <span className="mono text-xs">{r.destination}</span>,
+      render: r => r.secretsUnreadable
+        ? <Pill tone="crit" title="The stored destination or headers cannot be read. Open the recipient and enter them again.">Re-enter destination</Pill>
+        : r.destination
+          ? <span className="mono text-xs">{r.destination}</span>
+          : <span className="text-text-muted">—</span>,
     },
     {
       key: 'type',
@@ -62,17 +68,19 @@ export default function RecipientsListPage() {
     {
       key: 'actions',
       header: '',
-      render: r => (
-        <Button
-          variant="ghost"
-          aria-label={`Delete ${r.name}`}
-          onClick={e => { e.stopPropagation(); setDeleting(r); }}
-          title="Delete recipient"
-          icon={<X />}
-        />
-      ),
+      render: r => isAdmin
+        ? (
+          <Button
+            variant="ghost"
+            aria-label={`Delete ${r.name}`}
+            onClick={e => { e.stopPropagation(); setDeleting(r); }}
+            title="Delete recipient"
+            icon={<X />}
+          />
+        )
+        : null,
     },
-  ], []);
+  ], [isAdmin]);
 
   const onConfirmDelete = async () => {
     if (deleting == null) return;
@@ -100,9 +108,11 @@ export default function RecipientsListPage() {
             <Button onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
               Refresh
             </Button>
-            <Button variant="primary" onClick={() => setEditing(null)} icon={<Plus />}>
-              Add recipient
-            </Button>
+            {isAdmin && (
+              <Button variant="primary" onClick={() => setEditing(null)} icon={<Plus />}>
+                Add recipient
+              </Button>
+            )}
           </>
         }
       />
@@ -126,7 +136,7 @@ export default function RecipientsListPage() {
             <input
               type="search"
               className="w-full bg-surface text-text border border-border-strong rounded-sm px-2.5 py-1.5 text-sm placeholder:text-text-subtle focus:border-brand-500 focus:outline-none focus:shadow-ring"
-              placeholder="Search by name, destination, or description"
+              placeholder="Search by name or description"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -138,12 +148,16 @@ export default function RecipientsListPage() {
             {...list.tableProps}
             rowKey={r => r.id}
             gridTemplate={GRID_TEMPLATE}
-            onRowClick={r => setEditing(r)}
+            onRowClick={isAdmin ? r => setEditing(r) : undefined}
             empty={
               <EmptyState
                 icon={<Users />}
                 title={isLoading ? 'Loading recipients…' : 'No recipients yet'}
-                description={isLoading ? '' : 'Add a recipient so subscriptions have somewhere to send alerts.'}
+                description={isLoading
+                  ? ''
+                  : isAdmin
+                    ? 'Add a recipient so subscriptions have somewhere to send alerts.'
+                    : 'An admin adds recipients; you can then attach them to subscriptions.'}
               />
             }
           />
