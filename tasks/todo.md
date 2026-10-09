@@ -1,42 +1,52 @@
-# MCP compliance & observability — Beacon side (2026-09-28)
+# Phase 0 security slice — release 4.5.1 (2026-10-08)
 
-Spec: `docs/specs/2026-09-28-mcp-telemetry-audit.md` · Plan: `docs/plans/2026-09-28-mcp-telemetry-audit.md`
-Rigor: HIGH (4 batches, 38 manifest entries, security_impact=requires-audit-trail)
+Spec: `docs/specs/2026-10-08-phase0-security-slice.md` · Plan: `docs/plans/2026-10-08-phase0-security-slice.md`
+Branch: `fix/phase0-security-slice` (from origin/main 944793bb)
+Rigor: MAX (score 33 — 7 batches, 57 files, security_impact=new-auth-path)
 
-## B1 — Audit correlation schema
-- [x] Tests first: `McpAuditCorrelationTests` (trace/span/session/request/api-key ids; bad request id dropped), `McpAuditOptionsValidationTests`
-- [x] `McpAuditLog` + 5 columns; context max lengths + `CreatedTime` index
-- [x] `McpAuditOptions` under `Beacon:Mcp:Audit` + validation
-- [x] `McpAuditService` fills the columns; fix constructor call sites in fixtures
-- [x] Deny list: 4 Structural rules
-- [x] PG migration (scaffold) + SQL Server migration (hand-written) + both snapshots
-- [x] Checkpoint: build + test
+## B1 — SQLite final-query gate (0.1)
+- [x] Tests first: InMemoryDatabaseManagerTests (ATTACH blocked, paged callback), VirtualTableManagerTests (paged ATTACH/CREATE/zero-step rejected before load), QueryServiceReadOnlyGateTests (create/update FinalQuery)
+- [x] `SQLITE_LIMIT_ATTACHED = 0`; `ExecutePagedAsync(validate)` gates the original statement; static `TranslateResultReferences`
+- [x] Paged final query validated before loading; save paths validate FinalQuery
+- [x] Checkpoint: build + tests
 
-## B2 — Telemetry, log stream, fail-closed
-- [x] Tests first: `McpAuditTelemetryTests` (log event, span tags, content matrix, metrics), `McpAuditCallToolFilterTests`
-- [x] `BeaconTelemetry` (Core, BCL only) + `BeaconTelemetryOptions`
-- [x] `McpAuditOutcome` scoped; audit service sets it
-- [x] `Beacon.Audit` 9100 event — ids and counts only
-- [x] Span tags on `Activity.Current`; `beacon.tool.input` only with CaptureContent AND retain-content
-- [x] `McpAuditCallToolFilter` registered via `AddCallToolFilter`
-- [x] Checkpoint: build + test
+## B2 — ReDoS + input caps (0.3)
+- [x] Tests first: QueryGuardrailServiceTests (128 KB < 1 s, stacked write rejected, timeout fail-closed), SqlExecutionGateTests (SqlTooLong), McpInputLimitsTests (new), ProjectAskToolRepairFlowTests (long question)
+- [x] Linear DangerousPattern + timeouts + IsMatchFailClosed seam; atomic LeadingSelectPattern
+- [x] MaxSqlChars / MaxQuestionChars options + validation; gate length cap; ask question cap
+- [x] Checkpoint: build + tests
 
-## B3 — Retention + export
-- [x] Tests first: `McpAuditRetentionTests`, `McpAuditQueryTranslationTests`, `GetMcpAuditLogsHandlerTests`, `McpAuditEndpointTests`
-- [x] `IMcpAuditRetentionService` + Warp job `mcp-audit-retention` (30 3 * * *)
-- [x] `GetMcpAuditLogsHandler` + `GET /beacon/api/mcp/audit` (admin) + 9103 read event
-- [x] Checkpoint: build + test
+## B3 — PII masking by result column (0.4)
+- [x] Tests first: PiiRowMaskerTests (new); SELECT * / alias / customer_email / email_address on query, ask, cross-source, saved-query surfaces
+- [x] Static `PiiRowMasker.Mask`; replace 4 masking blocks; ReadOnlyExecutionRoutingTests green unmodified
+- [x] Checkpoint: build + tests
 
-## B4 — Host wiring, continuity, docs
-- [x] Package legitimacy: OpenTelemetry.* 1.18.0
-- [x] `AddBeaconInstrumentation` (tracer + meter) in Beacon.Api
-- [x] Sample host OTel (only when `OTEL_EXPORTER_OTLP_ENDPOINT` set)
-- [x] `HostEndpointDispatcher` TraceIdentifier from `Activity.Current`
-- [x] Docs: `features/mcp-observability-and-audit.md`
-- [x] Tests: `BeaconTelemetryBuilderExtensionsTests`, `HostEndpointDispatcherTraceTests`
-- [x] Full build + test
+## B4 — Permission enforcement + disabled-user keys (0.2, 0.17)
+- [x] Tests first: BeaconPermissionEndpointFilterTests, AuthProviderRegistrationTests, DatabaseAuthorizationProviderIdentityTests, ApiKeyServiceValidationTests (new)
+- [x] Default* providers after user-management block; DatabaseAuthorizationProvider resolves API-key (username) and cookie/OIDC (NameIdentifier) callers
+- [x] BeaconPermissionEndpointFilter + AllowViewerAccess on 3 endpoints; delete BeaconAuthorizationMiddleware
+- [x] ApiKeyService rejects disabled users
+- [x] Checkpoint: build + tests + OpenApiContractTests + Phase1HarnessTests (vs baseline)
+
+## B5 — Login rate limit (0.7)
+- [x] Tests first: LoginEndpointsTests (11th attempt → 429 without host limiter; per-IP; host limiter without policy still works)
+- [x] LoginRateLimiter + filter; registered in AddBeaconApiServices; sample policy removed
+- [x] Checkpoint: build + tests
+
+## B6 — AI actors propose-only (0.5)
+- [x] Tests first: AiActorActionGuardTests, AiActorServiceProposeOnlyTests (new)
+- [x] AiActorActionGuard; ExecuteOrProposeAsync in 3 loops; archive owner/lock, create caps; `Proposed` flag; docs
+- [x] Checkpoint: build + tests
+
+## B7 — Project scoping + MCP early-return audit (0.9, 0.11)
+- [x] Tests first: LearnedPatternProjectScopingTests, McpToolEarlyReturnAuditTests (new)
+- [x] ProjectId filter at both pattern sites; drop unscoped doc arm of SearchAsync
+- [x] Audit every early return in get_context / search / get_documentation
+- [x] Checkpoint: build + tests
 
 ## Review
-- [x] Spec drift check
-- [x] compliance-reviewer, test-reviewer, architecture-reviewer (3 iterations)
-- [x] Fix findings, simplify, lessons
+- [x] Full build + test vs baseline (1760 → 2093)
+- [x] Behavioural diff / release notes
+- [x] Spec-drift check
+- [x] Stage 1 compliance review; Stage 2 test + architecture + silent-failure lanes
+- [x] Fix findings (3 iterations + 1 post-cap PII fix); cleanup; lessons

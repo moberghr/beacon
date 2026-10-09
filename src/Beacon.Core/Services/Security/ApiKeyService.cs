@@ -59,6 +59,12 @@ internal sealed class ApiKeyService(
         if (credential.IsRevoked) return null;
         if (credential.ExpiresAt.HasValue && credential.ExpiresAt < DateTime.UtcNow) return null;
 
+        // A disabled or archived user (soft-delete filter yields User == null while UserId is set) can no longer sign in, so their keys stop working too. A key with no linked user is unaffected.
+        if (credential.UserId != null && credential.User is not { IsEnabled: true })
+        {
+            return null;
+        }
+
         return credential;
     }
 

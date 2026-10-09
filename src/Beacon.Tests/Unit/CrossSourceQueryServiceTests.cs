@@ -9,6 +9,7 @@ using Beacon.AI.Services.Mcp;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Models.Providers;
@@ -33,7 +34,11 @@ public class CrossSourceQueryServiceTests
 {
     private const int ProjectId = 42;
     private const int DataSourceId = 7;
+    private const int CrmDataSourceId = 8;
     private const int MaxRowLimit = 250;
+    private const string WarehouseContext = "schema context";
+    private const string CrmContext = "crm schema context";
+    private const string HostKey = "efcore:Warehouse";
 
     private Mock<IDataSourceProvider> _provider = null!;
     private Mock<ISqlGenerationService> _sqlGen = null!;
@@ -204,6 +209,170 @@ public class CrossSourceQueryServiceTests
         _provider.VerifyNoOtherCalls();
     }
 
+    [TestCase("SELECT * FROM orders", "email")]
+    [TestCase("SELECT * FROM orders", "customer_email")]
+    [TestCase("SELECT * FROM orders", "email_address")]
+    public async Task PiiDetectionOn_MasksPiiResultColumns_InTheJoinedOutput(string sql, string resultColumn)
+    {
+        Generates(sql);
+        ReturnsRows(new Dictionary<string, object?> { [resultColumn] = "alice@example.com", ["total"] = 5 });
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().NotContain("alice@example.com");
+        text.Should().Contain("a***m");
+    }
+
+    // SC7: the result key "contact" is not PII by name and the SQL-text match is "email" — only the source SQL's alias
+    // resolution, carried into the join query by name, masks it.
+    [TestCase("SELECT email AS contact, total FROM orders")]
+    [TestCase("SELECT lower(o.email) AS contact, o.total FROM orders o")]
+    public async Task PiiDetectionOn_MasksAnAliasedPiiColumn_InTheJoinedOutput(string sql)
+    {
+        Generates(sql);
+        ReturnsRows(new Dictionary<string, object?> { ["contact"] = "alice@example.com", ["total"] = 5 });
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().NotContain("alice@example.com");
+        text.Should().Contain("a***m");
+    }
+
+    // F1: address_id matches the unanchored PII pattern. Masked before the join, 12345 and 10005 both become "1***5",
+    // collide, and the join cross-matches into 4 rows; the keys must reach the join raw and only the output be masked.
+    [Test]
+    public async Task TwoSourceJoin_OnAKeyMatchingThePiiPattern_JoinsTheRawKeys_AndMasksThePiiOutput()
+    {
+        GeneratesFor(WarehouseContext, "SELECT * FROM orders");
+        GeneratesFor(CrmContext, "SELECT address_id, city FROM addresses");
+        ReturnsRowsFor(
+            DataSourceId,
+            Row(("address_id", 12345L), ("email", "alice@example.com")),
+            Row(("address_id", 10005L), ("email", "bob@example.com")));
+        ReturnsRowsFor(
+            CrmDataSourceId,
+            Row(("address_id", 12345L), ("city", "Zagreb")),
+            Row(("address_id", 10005L), ("city", "Split")));
+        JoinsWith("SELECT r1.email, r1.email AS contact, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id ORDER BY r2.city");
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().Contain("### Final Results (2 rows", "distinct join keys must not collide");
+        text.Should().NotContain("alice@example.com").And.NotContain("bob@example.com");
+        ResultLine(text, "Zagreb").Should().Be("| a***m | a***m | Zagreb |");
+        ResultLine(text, "Split").Should().Be("| b***m | b***m | Split |");
+    }
+
+    [Test]
+    public async Task TwoSourceJoin_ASourcesAliasedPiiColumn_StaysMaskedThroughTheJoin()
+    {
+        GeneratesFor(WarehouseContext, "SELECT address_id, email AS contact FROM orders");
+        GeneratesFor(CrmContext, "SELECT address_id, city FROM addresses");
+        ReturnsRowsFor(
+            DataSourceId,
+            Row(("address_id", 12345L), ("contact", "alice@example.com")),
+            Row(("address_id", 10005L), ("contact", "bob@example.com")));
+        ReturnsRowsFor(
+            CrmDataSourceId,
+            Row(("address_id", 12345L), ("city", "Zagreb")),
+            Row(("address_id", 10005L), ("city", "Split")));
+        JoinsWith("SELECT r1.contact, r1.contact AS who, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id ORDER BY r2.city");
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().Contain("### Final Results (2 rows", "distinct join keys must not collide");
+        text.Should().NotContain("alice@example.com").And.NotContain("bob@example.com");
+        ResultLine(text, "Zagreb").Should().Be("| a***m | a***m | Zagreb |");
+        ResultLine(text, "Split").Should().Be("| b***m | b***m | Split |");
+    }
+
+    // F-3: a host-masked column is masked BEFORE its rows enter the in-memory join store. With PII detection off the
+    // joined output gets no masking of its own, so a join query reading ref_code back under another name (x) would
+    // otherwise return the raw value.
+    [Test]
+    public async Task TwoSourceJoin_AHostMaskedColumn_IsMaskedBeforeTheJoin_EvenUnderAnAlias()
+    {
+        var hostGuard = new Mock<IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check(HostKey, It.IsAny<string>()))
+            .Returns(new HostPolicyResult(true, null, ["ref_code"]));
+        GeneratesFor(WarehouseContext, "SELECT * FROM orders");
+        GeneratesFor(CrmContext, "SELECT address_id, city FROM addresses");
+        ReturnsRowsFor(DataSourceId, Row(("address_id", 12345L), ("ref_code", "123456789")));
+        ReturnsRowsFor(CrmDataSourceId, Row(("address_id", 12345L), ("city", "Zagreb")));
+        JoinsWith("SELECT r1.ref_code, r1.ref_code AS x, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id");
+
+        var (text, succeeded) = await CreateService(hostGuard.Object).ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        hostGuard.Verify(x => x.Check(HostKey, It.IsAny<string>()), Times.AtLeastOnce(), "the warehouse source is host-managed");
+        text.Should().NotContain("123456789");
+        ResultLine(text, "Zagreb").Should().Be("| 1***9 | 1***9 | Zagreb |");
+    }
+
+    [Test]
+    public async Task PiiDetectionOff_DoesNotMaskResultColumns()
+    {
+        Generates("SELECT * FROM orders");
+        ReturnsRows(new Dictionary<string, object?> { ["customer_email"] = "alice@example.com", ["total"] = 5 });
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().Contain("alice@example.com");
+    }
+
+    private void ReturnsRows(Dictionary<string, object?> row)
+    {
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [row] });
+    }
+
+    private void ReturnsRowsFor(int dataSourceId, params Dictionary<string, object?>[] rows)
+    {
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.Is<DataSource>(y => y.Id == dataSourceId), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = rows.ToList() });
+    }
+
+    private void GeneratesFor(string schemaContext, string sql)
+    {
+        _sqlGen
+            .Setup(x => x.GenerateAsync(
+                It.IsAny<ILlmProvider>(), schemaContext, It.IsAny<string>(),
+                It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(sql, []));
+    }
+
+    private void JoinsWith(string joinSql)
+    {
+        _llm
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = joinSql });
+    }
+
+    private static Dictionary<string, object?> Row(params (string Key, object? Value)[] values) =>
+        values.ToDictionary(x => x.Key, x => x.Value);
+
+    private static string ResultLine(string text, string marker) =>
+        text
+            .Split('\n')
+            .Single(x => x.Contains(marker));
+
+    private static McpSettingsData PiiSettings(bool detect) =>
+        new() { MaxRowLimit = MaxRowLimit, EnableSemanticLint = false, EnablePiiDetection = detect };
+
     private void Generates(string sql)
     {
         _sqlGen
@@ -216,19 +385,32 @@ public class CrossSourceQueryServiceTests
     private static List<RoutedSource> Sources() =>
         [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "warehouse", Reason = "test" }];
 
+    private static List<RoutedSource> TwoSources() =>
+    [
+        new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "warehouse", Reason = "test" },
+        new RoutedSource { DataSourceId = CrmDataSourceId, DataSourceName = "crm", Reason = "test" }
+    ];
+
     private static McpSettingsData Settings() => new() { MaxRowLimit = MaxRowLimit, EnableSemanticLint = false };
 
     private static Dictionary<string, HashSet<string>> Catalog() => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["orders"] = new(StringComparer.OrdinalIgnoreCase) { "id", "customer_id", "total" }
+        ["orders"] = new(StringComparer.OrdinalIgnoreCase) { "id", "customer_id", "total", "email", "address_id" }
     };
 
-    private CrossSourceQueryService CreateService()
+    private static Dictionary<string, HashSet<string>> CrmCatalog() => new(StringComparer.OrdinalIgnoreCase)
     {
+        ["addresses"] = new(StringComparer.OrdinalIgnoreCase) { "address_id", "city" }
+    };
+
+    // A host guard makes the warehouse source host-managed under HostKey.
+    private CrossSourceQueryService CreateService(IHostDataSourceGuard? hostGuard = null)
+    {
+        var warehouseHostKey = hostGuard == null ? null : HostKey;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new CrossSourceTestContext());
+            .ReturnsAsync(() => new CrossSourceTestContext(warehouseHostKey));
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -240,9 +422,17 @@ public class CrossSourceQueryServiceTests
             .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
-                FullContext = "schema context",
+                FullContext = WarehouseContext,
                 DatabaseDialect = "PostgreSQL",
                 SchemaCatalog = Catalog()
+            });
+        knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(CrmDataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = CrmContext,
+                DatabaseDialect = "PostgreSQL",
+                SchemaCatalog = CrmCatalog()
             });
 
         var guardrail = new QueryGuardrailService();
@@ -251,7 +441,7 @@ public class CrossSourceQueryServiceTests
             factory.Object,
             providerFactory.Object,
             guardrail,
-            TestSqlGate.Create(guardrail),
+            TestSqlGate.Create(guardrail, hostGuard),
             knowledgeGraph.Object,
             _sqlGen.Object,
             NullLoggerFactory.Instance,
@@ -267,8 +457,11 @@ public class CrossSourceQueryServiceTests
                 .UseSnakeCaseNamingConvention()
                 .Options;
 
-        public CrossSourceTestContext() : base(Options, "beacon")
+        private readonly string? _warehouseHostKey;
+
+        public CrossSourceTestContext(string? warehouseHostKey) : base(Options, "beacon")
         {
+            _warehouseHostKey = warehouseHostKey;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -281,6 +474,15 @@ public class CrossSourceQueryServiceTests
                     {
                         Id = DataSourceId,
                         Name = "warehouse",
+                        DataSourceType = DataSourceType.Database,
+                        EncryptedConnectionData = "encrypted",
+                        DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                        HostManagedKey = _warehouseHostKey
+                    },
+                    new()
+                    {
+                        Id = CrmDataSourceId,
+                        Name = "crm",
                         DataSourceType = DataSourceType.Database,
                         EncryptedConnectionData = "encrypted",
                         DatabaseEngineType = DatabaseEngineType.PostgreSQL

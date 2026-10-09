@@ -82,6 +82,10 @@ internal sealed class SavedQueryToolExecutor(
         // bounded by the intermediate cap instead.
         var hasFinalQuery = tool.FinalQuery != null;
         var stepResults = new List<(int StepOrder, DataSource DataSource, List<Dictionary<string, object?>> Rows)>();
+        var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
+        // The steps' PII result columns (by name or by their SQL's aliasing), masked on the final query's rows, which
+        // read them back by name.
+        var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var step in tool.Steps)
         {
@@ -134,13 +138,32 @@ internal sealed class SavedQueryToolExecutor(
                 return SavedQueryToolExecution.Failed($"Step {step.StepOrder} returned more than {IntermediateRowCap} rows; the joined result would be incomplete.", tablesUsed, firstDataSourceId);
             }
 
-            // Mask PII before rows leave the step — they may feed the in-memory join (§1.6/§1.11).
-            if (report.PiiColumns.Count > 0)
+            var dialect = dataSource.DatabaseEngineType.Value.ToString();
+            if (hasFinalQuery && settings.EnablePiiDetection)
             {
-                rows = rows
-                    .Select(x => guardrailService.MaskPiiValues(x, report.PiiColumns))
-                    .ToList();
+                joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(
+                    guardrailService,
+                    rows.SelectMany(x => x.Keys),
+                    report.PiiColumns,
+                    detectByColumnName: true,
+                    customPatterns,
+                    report.FinalSql,
+                    dialect));
             }
+
+            // Mask PII before rows leave the step (§1.6/§1.11). report.PiiColumns carries the SQL-text matches and the
+            // host-masked columns (even with detection off). Result-column + alias detection runs only on the rows
+            // returned as the result: on rows that feed the in-memory join it would also hit join keys the unanchored
+            // PII pattern matches (address_id, zip_code_id) and make distinct keys collide, so the final query's rows
+            // get it instead.
+            rows = PiiRowMasker.Mask(
+                guardrailService,
+                rows,
+                report.PiiColumns,
+                isResultStep && settings.EnablePiiDetection,
+                customPatterns,
+                report.FinalSql,
+                dialect);
 
             stepResults.Add((step.StepOrder, dataSource, rows));
         }
@@ -150,12 +173,13 @@ internal sealed class SavedQueryToolExecutor(
             return Complete(stepResults[^1].Rows, maxRows, tablesUsed, firstDataSourceId);
         }
 
-        return await ExecuteFinalQueryAsync(tool, stepResults, settings, maxRows, tablesUsed, firstDataSourceId);
+        return await ExecuteFinalQueryAsync(tool, stepResults, joinPiiColumns, settings, maxRows, tablesUsed, firstDataSourceId);
     }
 
     private async Task<SavedQueryToolExecution> ExecuteFinalQueryAsync(
         SavedQueryToolDefinition tool,
         List<(int StepOrder, DataSource DataSource, List<Dictionary<string, object?>> Rows)> stepResults,
+        IReadOnlySet<string> joinPiiColumns,
         Models.McpSettingsData settings,
         int maxRows,
         List<string> tablesUsed,
@@ -195,9 +219,18 @@ internal sealed class SavedQueryToolExecutor(
             return SavedQueryToolExecution.Failed("The final query timed out.", tablesUsed, firstDataSourceId);
         }
 
-        var finalRows = results
-            .Select(x => new Dictionary<string, object?>(x))
-            .ToList();
+        // The final rows get the full masking: the steps' PII columns read back by name, the final SQL's text matches,
+        // PII-named result columns and the final SQL's aliases (§1.6/§1.11).
+        var finalRows = PiiRowMasker.Mask(
+            guardrailService,
+            results
+                .Select(x => new Dictionary<string, object?>(x))
+                .ToList(),
+            report.PiiColumns.Concat(joinPiiColumns),
+            settings.EnablePiiDetection,
+            settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null,
+            report.FinalSql,
+            SqliteDialect);
 
         return Complete(finalRows, maxRows, tablesUsed, firstDataSourceId);
     }

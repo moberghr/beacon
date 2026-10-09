@@ -114,6 +114,11 @@ internal sealed class CrossSourceQueryService(
 
         using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>());
         var anyExecuted = false;
+        var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
+        // Each source's PII result columns (by name or by its SQL's aliasing), masked on the JOINED rows below where
+        // the join query reads them back by name — never before the join, where the unanchored PII pattern would also
+        // hit join keys (address_id, zip_code_id) and make distinct keys collide.
+        var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < sourceQueries.Count; i++)
         {
@@ -177,24 +182,21 @@ internal sealed class CrossSourceQueryService(
 
             if (result.Rows?.Count > 0)
             {
-                // Mask PII before rows enter the in-memory join store so the joined output returned to the
-                // MCP client is masked too (§1.6/§1.11). Recompute PII columns from the SQL that ACTUALLY
-                // executed — DryRunWithRepairAsync above may have replaced `sql`, so the pre-repair
-                // `validation.PiiColumns` can reference the wrong columns.
-                var rows = result.Rows;
+                // Before rows enter the in-memory join store, mask only the SQL-text PII matches and host-masked
+                // columns (§1.6/§1.11) — finalReport was evaluated on the SQL that ACTUALLY executed, after
+                // DryRunWithRepairAsync may have replaced `sql`. Result-column and alias masking happens on the
+                // joined rows, so it cannot corrupt a join key.
+                var rows = PiiRowMasker.Mask(guardrailService, result.Rows, finalReport.PiiColumns, detectByColumnName: false, customPatterns);
                 if (settings.EnablePiiDetection)
                 {
-                    var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
-                    {
-                        ReadOnly = false,
-                        DetectPii = true,
-                        CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-                    }).PiiColumns;
-
-                    if (piiColumns is { Count: > 0 } piiCols)
-                    {
-                        rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
-                    }
+                    joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(
+                        guardrailService,
+                        result.Rows.SelectMany(x => x.Keys),
+                        finalReport.PiiColumns,
+                        detectByColumnName: true,
+                        customPatterns,
+                        limitedSql,
+                        dialect));
                 }
 
                 var tableName = $"result{i + 1}";
@@ -268,8 +270,21 @@ internal sealed class CrossSourceQueryService(
 
         if (joinResults.Count > 0)
         {
-            text += $"### Final Results ({joinResults.Count} rows, {execTimeMs:F0}ms)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(joinResults);
+            // The joined output returned to the MCP client gets the full masking: the sources' PII columns read
+            // back by name, the join SQL's text matches, PII-named result columns and the join SQL's aliases.
+            var joinedRows = PiiRowMasker.Mask(
+                guardrailService,
+                joinResults
+                    .Select(x => new Dictionary<string, object?>(x))
+                    .ToList(),
+                joinPiiColumns.Concat(joinReport.PiiColumns),
+                settings.EnablePiiDetection,
+                customPatterns,
+                translatedSql,
+                "SQLite");
+
+            text += $"### Final Results ({joinedRows.Count} rows, {execTimeMs:F0}ms)\n\n";
+            text += ToolHelper.FormatResultsAsMarkdown(joinedRows);
         }
         else
         {

@@ -504,3 +504,59 @@ buckets such as `q_*`, `api_*`, `<other>`). Charset bounding is for log fields; 
 metric tags.
 
 **When it applies:** every new `Meter` instrument tag, especially tool names, routes, error texts.
+
+## SqlParserCS nests block comments for every dialect — SQLite and MySQL do not (2026-10-09)
+
+**What happened:** The Phase 0 audit found that SqlParserCS nests `/* */` block comments for every dialect, while SQLite and MySQL end a comment at the first `*/`. The AST gate and the engine could therefore disagree about where a statement ends.
+
+**Rule:** The AST validator is never the only barrier for an engine whose lexer differs from the parser's. For the in-memory SQLite store the engine enforces it (authorizer + single-statement prepare + `HasNestedBlockComment` rejection); give every other engine whose lexer differs the same engine-side treatment.
+
+**When it applies:** Any new SQL surface validated by `SqlReadOnlyAstValidator` / `SqlExecutionGate` for a dialect other than PostgreSQL/T-SQL, and any SqlParserCS upgrade.
+
+## In-memory SQLite: install the authorizer before anything caller-controlled is prepared — including table loads (2026-10-09)
+
+**What happened:** The read-only authorizer was installed only when the first query ran. Result-column names (caller-controlled aliases such as `SELECT 1 AS "a]);PRAGMA hard_heap_limit=200000;--"`) were pasted unescaped into the `CREATE TABLE`/`INSERT` batch that runs BEFORE that, so a PRAGMA ran and broke every later join in the process. Some PRAGMAs also take effect while compiling, so even a "just check it is one statement" prepare must happen after the authorizer is in place.
+
+**Rule:** `InMemoryDatabaseManager` installs a load-phase authorizer at construction and switches to the read-only set before the first query; identifiers go through `QuoteIdentifier` (`"` doubled), values through positional `@pN` parameters, one statement per command. The load-phase authorizer must allow CREATE TABLE/INSERT, so quoting is the real barrier — keep the single-statement load guard even though it looks unreachable.
+
+**When it applies:** Any change to `InMemoryDatabaseManager`, `VirtualTableManager`, `CrossSourceQueryService` or `SavedQueryToolExecutor` table loading.
+
+## A guard regex is not redundant until adversarial inputs say so (2026-10-09)
+
+**What happened:** The spec planned to delete `QueryGuardrailService`'s comment-hidden-write pattern as redundant with the AST validator while fixing its ReDoS. The implementer found it is the only check that sees comment contents: MySQL executable comments (`/*!50000 DELETE ... */`) are invisible to the AST.
+
+**Rule:** Before removing a guard, list the inputs only it catches. Fix a ReDoS by rewriting the pattern linearly (and giving every static `Regex` a `MatchTimeout`, enforced by a reflection test in `QueryGuardrailServiceTests`), not by deleting it.
+
+**When it applies:** Any simplification of `QueryGuardrailService`, `SqlRowLimitRewriter` or other security regexes.
+
+## PII masking keyed on SQL text leaks through every rename (2026-10-09)
+
+**What happened:** Masking matched result columns against PII source names found in the SQL text, so `SELECT email AS contact` returned raw emails. Review then found more rename shapes: column-list aliases (`customers AS c(id, x)`), wildcard set-operation arms, `WITH x(a,b) AS (SELECT * ...)`, `unnest(ARRAY[t.email]) AS u(y)` and whole-row references (`row_to_json(c)`). The final review found one more: unaliased expressions.
+
+**Rule:** `PiiRowMasker.ResolvePiiColumns` resolves output columns from the AST and FAILS CLOSED (masks every column) whenever it cannot prove where a PII source went. That includes an UNALIASED computed expression reading PII (`SELECT row_to_json(c)`, `lower(email)`, `c::text`): the engine names it, so nothing can trace it. Apply that rule only where output names reach a reader (the statement, a CTE, a derived table) — a scalar subquery inside an expression is exempt, or `SELECT (SELECT max(email) …) AS contact, 'x' AS name` masks everything. Over-masking is the accepted trade-off; a plain single-arm `SELECT *` stays keyed on real result names. New SQL shapes get a leak test first.
+
+**When it applies:** Any change to PII detection, masking, or a new result path that returns rows to MCP callers.
+
+## SqlParserCS `Visitor` does not visit function arguments (2026-10-09)
+
+**What happened:** A column collector built on `PreVisitExpression` missed identifiers inside function calls (`lower(email)`, `row_to_json(c)`), the same family of gaps as the `PreVisitQuery` lesson above.
+
+**Rule:** For security-relevant column collection walk the AST reflectively (the `HostQueryPolicyValidator` `AstProperties` pattern) instead of trusting the `Visitor` hooks, and prove coverage with a function-argument test.
+
+**When it applies:** Any new SqlParserCS-based collector (PII, schema, policy validation).
+
+## A soft-deleted navigation is null, not "no relation" (2026-10-09)
+
+**What happened:** `ApiKeyService` treated `credential.User is { IsEnabled: false }` as the disabled-user check. Deleting a user archives it, the `ArchivableBaseEntity` query filter makes `Include(x => x.User)` return `null` while `UserId` is still set, and the key kept working (including Execute-scope MCP SQL).
+
+**Rule:** When an FK is set but its navigation is null, the related row was filtered (archived) — treat it as denied: `credential.UserId != null && credential.User is not { IsEnabled: true }`.
+
+**When it applies:** Any authorization check that follows a navigation to an archivable entity.
+
+## Enforcing permissions: test every principal shape the middleware chain produces (2026-10-09)
+
+**What happened:** Server-side Viewer/Editor enforcement was first specified against `DatabaseAuthorizationProvider` looking users up by `NameIdentifier`. The plan-gap review found API-key principals carry the user in a `username` claim and the sample cookie principal differs again — enforcement would have denied or mis-resolved them. Separately, `Default*` providers registered with `TryAdd` before the user-management block shadowed the database providers, so enforcement was silently allow-all.
+
+**Rule:** Resolve identity per principal type using the `McpCallerClaimTypes` constants (API-key path only when `AuthenticationType == ApiKeyAuthenticationType`), and keep one composed test that runs `ApiKeyAuthMiddleware` and feeds its principal to the real provider. With `TryAdd*`, the first registration wins — register defaults after the blocks they are defaults for, and pin it with a registration test.
+
+**When it applies:** Any change to authentication middleware, authorization providers or their DI registration.

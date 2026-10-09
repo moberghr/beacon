@@ -35,24 +35,28 @@ internal sealed class QueryExecutionService(
         {
             // Mask PII column values before returning to the MCP client (§1.6/§1.11). Read-only was
             // already enforced upstream, so here we only need PII detection. Mirrors SemanticSearchService.
-            var rows = result.Rows;
             // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId);
             // 0 falls back to the global effective settings.
             var settings = await settingsProvider.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, ct);
-            if (settings.EnablePiiDetection)
-            {
-                var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+            var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
+            var sqlPiiColumns = settings.EnablePiiDetection
+                ? guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
                 {
                     ReadOnly = false,
                     DetectPii = true,
-                    CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-                }).PiiColumns;
+                    CustomPiiPatterns = customPatterns
+                }).PiiColumns ?? []
+                : [];
 
-                if (piiColumns is { Count: > 0 } piiCols)
-                {
-                    rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
-                }
-            }
+            // The executed SQL resolves the names it aliases PII columns to (email AS contact).
+            var rows = PiiRowMasker.Mask(
+                guardrailService,
+                result.Rows,
+                sqlPiiColumns,
+                settings.EnablePiiDetection,
+                customPatterns,
+                limitedSql,
+                dataSource.DatabaseEngineType?.ToString());
 
             var text = $"### Results ({rows.Count} rows)\n\n";
             text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);

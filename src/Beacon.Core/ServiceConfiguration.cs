@@ -56,33 +56,23 @@ public static class ServiceConfiguration
         services.AddHttpClient();
         services.AddMemoryCache();
 
-        // Note: IBeaconUserContext and IBeaconAuthorizationProvider are registered by UI layer
-        // Core only provides the interfaces and default implementations
+        // Note: IBeaconUserContext is registered by the UI layer; Core provides the interfaces and implementations.
 
-        // Register authorization provider
+        // Auth providers are TryAdd registrations, so the first one wins: an explicitly configured provider type
+        // here, then the database-backed providers when user management is on (below), and only then the
+        // Default* fallbacks (registered last, after the user-management block).
         if (configurationOptions.Authorization.ProviderType != null)
         {
             services.TryAddScoped(
                 typeof(IBeaconAuthorizationProvider),
                 configurationOptions.Authorization.ProviderType);
         }
-        else
-        {
-            // Default: allow all (backward compatible)
-            services.TryAddScoped<IBeaconAuthorizationProvider, DefaultAuthorizationProvider>();
-        }
 
-        // Register authentication provider
         if (configurationOptions.Authentication.ProviderType != null)
         {
             services.TryAddScoped(
                 typeof(IBeaconAuthenticationProvider),
                 configurationOptions.Authentication.ProviderType);
-        }
-        else
-        {
-            // Default: authentication fails (requires explicit configuration)
-            services.TryAddScoped<IBeaconAuthenticationProvider, DefaultAuthenticationProvider>();
         }
 
         // MediatR for CQRS pattern
@@ -240,6 +230,11 @@ public static class ServiceConfiguration
             // Register database-backed authorization provider
             services.TryAddScoped<IBeaconAuthorizationProvider, Authorization.Providers.DatabaseAuthorizationProvider>();
         }
+
+        // Last-resort fallbacks — no explicit provider and no user management.
+        // Authorization: allow all (backward compatible). Authentication: always fails (requires explicit configuration).
+        services.TryAddScoped<IBeaconAuthorizationProvider, DefaultAuthorizationProvider>();
+        services.TryAddScoped<IBeaconAuthenticationProvider, DefaultAuthenticationProvider>();
 
         // AI-backed dependencies of handlers that Core scans in unconditionally. Registered only
         // when AI is off: AddBeaconAI registers IMcpEvalService with TryAddTransient, so an

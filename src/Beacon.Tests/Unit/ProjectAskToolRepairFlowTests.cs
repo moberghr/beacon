@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
@@ -18,6 +19,7 @@ using Beacon.MCP.Tools;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 
 namespace Beacon.Tests.Unit;
 
@@ -297,6 +299,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IDataSourceRouter>(),
             knowledgeAnswer.Object,
             Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);
 
         var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
@@ -306,6 +309,66 @@ public class ProjectAskToolRepairFlowTests
         handed!.MaxRowLimit.Should().Be(10, "project 42's override, not the global 1000");
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(ProjectId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_QuestionOverDefaultCap_FailsAuditedAndSignalled_BeforeTheLlm()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var serviceProvider = new Mock<IServiceProvider>();
+        var intentClassifier = new Mock<IIntentClassifier>();
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier);
+
+        var result = await tool.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Contain("4001").And.Contain("4000");
+
+        // §1.7 / §9.5 — the early return is audited and signalled like every other failure, attributed to the
+        // authorized project so that project's content-retention decision applies to the stored question.
+        var audit = auditLogs.Should().ContainSingle().Subject;
+        audit.Tool.Should().Be("ask");
+        audit.ProjectId.Should().Be(ProjectId);
+        audit.ErrorMessage.Should().Be(error);
+        var signal = signals.Should().ContainSingle().Subject;
+        signal.ExecutionFailed.Should().BeTrue();
+        signal.ProjectId.Should().Be(ProjectId);
+
+        serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Never);
+        intentClassifier.Verify(
+            x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_QuestionAtDefaultCap_PassesTheLengthCheck()
+    {
+        var serviceProvider = new Mock<IServiceProvider>();
+        var tool = CreateAuditedTool([], [], serviceProvider, new Mock<IIntentClassifier>());
+
+        // No ILlmProvider is registered, so the call fails one step later — proving the length check let it through.
+        var result = await tool.ExecuteAsync(new string('q', 4_000), cancellationToken: CancellationToken.None);
+
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("AI features not configured");
+        serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Once);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ConfiguredMaxQuestionChars_IsHonoured()
+    {
+        var options = new McpDeploymentOptions { Ceilings = new McpCeilingOptions { MaxQuestionChars = 10 } };
+        var serviceProvider = new Mock<IServiceProvider>();
+        var tool = CreateAuditedTool([], [], serviceProvider, new Mock<IIntentClassifier>(), options);
+
+        var rejected = await tool.ExecuteAsync(new string('q', 11), cancellationToken: CancellationToken.None);
+        var accepted = await tool.ExecuteAsync(new string('q', 10), cancellationToken: CancellationToken.None);
+
+        (rejected.IsError ?? false).Should().BeTrue();
+        rejected.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("11").And.Contain("10");
+        accepted.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("AI features not configured");
+        serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Once, "only the question within the configured cap reaches the LLM step");
     }
 
     [Test]
@@ -356,6 +419,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IDataSourceRouter>(),
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
@@ -437,6 +501,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IDataSourceRouter>(),
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
@@ -570,5 +635,77 @@ public class ProjectAskToolRepairFlowTests
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
             NullLogger<AskSqlPipeline>.Instance);
+    }
+
+    // The real audit + signal services over a capturing context (§4.7 — no DB), so a test can assert the rows
+    // an early return writes.
+    private ProjectAskTool CreateAuditedTool(
+        List<McpAuditLog> auditLogs,
+        List<McpQuerySignal> signals,
+        Mock<IServiceProvider> serviceProvider,
+        Mock<IIntentClassifier> intentClassifier,
+        McpDeploymentOptions? deploymentOptions = null)
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new AuditCaptureContext(auditLogs, signals));
+        var settingsProvider = SettingsProviderMock.Create();
+
+        return new ProjectAskTool(
+            Mock.Of<IKnowledgeGraphService>(),
+            settingsProvider.Object,
+            serviceProvider.Object,
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
+            new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            Mock.Of<IAskSqlPipeline>(),
+            _executor.Object,
+            intentClassifier.Object,
+            Mock.Of<IDataSourceRouter>(),
+            Mock.Of<IKnowledgeAnswerService>(),
+            Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(deploymentOptions ?? new McpDeploymentOptions()),
+            NullLogger<ProjectAskTool>.Instance);
+    }
+
+    private sealed class AuditCaptureContext : BeaconContext
+    {
+        private static readonly DbContextOptions<AuditCaptureContext> Options =
+            new DbContextOptionsBuilder<AuditCaptureContext>()
+                .UseNpgsql("Host=localhost;Database=unused")
+                .UseSnakeCaseNamingConvention()
+                .Options;
+
+        private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
+        private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
+
+        public AuditCaptureContext(List<McpAuditLog> auditLogs, List<McpQuerySignal> signals) : base(Options, "beacon")
+        {
+            _auditSet
+                .Setup(x => x.Add(It.IsAny<McpAuditLog>()))
+                .Callback<McpAuditLog>(auditLogs.Add);
+            _signalSet
+                .Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
+                .Callback<McpQuerySignal>(signals.Add);
+        }
+
+        public override DbSet<TEntity> Set<TEntity>() where TEntity : class
+        {
+            if (typeof(TEntity) == typeof(McpAuditLog))
+            {
+                return (DbSet<TEntity>)(object)_auditSet.Object;
+            }
+
+            if (typeof(TEntity) == typeof(McpQuerySignal))
+            {
+                return (DbSet<TEntity>)(object)_signalSet.Object;
+            }
+
+            return base.Set<TEntity>();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
     }
 }

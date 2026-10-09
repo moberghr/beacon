@@ -35,7 +35,13 @@ internal sealed class GetContextTool(
     {
         var sw = Stopwatch.StartNew();
         var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
-        if (resolveError != null) return ToolHelper.Error(resolveError);
+        if (resolveError != null)
+        {
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                project_id?.ToString(), null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
+            return ToolHelper.Error(resolveError);
+        }
 
         var normalizedFormat = string.IsNullOrWhiteSpace(format) ? OverviewFormat : format.Trim().ToLowerInvariant();
         if (normalizedFormat != OverviewFormat && normalizedFormat != AgentsMdFormat)

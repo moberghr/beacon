@@ -2,11 +2,13 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
@@ -26,6 +28,7 @@ internal sealed class ProjectAskTool(
     IDataSourceRouter dataSourceRouter,
     IKnowledgeAnswerService knowledgeAnswerService,
     ICrossSourceQueryService crossSourceQueryService,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<ProjectAskTool> logger)
 {
     [McpServerTool(Name = "ask", Title = "Ask a Data Question", ReadOnly = true, Idempotent = false, Destructive = false, OpenWorld = false)]
@@ -54,6 +57,15 @@ internal sealed class ProjectAskTool(
             return await FailAsync(signal, sw, null, question, resolveError, cancellationToken);
 
         signal.SetProjectId(projectId);
+
+        // After project resolution so the audit row is attributed to the authorized project and that project's
+        // content-retention decision governs the stored question.
+        var maxQuestionChars = (deploymentOptions.Value.Ceilings ?? new McpCeilingOptions()).EffectiveMaxQuestionChars;
+        if (question.Length > maxQuestionChars)
+        {
+            return await FailAsync(signal, sw, projectId, question,
+                $"Question is {question.Length} characters long; the limit is {maxQuestionChars}.", cancellationToken);
+        }
 
         try
         {

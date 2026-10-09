@@ -155,6 +155,134 @@ public class SavedQueryToolExecutorTests
         result.Rows[0]["total"].Should().Be(3);
     }
 
+    [TestCase("SELECT * FROM customers", "email")]
+    [TestCase("SELECT * FROM customers", "customer_email")]
+    [TestCase("SELECT * FROM customers", "email_address")]
+    public async Task PiiResultColumns_AreMaskedWhenTheProjectDetectsPii_EvenIfTheSqlTextDoesNotNameThem(string sql, string resultColumn)
+    {
+        _results.Enqueue([Row((resultColumn, "ada@example.com"), ("total", 3))]);
+        var tool = Tool("customers", [Step(1, 10, sql)], [ProjectId]);
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = true }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Rows[0][resultColumn].Should().Be("a***m");
+        result.Rows[0]["total"].Should().Be(3);
+    }
+
+    // SC7: the result key "contact" is not PII by name and the SQL-text match is "email" — only the step SQL's alias
+    // resolution masks it.
+    [TestCase("SELECT email AS contact, total FROM customers")]
+    [TestCase("SELECT lower(c.email) AS contact, c.total FROM customers c")]
+    public async Task AnAliasedPiiColumn_IsMaskedWhenTheProjectDetectsPii(string sql)
+    {
+        _results.Enqueue([Row(("contact", "ada@example.com"), ("total", 3))]);
+        var tool = Tool("customers", [Step(1, 10, sql)], [ProjectId]);
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = true }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows[0]["contact"].Should().Be("a***m");
+        result.Rows[0]["total"].Should().Be(3);
+    }
+
+    // F1: address_id matches the unanchored PII pattern. Masked before the join, 12345 and 10005 both become "1***5",
+    // collide, and the join cross-matches into 4 rows; the keys must reach the join raw and only the output be masked.
+    [Test]
+    public async Task AMultiStepJoin_OnAKeyMatchingThePiiPattern_JoinsTheRawKeys_AndMasksThePiiOutput()
+    {
+        _results.Enqueue([Row(("address_id", 12345L), ("email", "ada@example.com")), Row(("address_id", 10005L), ("email", "grace@example.com"))]);
+        _results.Enqueue([Row(("address_id", 12345L), ("city", "Zagreb")), Row(("address_id", 10005L), ("city", "Split"))]);
+        var tool = Tool(
+            "customer_cities",
+            [Step(1, 11, "SELECT * FROM customers"), Step(2, 10, "SELECT address_id, city FROM addresses")],
+            [ProjectId],
+            finalQuery: "SELECT c.email, c.email AS contact, a.city FROM @result1 c JOIN @result2 a ON a.address_id = c.address_id ORDER BY a.city");
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = true }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows.Should().HaveCount(2, "distinct join keys must not collide");
+        result.Rows[0]["city"].Should().Be("Split");
+        result.Rows[0]["email"].Should().Be("g***m");
+        result.Rows[0]["contact"].Should().Be("g***m");
+        result.Rows[1]["city"].Should().Be("Zagreb");
+        result.Rows[1]["email"].Should().Be("a***m");
+        result.Rows[1]["contact"].Should().Be("a***m");
+    }
+
+    [Test]
+    public async Task AMultiStepJoin_AStepsAliasedPiiColumn_StaysMaskedThroughTheJoin()
+    {
+        _results.Enqueue([Row(("address_id", 12345L), ("contact", "ada@example.com")), Row(("address_id", 10005L), ("contact", "grace@example.com"))]);
+        _results.Enqueue([Row(("address_id", 12345L), ("city", "Zagreb")), Row(("address_id", 10005L), ("city", "Split"))]);
+        var tool = Tool(
+            "customer_cities",
+            [Step(1, 11, "SELECT address_id, email AS contact FROM customers"), Step(2, 10, "SELECT address_id, city FROM addresses")],
+            [ProjectId],
+            finalQuery: "SELECT c.contact, c.contact AS who, a.city FROM @result1 c JOIN @result2 a ON a.address_id = c.address_id ORDER BY a.city");
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = true }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows.Should().HaveCount(2, "distinct join keys must not collide");
+        result.Rows[0]["city"].Should().Be("Split");
+        result.Rows[0]["contact"].Should().Be("g***m");
+        result.Rows[0]["who"].Should().Be("g***m");
+        result.Rows[1]["city"].Should().Be("Zagreb");
+        result.Rows[1]["contact"].Should().Be("a***m");
+        result.Rows[1]["who"].Should().Be("a***m");
+    }
+
+    [Test]
+    public async Task DetectionOff_MasksOnlyTheHostMaskedColumns()
+    {
+        var hostGuard = new Mock<IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check("netgiro", It.IsAny<string>()))
+            .Returns(new HostPolicyResult(true, null, ["ref_code"]));
+        _results.Enqueue([Row(("customer_email", "ada@example.com"), ("ref_code", "123456789"), ("total", 3))]);
+        var tool = Tool("host_rows", [Step(1, 12, "SELECT * FROM customers")], [ProjectId]);
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = false }, hostGuard.Object).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows[0]["ref_code"].Should().Be("1***9");
+        result.Rows[0]["customer_email"].Should().Be("ada@example.com", "detection is off, so only the host-masked columns are masked");
+        result.Rows[0]["total"].Should().Be(3);
+    }
+
+    // F-3: a host-masked column is masked BEFORE its rows enter the in-memory join store. With PII detection off the
+    // final rows get no masking of their own, so a final query reading ref_code back under another name (x) would
+    // otherwise return the raw value.
+    [Test]
+    public async Task AMultiStepJoin_AHostMaskedColumn_IsMaskedBeforeTheJoin_EvenUnderAnAlias()
+    {
+        var hostGuard = new Mock<IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check("netgiro", It.IsAny<string>()))
+            .Returns(new HostPolicyResult(true, null, ["ref_code"]));
+        _results.Enqueue([Row(("address_id", 12345L), ("ref_code", "123456789"))]);
+        _results.Enqueue([Row(("address_id", 12345L), ("city", "Zagreb"))]);
+        var tool = Tool(
+            "host_cities",
+            [Step(1, 12, "SELECT * FROM customers"), Step(2, 10, "SELECT address_id, city FROM addresses")],
+            [ProjectId],
+            finalQuery: "SELECT c.ref_code, c.ref_code AS x, a.city FROM @result1 c JOIN @result2 a ON a.address_id = c.address_id");
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = false }, hostGuard.Object).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        hostGuard.Verify(x => x.Check("netgiro", It.IsAny<string>()), Times.Once, "step 1 runs against the host-managed source");
+        result.Rows.Should().ContainSingle();
+        result.Rows
+            .SelectMany(x => x.Values)
+            .Should()
+            .NotContain("123456789");
+        result.Rows[0]["ref_code"].Should().Be("1***9");
+        result.Rows[0]["x"].Should().Be("1***9");
+        result.Rows[0]["city"].Should().Be("Zagreb");
+    }
+
     [Test]
     public async Task AMultiStepQuery_JoinsTheStepsInMemory()
     {

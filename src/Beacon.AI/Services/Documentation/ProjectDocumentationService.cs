@@ -177,9 +177,10 @@ internal sealed class ProjectDocumentationService(
             .ToListAsync(ct);
 
         var learnedPatterns = await context.McpLearnedPatterns
-            .Where(p => dsIds.Contains(p.DataSourceId)
-                && (p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved))
-            .OrderByDescending(p => p.Confidence)
+            .Where(x => x.ProjectId == doc.ProjectId)
+            .Where(x => dsIds.Contains(x.DataSourceId))
+            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
+            .OrderByDescending(x => x.Confidence)
             .Take(30)
             .ToListAsync(ct);
 
@@ -281,7 +282,7 @@ internal sealed class ProjectDocumentationService(
         var qualityTask = GetQualityScoresAsync(dsIds, ct);
         var contractsTask = GetContractsAsync(dsIds, ct);
         var reposTask = GetRepositoriesAsync(projectId, ct);
-        var patternsTask = GetLearnedPatternsForDocAsync(dsIds, ct);
+        var patternsTask = GetLearnedPatternsForDocAsync(projectId, dsIds, ct);
 
         await Task.WhenAll(tablesTask, codeRefsTask, qualityTask, contractsTask, reposTask, patternsTask);
 
@@ -952,17 +953,18 @@ internal sealed class ProjectDocumentationService(
             .ToListAsync(ct);
     }
 
-    private async Task<List<LearnedPatternForDoc>> GetLearnedPatternsForDocAsync(List<int> dataSourceIds, CancellationToken ct)
+    internal async Task<List<LearnedPatternForDoc>> GetLearnedPatternsForDocAsync(int projectId, List<int> dataSourceIds, CancellationToken ct)
     {
         await using var ctx = await contextFactory.CreateDbContextAsync(ct);
         return await ctx.McpLearnedPatterns
-            .Where(p => dataSourceIds.Contains(p.DataSourceId)
-                && (p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved))
-            .OrderByDescending(p => p.Confidence)
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => dataSourceIds.Contains(x.DataSourceId))
+            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
+            .OrderByDescending(x => x.Confidence)
             .Take(30)
-            .Select(p => new LearnedPatternForDoc(
-                p.PatternType.ToString(), p.TableName, p.ColumnName,
-                p.PatternContent, p.ExampleQuestion, p.ExampleSql))
+            .Select(x => new LearnedPatternForDoc(
+                x.PatternType.ToString(), x.TableName, x.ColumnName,
+                x.PatternContent, x.ExampleQuestion, x.ExampleSql))
             .ToListAsync(ct);
     }
 
@@ -1210,7 +1212,7 @@ internal sealed class ProjectDocumentationService(
                 .ToList();
     }
 
-    private sealed record LearnedPatternForDoc(
+    internal sealed record LearnedPatternForDoc(
         string PatternType, string TableName, string? ColumnName,
         string Content, string? ExampleQuestion, string? ExampleSql);
 

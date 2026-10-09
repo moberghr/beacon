@@ -283,6 +283,8 @@ public class MyAuthorizationProvider : IBeaconAuthorizationProvider
 options.AddAuthorizationProvider<MyAuthorizationProvider>();
 ```
 
+When `Authorization.Enabled` or user management is on, Beacon enforces Viewer vs Editor server-side on `/beacon/api`: `GET` requests need read permission (Viewer or above) and every other method needs write permission (Editor or above). The exceptions are running query previews and changing your own password, which a Viewer may do. Read-scoped API keys cannot call mutating endpoints, whatever role the key's user holds.
+
 :::note
 For complete authorization documentation, see the [Authorization Guide](/features/authorization/).
 :::
@@ -686,7 +688,9 @@ Most MCP behaviour is configured at runtime on the **MCP Settings** page, per pr
         "StatementTimeoutSeconds": 60,
         "MaxResultBytes": 1048576,
         "MaxExplainCost": 500.0,
-        "MaxConcurrentQueriesPerKey": 8
+        "MaxConcurrentQueriesPerKey": 8,
+        "MaxSqlChars": 100000,
+        "MaxQuestionChars": 4000
       }
     }
   }
@@ -698,8 +702,12 @@ Most MCP behaviour is configured at runtime on the **MCP Settings** page, per pr
 | `ForceReadOnly` | Pins read-only enforcement on. Attempts to disable it are refused with HTTP 409. |
 | `ForceNoContentRetention` | Pins the content lock on for every project — questions, SQL, and free-text errors are never persisted. See [Content retention](/features/mcp-server/#content-retention). |
 | `Ceilings.*` | Clamp a numeric setting **downward only**. A ceiling can lower what an administrator configured; it can never raise it. |
+| `Ceilings.MaxSqlChars` | Maximum length of SQL accepted by the MCP query tools. Default `100000`. |
+| `Ceilings.MaxQuestionChars` | Maximum length of a natural-language question accepted by `ask`. Default `4000`. |
 
-The whole section is optional — omit it and nothing is locked or clamped. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
+`MaxSqlChars` and `MaxQuestionChars` **always apply**: they use their defaults even when the `Ceilings` section is absent, and you can only tune them, not switch them off.
+
+The whole section is optional — omit it and there are no locks and no deployment-set ceilings; the SQL and question length caps always apply. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
 
 Settings resolve as **lock → project override → global value → built-in default**, with ceilings applied last. Locked fields are hidden in the UI and named in a banner; clamped fields are flagged.
 

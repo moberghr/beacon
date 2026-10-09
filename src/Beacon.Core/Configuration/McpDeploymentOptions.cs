@@ -6,7 +6,7 @@ namespace Beacon.Core.Configuration;
 /// Deployment-level MCP guarantees bound from <c>Beacon:Mcp</c>. Locks pin a setting for the global row and
 /// every project regardless of what an admin stores (the UI hides the toggle, the API answers 409); ceilings
 /// bound the numeric settings — a stored value above a ceiling resolves to the ceiling. An absent section means
-/// no locks and no ceilings, which is today's behaviour.
+/// no locks, no ceilings and the built-in SQL / question length caps.
 /// </summary>
 public sealed class McpDeploymentOptions
 {
@@ -38,14 +38,30 @@ public sealed class McpAuditOptions
     public string? RequestIdHeader { get; set; } = DefaultRequestIdHeader;
 }
 
-/// <summary>Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling.</summary>
+/// <summary>
+/// Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling, except for the input caps
+/// <see cref="MaxSqlChars"/> and <see cref="MaxQuestionChars"/>, which always apply and fall back to a built-in default.
+/// </summary>
 public sealed class McpCeilingOptions
 {
+    internal const int DefaultMaxSqlChars = 100_000;
+    internal const int DefaultMaxQuestionChars = 4_000;
+
     public int? MaxRowLimit { get; set; }
     public int? StatementTimeoutSeconds { get; set; }
     public int? MaxResultBytes { get; set; }
     public decimal? MaxExplainCost { get; set; }
     public int? MaxConcurrentQueriesPerKey { get; set; }
+
+    /// <summary>Longest SQL text the execution gate evaluates; <c>null</c> = 100 000 characters.</summary>
+    public int? MaxSqlChars { get; set; }
+
+    /// <summary>Longest question the <c>ask</c> tool accepts; <c>null</c> = 4 000 characters.</summary>
+    public int? MaxQuestionChars { get; set; }
+
+    public int EffectiveMaxSqlChars => MaxSqlChars ?? DefaultMaxSqlChars;
+
+    public int EffectiveMaxQuestionChars => MaxQuestionChars ?? DefaultMaxQuestionChars;
 }
 
 internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploymentOptions>
@@ -59,6 +75,8 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         RequirePositive(failures, nameof(McpCeilingOptions.StatementTimeoutSeconds), ceilings.StatementTimeoutSeconds);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxResultBytes), ceilings.MaxResultBytes);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxConcurrentQueriesPerKey), ceilings.MaxConcurrentQueriesPerKey);
+        RequirePositive(failures, nameof(McpCeilingOptions.MaxSqlChars), ceilings.MaxSqlChars);
+        RequirePositive(failures, nameof(McpCeilingOptions.MaxQuestionChars), ceilings.MaxQuestionChars);
 
         if (ceilings.MaxExplainCost is <= 0)
         {

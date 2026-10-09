@@ -86,11 +86,65 @@ public class QueryExecutionServicePiiMaskingTests
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != 7), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [TestCase("SELECT * FROM users", "email")]
+    [TestCase("SELECT customer_email FROM users", "customer_email")]
+    [TestCase("SELECT email_address FROM users", "email_address")]
+    public async Task ExecuteAsync_PiiDetectionOn_MasksPiiResultColumnsTheSqlTextDoesNotName(string sql, string resultColumn)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { [resultColumn] = RawEmail, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: true, rows: rows);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail);
+        result.FormattedResult.Should().Contain("Alice");
+        StructuredRowValues(result).Should().Contain("a***m").And.NotContain(RawEmail);
+    }
+
+    // SC7: the result key "contact" is not PII by name and the SQL-text match is "email" — only the executed SQL's
+    // alias resolution masks it.
+    [TestCase("SELECT email AS contact, name FROM users")]
+    [TestCase("SELECT lower(u.email) AS contact, name FROM users u")]
+    public async Task ExecuteAsync_PiiDetectionOn_MasksAnAliasedPiiColumn(string sql)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["contact"] = RawEmail, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: true, rows: rows);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail);
+        result.FormattedResult.Should().Contain("Alice");
+        StructuredRowValues(result).Should().Contain("a***m").And.NotContain(RawEmail);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_PiiDetectionOff_DoesNotMaskResultColumns()
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["customer_email"] = RawEmail, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: false, rows: rows);
+
+        var result = await service.ExecuteAsync(1, "SELECT * FROM users", 100, CancellationToken.None);
+
+        result.FormattedResult.Should().Contain(RawEmail);
+    }
+
     private static QueryExecutionService BuildService(
         bool piiDetectionOn,
         int activeProjectId = 1,
         IReadOnlyDictionary<int, McpSettingsData>? perProject = null,
-        Action<Mock<IMcpSettingsProvider>>? captureProvider = null)
+        Action<Mock<IMcpSettingsProvider>>? captureProvider = null,
+        List<Dictionary<string, object?>>? rows = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -100,7 +154,7 @@ public class QueryExecutionServicePiiMaskingTests
         var providerResult = new ProviderQueryResult
         {
             Success = true,
-            Rows =
+            Rows = rows ??
             [
                 new Dictionary<string, object?> { ["email"] = RawEmail, ["name"] = "Alice" }
             ]

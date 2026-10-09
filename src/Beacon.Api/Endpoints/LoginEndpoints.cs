@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
+using Beacon.Api.Authentication;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 
@@ -85,7 +85,7 @@ public static partial class LoginEndpoints
             });
         })
         .AllowAnonymous()
-        .RequireRateLimiting("login")
+        .AddEndpointFilter<LoginRateLimitFilter>()
         .DisableAntiforgery();
 
         // POST /beacon/api/auth/logout

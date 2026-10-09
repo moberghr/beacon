@@ -1,5 +1,6 @@
 using Beacon.Core.Helpers;
 using System.Security.Claims;
+using Beacon.Api.Authentication;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Models.Queries;
@@ -68,6 +69,7 @@ internal static class QueriesEndpoints
         // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
         // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.
         // An optional draft runs the editor's unsaved steps instead of the stored query, so Run never saves.
+        // Viewers may run existing queries, so read permission suffices for both previews.
         queries.MapPost("/{id:int}/preview", (
                 int id,
                 ExecuteQueryPreviewRequest? body,
@@ -83,7 +85,8 @@ internal static class QueriesEndpoints
                     Sort = paging.Sort,
                 }, ct))
             .WithName("ExecuteQueryPreview")
-            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName)
+            .AllowViewerAccess();
 
         queries.MapPost("/{id:int}/steps/{stepOrder:int}/preview", (
                 int id,
@@ -103,7 +106,8 @@ internal static class QueriesEndpoints
                     Sort = paging.Sort,
                 }, ct))
             .WithName("ExecuteStepPreview")
-            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName)
+            .AllowViewerAccess();
 
         return group;
     }

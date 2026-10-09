@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -335,5 +338,75 @@ public class SqlExecutionGateTests
         report.Blocked.Should().BeFalse();
         report.Verdicts.Schema.Status.Should().Be(SqlGateStatus.Fail);
         report.Verdicts.Lint.Status.Should().Be(SqlGateStatus.Pass, "lint is evaluated on advisory schema failures so the ask repair loop can compare findings");
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Evaluate_SqlOverDefaultCap_FailsSqlTooLong_BeforeAnyRegexRuns(bool enforceReadOnly)
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        var gate = TestSqlGate.Create(guardrail.Object);
+        var settings = TestSqlGate.DefaultSettings();
+        settings.EnforceReadOnly = enforceReadOnly;
+        var sql = "SELECT " + new string('1', 100_001 - "SELECT ".Length);
+
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "PostgreSQL", settings) with
+        {
+            Catalog = Catalog(),
+            LintContext = LintContext(),
+            MaxRows = 10
+        });
+
+        sql.Length.Should().Be(100_001);
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        report.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.SqlTooLong);
+        report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.NotEvaluated);
+        report.Verdicts.Lint.Code.Should().Be(SqlGateCodes.NotEvaluated);
+        report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.NotEvaluated);
+        report.BlockReason.Should().Contain("100000").And.NotContain("SELECT", "the reason carries counts, never SQL text (§1.11)");
+        report.FinalSql.Should().Be(sql);
+        report.TablesUsed.Should().BeEmpty();
+        guardrail.Verify(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions>()), Times.Never);
+    }
+
+    [Test]
+    public void Evaluate_SqlAtDefaultCap_PassesTheLengthStage()
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        guardrail
+            .Setup(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions>()))
+            .Returns(new QueryValidationResult(true));
+        var gate = TestSqlGate.Create(guardrail.Object);
+        var sql = "SELECT 1" + new string(' ', 100_000 - "SELECT 1".Length);
+
+        var report = gate.Evaluate(Request(sql));
+
+        sql.Length.Should().Be(100_000);
+        report.Blocked.Should().BeFalse();
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Pass);
+        guardrail.Verify(x => x.ValidateQuery(sql, It.IsAny<QueryGuardrailOptions>()), Times.Once);
+    }
+
+    [Test]
+    public void Evaluate_ConfiguredMaxSqlChars_IsHonoured()
+    {
+        var options = Options.Create(new McpDeploymentOptions { Ceilings = new McpCeilingOptions { MaxSqlChars = 20 } });
+        var gate = new SqlExecutionGate(
+            new QueryGuardrailService(),
+            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            new SqlSchemaValidator(),
+            new SqlSemanticLinter(),
+            NullLogger<SqlExecutionGate>.Instance,
+            deploymentOptions: options);
+
+        var over = gate.Evaluate(Request("SELECT id FROM orders"));
+        var atCap = gate.Evaluate(Request("SELECT id FROM items"));
+
+        over.Blocked.Should().BeTrue();
+        over.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.SqlTooLong);
+        over.BlockReason.Should().Contain("20");
+        atCap.Blocked.Should().BeFalse();
+        atCap.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Pass);
     }
 }

@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Api.Hubs;
 using Beacon.Api.SignalR;
 using Beacon.Core.Authorization;
@@ -40,6 +41,9 @@ public static class ServiceConfiguration
         // If you swap the implementation, change BOTH call sites.
         services.AddHttpContextAccessor();
         services.TryAddScoped<IBeaconUserContext, HttpContextUserContext>();
+
+        // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
+        services.TryAddSingleton<LoginRateLimiter>();
 
         if (!options.Realtime)
         {

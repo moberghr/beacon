@@ -36,12 +36,6 @@ public sealed record SqlRowLimitResult(string Sql, SqlRowLimitOutcome Outcome, s
 /// </summary>
 public static class SqlRowLimitRewriter
 {
-    // Matches the leading SELECT (with optional DISTINCT) of the trimmed SQL, skipping leading
-    // whitespace, `--` line comments and `/* */` block comments so TOP lands on the outermost SELECT.
-    private static readonly Regex LeadingSelectPattern = new(
-        @"\A(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)*SELECT(?:\s+DISTINCT)?",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
-
     // Legacy textual heuristics, retained only for the parse-failure fallback path.
     private static readonly Regex SelectKeywordPattern = new(
         @"\bSELECT\b",
@@ -119,6 +113,33 @@ public static class SqlRowLimitRewriter
         return new SqlRowLimitResult(AppendClause(trimmed, $"LIMIT {maxRows}"), SqlRowLimitOutcome.Applied);
     }
 
+    /// <summary>
+    /// The index just past the leading <c>SELECT</c> of <paramref name="sql"/> (and a <c>DISTINCT</c> right after
+    /// it), or -1 when the SQL does not open with one. Skips whitespace, <c>--</c> line comments and <c>/* */</c>
+    /// block comments, counting nesting depth the way T-SQL does — an inner <c>*/</c> closes only the innermost
+    /// comment, so a SELECT written inside a nested comment is never taken for the real one. One forward pass,
+    /// linear on any input. Internal for unit tests.
+    /// </summary>
+    internal static int FindLeadingSelectEnd(string sql)
+    {
+        var position = SkipLeadingTrivia(sql);
+        if (position < 0 || !IsKeywordAt(sql, position, "SELECT"))
+        {
+            return -1;
+        }
+
+        var selectEnd = position + "SELECT".Length;
+        var next = selectEnd;
+        while (next < sql.Length && char.IsWhiteSpace(sql[next]))
+        {
+            next++;
+        }
+
+        return next > selectEnd && IsKeywordAt(sql, next, "DISTINCT")
+            ? next + "DISTINCT".Length
+            : selectEnd;
+    }
+
     private static Query? ResolveQuery(Statement statement)
     {
         // EXPLAIN wraps an inner statement; bounding the wrapped SELECT is what the caller asked for.
@@ -155,11 +176,9 @@ public static class SqlRowLimitRewriter
         // `SELECT DISTINCT TOP n`, never `TOP n DISTINCT`, so the match consumes DISTINCT too.
         if (query.With == null && query.Body is SetExpression.SelectExpression)
         {
-            var match = LeadingSelectPattern.Match(trimmed);
-            if (match.Success)
+            var insertAt = FindLeadingSelectEnd(trimmed);
+            if (insertAt >= 0)
             {
-                var insertAt = match.Index + match.Length;
-
                 return $"{trimmed[..insertAt]} TOP {maxRows}{trimmed[insertAt..]}";
             }
         }
@@ -168,6 +187,80 @@ public static class SqlRowLimitRewriter
         // UNION arm and leave the OUTER result uncapped, and neither can be wrapped in a derived table.
         // Bound the outer result with a dummy-ordered OFFSET/FETCH (valid T-SQL) instead.
         return AppendClause(trimmed, $"ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY");
+    }
+
+    // The index of the first character after leading whitespace and comments; -1 when a block comment never closes.
+    private static int SkipLeadingTrivia(string sql)
+    {
+        var position = 0;
+        while (position < sql.Length)
+        {
+            if (char.IsWhiteSpace(sql[position]))
+            {
+                position++;
+                continue;
+            }
+
+            var rest = sql.AsSpan(position);
+            if (rest.StartsWith("--"))
+            {
+                var lineEnd = sql.IndexOf('\n', position);
+                position = lineEnd < 0 ? sql.Length : lineEnd + 1;
+                continue;
+            }
+
+            if (!rest.StartsWith("/*"))
+            {
+                return position;
+            }
+
+            position = SkipBlockComment(sql, position);
+            if (position < 0)
+            {
+                return -1;
+            }
+        }
+
+        return position;
+    }
+
+    // T-SQL nests block comments: every `/*` needs its own `*/`. Returns the index after the outer `*/`, or -1.
+    private static int SkipBlockComment(string sql, int start)
+    {
+        var depth = 0;
+        var position = start;
+        while (position < sql.Length - 1)
+        {
+            var pair = sql.AsSpan(position, 2);
+            if (pair is "/*")
+            {
+                depth++;
+                position += 2;
+            }
+            else if (pair is "*/")
+            {
+                depth--;
+                position += 2;
+                if (depth == 0)
+                {
+                    return position;
+                }
+            }
+            else
+            {
+                position++;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsKeywordAt(string sql, int position, string keyword)
+    {
+        var end = position + keyword.Length;
+
+        return sql.AsSpan(position).StartsWith(keyword, StringComparison.OrdinalIgnoreCase)
+            && (end == sql.Length || !(char.IsLetterOrDigit(sql[end]) || sql[end] is '_' or '@' or '#' or '$'));
     }
 
     private static string AppendClause(string trimmed, string clause)
