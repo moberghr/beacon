@@ -135,8 +135,9 @@ public class PiiRowMaskerTests
         masked[0]["contact"].Should().Be(RawEmail);
     }
 
+    // Without a parse, what a PII column is renamed to is unknown, so every result column is masked (fail closed).
     [Test]
-    public void Mask_UnparseableSql_AddsNoAliases_ButStillMasksPiiResultColumns()
+    public void Mask_UnparseableSql_MasksEveryResultColumn()
     {
         const string sql = "SELECT email AS contact,, FROM";
         var rows = new List<Dictionary<string, object?>>
@@ -146,8 +147,22 @@ public class PiiRowMaskerTests
 
         var masked = PiiRowMasker.Mask(_guardrail, rows, [], true, null, sql, "PostgreSQL");
 
-        masked[0]["contact"].Should().Be("Alice");
+        masked[0]["contact"].Should().Be("A***e");
         masked[0]["customer_email"].Should().Be("a***m");
+    }
+
+    [Test]
+    public void Mask_SqlTooDeepToParse_MasksTheAliasedPiiColumn()
+    {
+        var sql = "SELECT email AS contact FROM customers" + string.Concat(Enumerable.Repeat(" UNION SELECT email FROM customers", 1_000));
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["contact"] = RawEmail }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, [], true, null, sql, "PostgreSQL");
+
+        masked[0]["contact"].Should().NotBe(RawEmail);
     }
 
     // A wildcard hides which position an explicit PII read lands in, so every result column is masked (fail closed).

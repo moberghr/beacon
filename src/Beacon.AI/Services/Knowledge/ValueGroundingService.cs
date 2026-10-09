@@ -83,7 +83,7 @@ internal sealed class ValueGroundingService(
                 return "";
             }
 
-            var dialect = dataSource.DatabaseEngineType?.ToString();
+            var dialect = DataSourceSqlDialect.Of(dataSource);
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             var probesUsed = 0;
             var matchLines = new List<string>();

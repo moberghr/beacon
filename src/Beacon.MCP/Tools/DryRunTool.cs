@@ -112,7 +112,7 @@ internal sealed class DryRunTool(
                     "dry_run validates SQL only — API data sources are not supported.", cancellationToken);
             }
 
-            var dialect = dataSource.DatabaseEngineType?.ToString();
+            var dialect = DataSourceSqlDialect.Of(dataSource);
             var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
             var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);

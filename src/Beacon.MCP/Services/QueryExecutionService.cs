@@ -3,6 +3,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Tools;
 
 namespace Beacon.MCP.Services;
@@ -22,11 +23,11 @@ internal sealed class QueryExecutionService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
-        var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, dataSource.DatabaseEngineType?.ToString());
+        var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, DataSourceSqlDialect.Of(dataSource));
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-        // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL-only
+        // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL and MySQL
         // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
         // non-database providers forward to normal execution and rely on the parser gates upstream.
         var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
@@ -56,7 +57,7 @@ internal sealed class QueryExecutionService(
                 settings.EnablePiiDetection,
                 customPatterns,
                 limitedSql,
-                dataSource.DatabaseEngineType?.ToString());
+                DataSourceSqlDialect.Of(dataSource));
 
             var text = $"### Results ({rows.Count} rows)\n\n";
             text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);

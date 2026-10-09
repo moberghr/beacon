@@ -98,6 +98,13 @@ public sealed class SqlExecutionGate(
         var (lint, lintFindings) = EvaluateLint(request, blocked);
         var (rowLimit, finalSql) = EvaluateRowLimit(request, blocked);
 
+        // A statement too deep to cap never runs uncapped, even with read-only enforcement off.
+        if (rowLimit.Status == SqlGateStatus.Fail)
+        {
+            blocked = true;
+            blockReason = rowLimit.Message;
+        }
+
         return new SqlGateReport(
             blocked,
             blockReason,
@@ -206,7 +213,10 @@ public sealed class SqlExecutionGate(
             return (SqlGateVerdict.Skipped(NotEvaluated), []);
         }
 
-        var findings = semanticLinter.Lint(request.Sql, request.Dialect, request.LintContext);
+        if (!semanticLinter.TryLint(request.Sql, request.Dialect, request.LintContext, out var findings))
+        {
+            return (SqlGateVerdict.Skipped(SqlGateCodes.ParseFailed, "The SQL could not be parsed, so the semantic lint did not run."), []);
+        }
 
         return (SqlGateVerdict.Passed, findings);
     }
@@ -241,6 +251,7 @@ public sealed class SqlExecutionGate(
             SqlRowLimitOutcome.Applied => SqlGateVerdict.Passed,
             SqlRowLimitOutcome.AlreadyLimited => SqlGateVerdict.Skipped(SqlGateCodes.AlreadyLimited),
             SqlRowLimitOutcome.NotApplicable => SqlGateVerdict.Skipped(SqlGateCodes.NotApplicable),
+            SqlRowLimitOutcome.Refused => SqlGateVerdict.Fail(SqlGateCodes.TooDeep, SqlAst.TooDeepMessage),
             _ => SqlGateVerdict.Pass(
                 SqlGateCodes.TextualFallback,
                 "The SQL could not be parsed, so the row cap was placed by the textual heuristic; a LIMIT/TOP inside a comment or literal may have been mistaken for an existing bound.")

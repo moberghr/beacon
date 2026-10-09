@@ -173,6 +173,21 @@ public class SqlExecutionGateTests
         report.LintFindings.Should().BeEmpty();
     }
 
+    // Read-only enforcement off lets unparseable SQL reach the lint stage, which then has no opinion rather than a pass.
+    [Test]
+    public void Evaluate_UnparseableSqlWithReadOnlyOff_LintIsSkippedNotPassed()
+    {
+        var report = _gate.Evaluate(Request("SELECT FROM WHERE") with
+        {
+            EnforceReadOnly = false,
+            LintContext = LintContext()
+        });
+
+        report.Verdicts.Lint.Status.Should().Be(SqlGateStatus.Skipped);
+        report.Verdicts.Lint.Code.Should().Be(SqlGateCodes.ParseFailed);
+        report.LintFindings.Should().BeEmpty();
+    }
+
     [Test]
     public void Evaluate_LintNotRequested_SkippedNotRequested()
     {

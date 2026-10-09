@@ -198,7 +198,8 @@ public class DataQualityCustomSqlReadOnlyTests
 
         var result = await service.EvaluateContractAsync(42, CancellationToken.None);
 
-        var command = server.Commands[^1];
+        // PostgreSQL and MySQL wrap the rule in read-only transaction statements; the rule is the one SELECT.
+        var command = server.Commands.Single(x => x.Sql.StartsWith("SELECT", StringComparison.Ordinal));
         command.Sql.Should().Be(expectedSql);
         command.Parameters.Should().Equal(new Dictionary<string, object?> { ["p0"] = pattern });
         result.RuleResults.Should().ContainSingle().Which.Passed.Should().BeTrue();
@@ -338,7 +339,10 @@ public class DataQualityCustomSqlReadOnlyTests
 
         var result = await service.EvaluateContractAsync(42, CancellationToken.None);
 
-        server.Commands.Should().ContainSingle();
+        // The rule started once inside the read-only transaction, which was still closed after the timeout.
+        server.Commands.Select(x => x.Sql).Should().HaveCount(5)
+            .And.StartWith(["SET SESSION TRANSACTION READ ONLY", "START TRANSACTION READ ONLY"])
+            .And.EndWith(["ROLLBACK", "SET SESSION TRANSACTION READ WRITE"]);
         result.RuleResults.Should().ContainSingle().Which.Message.Should().Be(DataQualityEvaluationService.TimedOutMessage);
         StoredRuleResult(saved).Message.Should().Be(DataQualityEvaluationService.TimedOutMessage);
     }
@@ -505,7 +509,7 @@ public class DataQualityCustomSqlReadOnlyTests
         var resolver = new Mock<IDataSourceConnectionResolver>();
         resolver
             .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
-            .Returns("cs");
+            .Returns("Server=unused");
         var hostGuard = new HostDataSourceGuard(new SingleSnapshotRegistry());
         var provider = new DatabaseProvider(
             resolver.Object,

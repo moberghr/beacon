@@ -114,7 +114,12 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
     {
         // Placement is decided on the parsed AST (SqlRowLimitRewriter) so a LIMIT/TOP inside a string
         // literal or a subquery no longer reads as "already bounded" and leaves the outer result uncapped.
-        return SqlRowLimitRewriter.Apply(sql, maxRows, databaseEngine).Sql;
+        var result = SqlRowLimitRewriter.Apply(sql, maxRows, databaseEngine);
+
+        // A statement too deep to cap must not run uncapped.
+        return result.Outcome == SqlRowLimitOutcome.Refused
+            ? throw new InvalidOperationException(SqlAst.TooDeepMessage)
+            : result.Sql;
     }
 
     public List<string> DetectPiiColumns(string sql, IEnumerable<string> columnNames)

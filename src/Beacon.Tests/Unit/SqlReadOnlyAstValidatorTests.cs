@@ -139,7 +139,7 @@ public class SqlReadOnlyAstValidatorTests
     [TestCase("MySQL", "SELECT 1 /* /* */ ; SELECT 2; -- */")]
     [TestCase("MySQL", @"SELECT 'a\'' /* /* */ ; SELECT 2; -- */")]
     [TestCase("SQLite", "SELECT 1 /* /*/ */")]
-    [TestCase(null, "SELECT 1 /* /* */ -- */")]
+    [TestCase("Snowflake", "SELECT 1 /* /* */ -- */")]
     public void Validate_NestedBlockComment_IsRejectedWhereTheEngineDoesNotNest(string? dialect, string sql)
     {
         _validator.Validate(sql, dialect).Should().StartWith("Nested block comments are not allowed");
@@ -192,8 +192,9 @@ public class SqlReadOnlyAstValidatorTests
     }
 
     [Test]
-    public void Validate_UnknownDialect_FallsBackToGeneric()
+    public void Validate_UnknownDialect_IsRejected()
     {
-        _validator.Validate("DELETE FROM orders", "SomethingElse").Should().NotBeNullOrWhiteSpace();
+        // A generic grammar matches no engine's lexing, so an unknown dialect fails closed instead of falling back.
+        _validator.Validate("SELECT * FROM orders", "SomethingElse").Should().StartWith("The SQL dialect of this data source is not known");
     }
 }

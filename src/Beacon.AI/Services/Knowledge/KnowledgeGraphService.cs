@@ -7,6 +7,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Validation;
 using System.Globalization;
 using System.Text;
 
@@ -1271,7 +1272,7 @@ internal sealed class KnowledgeGraphService(
         var totalColumns = allTables.Sum(t => t.Columns.Count);
         var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
         var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
-        var dialect = dataSource.DatabaseEngineType?.ToString();
+        var dialect = DataSourceSqlDialect.Of(dataSource);
         var mcpSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         // Small schema fast path: send everything

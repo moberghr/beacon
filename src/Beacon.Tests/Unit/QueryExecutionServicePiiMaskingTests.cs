@@ -45,6 +45,44 @@ public class QueryExecutionServicePiiMaskingTests
         structuredValues.Should().NotContain(RawEmail);
     }
 
+    // BigQuery reads `#` as a comment: the row cap goes on a new line and the alias resolves, so only the PII column is
+    // masked. Parsed generically, the cap would land inside the comment and every column would be masked.
+    [Test]
+    public async Task ExecuteAsync_BigQuerySource_CapsAndMasksInBigQueryDialect()
+    {
+        var executed = new List<string>();
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
+            dataSourceType: DataSourceType.BigQuery,
+            engine: null,
+            executed: executed);
+
+        var result = await service.ExecuteAsync(1, "SELECT email AS contact, name FROM users # note", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal("SELECT email AS contact, name FROM users # note\nLIMIT 100");
+        StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_DatabricksSource_RunsCappedAndMasked()
+    {
+        var executed = new List<string>();
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
+            dataSourceType: DataSourceType.Databricks,
+            engine: null,
+            executed: executed);
+
+        var result = await service.ExecuteAsync(1, "SELECT email AS contact, name FROM main.crm.users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal("SELECT email AS contact, name FROM main.crm.users LIMIT 100");
+        StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
+    }
+
     [Test]
     public async Task ExecuteAsync_PiiDetectionOff_ReturnsRawValues()
     {
@@ -144,12 +182,15 @@ public class QueryExecutionServicePiiMaskingTests
         int activeProjectId = 1,
         IReadOnlyDictionary<int, McpSettingsData>? perProject = null,
         Action<Mock<IMcpSettingsProvider>>? captureProvider = null,
-        List<Dictionary<string, object?>>? rows = null)
+        List<Dictionary<string, object?>>? rows = null,
+        DataSourceType dataSourceType = DataSourceType.Database,
+        DatabaseEngineType? engine = DatabaseEngineType.PostgreSQL,
+        List<string>? executed = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SeededDataSourceContext());
+            .ReturnsAsync(() => new SeededDataSourceContext(dataSourceType, engine));
 
         var providerResult = new ProviderQueryResult
         {
@@ -167,6 +208,7 @@ public class QueryExecutionServicePiiMaskingTests
                 It.IsAny<string>(),
                 It.IsAny<Dictionary<string, object?>>(),
                 It.IsAny<CancellationToken>()))
+            .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => executed?.Add(sql))
             .ReturnsAsync(providerResult);
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
@@ -195,19 +237,26 @@ public class QueryExecutionServicePiiMaskingTests
                 .UseSnakeCaseNamingConvention()
                 .Options;
 
-        public SeededDataSourceContext() : base(_options, "beacon") { }
+        private readonly DataSourceType _dataSourceType;
+        private readonly DatabaseEngineType? _engine;
+
+        public SeededDataSourceContext(DataSourceType dataSourceType, DatabaseEngineType? engine) : base(_options, "beacon")
+        {
+            _dataSourceType = dataSourceType;
+            _engine = engine;
+        }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
             if (typeof(TEntity) == typeof(DataSource))
             {
-                return (DbSet<TEntity>)(object)BuildDataSourceSet();
+                return (DbSet<TEntity>)(object)BuildDataSourceSet(_dataSourceType, _engine);
             }
 
             return base.Set<TEntity>();
         }
 
-        private static DbSet<DataSource> BuildDataSourceSet()
+        private static DbSet<DataSource> BuildDataSourceSet(DataSourceType dataSourceType, DatabaseEngineType? engine)
         {
             var data = new List<DataSource>
             {
@@ -215,9 +264,9 @@ public class QueryExecutionServicePiiMaskingTests
                 {
                     Id = 1,
                     Name = "ds",
-                    DataSourceType = DataSourceType.Database,
+                    DataSourceType = dataSourceType,
                     EncryptedConnectionData = "x",
-                    DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                    DatabaseEngineType = engine
                 }
             }.AsQueryable();
 

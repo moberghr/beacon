@@ -44,6 +44,10 @@ public class CrossSourceQueryServiceTests
     private Mock<ISqlGenerationService> _sqlGen = null!;
     private Mock<ILlmProvider> _llm = null!;
     private McpSignalBuilder _signal = null!;
+    private RecordingSqlGate _gate = null!;
+    private DataSourceType _warehouseType;
+    private DatabaseEngineType? _warehouseEngine;
+    private string _warehouseDialect = null!;
 
     [SetUp]
     public void SetUp()
@@ -67,6 +71,26 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new LlmResponse { Content = "SELECT * FROM result1" });
 
         _signal = new McpSignalBuilder().SetTool("ask").SetQuestion("q");
+        _warehouseType = DataSourceType.Database;
+        _warehouseEngine = DatabaseEngineType.PostgreSQL;
+        _warehouseDialect = "PostgreSQL";
+    }
+
+    [TestCase(DataSourceType.BigQuery, "bigquery")]
+    [TestCase(DataSourceType.Databricks, "databricks")]
+    public async Task WarehouseWithoutEngineType_IsGatedInItsOwnDialect(DataSourceType type, string dialect)
+    {
+        _warehouseType = type;
+        _warehouseEngine = null;
+        _warehouseDialect = dialect;
+        Generates("SELECT id FROM orders");
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        // The in-memory join runs as SQLite; every per-source gate runs in the warehouse's dialect.
+        _gate.Dialects.Where(x => x != "SQLite").Should().HaveCountGreaterThan(1).And.OnlyContain(x => x == dialect);
     }
 
     [Test]
@@ -410,7 +434,7 @@ public class CrossSourceQueryServiceTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new CrossSourceTestContext(warehouseHostKey));
+            .ReturnsAsync(() => new CrossSourceTestContext(warehouseHostKey, _warehouseType, _warehouseEngine));
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -423,7 +447,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = WarehouseContext,
-                DatabaseDialect = "PostgreSQL",
+                DatabaseDialect = _warehouseDialect,
                 SchemaCatalog = Catalog()
             });
         knowledgeGraph
@@ -436,12 +460,13 @@ public class CrossSourceQueryServiceTests
             });
 
         var guardrail = new QueryGuardrailService();
+        _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail, hostGuard));
 
         return new CrossSourceQueryService(
             factory.Object,
             providerFactory.Object,
             guardrail,
-            TestSqlGate.Create(guardrail, hostGuard),
+            _gate,
             knowledgeGraph.Object,
             _sqlGen.Object,
             NullLoggerFactory.Instance,
@@ -458,10 +483,15 @@ public class CrossSourceQueryServiceTests
                 .Options;
 
         private readonly string? _warehouseHostKey;
+        private readonly DataSourceType _warehouseType;
+        private readonly DatabaseEngineType? _warehouseEngine;
 
-        public CrossSourceTestContext(string? warehouseHostKey) : base(Options, "beacon")
+        public CrossSourceTestContext(string? warehouseHostKey, DataSourceType warehouseType, DatabaseEngineType? warehouseEngine)
+            : base(Options, "beacon")
         {
             _warehouseHostKey = warehouseHostKey;
+            _warehouseType = warehouseType;
+            _warehouseEngine = warehouseEngine;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -474,9 +504,9 @@ public class CrossSourceQueryServiceTests
                     {
                         Id = DataSourceId,
                         Name = "warehouse",
-                        DataSourceType = DataSourceType.Database,
+                        DataSourceType = _warehouseType,
                         EncryptedConnectionData = "encrypted",
-                        DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                        DatabaseEngineType = _warehouseEngine,
                         HostManagedKey = _warehouseHostKey
                     },
                     new()

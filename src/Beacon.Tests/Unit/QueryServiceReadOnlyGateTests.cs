@@ -83,6 +83,22 @@ public class QueryServiceReadOnlyGateTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    // A warehouse has no engine type; its step is validated in the dialect its data source type names.
+    [TestCase(DataSourceType.BigQuery)]
+    [TestCase(DataSourceType.Databricks)]
+    public async Task AddQueryStep_WarehouseSource_IsValidatedInItsOwnDialect(DataSourceType type)
+    {
+        var spy = new ContextSpy();
+        spy.DataSources.Add(new DataSource { Id = 5, Name = "lake", DataSourceType = type, EncryptedConnectionData = "encrypted" });
+        var service = BuildService(spy);
+
+        var plain = () => service.AddQueryStep(1, new QueryStepData { Name = "step", SqlValue = "SELECT id FROM orders", DataSourceId = 5 }, CancellationToken.None);
+        var escaped = () => service.AddQueryStep(1, new QueryStepData { Name = "step", SqlValue = "SELECT 'x\\', 1 AS y", DataSourceId = 5 }, CancellationToken.None);
+
+        await plain.Should().NotThrowAsync();
+        await escaped.Should().ThrowAsync<InvalidOperationException>().WithMessage("A backslash before a quote*");
+    }
+
     [Test]
     public async Task UpdateQueryStep_NonReadOnlySql_ThrowsInvalidOperationException()
     {
@@ -243,6 +259,8 @@ public class QueryServiceReadOnlyGateTests
     /// <summary>What the service did to its contexts: the stored queries it reads and the saves it attempted.</summary>
     private sealed class ContextSpy
     {
+        public List<DataSource> DataSources { get; } = [];
+
         public List<Query> Queries { get; } = [];
 
         public int SaveChangesCalls { get; set; }
@@ -271,7 +289,7 @@ public class QueryServiceReadOnlyGateTests
         {
             if (typeof(TEntity) == typeof(DataSource))
             {
-                return (DbSet<TEntity>)(object)BuildSet(new List<DataSource>());
+                return (DbSet<TEntity>)(object)BuildSet(_spy.DataSources);
             }
 
             if (typeof(TEntity) == typeof(Query))

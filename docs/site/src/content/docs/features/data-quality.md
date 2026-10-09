@@ -46,7 +46,7 @@ You do not need to include `schema` or `table` in the configuration — Beacon i
 
 ### Custom SQL rules
 
-A Custom SQL rule runs your query and reads the first row of the result. The query must be a single read-only `SELECT` in the data source's SQL dialect: it is checked when the contract is saved and again on every evaluation, and it runs through the same read-only path as MCP queries (a `READ ONLY` transaction on PostgreSQL). Beacon caps the result at one row itself, so the query must not set its own outer `LIMIT`, `TOP` or `FETCH`. Only an **Admin** can create, change or delete a contract that contains a Custom SQL rule, and Custom SQL rules are not available on host-managed data sources. Return these columns:
+A Custom SQL rule runs your query and reads the first row of the result. The query must be a single read-only `SELECT` in the data source's SQL dialect: it is checked when the contract is saved and again on every evaluation, and it runs through the same read-only path as MCP queries (a `READ ONLY` transaction on PostgreSQL and MySQL). Beacon caps the result at one row itself, so the query must not set its own outer `LIMIT`, `TOP` or `FETCH`. Only an **Admin** can create, change or delete a contract that contains a Custom SQL rule, and Custom SQL rules are not available on host-managed data sources. Return these columns:
 
 | Column | Required | Meaning |
 |--------|----------|---------|

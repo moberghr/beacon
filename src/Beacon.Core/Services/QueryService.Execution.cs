@@ -136,7 +136,7 @@ internal partial class QueryService
             // Check the edit before anything is written — a direct save and a submission alike.
             foreach (var stepData in queryData.Steps)
             {
-                QueryValidator.CheckForFlaggedWords(stepData.SqlValue);
+                QueryValidator.CheckForFlaggedWords(stepData.SqlValue, readOnlyAstValidator.MaxSqlChars);
             }
 
             // History must already hold the SQL this edit replaces; the active version normally does.
@@ -179,7 +179,7 @@ internal partial class QueryService
         // Handle backward compatibility - if no steps provided, update from legacy properties
         if (!queryData.Steps.Any() && !string.IsNullOrEmpty(queryData.SqlValue))
         {
-            QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
+            QueryValidator.CheckForFlaggedWords(queryData.SqlValue, readOnlyAstValidator.MaxSqlChars);
             QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
 
             // Update the first (and typically only) step for backward compatibility
@@ -222,7 +222,7 @@ internal partial class QueryService
 
             foreach (var stepData in queryData.Steps)
             {
-                QueryValidator.CheckForFlaggedWords(stepData.SqlValue);
+                QueryValidator.CheckForFlaggedWords(stepData.SqlValue, readOnlyAstValidator.MaxSqlChars);
 
                 var step = stepData.StepId != 0
                     ? query.Steps.FirstOrDefault(x => x.Id == stepData.StepId)

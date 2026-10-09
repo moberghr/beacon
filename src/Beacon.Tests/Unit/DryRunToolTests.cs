@@ -45,6 +45,9 @@ public class DryRunToolTests
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpAuditLog> _auditLogs = null!;
     private List<McpQuerySignal> _signals = null!;
+    private RecordingSqlGate _gate = null!;
+    private DataSourceType _warehouseType;
+    private DatabaseEngineType? _warehouseEngine;
 
     [SetUp]
     public void SetUp()
@@ -54,6 +57,8 @@ public class DryRunToolTests
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _auditLogs = [];
         _signals = [];
+        _warehouseType = DataSourceType.Database;
+        _warehouseEngine = DatabaseEngineType.PostgreSQL;
 
         _knowledgeGraph
             .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
@@ -72,6 +77,21 @@ public class DryRunToolTests
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ProviderDryRunOutcome.Valid());
+    }
+
+    [TestCase(DataSourceType.BigQuery, "bigquery")]
+    [TestCase(DataSourceType.Databricks, "databricks")]
+    public async Task WarehouseWithoutEngineType_IsGatedInItsOwnDialect(DataSourceType type, string dialect)
+    {
+        _warehouseType = type;
+        _warehouseEngine = null;
+
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        result.StructuredContent!.Value.GetProperty("valid").GetBoolean().Should().BeTrue();
+        _gate.Dialects.Should().Equal(dialect);
     }
 
     [Test]
@@ -408,7 +428,7 @@ public class DryRunToolTests
         // (§4.7 — async-queryable doubles, no DB). Mirrors FeedbackToolTests.
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals));
+            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals, _warehouseType, _warehouseEngine));
 
         settingsProvider ??= SettingsProviderMock.Create();
 
@@ -417,9 +437,11 @@ public class DryRunToolTests
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
+        _gate = new RecordingSqlGate(TestSqlGate.Create(_guardrail.Object));
+
         return new DryRunTool(
             factory.Object,
-            TestSqlGate.Create(_guardrail.Object),
+            _gate,
             _knowledgeGraph.Object,
             _queryExecution.Object,
             settingsProvider.Object,
@@ -448,8 +470,18 @@ public class DryRunToolTests
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
         private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
 
-        public DryRunTestContext(List<McpAuditLog> auditLogs, List<McpQuerySignal> signals) : base(Options, "beacon")
+        private readonly DataSourceType _warehouseType;
+        private readonly DatabaseEngineType? _warehouseEngine;
+
+        public DryRunTestContext(
+            List<McpAuditLog> auditLogs,
+            List<McpQuerySignal> signals,
+            DataSourceType warehouseType,
+            DatabaseEngineType? warehouseEngine)
+            : base(Options, "beacon")
         {
+            _warehouseType = warehouseType;
+            _warehouseEngine = warehouseEngine;
             _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))
                 .Callback<McpAuditLog>(auditLogs.Add);
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
@@ -476,9 +508,9 @@ public class DryRunToolTests
                     {
                         Id = DataSourceId,
                         Name = "warehouse",
-                        DataSourceType = DataSourceType.Database,
+                        DataSourceType = _warehouseType,
                         EncryptedConnectionData = "encrypted",
-                        DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                        DatabaseEngineType = _warehouseEngine
                     },
                     new()
                     {

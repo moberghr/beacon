@@ -111,7 +111,7 @@ internal sealed class ProjectQueryTool(
                 // hallucinated column is refused before it reaches the warehouse) → row limit. Tables come
                 // from the AST walk (aliases resolved, CTEs excluded), not from a regex over the text.
                 var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
-                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dataSource.DatabaseEngineType?.ToString(), settings) with
+                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings) with
                 {
                     Catalog = catalog,
                     BlockOnSchemaFailure = true,
@@ -141,7 +141,7 @@ internal sealed class ProjectQueryTool(
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
             // §1.5 backstop — SQL executes through the read-only path. The database-level guarantee
-            // is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above. API
             // sources have no SQL engine, so they stay on the normal execution path.
             var result = isApi
@@ -176,7 +176,7 @@ internal sealed class ProjectQueryTool(
                     settings.EnablePiiDetection,
                     settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null,
                     isApi ? null : queryText,
-                    dataSource.DatabaseEngineType?.ToString());
+                    DataSourceSqlDialect.Of(dataSource));
 
                 text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
                 structured = ToolHelper.BuildStructuredPayload(rows, maxRows);

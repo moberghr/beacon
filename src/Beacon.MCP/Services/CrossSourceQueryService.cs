@@ -130,7 +130,7 @@ internal sealed class CrossSourceQueryService(
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {source.DataSourceId} not found");
 
-            var dialect = dataSource.DatabaseEngineType?.ToString();
+            var dialect = DataSourceSqlDialect.Of(dataSource);
 
             // Read-only gate (regex guardrail + AST, §1.5) BEFORE the provider dry-run — a write statement
             // must never reach EXPLAIN.
@@ -167,7 +167,7 @@ internal sealed class CrossSourceQueryService(
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
             // §1.5 backstop — per-source execution goes through the read-only path. The database-level
-            // guarantee is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // guarantee is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above.
             var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
 
@@ -362,7 +362,7 @@ internal sealed class CrossSourceQueryService(
         }
 
         // The retry must clear the same read-only gate the original did before it can be adopted.
-        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, dataSource.DatabaseEngineType?.ToString(), settings)).Blocked)
+        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, DataSourceSqlDialect.Of(dataSource), settings)).Blocked)
         {
             return sql;
         }

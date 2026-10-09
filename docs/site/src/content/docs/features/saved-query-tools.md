@@ -149,7 +149,8 @@ When the approved SQL changes, the routine picks up the new version on its next 
   tools; project-restricted API keys work and are held to their project list.
 - **Read-only execution (§1.5).** Every step's SQL, with its arguments bound, goes through the shared execution
   gate (regex guardrail → AST read-only validator → row limit) and runs through the provider's read-only variant — a
-  `READ ONLY` transaction on PostgreSQL. A final query joins the steps in in-memory SQLite behind the same gate.
+  `READ ONLY` transaction on PostgreSQL and MySQL. A final query joins the steps in in-memory SQLite behind the same
+  gate.
 - **Parameters, never interpolation (§1.10).** Each `{placeholder}` is replaced by a generated database parameter
   (`@p0`, `@p1`, …) and the value is sent as a parameter; argument text never reaches the SQL.
 - **Host-managed sources.** When a step reads a [host DbContext](/features/host-dbcontext/) data source, the host's

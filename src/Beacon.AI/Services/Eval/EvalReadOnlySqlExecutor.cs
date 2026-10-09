@@ -51,7 +51,7 @@ internal sealed class EvalReadOnlySqlExecutor(
     public async Task<ProviderQueryResult> ExecuteReadOnlyAsync(int dataSourceId, string sql, CancellationToken ct)
     {
         var dataSource = await GetDataSourceAsync(dataSourceId, ct);
-        var dialect = dataSource.DatabaseEngineType?.ToString();
+        var dialect = DataSourceSqlDialect.Of(dataSource);
 
         // EnforceReadOnly is forced true regardless of the per-project flag — the eval harness must never
         // mutate a live data source. The row cap comes from the same gate evaluation.

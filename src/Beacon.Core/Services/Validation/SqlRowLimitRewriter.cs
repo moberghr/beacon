@@ -19,11 +19,14 @@ public enum SqlRowLimitOutcome
     NotApplicable,
 
     /// <summary>The SQL did not parse, so the legacy regex heuristic decided the placement.</summary>
-    TextualFallback
+    TextualFallback,
+
+    /// <summary>The SQL parsed but is nested too deeply to place a cap safely; it must not run.</summary>
+    Refused
 }
 
 /// <summary>Result of <see cref="SqlRowLimitRewriter.Apply"/>.</summary>
-/// <param name="FallbackReason">Parser exception type name when <see cref="Outcome"/> is <see cref="SqlRowLimitOutcome.TextualFallback"/> — never the SQL text.</param>
+/// <param name="FallbackReason">Parser exception type name when <see cref="Outcome"/> is <see cref="SqlRowLimitOutcome.TextualFallback"/> or <see cref="SqlRowLimitOutcome.Refused"/> — never the SQL text.</param>
 public sealed record SqlRowLimitResult(string Sql, SqlRowLimitOutcome Outcome, string? FallbackReason = null);
 
 /// <summary>
@@ -70,7 +73,13 @@ public static class SqlRowLimitRewriter
         Sequence<Statement> statements;
         try
         {
-            statements = new Parser().ParseSql(sql, SqlDialects.Resolve(dialect));
+            statements = SqlAst.Parse(sql, dialect);
+        }
+        catch (SqlAst.TooDeepException ex)
+        {
+            // Not a parser gap: the textual heuristic cannot see where such a statement ends either, so no cap is placed
+            // and the caller must not run it.
+            return new SqlRowLimitResult(sql, SqlRowLimitOutcome.Refused, ex.GetType().Name);
         }
         catch (Exception ex)
         {
@@ -107,10 +116,10 @@ public static class SqlRowLimitRewriter
 
         if (SqlDialects.IsTSql(dialect))
         {
-            return new SqlRowLimitResult(ApplyTSql(trimmed, query, maxRows), SqlRowLimitOutcome.Applied);
+            return new SqlRowLimitResult(ApplyTSql(trimmed, query, maxRows, dialect), SqlRowLimitOutcome.Applied);
         }
 
-        return new SqlRowLimitResult(AppendClause(trimmed, $"LIMIT {maxRows}"), SqlRowLimitOutcome.Applied);
+        return new SqlRowLimitResult(AppendClause(trimmed, $"LIMIT {maxRows}", dialect), SqlRowLimitOutcome.Applied);
     }
 
     /// <summary>
@@ -157,19 +166,19 @@ public static class SqlRowLimitRewriter
         return null;
     }
 
-    private static string ApplyTSql(string trimmed, Query query, int maxRows)
+    private static string ApplyTSql(string trimmed, Query query, int maxRows, string? dialect)
     {
         // `ORDER BY … OFFSET n ROWS` with no FETCH is legal T-SQL and already carries the OFFSET clause —
         // only the FETCH half is missing.
         if (query.Offset != null)
         {
-            return AppendClause(trimmed, $"FETCH NEXT {maxRows} ROWS ONLY");
+            return AppendClause(trimmed, $"FETCH NEXT {maxRows} ROWS ONLY", dialect);
         }
 
         // Already ordered → OFFSET/FETCH bounds the outermost result without disturbing the ORDER BY.
         if (query.OrderBy != null)
         {
-            return AppendClause(trimmed, $"OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY");
+            return AppendClause(trimmed, $"OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY", dialect);
         }
 
         // A plain SELECT-leading query: cap the outermost SELECT with TOP. T-SQL requires
@@ -186,7 +195,7 @@ public static class SqlRowLimitRewriter
         // A CTE-leading query or a set operation: a leading TOP would land on the CTE body or the first
         // UNION arm and leave the OUTER result uncapped, and neither can be wrapped in a derived table.
         // Bound the outer result with a dummy-ordered OFFSET/FETCH (valid T-SQL) instead.
-        return AppendClause(trimmed, $"ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY");
+        return AppendClause(trimmed, $"ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY", dialect);
     }
 
     // The index of the first character after leading whitespace and comments; -1 when a block comment never closes.
@@ -263,11 +272,11 @@ public static class SqlRowLimitRewriter
             && (end == sql.Length || !(char.IsLetterOrDigit(sql[end]) || sql[end] is '_' or '@' or '#' or '$'));
     }
 
-    private static string AppendClause(string trimmed, string clause)
+    private static string AppendClause(string trimmed, string clause, string? dialect)
     {
-        // A trailing `--` line comment would swallow an appended clause on the same line.
+        // A trailing line comment (`--`, or the engine's `#` / `//`) would swallow an appended clause on the same line.
         var lastLine = trimmed[(trimmed.LastIndexOf('\n') + 1)..];
-        var separator = lastLine.Contains("--") ? "\n" : " ";
+        var separator = SqlDialects.HasLineCommentMarker(lastLine, dialect) ? "\n" : " ";
 
         return $"{trimmed}{separator}{clause}";
     }

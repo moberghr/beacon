@@ -249,7 +249,7 @@ internal partial class QueryService
 
         // Defense-in-depth: reject non-read-only SQL even for steps persisted before the
         // AddQueryStep/UpdateQueryStep gate shipped (§1.5). Runs before any DB round-trip.
-        var rejection = readOnlyAstValidator.Validate(executedSql, step.DataSource.DatabaseEngineType?.ToString());
+        var rejection = readOnlyAstValidator.Validate(executedSql, DataSourceSqlDialect.Of(step.DataSource));
         if (rejection != null)
         {
             throw new InvalidOperationException(rejection);
@@ -370,12 +370,17 @@ internal partial class QueryService
 
     private async Task<string?> ResolveDataSourceDialect(BeaconContext context, int dataSourceId, CancellationToken cancellationToken)
     {
-        var engineType = await context.DataSources
+        var dataSource = await context.DataSources
             .Where(x => x.Id == dataSourceId)
-            .Select(x => x.DatabaseEngineType)
+            .Select(x =>
+                new
+                {
+                    x.DataSourceType,
+                    x.DatabaseEngineType
+                })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return engineType?.ToString();
+        return dataSource == null ? null : DataSourceSqlDialect.Of(dataSource.DataSourceType, dataSource.DatabaseEngineType);
     }
 
 }
