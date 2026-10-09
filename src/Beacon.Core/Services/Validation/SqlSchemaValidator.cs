@@ -26,7 +26,7 @@ public sealed class SqlSchemaValidator
         Sequence<Statement> statements;
         try
         {
-            statements = new Parser().ParseSql(sql, SqlDialects.Resolve(dialect));
+            statements = SqlAst.Parse(sql, dialect);
         }
         catch (Exception ex)
         {

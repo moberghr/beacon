@@ -38,6 +38,9 @@ public class ProjectQueryToolSchemaGateTests
     private Mock<IDataSourceProvider> _provider = null!;
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpQuerySignal> _signals = null!;
+    private RecordingSqlGate _gate = null!;
+    private DataSourceType _warehouseType;
+    private DatabaseEngineType? _warehouseEngine;
 
     [SetUp]
     public void SetUp()
@@ -57,6 +60,26 @@ public class ProjectQueryToolSchemaGateTests
 
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _signals = [];
+        _warehouseType = DataSourceType.Database;
+        _warehouseEngine = DatabaseEngineType.PostgreSQL;
+    }
+
+    [TestCase(DataSourceType.BigQuery, "bigquery")]
+    [TestCase(DataSourceType.Databricks, "databricks")]
+    public async Task WarehouseWithoutEngineType_IsGatedInItsOwnDialect(DataSourceType type, string dialect)
+    {
+        _warehouseType = type;
+        _warehouseEngine = null;
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        _gate.Dialects.Should().Equal(dialect);
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), "SELECT id FROM orders LIMIT 25", It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Test]
@@ -213,7 +236,7 @@ public class ProjectQueryToolSchemaGateTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SchemaGateTestContext(_signals));
+            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _warehouseType, _warehouseEngine));
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -224,6 +247,7 @@ public class ProjectQueryToolSchemaGateTests
 
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
         var guardrail = new QueryGuardrailService();
+        _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail));
 
         // Audit rows are asserted elsewhere (DryRunToolTests); a bare factory mock keeps §1.7 paths runnable.
         var auditService = new McpAuditService(new Mock<IDbContextFactory<BeaconContext>>().Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
@@ -233,7 +257,7 @@ public class ProjectQueryToolSchemaGateTests
             factory.Object,
             providerFactory.Object,
             guardrail,
-            TestSqlGate.Create(guardrail),
+            _gate,
             _knowledgeGraph.Object,
             settingsProvider.Object,
             projectContext,
@@ -252,9 +276,14 @@ public class ProjectQueryToolSchemaGateTests
                 .Options;
 
         private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
+        private readonly DataSourceType _warehouseType;
+        private readonly DatabaseEngineType? _warehouseEngine;
 
-        public SchemaGateTestContext(List<McpQuerySignal> signals) : base(Options, "beacon")
+        public SchemaGateTestContext(List<McpQuerySignal> signals, DataSourceType warehouseType, DatabaseEngineType? warehouseEngine)
+            : base(Options, "beacon")
         {
+            _warehouseType = warehouseType;
+            _warehouseEngine = warehouseEngine;
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
                 .Callback<McpQuerySignal>(signals.Add);
         }
@@ -274,9 +303,9 @@ public class ProjectQueryToolSchemaGateTests
                     {
                         Id = DataSourceId,
                         Name = "warehouse",
-                        DataSourceType = DataSourceType.Database,
+                        DataSourceType = _warehouseType,
                         EncryptedConnectionData = "encrypted",
-                        DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                        DatabaseEngineType = _warehouseEngine
                     }
                 });
             }

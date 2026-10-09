@@ -107,7 +107,7 @@ internal sealed class SavedQueryToolExecutor(
             var isResultStep = !hasFinalQuery && step == tool.Steps[^1];
             var stepCap = isResultStep ? maxRows : IntermediateRowCap;
 
-            var report = gate.Evaluate(SqlGateRequest.FromSettings(boundSql, dataSource.DatabaseEngineType.Value.ToString(), settings) with
+            var report = gate.Evaluate(SqlGateRequest.FromSettings(boundSql, DataSourceSqlDialect.Of(dataSource), settings) with
             {
                 EnforceReadOnly = true,
                 MaxRows = stepCap + 1,
@@ -124,8 +124,8 @@ internal sealed class SavedQueryToolExecutor(
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(StepTimeoutSeconds));
 
-            // §1.5 backstop — read-only execution path (a READ ONLY transaction on PostgreSQL; parser gates above for
-            // the other engines, see IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement).
+            // §1.5 backstop — read-only execution path (a READ ONLY transaction on PostgreSQL and MySQL; parser gates
+            // above for the other engines, see IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement).
             var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, parameters, timeoutCts.Token);
             if (!result.Success)
             {
@@ -138,7 +138,7 @@ internal sealed class SavedQueryToolExecutor(
                 return SavedQueryToolExecution.Failed($"Step {step.StepOrder} returned more than {IntermediateRowCap} rows; the joined result would be incomplete.", tablesUsed, firstDataSourceId);
             }
 
-            var dialect = dataSource.DatabaseEngineType.Value.ToString();
+            var dialect = DataSourceSqlDialect.Of(dataSource);
             if (hasFinalQuery && settings.EnablePiiDetection)
             {
                 joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(

@@ -116,6 +116,9 @@ public static class PiiRowMasker
 
         public static ProjectionAliases None { get; } = new(_ => false);
 
+        // Every result column masked: what an alias of a PII column is called cannot be known without the parse.
+        private static ProjectionAliases All { get; } = new(_ => true) { MaskAll = true };
+
         public IReadOnlySet<string> Names => _names;
 
         public bool MaskAll { get; private set; }
@@ -125,13 +128,14 @@ public static class PiiRowMasker
             Sequence<Statement> statements;
             try
             {
-                statements = new Parser().ParseSql(sql, SqlDialects.Resolve(dialect));
+                statements = SqlAst.Parse(sql, dialect);
             }
             catch (Exception)
             {
-                // The SQL already passed the execution gate, so a parser gap here only means no alias is resolved. Nothing
-                // is logged: the parser message can quote the SQL (§1.11).
-                return None;
+                // Fail closed: SQL that cannot be parsed (a parser gap, or a statement too deep to walk) may rename a PII
+                // column to anything, so every result column is masked. Nothing is logged: the parser message can quote
+                // the SQL (§1.11).
+                return All;
             }
 
             var resolver = new ProjectionAliases(isPii);

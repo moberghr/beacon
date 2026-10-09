@@ -154,6 +154,32 @@ public class SqlRowLimitRewriterTests
         result.Sql.Should().EndWith(" LIMIT 100");
     }
 
+    // In the textual fallback only a bound outside literals, quoted names and comments counts; with ambiguous quoting
+    // nothing counts and the cap is always added.
+    [TestCase("SELECT 'LIMIT 1' AS x FROM t WHERE ???", "SELECT 'LIMIT 1' AS x FROM t WHERE ??? LIMIT 10")]
+    [TestCase("SELECT a FROM t /* LIMIT 1 */ WHERE ???", "SELECT a FROM t /* LIMIT 1 */ WHERE ??? LIMIT 10")]
+    [TestCase("SELECT a FROM t WHERE ??? -- LIMIT 1", "SELECT a FROM t WHERE ??? -- LIMIT 1\nLIMIT 10")]
+    [TestCase("SELECT \"LIMIT 1\" FROM t WHERE ???", "SELECT \"LIMIT 1\" FROM t WHERE ??? LIMIT 10")]
+    [TestCase("SELECT 'a\\' LIMIT 1 ' FROM t WHERE ???", "SELECT 'a\\' LIMIT 1 ' FROM t WHERE ??? LIMIT 10")]
+    [TestCase("SELECT $$ LIMIT 1 $$ FROM t WHERE ???", "SELECT $$ LIMIT 1 $$ FROM t WHERE ??? LIMIT 10")]
+    [TestCase("SELECT a FROM t WHERE ??? LIMIT 5", "SELECT a FROM t WHERE ??? LIMIT 5")]
+    public void Apply_TextualFallback_TrustsOnlyABoundOutsideLiteralsAndComments(string sql, string expected)
+    {
+        var result = SqlRowLimitRewriter.Apply(sql, 10, "PostgreSQL");
+
+        result.Outcome.Should().Be(SqlRowLimitOutcome.TextualFallback);
+        result.Sql.Should().Be(expected);
+    }
+
+    [Test]
+    public void Apply_TextualFallback_TSqlTopInsideABracketedName_StillCaps()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT [TOP 5] FROM t WHERE ???", 10, "MSSQL");
+
+        result.Outcome.Should().Be(SqlRowLimitOutcome.TextualFallback);
+        result.Sql.Should().Be("SELECT TOP 10 [TOP 5] FROM t WHERE ???");
+    }
+
     [Test]
     public void Apply_Explain_CapsInnerSelect()
     {

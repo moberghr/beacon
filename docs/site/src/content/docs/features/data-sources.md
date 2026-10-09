@@ -190,6 +190,10 @@ CREATE USER beacon_readonly FOR LOGIN beacon_readonly;
 ALTER ROLE db_datareader ADD MEMBER beacon_readonly;
 ```
 
+Beacon refuses linked-server (four-part) names, but a three-part `database.schema.table` name reads any database on the
+server the login can see. Don't map the Beacon login on any linked server, don't grant it `ALTER ANY LINKED SERVER`, and
+give it access only to the databases Beacon should read.
+
 **MySQL:**
 ```sql
 CREATE USER 'beacon_readonly'@'%' IDENTIFIED BY 'strong-password';

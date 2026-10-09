@@ -23,6 +23,9 @@ internal class DatabaseProvider(
     /// <summary>What a caller sees when a query against a host data source fails on the server.</summary>
     public const string HostQueryFailedMessage = "Query failed on the host database.";
 
+    /// <summary>What a caller sees when MySQL's read-only transaction could not be closed after a read.</summary>
+    public const string MySqlReadOnlyNotClosedMessage = "The read-only transaction could not be closed, so the result was discarded.";
+
     public DataSourceType SupportedType => DataSourceType.Database;
 
     public string GetQueryLanguageName() => "SQL";
@@ -94,7 +97,7 @@ internal class DatabaseProvider(
     }
 
     // Honest capability report: the database-level backstop exists ONLY for engines with a working
-    // read-only transaction path here (PostgreSQL today — see SupportsReadOnlyTransaction). For every
+    // read-only transaction path here (PostgreSQL and MySQL — see SupportsReadOnlyTransaction). For every
     // other engine ExecuteReadOnlyQueryAsync degrades to plain execution and callers rely on the
     // parser gates alone.
     public bool SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType? engine)
@@ -130,7 +133,7 @@ internal class DatabaseProvider(
 
             // Read-only enforcement (§1.5): reject anything that is not a single SELECT before the
             // engine-specific syntax dry-run below.
-            var readOnlyError = readOnlyValidator.Validate(query, ResolveDialect(dataSource.DatabaseEngineType.Value));
+            var readOnlyError = readOnlyValidator.Validate(query, DataSourceSqlDialect.Of(dataSource));
             if (readOnlyError != null)
             {
                 return new QueryValidationResult
@@ -248,21 +251,23 @@ internal class DatabaseProvider(
                 };
             }
 
+            // §1.5 backstop — parser-level read-only enforcement alone is bypassable (SQL injection past
+            // the regex/AST gates), so the database itself rejects writes: any write attempt inside a
+            // READ ONLY transaction fails server-side (PostgreSQL 25006, MySQL 1792), regardless of what
+            // the parsers missed.
+            var engine = dataSource.DatabaseEngineType.Value;
+            var useReadOnlyTransaction = enforceReadOnly && SupportsDatabaseReadOnlyEnforcement(engine);
+            var usePostgreSqlReadOnlyTransaction = useReadOnlyTransaction && engine == DatabaseEngineType.PostgreSQL;
+            var useMySqlReadOnlyTransaction = useReadOnlyTransaction && engine == DatabaseEngineType.MySQL;
+
             var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
-                dataSource.DatabaseEngineType.Value,
-                connectionString);
+                engine,
+                useMySqlReadOnlyTransaction ? WithoutStatementBatches(connectionString) : connectionString);
 
             await connection.OpenAsync(cancellationToken);
 
-            // §1.5 backstop — parser-level read-only enforcement alone is bypassable (SQL injection past
-            // the regex/AST gates), so the database itself rejects writes: any write attempt inside a
-            // READ ONLY transaction fails server-side (PostgreSQL 25006 read_only_sql_transaction),
-            // regardless of what the parsers missed.
-            var useReadOnlyTransaction = enforceReadOnly
-                && SupportsDatabaseReadOnlyEnforcement(dataSource.DatabaseEngineType);
-
-            if (useReadOnlyTransaction)
+            if (usePostgreSqlReadOnlyTransaction)
             {
                 // Session-scoped outer belt: SET TRANSACTION READ ONLY alone is transaction-scoped —
                 // an injected "COMMIT; <write>" ends the transaction and the write runs autocommit.
@@ -276,7 +281,7 @@ internal class DatabaseProvider(
                     cancellationToken: cancellationToken));
             }
 
-            await using var transaction = useReadOnlyTransaction
+            await using var transaction = usePostgreSqlReadOnlyTransaction
                 ? await connection.BeginTransactionAsync(cancellationToken)
                 : null;
 
@@ -296,16 +301,46 @@ internal class DatabaseProvider(
                 cancellationToken: cancellationToken,
                 commandTimeout: 120);
 
-            var result = await connection.QueryAsync(commandDefinition);
-            var rows = hostGuard.Mask(ConvertDapperResultsToRows(result.AsList()), hostCheck.MaskedOutputColumns);
-
-            if (transaction != null)
+            List<Dictionary<string, object?>> rows;
+            var mySqlReadOnlyClosed = true;
+            try
             {
-                // Reads inside a READ ONLY transaction commit fine.
-                await transaction.CommitAsync(cancellationToken);
+                if (useMySqlReadOnlyTransaction)
+                {
+                    await BeginMySqlReadOnlyAsync(connection, cancellationToken);
+                }
+
+                var result = await connection.QueryAsync(commandDefinition);
+                rows = hostGuard.Mask(ConvertDapperResultsToRows(result.AsList()), hostCheck.MaskedOutputColumns);
+
+                if (transaction != null)
+                {
+                    // Reads inside a READ ONLY transaction commit fine.
+                    await transaction.CommitAsync(cancellationToken);
+                }
+            }
+            finally
+            {
+                if (useMySqlReadOnlyTransaction)
+                {
+                    mySqlReadOnlyClosed = await EndMySqlReadOnlyAsync(connection, dataSource);
+                }
             }
 
             stopwatch.Stop();
+
+            if (!mySqlReadOnlyClosed)
+            {
+                // The rows were read, but the connection's read-only state could not be restored; fail closed.
+                return new ProviderQueryResult
+                {
+                    Rows = new List<Dictionary<string, object?>>(),
+                    TotalRows = 0,
+                    ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
+                    Success = false,
+                    ErrorMessage = MySqlReadOnlyNotClosedMessage
+                };
+            }
 
             return new ProviderQueryResult
             {
@@ -370,14 +405,72 @@ internal class DatabaseProvider(
         return null;
     }
 
+    // With batches on, MySQL runs every statement of a command, so `COMMIT; <write>` would end the read-only transaction
+    // and then write. The read-only connection turns batches off (MySql.Data's AllowBatch); its connection string
+    // therefore differs from the ordinary one, so it is pooled apart and only ever runs read-only work.
+    private static string WithoutStatementBatches(string connectionString)
+    {
+        var builder = new DbConnectionStringBuilder { ConnectionString = connectionString };
+        var batchKeys = builder.Keys
+            .Cast<string>()
+            .Where(x => x.Replace(" ", "").Equals("allowbatch", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var key in batchKeys)
+        {
+            builder.Remove(key);
+        }
+
+        builder["AllowBatch"] = "false";
+
+        return builder.ConnectionString;
+    }
+
+    // Two belts, as on PostgreSQL. The session default makes every transaction on the connection read-only — a DDL
+    // statement's implicit commit included, which would otherwise end the explicit transaction and run unchecked — and
+    // the explicit transaction is opened READ ONLY. MySQL fixes a transaction's access mode when it starts, so it is
+    // opened with SQL rather than through BeginTransaction.
+    private static async Task BeginMySqlReadOnlyAsync(DbConnection connection, CancellationToken cancellationToken)
+    {
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SET SESSION TRANSACTION READ ONLY",
+            cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition(
+            "START TRANSACTION READ ONLY",
+            cancellationToken: cancellationToken));
+    }
+
+    // Best effort, on every path after the session went read-only, and never on the caller's token: a request cancelled
+    // after a successful read must still close the transaction, and the read stays a success. MySql.Data does not reset
+    // session state for a pooled connection, so the session is put back to read-write here. If either statement fails,
+    // the driver still rolls back a transaction the server reports open before it pools the connection (it checks the
+    // server's in-transaction flag on close), and the connection belongs to the read-only pool anyway.
+    private async Task<bool> EndMySqlReadOnlyAsync(DbConnection connection, DataSource dataSource)
+    {
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition("ROLLBACK", cancellationToken: CancellationToken.None));
+            await connection.ExecuteAsync(new CommandDefinition(
+                "SET SESSION TRANSACTION READ WRITE",
+                cancellationToken: CancellationToken.None));
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            DescribeFailure(dataSource, ex, "Closing the read-only transaction failed", LogLevel.Warning);
+
+            return false;
+        }
+    }
+
     // PostgreSQL supports the session-level default_transaction_read_only backstop plus
-    // SET TRANSACTION READ ONLY as the first statement of an open transaction. MySQL 5.7+ supports
-    // read-only transactions too — deferred: requires START TRANSACTION READ ONLY plumbing through
-    // the Dapper transaction begin; PostgreSQL ships first. MSSQL/Synapse/Snowflake have no
-    // READ ONLY transaction mode — those engines keep parser-level enforcement only.
+    // SET TRANSACTION READ ONLY as the first statement of an open transaction. MySQL (5.6.5+, MariaDB
+    // 10.0+) gets the session-level SET SESSION TRANSACTION READ ONLY plus START TRANSACTION READ ONLY
+    // on a connection without statement batches. MSSQL/Synapse/Snowflake have no READ ONLY transaction
+    // mode — those engines keep parser-level enforcement only.
     private static bool SupportsReadOnlyTransaction(DatabaseEngineType engineType)
     {
-        return engineType == DatabaseEngineType.PostgreSQL;
+        return engineType is DatabaseEngineType.PostgreSQL or DatabaseEngineType.MySQL;
     }
 
     // Engines with an actual dry-run strategy in ValidateQueryAsync's switch: EXPLAIN
@@ -390,19 +483,6 @@ internal class DatabaseProvider(
             or DatabaseEngineType.Snowflake
             or DatabaseEngineType.MSSQL
             or DatabaseEngineType.AzureSynapse;
-    }
-
-    private static string ResolveDialect(DatabaseEngineType engineType)
-    {
-        return engineType switch
-        {
-            DatabaseEngineType.PostgreSQL => "postgresql",
-            DatabaseEngineType.MySQL => "mysql",
-            DatabaseEngineType.MSSQL => "sqlserver",
-            DatabaseEngineType.AzureSynapse => "azuresynapse",
-            DatabaseEngineType.Snowflake => "snowflake",
-            _ => ""
-        };
     }
 
     private static List<Dictionary<string, object?>> ConvertDapperResultsToRows(IList<dynamic> dapperResults)

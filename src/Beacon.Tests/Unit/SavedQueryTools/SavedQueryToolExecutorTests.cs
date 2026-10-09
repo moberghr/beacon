@@ -30,6 +30,7 @@ public class SavedQueryToolExecutorTests
     private Mock<IDataSourceProvider> _provider = null!;
     private List<(string Sql, Dictionary<string, object?> Parameters)> _executed = null!;
     private Queue<List<Dictionary<string, object?>>> _results = null!;
+    private RecordingSqlGate _gate = null!;
 
     [SetUp]
     public void SetUp()
@@ -65,6 +66,34 @@ public class SavedQueryToolExecutorTests
         _executed[0].Sql.Should().Contain("region = @p0").And.Contain("issued >= @p1").And.NotContain("OR '1'");
         _executed[0].Parameters.Should().BeEquivalentTo(new Dictionary<string, object?> { ["p0"] = hostile, ["p1"] = new DateTime(2026, 1, 1) });
         _provider.Verify(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never, "saved-query tools use only the read-only variant (§1.5)");
+    }
+
+    [Test]
+    public async Task ADatabaseStep_IsGatedInItsEnginesDialect()
+    {
+        var tool = Tool("orders", [Step(1, 10, "SELECT id FROM orders")], [ProjectId]);
+
+        var result = await Executor().ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        _gate.Dialects.Should().Equal("PostgreSQL");
+    }
+
+    // Saved-query tools run database sources only; a warehouse without an engine type is refused before the gate.
+    [TestCase(DataSourceType.BigQuery)]
+    [TestCase(DataSourceType.Databricks)]
+    public async Task AWarehouseStep_IsRefusedBeforeTheGate(DataSourceType type)
+    {
+        var warehouse = _data.Store.ListFor<DataSource>().Single(x => x.Id == 10);
+        warehouse.DataSourceType = type;
+        warehouse.DatabaseEngineType = null;
+        var tool = Tool("orders", [Step(1, 10, "SELECT id FROM orders")], [ProjectId]);
+
+        var result = await Executor().ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("database data sources only");
+        _gate.Dialects.Should().BeEmpty();
     }
 
     [Test]
@@ -359,10 +388,12 @@ public class SavedQueryToolExecutorTests
             .Setup(x => x.GetProvider(DataSourceType.Database))
             .Returns(_provider.Object);
 
+        _gate = new RecordingSqlGate(TestSqlGate.Create(hostGuard: hostGuard));
+
         return new SavedQueryToolExecutor(
             _data.Store.Factory().Object,
             factory.Object,
-            TestSqlGate.Create(hostGuard: hostGuard),
+            _gate,
             new QueryGuardrailService(),
             SettingsProviderMock.Create(settings ?? new McpSettingsData()).Object,
             NullLoggerFactory.Instance);

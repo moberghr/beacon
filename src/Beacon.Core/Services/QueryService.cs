@@ -209,7 +209,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         // Ensure backward compatibility - if no steps, create one from the legacy properties
         if (!queryData.Steps.Any())
         {
-            QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
+            QueryValidator.CheckForFlaggedWords(queryData.SqlValue, readOnlyAstValidator.MaxSqlChars);
             QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
 
             queryData.Steps.Add(new QueryStepData
@@ -233,7 +233,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         // Validate all steps
         foreach (var step in queryData.Steps)
         {
-            QueryValidator.CheckForFlaggedWords(step.SqlValue);
+            QueryValidator.CheckForFlaggedWords(step.SqlValue, readOnlyAstValidator.MaxSqlChars);
             QueryValidator.CheckForParameters(step.SqlValue, step.Parameters.Select(p => new QueryParameterData
             {
                 Name = p.Name,

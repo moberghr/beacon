@@ -2,6 +2,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -106,7 +107,7 @@ internal partial class QueryService
     {
         foreach (var x in stepData)
         {
-            QueryValidator.CheckForFlaggedWords(x.SqlValue);
+            QueryValidator.CheckForFlaggedWords(x.SqlValue, readOnlyAstValidator.MaxSqlChars);
         }
 
         var dataSourceIds = stepData
@@ -242,7 +243,7 @@ internal partial class QueryService
         }
 
         var engine = step.DataSource.DatabaseEngineType.Value;
-        var dialect = engine.ToString();
+        var dialect = DataSourceSqlDialect.Of(step.DataSource);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, ExtractStepParameters(step, parameters));
         var executedSql = FlattenSql(parameterizedSql);
 

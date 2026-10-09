@@ -18,7 +18,9 @@ public interface ISqlExecutionGate
 /// <paramref name="MaxRows"/> means "this stage was not requested" and yields a <c>Skipped("not_requested")</c>
 /// verdict rather than a pass.
 /// </summary>
-/// <param name="Dialect">Database engine name (<c>DatabaseEngineType.ToString()</c>) or <c>"SQLite"</c>.</param>
+/// <param name="Dialect">The target's dialect name from <see cref="DataSourceSqlDialect.Of(Beacon.Core.Data.Entities.DataSource)"/>, or
+/// <c>"SQLite"</c> for the in-memory join. An unknown or null dialect fails the read-only stage: SQL is never judged under a
+/// generic grammar.</param>
 /// <param name="BlockOnSchemaFailure">When true a schema-gate failure blocks execution (the <c>query</c> tool);
 /// when false it is advisory and left to the caller's repair loop (<c>ask</c>, <c>dry_run</c>, cross-source).</param>
 public sealed record SqlGateRequest(
@@ -110,6 +112,12 @@ public static class SqlGateCodes
 
     /// <summary>Row limit: the SQL did not parse, so the legacy textual heuristic decided the placement.</summary>
     public const string TextualFallback = "textual_fallback";
+
+    /// <summary>Row limit: the SQL is nested too deeply to cap safely, so it is blocked.</summary>
+    public const string TooDeep = "too_deep";
+
+    /// <summary>Lint: the SQL did not parse, so no semantic check ran.</summary>
+    public const string ParseFailed = "parse_failed";
 }
 
 /// <summary>One stage's verdict. <see cref="Code"/> is a stable machine-readable token; <see cref="Message"/> is caller-facing text.</summary>

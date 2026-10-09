@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using Beacon.Core.Helpers;
-using SqlParser;
 using SqlParser.Ast;
 
 namespace Beacon.Core.Services.Validation;
@@ -25,8 +24,8 @@ public sealed record SqlPagePlan(string? PageSql, string? CountSql, bool SortApp
 /// derived table and an ORDER BY there without TOP/OFFSET, so those shapes fall back.</item>
 /// <item>Count: <c>SELECT COUNT(*) FROM (…)</c>, under the same derived-table rules.</item>
 /// </list>
-/// SQL containing comments is never rewritten: execution flattens newlines, so a <c>--</c> comment would
-/// swallow the added clauses.
+/// SQL containing comments is never rewritten: execution flattens newlines, so a line comment (<c>--</c>, and
+/// <c>#</c> on MySQL and BigQuery or <c>//</c> on Snowflake) would swallow the added clauses.
 /// </summary>
 public static class SqlPageRewriter
 {
@@ -43,7 +42,7 @@ public static class SqlPageRewriter
     /// <param name="sort">Result column to order by; null keeps the query's own order.</param>
     public static SqlPagePlan Plan(string sql, string? dialect, int offset, int limit, SortCriterion? sort)
     {
-        if (string.IsNullOrWhiteSpace(sql) || sql.Contains("--") || sql.Contains("/*") || limit <= 0 || offset < 0)
+        if (string.IsNullOrWhiteSpace(sql) || HasComment(sql, dialect) || limit <= 0 || offset < 0)
         {
             return Unsupported;
         }
@@ -56,7 +55,7 @@ public static class SqlPageRewriter
         Query? query;
         try
         {
-            var statements = new Parser().ParseSql(sql, SqlDialects.Resolve(dialect));
+            var statements = SqlAst.Parse(sql, dialect);
             query = statements.Count == 1 && statements[0] is Statement.Select select ? select.Query : null;
         }
         catch (Exception)
@@ -105,6 +104,12 @@ public static class SqlPageRewriter
         var countSql = derived == null ? null : $"SELECT COUNT(*) FROM ({derived}) AS beacon_count";
 
         return new SqlPagePlan(pageSql, countSql, pageSql != null && sort != null);
+    }
+
+    // Quote-unaware on purpose: a comment marker inside a literal only sends the statement to the streaming fallback.
+    private static bool HasComment(string sql, string? dialect)
+    {
+        return sql.Contains("/*") || SqlDialects.HasLineCommentMarker(sql, dialect);
     }
 
     /// <summary>The query as a derived-table body, or null when the dialect cannot nest it.</summary>

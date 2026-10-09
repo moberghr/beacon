@@ -107,8 +107,17 @@ internal sealed class SemanticSearchService(
                     $"Generated query failed safety validation: {validation.Error}");
             }
 
+            // 4. Load the data source: the read-only check parses the SQL in its dialect.
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            var dataSource = await context.DataSources
+                .Where(x => x.Id == dataSourceId)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+            var dialect = DataSourceSqlDialect.Of(dataSource);
+
             // AST-based read-only enforcement as defense-in-depth on top of the regex guardrail (§1.5).
-            var astError = readOnlyAstValidator.Validate(generatedSql);
+            var astError = readOnlyAstValidator.Validate(generatedSql, dialect);
             if (astError != null)
             {
                 return new SemanticSearchResult(
@@ -121,17 +130,8 @@ internal sealed class SemanticSearchService(
             if (!execute)
                 return new SemanticSearchResult(generatedSql, explanation, null, null);
 
-            // 4. Load the data source entity
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-            var dataSource = await context.DataSources
-                .Where(ds => ds.Id == dataSourceId)
-                .FirstOrDefaultAsync(ct)
-                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
-
             // 5. Apply row limit and execute
-            var engine = dataSource.DatabaseEngineType?.ToString();
-            var limitedSql = guardrailService.ApplyRowLimit(generatedSql, _defaultMaxRows, engine);
+            var limitedSql = guardrailService.ApplyRowLimit(generatedSql, _defaultMaxRows, dialect);
 
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             var queryResult = await provider.ExecuteQueryAsync(

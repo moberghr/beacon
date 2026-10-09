@@ -116,7 +116,7 @@ internal static class HostQueryPolicyValidator
         Sequence<Statement> statements;
         try
         {
-            statements = new Parser().ParseSql(parseable, dialect);
+            statements = SqlAst.Parse(parseable, dialect);
         }
         catch (Exception ex)
         {

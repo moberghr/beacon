@@ -193,16 +193,23 @@ public class AiAlertGenerationService : IAiAlertGenerationService
 
         using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var engine = await context.DataSources
+        var dataSource = await context.DataSources
             .Where(x => x.Id == dataSourceId)
-            .Select(x => x.DatabaseEngineType)
+            .Select(x =>
+                new
+                {
+                    x.DataSourceType,
+                    x.DatabaseEngineType
+                })
             .FirstOrDefaultAsync(cancellationToken);
+        var dialect = dataSource == null ? null : DataSourceSqlDialect.Of(dataSource.DataSourceType, dataSource.DatabaseEngineType);
 
         // AST-based read-only enforcement: reject non-SELECT / multi-statement / SELECT ... INTO SQL.
-        var astError = _readOnlyAstValidator.Validate(sql, engine?.ToString());
+        var astError = _readOnlyAstValidator.Validate(sql, dialect);
         if (astError != null)
         {
-            _logger.LogWarning("Generated alert SQL rejected for data source {DataSourceId}: {Reason}", dataSourceId, astError);
+            // The reason can quote the SQL (a parser message), so only the data source is logged (§1.11).
+            _logger.LogWarning("Generated alert SQL rejected for data source {DataSourceId}", dataSourceId);
             return false;
         }
 

@@ -47,6 +47,26 @@ internal static class SqlDialects
     }
 
     /// <summary>
+    /// True when <paramref name="text"/> holds a marker that starts a line comment on the engine: <c>--</c> everywhere,
+    /// <c>#</c> on MySQL and BigQuery, <c>//</c> on Snowflake. Quote-unaware, so a marker inside a literal counts too.
+    /// </summary>
+    public static bool HasLineCommentMarker(string text, string? dialect)
+    {
+        if (text.Contains("--"))
+        {
+            return true;
+        }
+
+        var parserDialect = Resolve(dialect);
+        if (parserDialect is MySqlDialect or BigQueryDialect && text.Contains('#'))
+        {
+            return true;
+        }
+
+        return parserDialect is SnowflakeDialect && text.Contains("//");
+    }
+
+    /// <summary>
     /// T-SQL engines have no LIMIT keyword — they take the TOP / OFFSET-FETCH row-limit path.
     /// </summary>
     public static bool IsTSql(string? dialect)

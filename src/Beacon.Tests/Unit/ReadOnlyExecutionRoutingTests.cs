@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Connector.MySql;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
 using Beacon.Core;
@@ -61,7 +62,8 @@ public class ReadOnlyExecutionRoutingTests
         // integration harness — see production wiring.
         new BeaconBuilder(new ServiceCollection(), new ConfigurationBuilder().Build())
             .AddPostgreSqlConnector()
-            .AddSqlServerConnector();
+            .AddSqlServerConnector()
+            .AddMySqlConnector();
     }
 
     // --- (a) default interface method forwarding -------------------------------------------------
@@ -103,15 +105,16 @@ public class ReadOnlyExecutionRoutingTests
     }
 
     [Test]
-    public void SupportsDatabaseReadOnlyEnforcement_DatabaseProvider_TrueOnlyForPostgreSQL()
+    public void SupportsDatabaseReadOnlyEnforcement_DatabaseProvider_TrueForPostgreSqlAndMySql()
     {
         var provider = CreateDatabaseProvider();
 
         provider.SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.PostgreSQL).Should().BeTrue(
             "PostgreSQL has the session + transaction read-only backstop");
+        provider.SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.MySQL).Should().BeTrue(
+            "MySQL runs the statement inside START TRANSACTION READ ONLY");
         provider.SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.MSSQL).Should().BeFalse();
-        provider.SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.MySQL).Should().BeFalse(
-            "MySQL read-only transactions are deferred — see SupportsReadOnlyTransaction");
+        provider.SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.Snowflake).Should().BeFalse();
         provider.SupportsDatabaseReadOnlyEnforcement(null).Should().BeFalse();
     }
 
@@ -202,6 +205,7 @@ public class ReadOnlyExecutionRoutingTests
         result.Success.Should().BeTrue(result.ErrorMessage);
         connection.ExecutedCommands.Should().Equal(
             "SET default_transaction_read_only = on", "SET TRANSACTION READ ONLY", "SELECT 1");
+        connection.ExecutedCommands.Should().NotContain("START TRANSACTION READ ONLY");
         connection.BegunTransaction.Should().NotBeNull("the read-only guarantee lives on the transaction");
         connection.BegunTransaction!.Committed.Should().BeTrue("reads inside a READ ONLY transaction commit fine");
         connection.TransactionOf("SET default_transaction_read_only = on").Should().BeNull(
@@ -278,6 +282,123 @@ public class ReadOnlyExecutionRoutingTests
     }
 
     [Test]
+    public async Task DatabaseProvider_MySql_ExecuteReadOnlyQueryAsync_RunsReadOnlyWithoutBatches_AndRollsBack()
+    {
+        var connection = new RecordingDbConnection();
+        string? openedWith = null;
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x =>
+        {
+            openedWith = x;
+            return connection;
+        });
+
+        var result = await CreateDatabaseProvider("Server=unused;Allow Batch=true").ExecuteReadOnlyQueryAsync(
+            MySqlDataSource(), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        connection.ExecutedCommands.Should().Equal(MySqlReadOnly("SELECT 1"));
+        connection.ExecutedCommands.Should().NotContain("SET default_transaction_read_only = on");
+        connection.BegunTransaction.Should().BeNull(
+            "MySQL fixes the access mode when a transaction starts, so it is opened with SQL, not BeginTransaction");
+        openedWith.Should().NotContainEquivalentOf("allow batch=true");
+        openedWith.Should().ContainEquivalentOf("allowbatch=false", "a batch could end the transaction and then write");
+    }
+
+    [Test]
+    public async Task DatabaseProvider_MySql_WriteRejectedByDatabase_ReturnsFailure_AndStillRollsBack()
+    {
+        const string rejectedWrite = "UPDATE customers SET name = 'x'";
+        var connection = new RecordingDbConnection
+        {
+            FailOnCommandText = x => x == rejectedWrite,
+            FailureMessage = "Cannot execute statement in a READ ONLY transaction."
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            MySqlDataSource(), rejectedWrite, new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be("Cannot execute statement in a READ ONLY transaction.");
+        result.Rows.Should().BeEmpty();
+        connection.ExecutedCommands.Should().Equal(MySqlReadOnly(rejectedWrite));
+    }
+
+    [Test]
+    public async Task DatabaseProvider_MySql_StartTransactionFails_TheQueryIsNeverSent()
+    {
+        var connection = new RecordingDbConnection
+        {
+            FailOnCommandText = x => x == "START TRANSACTION READ ONLY",
+            FailureMessage = "1064: syntax error"
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            MySqlDataSource(), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        connection.ExecutedCommands.Should().NotContain("SELECT 1");
+        connection.ExecutedCommands.Should().EndWith(["ROLLBACK", "SET SESSION TRANSACTION READ WRITE"]);
+    }
+
+    [Test]
+    public async Task DatabaseProvider_MySql_RollbackFailsAfterARead_DiscardsTheResult()
+    {
+        var connection = new RecordingDbConnection
+        {
+            FailOnCommandText = x => x == "ROLLBACK",
+            FailureMessage = "2013: Lost connection to MySQL server during query"
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            MySqlDataSource(), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeFalse("the connection's read-only state could not be restored");
+        result.ErrorMessage.Should().Be(DatabaseProvider.MySqlReadOnlyNotClosedMessage);
+        result.Rows.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task DatabaseProvider_MySql_CallerCancelsAfterTheRead_TheRollbackStillRunsAndTheReadSucceeds()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var connection = new RecordingDbConnection
+        {
+            FailOnCommandText = x =>
+            {
+                if (x == "ROLLBACK")
+                {
+                    cancellation.Cancel();
+                }
+
+                return false;
+            }
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            MySqlDataSource(), "SELECT 1", new Dictionary<string, object?>(), cancellation.Token);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        connection.ExecutedCommands.Should().Equal(MySqlReadOnly("SELECT 1"));
+    }
+
+    [Test]
+    public async Task DatabaseProvider_MySql_ExecuteQueryAsync_DoesNotOpenAReadOnlyTransaction()
+    {
+        var connection = new RecordingDbConnection();
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteQueryAsync(
+            MySqlDataSource(), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        connection.ExecutedCommands.Should().Equal("SELECT 1");
+    }
+
+    [Test]
     public async Task DatabaseProvider_ValidateQueryAsync_EngineWithoutDryRunStrategy_ReportsSkippedNotValid()
     {
         // codex PR-11 R4: engines without an EXPLAIN / sp_describe_first_result_set strategy used to fall
@@ -314,12 +435,12 @@ public class ReadOnlyExecutionRoutingTests
         connection.ExecutedCommands.Should().Equal("EXPLAIN SELECT 1");
     }
 
-    private static DatabaseProvider CreateDatabaseProvider()
+    private static DatabaseProvider CreateDatabaseProvider(string connectionString = "Host=unused;Database=unused")
     {
         var encryption = new Mock<IEncryptionService>();
         encryption
             .Setup(x => x.Decrypt("encrypted"))
-            .Returns("Host=unused;Database=unused");
+            .Returns(connectionString);
 
         var resolver = new Mock<Beacon.Core.HostData.IDataSourceConnectionResolver>();
         resolver
@@ -339,6 +460,27 @@ public class ReadOnlyExecutionRoutingTests
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             hostGuard.Object,
             NullLogger<DatabaseProvider>.Instance);
+    }
+
+    private static string[] MySqlReadOnly(string query) =>
+    [
+        "SET SESSION TRANSACTION READ ONLY",
+        "START TRANSACTION READ ONLY",
+        query,
+        "ROLLBACK",
+        "SET SESSION TRANSACTION READ WRITE"
+    ];
+
+    private static DataSource MySqlDataSource()
+    {
+        return new DataSource
+        {
+            Id = SqlDataSourceId,
+            Name = "mysql-shop",
+            DataSourceType = DataSourceType.Database,
+            EncryptedConnectionData = "encrypted",
+            DatabaseEngineType = DatabaseEngineType.MySQL
+        };
     }
 
     private static DataSource PostgresDataSource()
@@ -533,14 +675,14 @@ public class ReadOnlyExecutionRoutingTests
         public List<(string CommandText, DbTransaction? Transaction)> Executions { get; } = [];
         public RecordingDbTransaction? BegunTransaction { get; private set; }
         public Func<string, bool>? FailOnCommandText { get; init; }
+        public string FailureMessage { get; init; } = "25006: cannot execute UPDATE in a read-only transaction (read_only_sql_transaction)";
 
         public void RecordExecution(string commandText, DbTransaction? transaction)
         {
             Executions.Add((commandText, transaction));
             if (FailOnCommandText != null && FailOnCommandText(commandText))
             {
-                throw new FakeDbException(
-                    "25006: cannot execute UPDATE in a read-only transaction (read_only_sql_transaction)");
+                throw new FakeDbException(FailureMessage);
             }
         }
 
