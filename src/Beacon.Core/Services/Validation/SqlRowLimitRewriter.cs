@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using SqlParser;
 using SqlParser.Ast;
@@ -285,21 +286,20 @@ public static class SqlRowLimitRewriter
     {
         var trimmed = sql.TrimEnd().TrimEnd(';');
 
-        if (TextualLimitPattern.IsMatch(trimmed))
-        {
-            return sql;
-        }
-
-        if (TextualTopPattern.IsMatch(trimmed))
+        // Only a LIMIT/TOP outside literals, quoted names and comments counts as an existing bound. When an engine could
+        // end a literal somewhere else, no textual bound is trusted and the cap is added anyway: a second bound at worst
+        // fails the statement, a missed one leaves it uncapped.
+        var code = CodeOnly(trimmed);
+        if (code != null && (TextualLimitPattern.IsMatch(code) || TextualTopPattern.IsMatch(code)))
         {
             return sql;
         }
 
         if (SqlDialects.IsTSql(dialect))
         {
-            if (TextualOrderByPattern.IsMatch(trimmed))
+            if (code != null && TextualOrderByPattern.IsMatch(code))
             {
-                return $"{trimmed} OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY";
+                return AppendClause(trimmed, $"OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY", dialect);
             }
 
             if (TextualSelectLeadingPattern.IsMatch(trimmed))
@@ -307,9 +307,124 @@ public static class SqlRowLimitRewriter
                 return SelectKeywordPattern.Replace(trimmed, $"SELECT TOP {maxRows}", 1);
             }
 
-            return $"{trimmed} ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY";
+            return AppendClause(trimmed, $"ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {maxRows} ROWS ONLY", dialect);
         }
 
-        return $"{trimmed} LIMIT {maxRows}";
+        return AppendClause(trimmed, $"LIMIT {maxRows}", dialect);
+    }
+
+    // The text with every literal, quoted name and comment blanked to a space, or null when the quoting is ambiguous
+    // across engines (a backslash before a quote, a dollar quote, a triple quote). Every comment marker any engine knows
+    // counts, so the scan blanks more text rather than less. One forward pass.
+    private static string? CodeOnly(string sql)
+    {
+        if (sql.Contains("'''") || sql.Contains("\"\"\"") || HasBackslashBeforeQuote(sql) || HasDollarQuote(sql))
+        {
+            return null;
+        }
+
+        var code = new StringBuilder(sql.Length);
+        var position = 0;
+        while (position < sql.Length)
+        {
+            var end = EndOfNonCode(sql, position);
+            if (end == position)
+            {
+                code.Append(sql[position]);
+                position++;
+                continue;
+            }
+
+            code.Append(' ');
+            position = end;
+        }
+
+        return code.ToString();
+    }
+
+    // The index just past the literal, quoted name or comment starting at position; position itself when none does.
+    private static int EndOfNonCode(string sql, int position)
+    {
+        var rest = sql.AsSpan(position);
+        if (rest.StartsWith("--") || rest.StartsWith("//") || rest[0] == '#')
+        {
+            var lineEnd = sql.IndexOfAny(['\r', '\n'], position);
+
+            return lineEnd < 0 ? sql.Length : lineEnd;
+        }
+
+        if (rest.StartsWith("/*"))
+        {
+            var commentEnd = SkipBlockComment(sql, position);
+
+            return commentEnd < 0 ? sql.Length : commentEnd;
+        }
+
+        return rest[0] switch
+        {
+            '\'' or '"' or '`' => EndOfQuoted(sql, position, rest[0]),
+            '[' => EndOfQuoted(sql, position, ']'),
+            _ => position
+        };
+    }
+
+    // Quoted text ends at the first closing character that is not doubled; unclosed, it runs to the end.
+    private static int EndOfQuoted(string sql, int open, char close)
+    {
+        var position = open + 1;
+        while (position < sql.Length)
+        {
+            var next = sql.IndexOf(close, position);
+            if (next < 0)
+            {
+                return sql.Length;
+            }
+
+            if (next + 1 < sql.Length && sql[next + 1] == close)
+            {
+                position = next + 2;
+                continue;
+            }
+
+            return next + 1;
+        }
+
+        return sql.Length;
+    }
+
+    private static bool HasBackslashBeforeQuote(string sql)
+    {
+        for (var i = 0; i + 1 < sql.Length; i++)
+        {
+            if (sql[i] == '\\' && sql[i + 1] is '\'' or '"' or '`')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // `$$` or `$tag$`: each scan stops at the next `$` or at a character that cannot be part of a tag.
+    private static bool HasDollarQuote(string sql)
+    {
+        var dollar = sql.IndexOf('$');
+        while (dollar >= 0)
+        {
+            var end = dollar + 1;
+            while (end < sql.Length && (char.IsLetterOrDigit(sql[end]) || sql[end] == '_'))
+            {
+                end++;
+            }
+
+            if (end < sql.Length && sql[end] == '$')
+            {
+                return true;
+            }
+
+            dollar = sql.IndexOf('$', end);
+        }
+
+        return false;
     }
 }

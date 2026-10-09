@@ -70,7 +70,7 @@ public class SqlReadOnlyValidatorSideEffectTests
             ("PostgreSQL", SqlDeniedFunctions.PostgreSql, SqlDeniedFunctions.PostgreSqlPrefixes),
             ("MySQL", SqlDeniedFunctions.MySql, []),
             ("MSSQL", SqlDeniedFunctions.TSql, SqlDeniedFunctions.TSqlPrefixes),
-            ("Snowflake", [], SqlDeniedFunctions.SnowflakePrefixes),
+            ("Snowflake", SqlDeniedFunctions.Snowflake, SqlDeniedFunctions.SnowflakePrefixes),
             ("databricks", SqlDeniedFunctions.Databricks, []),
             ("bigquery", [], []),
             ("SQLite", SqlDeniedFunctions.Sqlite, [])
@@ -118,6 +118,21 @@ public class SqlReadOnlyValidatorSideEffectTests
         _validator.Validate(sql, dialect).Should().StartWith("Row-locking clauses");
     }
 
+    [TestCase("SELECT seq.NEXTVAL")]
+    [TestCase("SELECT db.sch.seq.nextval")]
+    [TestCase("SELECT \"seq\".\"NEXTVAL\"")]
+    [TestCase("SELECT id, seq.nextval AS n FROM t")]
+    public void Validate_SnowflakeSequenceNextValue_IsRejected(string sql)
+    {
+        _validator.Validate(sql, "Snowflake").Should().StartWith("Sequence NEXTVAL is not allowed");
+    }
+
+    [Test]
+    public void Validate_SnowflakeGetNextValTableFunction_IsRejected()
+    {
+        _validator.Validate("SELECT * FROM TABLE(GETNEXTVAL(seq))", "Snowflake").Should().StartWith("The function GETNEXTVAL is not allowed");
+    }
+
     [TestCase("SELECT * FROM t WITH (UPDLOCK)")]
     [TestCase("SELECT * FROM t WITH (XLOCK, ROWLOCK)")]
     [TestCase("SELECT * FROM t WITH (TABLOCKX)")]
@@ -153,6 +168,8 @@ public class SqlReadOnlyValidatorSideEffectTests
     [TestCase("SELECT lower(x), local_time(1) FROM t", "databricks")]
     [TestCase("SELECT lower(x), local_time(1) FROM t", "SQLite")]
     [TestCase("SELECT lo_total FROM t", "Snowflake")]
+    [TestCase("SELECT nextval_count, t.nextval_count FROM t", "Snowflake")]
+    [TestCase("SELECT s.nextval FROM s", "PostgreSQL")]
     [TestCase("SELECT lo_total FROM t", "bigquery")]
     public void Validate_LookAlikes_Pass(string sql, string dialect)
     {

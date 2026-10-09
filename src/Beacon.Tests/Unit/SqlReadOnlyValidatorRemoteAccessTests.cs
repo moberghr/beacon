@@ -52,6 +52,18 @@ public class SqlReadOnlyValidatorRemoteAccessTests
         _validator.Validate(sql, dialect).Should().StartWith("The function ");
     }
 
+    // BigQuery decodes escapes in quoted names; a name holding a backslash is refused in every dialect.
+    [TestCase("SELECT * FROM `EXTERNAL_QUER\\x59`('c', 'q')", "bigquery")]
+    [TestCase("SELECT `EXTERNAL_QUER\\131`('c', 'q')", "bigquery")]
+    [TestCase("SELECT * FROM `EXTERNAL_QUER\\u0059`('c', 'q')", "bigquery")]
+    [TestCase("SELECT `a\\x62` FROM t", "bigquery")]
+    [TestCase("SELECT \"a\\b\" FROM t", "PostgreSQL")]
+    [TestCase("SELECT x AS [a\\b] FROM t", "MSSQL")]
+    public void Validate_NameWithBackslash_IsRejected(string sql, string dialect)
+    {
+        _validator.Validate(sql, dialect).Should().StartWith("Names may not contain a backslash");
+    }
+
     [TestCase("SELECT name FROM LNK.core.dbo.customers", "MSSQL")]
     [TestCase("SELECT name FROM [LNK].[core].[dbo].[customers]", "MSSQL")]
     [TestCase("SELECT c.name FROM dbo.orders o JOIN LNK.core.dbo.customers c ON c.id = o.customer_id", "AzureSynapse")]

@@ -48,6 +48,11 @@ internal static class SqlDeniedFunctions
 
     internal static readonly string[] TSqlPrefixes = ["sp_", "fn_xe_", "fn_trace_"];
 
+    internal static readonly HashSet<string> Snowflake = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "getnextval"
+    };
+
     internal static readonly string[] SnowflakePrefixes = ["system$"];
 
     internal static readonly HashSet<string> Databricks = new(StringComparer.OrdinalIgnoreCase)
@@ -74,7 +79,7 @@ internal static class SqlDeniedFunctions
             PostgreSqlDialect => PostgreSql.Contains(name) || HasPrefix(name, PostgreSqlPrefixes),
             MySqlDialect => MySql.Contains(name),
             MsSqlDialect => TSql.Contains(name) || HasPrefix(name, TSqlPrefixes),
-            SnowflakeDialect => HasPrefix(name, SnowflakePrefixes),
+            SnowflakeDialect => Snowflake.Contains(name) || HasPrefix(name, SnowflakePrefixes),
             DatabricksDialect => Databricks.Contains(name),
             SQLiteDialect => Sqlite.Contains(name),
             _ => false

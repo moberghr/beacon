@@ -197,6 +197,12 @@ public sealed class SqlReadOnlyAstValidator(
                 TableFactor.Function function => RejectFunction(function.Name, dialect),
                 TableFactor.Table table => RejectTable(table, dialect),
                 Value.DollarQuotedString dollarQuoted => RejectDollarQuoted(dollarQuoted.Value, dialect),
+
+                // BigQuery decodes escapes in quoted identifiers and the parser does not, so an escaped name could reach
+                // a denied function under a spelling no check matches.
+                Ident ident when ident.Value.Contains('\\') => "Names may not contain a backslash: an engine may read it as an escape.",
+                Expression.CompoundIdentifier compound when dialect is SnowflakeDialect && IsSequenceNextValue(compound) =>
+                    "Sequence NEXTVAL is not allowed in read-only SQL: it advances the sequence.",
                 Value.EscapedStringLiteral or Value.UnicodeStringLiteral when dialect is not PostgreSqlDialect =>
                     "E'...' and U&'...' string literals are only allowed on PostgreSQL.",
                 _ => null
@@ -209,6 +215,13 @@ public sealed class SqlReadOnlyAstValidator(
         }
 
         return null;
+    }
+
+    // Snowflake's seq.NEXTVAL (also database.schema.seq.NEXTVAL) is a column-like reference that advances the sequence.
+    private static bool IsSequenceNextValue(Expression.CompoundIdentifier compound)
+    {
+        return compound.Idents.Count > 1
+            && compound.Idents[^1].Value.Equals("NEXTVAL", StringComparison.OrdinalIgnoreCase);
     }
 
     // The tokenizer reads $$...$$ in every dialect, but only PostgreSQL (tagged or not) and Snowflake (untagged) have it.

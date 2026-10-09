@@ -26,7 +26,10 @@ internal static class SqlAst
     public const int MaxDepth = 400;
 
     public static readonly string TooDeepMessage =
-        $"The SQL is nested too deeply to verify (more than {MaxDepth} levels). Simplify long UNION, AND/OR or arithmetic chains.";
+        "The SQL is nested too deeply to verify. Reduce nested parentheses and subqueries, or long UNION, AND/OR or arithmetic chains.";
+
+    // The parser's own recursion budget reports exhaustion as an ordinary parse error with this text.
+    private const string ParserRecursionLimitMessage = "Recursion limit exceeded";
 
     // A tree is far smaller than this for any SQL under the length cap; the bound only guarantees the walk ends.
     private const int MaxNodes = 2_000_000;
@@ -40,10 +43,20 @@ internal static class SqlAst
         return Parse(sql, SqlDialects.Resolve(dialect));
     }
 
-    /// <exception cref="TooDeepException">The parsed tree is deeper than <see cref="MaxDepth"/>.</exception>
+    /// <exception cref="TooDeepException">The parser ran out of recursion budget, or the parsed tree is deeper than
+    /// <see cref="MaxDepth"/>.</exception>
     public static Sequence<Statement> Parse(string sql, Dialect dialect)
     {
-        var statements = new Parser().ParseSql(sql, dialect, new ParserOptions { RecursionLimit = ParserRecursionLimit });
+        Sequence<Statement> statements;
+        try
+        {
+            statements = new Parser().ParseSql(sql, dialect, new ParserOptions { RecursionLimit = ParserRecursionLimit });
+        }
+        catch (ParserException ex) when (ex.Message.StartsWith(ParserRecursionLimitMessage, StringComparison.Ordinal))
+        {
+            throw new TooDeepException();
+        }
+
         if (!IsWithinDepth(statements))
         {
             throw new TooDeepException();

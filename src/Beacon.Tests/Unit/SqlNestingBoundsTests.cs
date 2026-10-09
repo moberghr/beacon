@@ -71,6 +71,31 @@ public class SqlNestingBoundsTests
             .WithMessage(SqlAst.TooDeepMessage);
     }
 
+    // The parser's own recursion budget runs out on the parentheses; that is a depth refusal too, not a parse gap.
+    private static readonly string LimitInsideDeepParentheses =
+        "SELECT " + new string('(', 60) + "'LIMIT 1'" + new string(')', 60) + " AS x FROM t";
+
+    [Test]
+    public void RowLimit_ParenthesesBeyondTheParserBudget_AreRefused()
+    {
+        SqlRowLimitRewriter.Apply(LimitInsideDeepParentheses, 10, "PostgreSQL").Outcome.Should().Be(SqlRowLimitOutcome.Refused);
+    }
+
+    [Test]
+    public void Gate_ParenthesesBeyondTheParserBudgetWithReadOnlyOff_IsBlocked()
+    {
+        var request = SqlGateRequest.FromSettings(LimitInsideDeepParentheses, "PostgreSQL", TestSqlGate.DefaultSettings()) with
+        {
+            EnforceReadOnly = false,
+            MaxRows = 10
+        };
+
+        var report = TestSqlGate.Create().Evaluate(request);
+
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.TooDeep);
+    }
+
     [Test]
     public void Gate_ChainDeeperThanTheBoundWithReadOnlyOff_IsBlockedByTheRowLimitStage()
     {
