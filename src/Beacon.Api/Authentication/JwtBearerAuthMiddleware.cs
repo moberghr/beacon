@@ -40,6 +40,9 @@ internal sealed class JwtBearerAuthMiddleware(
     JwtAuthenticationOptions options,
     ILogger<JwtBearerAuthMiddleware> logger)
 {
+    /// <summary>Authentication type of every identity this middleware builds.</summary>
+    internal const string AuthenticationType = "Bearer";
+
     private const string BearerPrefix = "Bearer ";
     private const string InvalidTokenChallenge = "Bearer error=\"invalid_token\"";
     private static readonly long RefusalWarningIntervalMs = (long)TimeSpan.FromMinutes(1).TotalMilliseconds;
@@ -102,7 +105,7 @@ internal sealed class JwtBearerAuthMiddleware(
 
             var userClaims = BearerUserBinding.ToAuthenticatedUser(binding.User).ToClaims();
             userClaims.Add(new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.JwtAuthMethod));
-            context.User = new ClaimsPrincipal(new ClaimsIdentity(userClaims, "Bearer"));
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(userClaims, AuthenticationType));
 
             logger.LogDebug("JWT bearer authentication successful for Beacon user {UserId}", binding.User.Id);
 
@@ -141,7 +144,7 @@ internal sealed class JwtBearerAuthMiddleware(
 
         // An unmapped caller stays authenticated but carries no scope and no projects: the Execute-scope policy
         // answers 403 and ProjectContextFactory fails closed.
-        context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, AuthenticationType));
 
         await next(context);
     }

@@ -79,7 +79,7 @@ public static class ServiceConfiguration
                     "get_context with format='agents_md' returns a deterministic project brief for an agent workspace's AGENTS.md.\n" +
                     "Approved saved queries appear as q_<name> tools (or, for many, search_saved_queries to find one and run_saved_query to run it): reviewed, versioned, parameterized read-only SQL — prefer one over hand-written SQL when it answers the question.\n" +
                     "When the host application exposes some of its read-only endpoints, they appear as api_<name> tools (or, for many endpoints, search_api to find one and call_api to run it); they run with your host permissions.\n" +
-                    "Auth: API keys need the Execute or Admin scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
+                    "Auth: API keys need the Execute scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
                     "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.";
             })
             .WithHttpTransport(options =>
@@ -93,8 +93,12 @@ public static class ServiceConfiguration
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             })
             .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly)
+            // Scope enforcement (§1.4) first: every request of a refused caller but tools/call, initialize and ping
+            // is refused here; tools/call by the scope call-tool filter, outermost so a refused call reaches no tool.
+            .WithMessageFilters(x => x.AddIncomingFilter(McpScopeMessageFilter.Create()))
             .WithRequestFilters(x => x
                 .AddListToolsFilter(McpToolDescriptionOverrides.CreateListToolsFilter())
+                .AddCallToolFilter(McpScopeCallToolFilter.Create())
                 .AddCallToolFilter(McpAuditCallToolFilter.Create()));
 
         // Playground (public facade for UI)

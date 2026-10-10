@@ -1163,12 +1163,15 @@ const adminHandlers = [
           name: 'Demo CI Key',
           prefix: 'sk-sem_demo',
           scopes: ['Read', 'Execute'],
+          allowedProjectIds: null,
           createdAt: '2026-06-01T09:00:00Z',
           lastUsedAt: '2026-06-24T14:30:00Z',
           expiresAt: null,
           isActive: true,
         },
       ]))),
+  // Every user's keys (administrators) — honest empty in the mock.
+  http.get('/beacon/api/api-keys/admin', () => HttpResponse.json(paged([]))),
 
   // Users + roles (admin user management).
   http.get('/beacon/api/users', () =>

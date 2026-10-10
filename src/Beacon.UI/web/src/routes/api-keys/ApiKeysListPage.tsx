@@ -4,23 +4,18 @@ import { RefreshCw, Key, Shield, AlertTriangle } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { Button, Pill, Card, Banner, PageHeader } from '@/components/beacon';
+import { Button, Card, Banner, PageHeader } from '@/components/beacon';
+import { useIsAdmin } from '@/auth/useAuth';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useApiKeysList, useRevokeApiKey, type ApiKeyEntry } from './queries';
 import { GenerateApiKeyDialog } from './GenerateApiKeyDialog';
+import { AllApiKeysCard } from './AllApiKeysCard';
+import { ExpiresCell, ProjectsCell, ScopePills, StatusPill } from './columns';
 
-const GRID_TEMPLATE = '1.4fr 0.9fr 1.2fr 1fr 1fr 0.9fr 0.7fr 80px';
-
-function scopeTone(scope: string): 'crit' | 'warn' | 'info' | 'neutral' {
-  switch (scope) {
-    case 'Admin': return 'crit';
-    case 'Execute': return 'warn';
-    case 'Read': return 'info';
-    default: return 'neutral';
-  }
-}
+const GRID_TEMPLATE = '1.4fr 0.9fr 1.1fr 0.8fr 1fr 1fr 0.9fr 0.7fr 80px';
 
 export default function ApiKeysListPage() {
+  const isAdmin = useIsAdmin() === true;
   const list = useApiKeysList();
   const { data, isLoading, isError, error, refetch } = list;
   const revoke = useRevokeApiKey();
@@ -44,11 +39,12 @@ export default function ApiKeysListPage() {
     {
       key: 'scopes',
       header: 'Scopes',
-      render: k => (
-        <span className="inline-flex gap-1 flex-wrap">
-          {k.scopes.map(s => <Pill key={s} tone={scopeTone(s)}>{s}</Pill>)}
-        </span>
-      ),
+      render: k => <ScopePills scopes={k.scopes} />,
+    },
+    {
+      key: 'projects',
+      header: 'Projects',
+      render: k => <ProjectsCell ids={k.allowedProjectIds} />,
     },
     {
       key: 'created',
@@ -68,21 +64,12 @@ export default function ApiKeysListPage() {
       key: 'expires',
       sortKey: 'expiresAt',
       header: 'Expires',
-      render: k => {
-        if (!k.expiresAt) return <span className="text-text-muted">Never</span>;
-        const date = new Date(k.expiresAt);
-        const expired = !Number.isNaN(date.getTime()) && date < new Date();
-        return expired
-          ? <Pill tone="crit">Expired</Pill>
-          : <Pill>{formatDateTime(k.expiresAt)}</Pill>;
-      },
+      render: k => <ExpiresCell expiresAt={k.expiresAt} />,
     },
     {
       key: 'status',
       header: 'Status',
-      render: k => k.isActive
-        ? <Pill tone="ok">Active</Pill>
-        : <Pill tone="crit">Revoked</Pill>,
+      render: k => <StatusPill isActive={k.isActive} />,
     },
     {
       key: 'actions',
@@ -177,6 +164,8 @@ export default function ApiKeysListPage() {
           />
         </Card>
       )}
+
+      {isAdmin && <AllApiKeysCard />}
 
       <GenerateApiKeyDialog open={generateOpen} onClose={() => setGenerateOpen(false)} />
 

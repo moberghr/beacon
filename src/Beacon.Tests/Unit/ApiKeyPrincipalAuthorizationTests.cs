@@ -6,6 +6,7 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
@@ -59,26 +60,40 @@ public class ApiKeyPrincipalAuthorizationTests
     }
 
     [Test]
-    public async Task UserlessKey_NeverLooksUpAUser_AndIsDenied()
+    public async Task UserlessKey_FromAReplacedKeyStore_IsRefusedByTheMiddleware()
     {
-        // Strict mock: any lookup (by user name or by external id) fails the test.
-        var users = new Mock<IUserManagementService>(MockBehavior.Strict);
-        var context = await AuthenticateAsync(new ApiKeyCredential
+        // The built-in key store never returns an ownerless key; a replaced one must not make the key id stand in for
+        // a user id.
+        var apiKeys = new Mock<IApiKeyService>();
+        apiKeys
+            .Setup(x => x.ValidateApiKeyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyCredential
+            {
+                Id = 7,
+                Name = "ci",
+                KeyHash = "hash",
+                KeyPrefix = "sk-sem_",
+                Scopes = "[\"Execute\"]"
+            });
+        // The 401 problem response needs the host's services to write itself.
+        var context = new DefaultHttpContext
         {
-            Id = 7,
-            Name = "ci",
-            KeyHash = "hash",
-            KeyPrefix = "sk-sem_",
-            Scopes = "[\"Execute\"]"
+            RequestServices = new ServiceCollection().AddLogging().AddProblemDetails().BuildServiceProvider()
+        };
+        context.Request.Headers.Authorization = "Bearer sk-sem_test-key";
+        var nextInvoked = false;
+        var middleware = new ApiKeyAuthMiddleware(_ =>
+        {
+            nextInvoked = true;
+            return Task.CompletedTask;
         });
-        var provider = new DatabaseAuthorizationProvider(new HttpContextAccessor { HttpContext = context }, users.Object);
 
-        var canRead = await provider.HasReadPermissionAsync();
-        var canWrite = await provider.HasWritePermissionAsync();
+        await middleware.InvokeAsync(context, apiKeys.Object, NullLogger<ApiKeyAuthMiddleware>.Instance);
 
-        canRead.Should().BeFalse();
-        canWrite.Should().BeFalse();
-        users.VerifyNoOtherCalls();
+        nextInvoked.Should().BeFalse();
+        context.Response.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);
+        context.User.Identity?.IsAuthenticated.Should().NotBe(true);
+        apiKeys.Verify(x => x.UpdateLastUsedAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static async Task<HttpContext> AuthenticateAsync(ApiKeyCredential credential)

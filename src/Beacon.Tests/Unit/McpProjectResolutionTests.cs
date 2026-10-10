@@ -134,6 +134,8 @@ public class McpProjectResolutionTests
 
     // --- B7 fail-closed: ProjectContextFactory.Create must never produce a null AllowedProjectIds ---
 
+    private static readonly Claim ApiKeyMarker = new("auth_method", "api_key");
+
     private static IServiceProvider BuildProvider(params Claim[] claims)
     {
         var httpContext = new DefaultHttpContext
@@ -160,7 +162,7 @@ public class McpProjectResolutionTests
     [Test]
     public void Create_EmptyJsonArrayClaim_FailsClosedToEmptyList()
     {
-        var ctx = ProjectContextFactory.Create(BuildProvider(new Claim("allowed_projects", "[]")));
+        var ctx = ProjectContextFactory.Create(BuildProvider(ApiKeyMarker, new Claim("allowed_projects", "[]")));
 
         ctx.AllowedProjectIds.Should().NotBeNull();
         ctx.AllowedProjectIds.Should().BeEmpty();
@@ -171,18 +173,47 @@ public class McpProjectResolutionTests
     {
         IProjectContext ctx = null!;
 
-        var act = () => ctx = ProjectContextFactory.Create(BuildProvider(new Claim("allowed_projects", "{not json")));
+        var act = () => ctx = ProjectContextFactory.Create(BuildProvider(ApiKeyMarker, new Claim("allowed_projects", "{not json")));
 
         act.Should().NotThrow();
         ctx.AllowedProjectIds.Should().NotBeNull();
         ctx.AllowedProjectIds.Should().BeEmpty();
     }
 
-    [Test]
-    public void Create_ValidPopulatedClaim_IsParsed()
+    [TestCase("api_key")]
+    [TestCase("mcp_caller")]
+    public void Create_ValidPopulatedClaim_OfAScopedCaller_IsParsed(string authMethod)
     {
-        var ctx = ProjectContextFactory.Create(BuildProvider(new Claim("allowed_projects", "[5,6,7]")));
+        var ctx = ProjectContextFactory.Create(BuildProvider(
+            new Claim("auth_method", authMethod),
+            new Claim("allowed_projects", "[5,6,7]"),
+            new Claim("api_key_id", "12")));
 
         ctx.AllowedProjectIds.Should().BeEquivalentTo(new[] { 5, 6, 7 });
+        ctx.ApiKeyId.Should().Be(12);
+    }
+
+    [TestCase(null)]
+    [TestCase("jwt")]
+    public void Create_ProjectsAndKeyIdOnAnyOtherPrincipal_AreIgnored(string? authMethod)
+    {
+        // A browser session or REST bearer token carrying these claim types got them from elsewhere (an identity
+        // provider, a claims transformation): it gets no projects and no key id.
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, "4"),
+            new("allowed_projects", "[5,6,7]"),
+            new("api_key_id", "12")
+        };
+        if (authMethod != null)
+        {
+            claims.Add(new Claim("auth_method", authMethod));
+        }
+
+        var ctx = ProjectContextFactory.Create(BuildProvider([.. claims]));
+
+        ctx.AllowedProjectIds.Should().NotBeNull().And.BeEmpty();
+        ctx.ApiKeyId.Should().BeNull();
+        ctx.UserId.Should().Be(4);
     }
 }

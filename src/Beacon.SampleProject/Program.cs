@@ -339,7 +339,7 @@ if (beaconConfiguration.UserManagement.Enabled)
 // as the REST SQL endpoints; a Read-scoped API key must not reach SQL execution through MCP.
 // Entra JWT callers are scope-gated too: IMcpCallerMapper (Beacon:Mcp:Callers) decides their scope and
 // projects. Cookie/OIDC sessions are unaffected (the policy only constrains API keys and mapped MCP JWT callers).
-app.MapMcp("/beacon/mcp").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+app.MapBeaconMcp();
 
 // MCP discovery documents (tier 3, anonymous by design): RFC 9728 protected-resource metadata at
 // /.well-known/oauth-protected-resource (+ /beacon/mcp path-inserted variant) and the SEP-2127

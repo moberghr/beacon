@@ -298,7 +298,7 @@ sequenceDiagram
 | Layer | Mechanism |
 |---|---|
 | Secrets at rest | Connection strings encrypted with **AES-256-GCM** (authenticated, per-value nonce); mandatory `Beacon:EncryptionKey` |
-| API keys | **SHA256-hashed**, scoped (`Read` / `Execute` / `Admin`), optional per-project restriction, expiry — raw key shown exactly once |
+| API keys | **SHA256-hashed**, scoped (`Read` / `Execute`) on every route, optional per-project restriction, mandatory expiry, revoked with their owner's account — raw key shown exactly once |
 | Sessions | `HttpOnly`, `SameSite` cookies; antiforgery tokens on state-changing requests; login rate limiting |
 | SSO | OIDC (any compliant provider) with configurable role mapping; JWT bearer for MCP clients |
 | MCP execution | Read-only enforced at the connector **and** AST level; PII detection & masking; row limits; complete audit trail |
@@ -366,6 +366,7 @@ builder.Services.AddBeaconCookieAuthentication("/");
 
 // 3. REST API + real-time. SignalR is wired for you — you add nothing.
 builder.Services.AddBeaconApiServices();
+builder.Services.AddBeaconApiAuthorization();        // the API, Admin and Execute-scope policies
 
 // 4. AI + MCP + OpenAPI (optional layers)
 builder.Services.AddBeaconAI(builder.Configuration);
@@ -382,7 +383,7 @@ app.UseAuthorization();
 
 app.MapOpenApi();                                    // /openapi/v1.json
 app.MapBeaconApi();                                  // /beacon/api/* + the SignalR hub
-app.MapMcp("/beacon/mcp").RequireAuthorization();    // MCP server
+app.MapBeaconMcp();                                  // MCP server at /beacon/mcp, Execute scope required
 app.MapBeaconUi();                                   // React SPA at root /
 
 app.Run();

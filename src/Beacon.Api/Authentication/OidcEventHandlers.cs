@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
@@ -114,8 +115,9 @@ internal static class OidcEventHandlers
         var identity = context.Principal!.Identities.First();
 
         // Authorization comes from Beacon only: every role-like claim the identity provider sent (whatever the
-        // identity's role claim type is), its groups and directory roles, and any beacon:* claim are removed before
-        // Beacon's own claims are added.
+        // identity's role claim type is), its groups and directory roles, any beacon:* claim, and every claim type that
+        // marks a scoped caller (auth_method, scope, allowed_projects, api_key_*, caller_*) are removed before Beacon's
+        // own claims are added. A browser session never carries a scope, a project restriction or a key id.
         var tokenSupplied = identity.Claims
             .Where(x => IsAuthorizationClaim(x.Type, identity.RoleClaimType))
             .ToList();
@@ -159,6 +161,7 @@ internal static class OidcEventHandlers
         return string.Equals(claimType, roleClaimType, StringComparison.OrdinalIgnoreCase)
             || string.Equals(claimType, ClaimTypes.Role, StringComparison.OrdinalIgnoreCase)
             || AuthorizationClaimTypes.Contains(claimType)
+            || McpCallerClaimTypes.Reserved.Contains(claimType)
             || claimType.StartsWith(BeaconClaimPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
