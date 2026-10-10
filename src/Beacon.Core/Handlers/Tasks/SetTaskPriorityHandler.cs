@@ -26,16 +26,36 @@ internal sealed class SetTaskPriorityHandler(
 
         var task = await context.QueryTasks
             .Where(x => x.Id == request.TaskId)
+            .Select(x =>
+                new
+                {
+                    x.AssigneeUserId,
+                    x.Resolved
+                })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw TaskWorkRules.Missing(actor, request.TaskId, "change the priority of", logger);
 
-        TaskWorkRules.EnsureCanWork(actor, task.Id, task.AssigneeUserId, "change the priority of", logger);
+        TaskWorkRules.EnsureCanWork(actor, request.TaskId, task.AssigneeUserId, "change the priority of", logger);
 
-        task.Priority = request.Priority;
+        if (task.Resolved)
+        {
+            throw new InvalidOperationException($"Task {request.TaskId} is resolved: only an open task can have its priority changed.");
+        }
 
-        await context.SaveChangesAsync(cancellationToken);
+        // Written only while the task is still open and still has the assignee the check above saw.
+        var assigneeUserId = task.AssigneeUserId;
+        var updated = await context.QueryTasks
+            .Where(x => x.Id == request.TaskId)
+            .Where(x => !x.Resolved)
+            .Where(x => x.AssigneeUserId == assigneeUserId)
+            .ExecuteUpdateAsync(x => x.SetProperty(y => y.Priority, request.Priority), cancellationToken);
+
+        if (updated == 0)
+        {
+            throw new InvalidOperationException($"Task {request.TaskId} was resolved or reassigned meanwhile.");
+        }
     }
 }
 
-/// <summary>Sets a task's priority. Allowed for the task's assignee or an Admin.</summary>
+/// <summary>Sets an open task's priority. Allowed for the task's assignee or an Admin; a resolved task keeps its priority.</summary>
 public record SetTaskPriorityCommand(int TaskId, TaskPriority Priority) : IRequest;

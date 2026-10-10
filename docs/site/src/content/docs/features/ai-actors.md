@@ -49,10 +49,10 @@ When activated immediately, the actor runs an **initial setup**: the LLM reads t
 
 The REST endpoint is `POST /beacon/api/ai-actors` (one MediatR handler per endpoint, like the rest of the API).
 
-The actor's **creator** is the user who created it (an API key's owner, for a key), or the user an Admin made its creator. Only the creator or an Admin can pause, resume, archive, refine or run it on demand, ask for a revision of one of its plans, or run one of the subscriptions it manages on demand (`POST /subscriptions/{id}/execute`); scheduled think cycles and scheduled runs are not affected. Approving and rejecting a plan are not limited to the creator: anyone with write permission can. An Admin can give an actor a new creator with **Change owner** on its page (`PUT /beacon/api/ai-actors/{id}/owner` with `{ "userId": <user id> }`); the user must be an existing, enabled user.
+The actor's **creator** is the user who created it (an API key's owner, for a key), or the user an Admin made its creator. Only the creator or an Admin can pause, resume, archive, refine or run it on demand, approve, reject or ask for a revision of one of its plans, or run one of the subscriptions it manages on demand (`POST /subscriptions/{id}/execute`); scheduled think cycles and scheduled runs are not affected. An Admin can give an actor a new creator with **Change owner** on its page (`PUT /beacon/api/ai-actors/{id}/owner` with `{ "userId": <user id> }`); the user must be an existing, enabled user.
 
 :::caution[Upgrading]
-The creator is now always the signed-in caller: a `createdByUserId` in the create request is ignored, and a caller without a resolvable user cannot create an actor. Pausing, resuming, archiving, refining or running an actor, requesting a plan revision, and running a subscription the actor manages on demand need its creator or an Admin; an actor created before this version without a recorded creator can only be changed or run by an Admin until an Admin sets its creator. To anyone but an Admin, an actor that does not exist is refused (403) like one that is not theirs.
+The creator is now always the signed-in caller: a `createdByUserId` in the create request is ignored, and a caller without a resolvable user cannot create an actor. Pausing, resuming, archiving, refining or running an actor, approving, rejecting or requesting a revision of one of its plans, and running a subscription the actor manages on demand need its creator or an Admin; an actor created before this version without a recorded creator can only be changed or run by an Admin until an Admin sets its creator. To anyone but an Admin, an actor or plan that does not exist is refused (403) like one that is not theirs.
 :::
 
 ## Actor Statuses
@@ -142,7 +142,7 @@ Depending on how it was generated, a plan can represent the actor's initial setu
 
 Pending plans for an actor are listed via `GET /beacon/api/ai-actors/{id}/pending-plans`; a single plan (with its full analysis and proposed actions) via `GET /beacon/api/ai-actors/plans/{id}`. The actor detail page shows the pending plan count.
 
-The reviewer has three options:
+The reviewer, the actor's [creator](#creating-an-actor) or an Admin, has three options:
 
 **Approve** — `POST /beacon/api/ai-actors/plans/{id}/approve` (optional comment)
 

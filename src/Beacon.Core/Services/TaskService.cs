@@ -7,6 +7,7 @@ using Beacon.Core.DTOs;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Tasks;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
@@ -374,7 +375,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         };
     }
 
-    public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, CancellationToken cancellationToken)
+    public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -387,8 +388,10 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (subscriptionId == 0)
             return new List<QueryExecutionSummary>();
 
+        // The runs listed are the stored runs the caller may read (StoredRunAccess).
         var executions = await context.QueryExecutionHistory
             .Where(qeh => qeh.SubscriptionId == subscriptionId)
+            .WhereReadableWithin(context, runScope)
             .OrderByDescending(qeh => qeh.CreatedTime)
             .Take(50) // Limit to last 50 executions
             .Select(qeh => new QueryExecutionSummary(
@@ -434,7 +437,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         return relatedTasks;
     }
 
-    public async Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, CancellationToken cancellationToken)
+    public async Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -447,9 +450,11 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (subscriptionId == 0)
             return new List<ResultCountDataPoint>();
 
-        // Get the most recent 100 result counts, then re-order ascending for the chart
+        // Get the most recent 100 result counts of the stored runs the caller may read (StoredRunAccess), then
+        // re-order ascending for the chart
         var resultHistory = await context.QueryExecutionHistory
             .Where(qeh => qeh.SubscriptionId == subscriptionId)
+            .WhereReadableWithin(context, runScope)
             .OrderByDescending(qeh => qeh.CreatedTime)
             .Take(100)
             .Select(qeh => new ResultCountDataPoint(qeh.CreatedTime, qeh.ResultCount))

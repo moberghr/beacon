@@ -1,14 +1,19 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Handlers.AiActors;
 
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class ApproveAiActorPlanHandler(
     IAiActorServiceExtended aiActorService,
-    ILogger<ApproveAiActorPlanHandler> logger)
+    ILogger<ApproveAiActorPlanHandler> logger,
+    IBeaconActorAccessor actorAccessor,
+    IDbContextFactory<BeaconContext> contextFactory)
     : IRequestHandler<ApproveAiActorPlanCommand, ApproveAiActorPlanResult>
 {
     public async Task<ApproveAiActorPlanResult> Handle(
@@ -17,6 +22,9 @@ internal sealed class ApproveAiActorPlanHandler(
     {
         logger.LogInformation("Approving plan {PlanId} by user {UserId}",
             request.PlanId, request.UserId);
+
+        // Approving runs the plan's actions against queries and subscriptions: the actor's creator's or an Admin's.
+        await AiActorOwnership.EnsureCreatorOrAdminOfPlanAsync(actorAccessor, contextFactory, request.PlanId, logger, cancellationToken);
 
         var options = new ApprovePlanOptions
         {

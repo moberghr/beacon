@@ -113,7 +113,7 @@ Clicking a task opens the detail view (`/tasks/{id}`) with:
 
 ### Result Trend Chart
 
-A chart of the subscription's result counts over the most recent 100 executions. Use it to see whether the condition is growing, shrinking, stable, or oscillating.
+A chart of the subscription's result counts over the most recent 100 executions. Use it to see whether the condition is growing, shrinking, stable, or oscillating. Like the **Executions** tab, it lists only the runs the caller may read: a project-restricted API key or MCP caller sees the runs its projects may read, by the rule the [notifications](/features/notifications/#who-sees-a-run) follow.
 
 ### Tabs
 
@@ -139,7 +139,7 @@ From the detail page's side rail and actions:
 
 Tasks identify people by their user's external id (`Users.ExternalId`), whichever way they sign in: an API key acts as its owner, found by the key's owner id. In a host without Beacon user management the id is the `NameIdentifier` the session presents. The task detail's `assignedToCaller` says whether the signed-in caller is the assignee, and the task page offers its actions by it. "Admin" means the `ClaimTypes.Role` claim `Admin` (see [Authorization](/features/authorization/#admin-role-claim)); a disabled or archived user is never an Admin. To anyone but an Admin, a task that does not exist is refused (403) like a task that is not theirs.
 
-Resolving and assigning are written only while the task still has the state the check saw: if someone else resolves or reassigns it in between, the request fails (400) and nothing is overwritten.
+Resolving, assigning, snoozing and setting the priority are written only while the task still has the state the check saw: if someone else resolves or reassigns it in between, the request fails (400) and nothing is overwritten. A resolved task is not snoozed and keeps its priority: both requests fail (400).
 
 :::caution[Upgrading]
 Working a task is now limited to its assignee or an Admin. Resolve, snooze and priority on an unassigned task fail for everyone else until someone assigns it to themselves; reassigning someone else's task needs an Admin; with Beacon user management an assignee that is not an existing, enabled user is rejected; resolving an already-resolved task fails instead of replacing the earlier resolution. A host without Beacon user management keeps working: anyone who can edit claims and works tasks under the id their session presents, and an Admin assigns to any id.
@@ -149,6 +149,8 @@ Working a task is now limited to its assignee or an Admin. Resolve, snooze and p
 - `ITaskService.ResolveTask` throws `InvalidOperationException` for a task that is already resolved (and `BeaconException` for a missing one) instead of overwriting the resolution.
 - The task detail (`GET /tasks/{id}`) has a new `assignedToCaller` flag. `TaskDetailsData.Notifications` no longer carries the notifications' stored result rows (`NotificationSummary.StoredResults` was removed).
 - Refused assignee and Admin checks are logged at Warning with the task id and the caller's user id.
+- Snoozing a task and setting its priority fail (400) when the task is resolved, or was resolved or reassigned between the check and the write.
+- `GET /tasks/{id}/executions` and `GET /tasks/{id}/result-history` list only the runs the caller may read: project-restricted API keys and MCP callers no longer see other projects' runs, or runs recorded before Beacon kept the data sources a run read. `ITaskService.GetTaskExecutionHistory` and `ITaskService.GetResultCountHistory` take a `StoredRunScope`.
 :::
 
 ### Keyboard Shortcuts
@@ -171,9 +173,9 @@ Tasks are available under `/beacon/api/tasks` (cookie or API-key authentication)
 | `GET` | `/tasks` | List tasks — filter by `subscriptionId`, `resolved`; supports sorting and paging |
 | `GET` | `/tasks/{id}` | Task detail |
 | `POST` | `/tasks/{id}/resolve` | Resolve with optional `resolutionNotes` |
-| `GET` | `/tasks/{id}/executions` | Recent executions for the task's subscription |
+| `GET` | `/tasks/{id}/executions` | Recent executions for the task's subscription (the runs the caller may read) |
 | `GET` | `/tasks/{id}/related` | Tasks from other subscriptions on the same query |
-| `GET` | `/tasks/{id}/result-history` | Result-count data points for the trend chart |
+| `GET` | `/tasks/{id}/result-history` | Result-count data points for the trend chart (the runs the caller may read) |
 | `GET` | `/tasks/{id}/comments` | Comment thread |
 | `POST` | `/tasks/{id}/comments` | Add a comment |
 | `POST` | `/tasks/{id}/assign` | Set (or clear) the assignee |

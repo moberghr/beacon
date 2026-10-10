@@ -5,9 +5,10 @@ namespace Beacon.Core.Handlers.Tasks;
 
 /// <summary>
 /// Who may work an alert task. Resolving, snoozing and setting the priority belong to the task's current assignee or
-/// an Admin. Anyone with write permission (the permission filter's write check) may claim an unassigned task by
-/// assigning it to themselves; the assignee may release the task or hand it over; only an Admin assigns an unassigned
-/// task to someone else or reassigns, or re-confirms, a task assigned to someone else. The caller is the
+/// an Admin, and are written only while the task is open and still has the assignee the check saw. Anyone with write
+/// permission (the permission filter's write check) may claim an unassigned task by assigning it to themselves; the
+/// assignee may release the task or hand it over; only an Admin assigns an unassigned task to someone else or
+/// reassigns, or re-confirms, a task assigned to someone else. The caller is the
 /// <see cref="BeaconActor"/> of the request, identified by the <c>Users.ExternalId</c> the task stores (or, for a
 /// task assigned by an earlier version, by an id its session presents). To anyone but an Admin, a task that does not
 /// exist is refused like a task that is not theirs.

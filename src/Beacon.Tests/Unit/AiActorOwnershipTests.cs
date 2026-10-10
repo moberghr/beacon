@@ -22,8 +22,8 @@ namespace Beacon.Tests.Unit;
 
 /// <summary>
 /// An AI actor's creator is the caller that created it, never a value from the request, and only the creator or an
-/// Admin pauses, resumes, archives, refines, runs it or its subscriptions on demand, or asks for a plan revision. An
-/// Admin may make another user the creator. Approving and rejecting plans are not limited to the creator yet.
+/// Admin pauses, resumes, archives, refines, runs it or its subscriptions on demand, or approves, rejects or asks for a
+/// revision of one of its plans. An Admin may make another user the creator.
 /// </summary>
 [TestFixture]
 public class AiActorOwnershipTests
@@ -204,18 +204,85 @@ public class AiActorOwnershipTests
         _service.VerifyNoOtherCalls();
     }
 
-    [Test]
-    public async Task ApproveAndRejectPlan_AreNotLimitedToTheCreator()
+    [TestCase("ext-ana", null, true)]
+    [TestCase("ext-admin", RoleService.RoleNames.Admin, true)]
+    [TestCase("ext-ben", RoleService.RoleNames.Editor, false)]
+    public async Task ApprovePlan_IsTheCreatorsOrAnAdmins(string caller, string? role, bool allowed)
     {
-        // Who may approve or reject a plan is not decided by the actor's creator: any caller with write permission can.
-        var approve = new ApproveAiActorPlanHandler(_service.Object, NullLogger<ApproveAiActorPlanHandler>.Instance);
-        var reject = new RejectAiActorPlanHandler(_service.Object, NullLogger<RejectAiActorPlanHandler>.Instance);
+        var act = () => ApproveHandler(Interactive(caller, role)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = caller }, CancellationToken.None);
 
-        await approve.Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ben" }, CancellationToken.None);
-        await reject.Handle(new RejectAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ben", Reason = "no" }, CancellationToken.None);
+        if (allowed)
+        {
+            await act.Should().NotThrowAsync();
+            _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+        }
+        else
+        {
+            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+            _service.VerifyNoOtherCalls();
+        }
+    }
 
-        _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.RejectPlanAsync(It.Is<RejectPlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+    [TestCase("ext-ana", null, true)]
+    [TestCase("ext-admin", RoleService.RoleNames.Admin, true)]
+    [TestCase("ext-ben", RoleService.RoleNames.Editor, false)]
+    public async Task RejectPlan_IsTheCreatorsOrAnAdmins(string caller, string? role, bool allowed)
+    {
+        var act = () => RejectHandler(Interactive(caller, role)).Handle(new RejectAiActorPlanCommand { PlanId = PlanId, UserId = caller, Reason = "no" }, CancellationToken.None);
+
+        if (allowed)
+        {
+            await act.Should().NotThrowAsync();
+            _service.Verify(x => x.RejectPlanAsync(It.Is<RejectPlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+        }
+        else
+        {
+            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+            _service.VerifyNoOtherCalls();
+        }
+    }
+
+    [Test]
+    public async Task DecidingAPlanOfAnActorWithoutACreator_IsAnAdminsOnly()
+    {
+        _actors[0].CreatedByUserId = null;
+
+        var approve = () => ApproveHandler(Interactive("ext-ana", RoleService.RoleNames.Editor)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ana" }, CancellationToken.None);
+        var reject = () => RejectHandler(Interactive("ext-ana", RoleService.RoleNames.Editor)).Handle(new RejectAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ana", Reason = "no" }, CancellationToken.None);
+        var adminApprove = () => ApproveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-admin" }, CancellationToken.None);
+
+        await approve.Should().ThrowAsync<UnauthorizedAccessException>();
+        await reject.Should().ThrowAsync<UnauthorizedAccessException>();
+        await adminApprove.Should().NotThrowAsync();
+        _service.Verify(x => x.ApprovePlanAsync(It.IsAny<ApprovePlanOptions>(), It.IsAny<CancellationToken>()), Times.Once);
+        _service.Verify(x => x.RejectPlanAsync(It.IsAny<RejectPlanOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task DecidingAMissingPlan_IsRefusedToAnEditor_AndReportedAsMissingToAnAdmin()
+    {
+        var editorApprove = () => ApproveHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new ApproveAiActorPlanCommand { PlanId = 404, UserId = "ext-ben" }, CancellationToken.None);
+        var editorReject = () => RejectHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new RejectAiActorPlanCommand { PlanId = 404, UserId = "ext-ben", Reason = "no" }, CancellationToken.None);
+        var adminApprove = () => ApproveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ApproveAiActorPlanCommand { PlanId = 404, UserId = "ext-admin" }, CancellationToken.None);
+
+        await editorApprove.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+        await editorReject.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+        await adminApprove.Should().ThrowAsync<InvalidOperationException>().WithMessage("AI actor plan 404 not found.");
+        _service.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task PlanOwnership_CreatorLookup_Translates()
+    {
+        var capture = new SqlCapture().ThenNoRows();
+        var caller = FixedActor(new BeaconActor("ext-ana", false));
+
+        var act = () => AiActorOwnership.EnsureCreatorOrAdminOfPlanAsync(caller, capture.Factory(), PlanId, NullLogger.Instance, CancellationToken.None);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        sql.Should().Contain("FROM beacon.ai_actor_plans").And.Contain("beacon.ai_actors").And.Contain("created_by_user_id");
+        capture.CommandParameters[0].Values.Should().Contain(PlanId);
     }
 
     // --- subscriptions an actor manages -------------------------------------------------------------------------
@@ -301,6 +368,16 @@ public class AiActorOwnershipTests
         yield return () => new ArchiveAiActorHandler(_service.Object, NullLogger<ArchiveAiActorHandler>.Instance, caller, factory).Handle(new ArchiveAiActorCommand { ActorId = ActorId }, CancellationToken.None);
         yield return () => new RefineAiActorHandler(_service.Object, NullLogger<RefineAiActorHandler>.Instance, caller, factory).Handle(new RefineAiActorCommand { ActorId = ActorId, Feedback = "more" }, CancellationToken.None);
         yield return () => new ExecuteAiActorThinkCycleHandler(_service.Object, NullLogger<ExecuteAiActorThinkCycleHandler>.Instance, caller, factory).Handle(new ExecuteAiActorThinkCycleCommand { ActorId = ActorId }, CancellationToken.None);
+    }
+
+    private ApproveAiActorPlanHandler ApproveHandler(ClaimsPrincipal caller)
+    {
+        return new ApproveAiActorPlanHandler(_service.Object, NullLogger<ApproveAiActorPlanHandler>.Instance, Actor(caller), Factory());
+    }
+
+    private RejectAiActorPlanHandler RejectHandler(ClaimsPrincipal caller)
+    {
+        return new RejectAiActorPlanHandler(_service.Object, NullLogger<RejectAiActorPlanHandler>.Instance, Actor(caller), Factory());
     }
 
     private SetAiActorOwnerHandler SetOwnerHandler(ClaimsPrincipal caller)

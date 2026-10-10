@@ -8,8 +8,8 @@ namespace Beacon.Core.Notifications;
 /// <summary>
 /// Who may read a subscription run (<see cref="QueryExecutionHistory"/>): its metadata, its failure reason, and the
 /// result rows stored when the subscription has <c>StoreResults</c> on. Every reader of stored runs (the notifications
-/// endpoints, the Home activity feed, the Control Tower detail) applies <see cref="WhereReadableWithin"/> with the
-/// scope from <see cref="ScopeOf"/>.
+/// endpoints, the Home activity feed, the Control Tower detail, a task's executions and result history, a
+/// subscription's anomaly chart) applies <see cref="WhereReadableWithin"/> with the scope from <see cref="ScopeOf"/>.
 /// </summary>
 internal static class StoredRunAccess
 {

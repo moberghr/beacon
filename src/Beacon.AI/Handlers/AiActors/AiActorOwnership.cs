@@ -6,12 +6,11 @@ using Beacon.Core.Data;
 namespace Beacon.AI.Handlers.AiActors;
 
 /// <summary>
-/// An AI actor is paused, resumed, archived, refined, run on demand, or sent a plan revision request by its creator
-/// (the caller that created it, or the user an Admin made its creator) or an Admin. An actor without a recorded creator
-/// is an Admin's only. To anyone but an Admin, an actor or plan that does not exist is refused like one that is not
-/// theirs. Scheduled think cycles do not pass through here. Approving and rejecting a plan are not checked here.
-/// Refusals are logged at Warning with the actor and the caller's user id only; a security audit event for them belongs
-/// here.
+/// An AI actor is paused, resumed, archived, refined, run on demand, or has a plan approved, rejected or sent back for
+/// revision by its creator (the caller that created it, or the user an Admin made its creator) or an Admin. An actor
+/// without a recorded creator is an Admin's only. To anyone but an Admin, an actor or plan that does not exist is
+/// refused like one that is not theirs. Scheduled think cycles do not pass through here. Refusals are logged at Warning
+/// with the actor and the caller's user id only; a security audit event for them belongs here.
 /// </summary>
 internal static class AiActorOwnership
 {

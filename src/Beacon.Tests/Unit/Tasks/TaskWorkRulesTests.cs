@@ -231,6 +231,96 @@ public class TaskWorkRulesTests
         }
     }
 
+    [Test]
+    public async Task SnoozeAndPriority_OnAResolvedTask_FailAndChangeNothing()
+    {
+        var task = AddTask(assignee: "ext-ana");
+        task.Resolved = true;
+        var actor = Actor(Interactive("ext-ana"));
+
+        var snooze = () => new SnoozeTaskHandler(Factory(), actor, NullLogger<SnoozeTaskHandler>.Instance).Handle(new SnoozeTaskCommand(TaskId, DateTime.UtcNow.AddHours(1)), CancellationToken.None);
+        var priority = () => new SetTaskPriorityHandler(Factory(), actor, NullLogger<SetTaskPriorityHandler>.Instance).Handle(new SetTaskPriorityCommand(TaskId, TaskPriority.Critical), CancellationToken.None);
+
+        await snooze.Should().ThrowAsync<InvalidOperationException>().WithMessage($"Task {TaskId} is resolved*");
+        await priority.Should().ThrowAsync<InvalidOperationException>().WithMessage($"Task {TaskId} is resolved*");
+        task.SnoozedUntil.Should().BeNull();
+        task.Priority.Should().Be(TaskPriority.Normal);
+    }
+
+    [Test]
+    public async Task Snooze_ATaskReassignedBetweenTheCheckAndTheWrite_IsNotSnoozed()
+    {
+        // The write is conditional on the assignee the check saw: here the row no longer matches it.
+        var capture = new SqlCapture().ThenRow("ext-ana", false).ThenRowsAffected(0);
+        var handler = new SnoozeTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), NullLogger<SnoozeTaskHandler>.Instance);
+
+        var act = () => handler.Handle(new SnoozeTaskCommand(TaskId, DateTime.UtcNow.AddHours(1)), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*resolved or reassigned meanwhile*");
+    }
+
+    [Test]
+    public async Task SetPriority_ATaskReassignedBetweenTheCheckAndTheWrite_IsNotChanged()
+    {
+        var capture = new SqlCapture().ThenRow("ext-ana", false).ThenRowsAffected(0);
+        var handler = new SetTaskPriorityHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), NullLogger<SetTaskPriorityHandler>.Instance);
+
+        var act = () => handler.Handle(new SetTaskPriorityCommand(TaskId, TaskPriority.Critical), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*resolved or reassigned meanwhile*");
+    }
+
+    [Test]
+    public async Task Snooze_ConditionalWrite_Translates()
+    {
+        var capture = new SqlCapture().ThenRow("ext-ana", false).ThenRowsAffected(1);
+        var handler = new SnoozeTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), NullLogger<SnoozeTaskHandler>.Instance);
+        var until = DateTime.UtcNow.AddHours(1);
+
+        await handler.Handle(new SnoozeTaskCommand(TaskId, until), CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2, "one read for the check, one conditional write");
+        var update = capture.Commands[1];
+        update.Should().StartWith("UPDATE beacon.query_tasks");
+        update.Should().Contain("snoozed_until = @");
+        update.Should().Contain("NOT (q.resolved)");
+        update.Should().Contain("q.assignee_user_id = @");
+        capture.CommandParameters[1].Values.Should().Contain("ext-ana").And.Contain(TaskId).And.Contain(until);
+    }
+
+    [Test]
+    public async Task SetPriority_ConditionalWrite_Translates()
+    {
+        var capture = new SqlCapture().ThenRow("ext-ana", false).ThenRowsAffected(1);
+        var handler = new SetTaskPriorityHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), NullLogger<SetTaskPriorityHandler>.Instance);
+
+        await handler.Handle(new SetTaskPriorityCommand(TaskId, TaskPriority.Critical), CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2, "one read for the check, one conditional write");
+        var update = capture.Commands[1];
+        update.Should().StartWith("UPDATE beacon.query_tasks");
+        update.Should().Contain("priority = @");
+        update.Should().Contain("NOT (q.resolved)");
+        update.Should().Contain("q.assignee_user_id = @");
+        capture.CommandParameters[1].Values.Should().Contain("ext-ana").And.Contain(TaskId);
+    }
+
+    [Test]
+    public async Task SnoozeAndPriority_ByAnAdmin_OnAnUnassignedTask_AreWritten()
+    {
+        // The conditional write matches a task that still has no assignee, as the check saw it.
+        var task = AddTask(assignee: null);
+        var actor = Actor(Interactive("ext-admin", RoleService.RoleNames.Admin));
+        var until = DateTime.UtcNow.AddHours(1);
+
+        await new SnoozeTaskHandler(Factory(), actor, NullLogger<SnoozeTaskHandler>.Instance).Handle(new SnoozeTaskCommand(TaskId, until), CancellationToken.None);
+        await new SetTaskPriorityHandler(Factory(), actor, NullLogger<SetTaskPriorityHandler>.Instance).Handle(new SetTaskPriorityCommand(TaskId, TaskPriority.High), CancellationToken.None);
+
+        task.SnoozedUntil.Should().Be(until);
+        task.Priority.Should().Be(TaskPriority.High);
+        task.AssigneeUserId.Should().BeNull();
+    }
+
     // --- callers without a user against an unassigned task -----------------------------------------------------
 
     [TestCaseSource(nameof(CallersWithoutAUser))]
