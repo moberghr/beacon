@@ -643,6 +643,7 @@ const listHandlers = [
       priority: TaskPriority.Normal,
       assigneeUserId: null,
       assigneeUserName: null,
+      assignedToCaller: false,
       snoozedUntil: null,
       slaHours: 24,
       watcherCount: 1,

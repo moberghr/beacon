@@ -312,6 +312,10 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpCallerOptions>, Configuration.McpCallerOptionsValidator>();
         services.TryAddScoped<Mcp.IMcpCallerMapper, Mcp.ConfiguredMcpCallerMapper>();
+
+        // The request's caller as the owner/creator/assignee of resources and as an Admin (scoped: resolved once per
+        // request; reads IHttpContextAccessor, which the API registration adds). TryAdd so a host can supply its own.
+        services.TryAddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

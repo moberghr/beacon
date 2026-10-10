@@ -25,4 +25,5 @@ internal sealed class UpdateRepositoryTokenHandler(IDbContextFactory<BeaconConte
     }
 }
 
+/// <summary>Sets, replaces or (with no token) clears a repository's access token. Admin only.</summary>
 public record UpdateRepositoryTokenCommand(int RepositoryId, string? AccessToken) : IRequest;

@@ -1,14 +1,20 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeftRight } from 'lucide-react';
 import { Button, Card, CardBody, KPI, KPIGrid, PageHeader } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useAiActorDetailsQuery, ACTOR_STATUS_LABEL } from './queries';
+import { useIsAdmin } from '@/auth/useAuth';
+import { SetOwnerDialog } from '../users/SetOwnerDialog';
+import { useAiActorDetailsQuery, useSetAiActorOwner, ACTOR_STATUS_LABEL } from './queries';
 
 export default function AiActorDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id ? Number(params.id) : undefined;
   const { data, isLoading, isError, error } = useAiActorDetailsQuery(id);
+  const setOwner = useSetAiActorOwner(id ?? 0);
+  const isAdmin = useIsAdmin() === true;
+  const [changingOwner, setChangingOwner] = useState(false);
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -21,13 +27,30 @@ export default function AiActorDetailPage() {
             : null
         }
         actions={
-          <Link to="/ai-actors">
-            <Button type="button" icon={<ArrowLeftRight />}>
-              All actors
-            </Button>
-          </Link>
+          <>
+            {isAdmin && data && (
+              <Button type="button" onClick={() => setChangingOwner(true)}>
+                Change owner
+              </Button>
+            )}
+            <Link to="/ai-actors">
+              <Button type="button" icon={<ArrowLeftRight />}>
+                All actors
+              </Button>
+            </Link>
+          </>
         }
       />
+
+      {isAdmin && changingOwner && (
+        <SetOwnerDialog
+          open
+          noun="AI actor"
+          busy={setOwner.isPending}
+          onClose={() => setChangingOwner(false)}
+          onSubmit={userId => setOwner.mutate(userId, { onSuccess: () => setChangingOwner(false) })}
+        />
+      )}
 
       {isError && (
         <EmptyState

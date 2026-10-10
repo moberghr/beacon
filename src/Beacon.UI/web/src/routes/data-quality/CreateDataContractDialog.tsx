@@ -195,7 +195,6 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
       description: values.description || null,
       cronExpression: values.cronExpression,
       isEnabled: values.isEnabled,
-      ownerUserId: null,
       alertOnFailure: values.alertOnFailure,
       failureThresholdScore: values.failureThreshold,
       rules: rulesData,

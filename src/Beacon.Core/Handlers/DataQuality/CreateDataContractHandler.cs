@@ -15,7 +15,8 @@ internal sealed class CreateDataContractHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconScheduler scheduler,
     IBeaconUserContext userContext,
-    ISqlExecutionGate gate) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
+    ISqlExecutionGate gate,
+    IBeaconActorAccessor actorAccessor) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
 {
     public async Task<CreateDataContractResult> Handle(CreateDataContractCommand request, CancellationToken cancellationToken)
     {
@@ -24,6 +25,11 @@ internal sealed class CreateDataContractHandler(
         {
             DataQualityRuleGuard.EnsureAdmin(userContext);
         }
+
+        // The owner is the signed-in caller, never a value from the request; a contract is never stored without one.
+        var owner = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var ownerUserId = owner.UserId
+            ?? throw new InvalidOperationException("The caller has no resolvable user to own the data contract.");
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -47,7 +53,7 @@ internal sealed class CreateDataContractHandler(
             Description = request.Description,
             CronExpression = request.CronExpression,
             IsEnabled = request.IsEnabled,
-            OwnerUserId = request.OwnerUserId,
+            OwnerUserId = ownerUserId,
             AlertOnFailure = request.AlertOnFailure,
             FailureThresholdScore = request.FailureThresholdScore,
             Rules = request.Rules.Select(r => new DataContractRule
@@ -83,6 +89,10 @@ internal sealed class CreateDataContractHandler(
     }
 }
 
+/// <summary>
+/// Creates a data contract owned by the signed-in caller. Its owner or an Admin may later change, disable, retarget or
+/// delete it; a contract with a Custom SQL rule is an Admin's only.
+/// </summary>
 public record CreateDataContractCommand(
     int DataSourceId,
     string SchemaName,
@@ -91,7 +101,6 @@ public record CreateDataContractCommand(
     string? Description,
     string CronExpression,
     bool IsEnabled,
-    string? OwnerUserId,
     bool AlertOnFailure,
     int FailureThresholdScore,
     List<DataContractRuleData> Rules,

@@ -1,11 +1,15 @@
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.Home;
 
-internal sealed class GetHomeActivityHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetHomeActivityHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IHttpContextAccessor httpContextAccessor)
     : IRequestHandler<GetHomeActivityQuery, GetHomeActivityResult>
 {
     public async Task<GetHomeActivityResult> Handle(GetHomeActivityQuery request, CancellationToken cancellationToken)
@@ -16,8 +20,12 @@ internal sealed class GetHomeActivityHandler(IDbContextFactory<BeaconContext> co
 
         var since = DateTime.UtcNow.AddDays(-30);
 
+        // Runs are listed as the stored runs the caller may read (StoredRunAccess).
+        var runScope = StoredRunAccess.ScopeOf(httpContextAccessor.HttpContext?.User);
+
         // Recent successful executions (ok tone)
         var successExecs = await context.QueryExecutionHistory
+            .WhereReadableWithin(context, runScope)
             .Where(x => x.CreatedTime >= since)
             .Where(x => x.NotificationStatus == NotificationStatus.NotificationSent)
             .OrderByDescending(x => x.CreatedTime)
@@ -33,6 +41,7 @@ internal sealed class GetHomeActivityHandler(IDbContextFactory<BeaconContext> co
 
         // Recent failed executions (crit tone)
         var failedExecs = await context.QueryExecutionHistory
+            .WhereReadableWithin(context, runScope)
             .Where(x => x.CreatedTime >= since)
             .Where(x => x.NotificationStatus == NotificationStatus.Failed || x.NotificationStatus == NotificationStatus.Timeout)
             .OrderByDescending(x => x.CreatedTime)
@@ -42,7 +51,9 @@ internal sealed class GetHomeActivityHandler(IDbContextFactory<BeaconContext> co
                     "crit",
                     "Alert",
                     x.Subscription.Query.Name + " failed",
-                    x.Comment ?? (x.NotificationStatus == NotificationStatus.Timeout ? "execution timed out" : "execution failed"),
+                    // Only a recorded failure reason leaves, never other stored detail.
+                    NotificationFailureReasons.Displayable(x.Comment)
+                        ?? (x.NotificationStatus == NotificationStatus.Timeout ? "execution timed out" : "execution failed"),
                     x.CreatedTime))
             .ToListAsync(cancellationToken);
 

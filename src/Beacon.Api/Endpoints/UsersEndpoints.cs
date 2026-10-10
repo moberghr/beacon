@@ -10,11 +10,14 @@ internal static class UsersEndpoints
     {
         var users = group.MapGroup("/users").WithTags("Users");
 
+        // The user directory and the role list are an Admin's, like every user change below.
         users.MapGet("/", ([AsParameters] GetUsersQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
-            .WithName("GetUsers");
+            .WithName("GetUsers")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         users.MapGet("/roles", (IMediator m, CancellationToken ct) => m.Send(new GetRolesQuery(), ct))
-            .WithName("GetRoles");
+            .WithName("GetRoles")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         users.MapPost("/internal", async (CreateInternalUserCommand cmd, IMediator m, CancellationToken ct) =>
         {

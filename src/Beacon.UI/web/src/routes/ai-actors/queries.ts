@@ -56,7 +56,6 @@ export interface CreateAiActorPayload {
   additionalContext: string | null;
   maxQueries: number | null;
   maxSubscriptionsPerQuery: number | null;
-  createdByUserId: string | null;
   defaultRecipientIds: number[] | null;
   activateImmediately: boolean;
 }
@@ -78,6 +77,20 @@ export function useAiActorDetailsQuery(id: number | undefined) {
       unwrap<AiActorDetails>(await beaconApi().getAiActorDetails(id!, 10)),
     enabled: id !== undefined && id > 0,
   });
+}
+
+/** Admin only: makes a Beacon user the actor's creator, who may then change and run it. */
+export function useSetAiActorOwner(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (userId) => beaconApi().setAiActorOwner(id, { userId }),
+      invalidate: [['ai-actor', id], ['ai-actors']],
+      successMsg: 'Owner updated',
+      errorFallback: 'Changing the owner failed',
+    }),
+  );
 }
 
 export function useCreateAiActor() {

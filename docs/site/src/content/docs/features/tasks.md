@@ -63,13 +63,13 @@ Auto-resolved tasks stay in the task history with their resolution notes intact,
 
 ### Manual Resolution
 
-Any open task can be resolved manually from the task detail page:
+An open task is resolved by its assignee or an Admin, from the task detail page (assign an unassigned task to yourself first):
 
 1. Open the task and click **Resolve** (or press `R`)
 2. Optionally add **resolution notes** (up to 2000 characters) describing what was done
 3. Confirm
 
-The task records who resolved it, when, and the notes. If the condition recurs on a later run, a **new** task is created — the resolved task is not reopened, so each incident keeps its own history.
+The task records who resolved it, when, and the notes. A resolution is never overwritten: resolving a task that is already resolved fails. If the condition recurs on a later run, a **new** task is created — the resolved task is not reopened, so each incident keeps its own history.
 
 ## Task Data
 
@@ -132,10 +132,24 @@ Every task has a comment thread. Add notes as you investigate — findings, hypo
 
 From the detail page's side rail and actions:
 
-- **Assign** — assign the task to a user (or yourself) to signal ownership
+- **Assign** — anyone who can edit may take an unassigned task by assigning it to themselves; the assignee may hand the task over or release it; assigning a task to someone else, or reassigning (or re-confirming) a task that is assigned to someone else, is an Admin's. With Beacon user management the assignee must be an existing, enabled user; a host without it accepts the id its sessions present.
 - **Watch / Unwatch** — follow a task you're not assigned to; the watcher count is visible on the task
-- **Snooze** — suppress the task until a chosen time (useful when a fix is deployed but the next run hasn't confirmed it yet)
-- **Priority** — set `Critical`, `High`, `Normal`, or `Low`
+- **Snooze** — suppress the task until a chosen time (useful when a fix is deployed but the next run hasn't confirmed it yet); the assignee or an Admin
+- **Priority** — set `Critical`, `High`, `Normal`, or `Low`; the assignee or an Admin
+
+Tasks identify people by their user's external id (`Users.ExternalId`), whichever way they sign in: an API key acts as its owner, found by the key's owner id. In a host without Beacon user management the id is the `NameIdentifier` the session presents. The task detail's `assignedToCaller` says whether the signed-in caller is the assignee, and the task page offers its actions by it. "Admin" means the `ClaimTypes.Role` claim `Admin` (see [Authorization](/features/authorization/#admin-role-claim)); a disabled or archived user is never an Admin. To anyone but an Admin, a task that does not exist is refused (403) like a task that is not theirs.
+
+Resolving and assigning are written only while the task still has the state the check saw: if someone else resolves or reassigns it in between, the request fails (400) and nothing is overwritten.
+
+:::caution[Upgrading]
+Working a task is now limited to its assignee or an Admin. Resolve, snooze and priority on an unassigned task fail for everyone else until someone assigns it to themselves; reassigning someone else's task needs an Admin; with Beacon user management an assignee that is not an existing, enabled user is rejected; resolving an already-resolved task fails instead of replacing the earlier resolution. A host without Beacon user management keeps working: anyone who can edit claims and works tasks under the id their session presents, and an Admin assigns to any id.
+
+- Tasks assigned before this version stored the id the session reported (`/auth/me`), which can differ from the external id now stored. They are not rewritten: the signed-in assignee still matches them (by the `/auth/me` id or `NameIdentifier`), and a new claim stores the external id. API keys match only by their owner's external id.
+- `ResolveTaskCommand` no longer takes a user id: the resolver is the signed-in caller, and a caller without a resolvable user cannot resolve.
+- `ITaskService.ResolveTask` throws `InvalidOperationException` for a task that is already resolved (and `BeaconException` for a missing one) instead of overwriting the resolution.
+- The task detail (`GET /tasks/{id}`) has a new `assignedToCaller` flag. `TaskDetailsData.Notifications` no longer carries the notifications' stored result rows (`NotificationSummary.StoredResults` was removed).
+- Refused assignee and Admin checks are logged at Warning with the task id and the caller's user id.
+:::
 
 ### Keyboard Shortcuts
 

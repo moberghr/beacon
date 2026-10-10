@@ -4378,6 +4378,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.PrimitiveCollection<int[]>("DataSourceIds")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("data_source_ids");
+
                     b.Property<double>("ExecutionTimeMs")
                         .HasColumnType("double precision")
                         .HasColumnName("execution_time_ms");

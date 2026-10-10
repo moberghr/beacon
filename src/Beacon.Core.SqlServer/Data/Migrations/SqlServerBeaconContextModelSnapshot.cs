@@ -3433,6 +3433,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.PrimitiveCollection<string>("DataSourceIds")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<double>("ExecutionTimeMs")
                         .HasColumnType("float");
 

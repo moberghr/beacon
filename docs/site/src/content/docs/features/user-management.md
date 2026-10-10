@@ -116,6 +116,12 @@ Users with the `IsSuperAdmin` flag bypass all authorization checks. The first us
 - **Editor (Level 2+)** - Create, edit, and execute queries, subscriptions, data sources
 - **Admin (Level 3)** - Full access including delete, archive, user management, and admin settings
 
+Besides the role levels, some resources belong to a person: an alert task is worked by its [assignee](/features/tasks/#assignment-watching-snooze-priority), a [data contract](/features/data-quality/) is changed, evaluated or deleted by its owner and an [AI actor](/features/ai-actors/) by its creator; an Admin may do all of these, and only an Admin gives a contract or an actor a new owner. Reading the user directory and the role list, the MCP settings and the data-migration jobs and runs, and setting a project repository's access token, are an Admin's only. These Admin checks read the `ClaimTypes.Role` claim `Admin` of an enabled user (see [Authorization](/features/authorization/#admin-role-claim)).
+
+:::caution[Upgrading]
+`GET /users`, `GET /users/roles`, `GET /mcp/settings`, `GET /mcp/projects/{projectId}/settings`, `GET /migrations/jobs`, `GET /migrations/jobs/{id}` and `GET /migrations/executions` now need the Admin role (API keys never pass), as do `PUT /projects/repositories/{id}/token` and a project created with an access token. The sidebar hides User Management, MCP Settings and Data Migration from non-admins. `GET /home/trends` clamps `days` to 1–90. New Admin-only routes set a data contract's owner (`PUT /data-quality/contracts/{id}/owner`) and an AI actor's creator (`PUT /ai-actors/{id}/owner`). A disabled or archived user's session is no Admin for these checks, whatever its claims.
+:::
+
 ## Authentication Providers
 
 Beacon supports multiple authentication strategies through pluggable providers.

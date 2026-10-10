@@ -28,6 +28,9 @@ public class QueryResult
 
     public required int? SubscriptionId { get; init; }
 
+    /// <summary>The data sources a subscription run read; recorded on its execution history.</summary>
+    public IReadOnlyList<int> DataSourceIds { get; init; } = [];
+
     public double ExecutionTimeMs { get; set; }
 
     public bool SaveResults { get; set; }

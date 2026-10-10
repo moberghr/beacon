@@ -1,8 +1,11 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Handlers.AiActors;
 
 namespace Beacon.AI.Handlers.AiActors;
@@ -11,13 +14,19 @@ internal sealed class ExecuteAiActorThinkCycleHandler : IRequestHandler<ExecuteA
 {
     private readonly IAiActorServiceExtended _aiActorService;
     private readonly ILogger<ExecuteAiActorThinkCycleHandler> _logger;
+    private readonly IBeaconActorAccessor _actorAccessor;
+    private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public ExecuteAiActorThinkCycleHandler(
         IAiActorServiceExtended aiActorService,
-        ILogger<ExecuteAiActorThinkCycleHandler> logger)
+        ILogger<ExecuteAiActorThinkCycleHandler> logger,
+        IBeaconActorAccessor actorAccessor,
+        IDbContextFactory<BeaconContext> contextFactory)
     {
         _aiActorService = aiActorService;
         _logger = logger;
+        _actorAccessor = actorAccessor;
+        _contextFactory = contextFactory;
     }
 
     public async Task<ExecuteAiActorThinkCycleResult> Handle(
@@ -25,6 +34,8 @@ internal sealed class ExecuteAiActorThinkCycleHandler : IRequestHandler<ExecuteA
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Manually triggering think cycle for AI Actor {ActorId}", request.ActorId);
+
+        await AiActorOwnership.EnsureCreatorOrAdminAsync(_actorAccessor, _contextFactory, request.ActorId, _logger, cancellationToken);
 
         var result = await _aiActorService.ExecuteThinkCycleAsync(
             request.ActorId,

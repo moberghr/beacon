@@ -26,12 +26,13 @@ internal static class ProjectsEndpoints
             return TypedResults.Created($"/beacon/api/projects/{result.ProjectId}", result);
         }).WithName("CreateProject");
 
+        // Setting, replacing or clearing a repository's access token is an Admin's; CreateProject checks a token it gets.
         projects.MapPut("/repositories/{id:int}/token", async (
             int id, UpdateRepositoryTokenRequest body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new UpdateRepositoryTokenCommand(id, body.AccessToken), ct);
             return TypedResults.NoContent();
-        }).WithName("UpdateRepositoryToken");
+        }).WithName("UpdateRepositoryToken").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         projects.MapGet("/{id:int}/documentation", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetProjectDocumentationQuery(id), ct))

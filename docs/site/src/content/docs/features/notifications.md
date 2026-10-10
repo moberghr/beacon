@@ -474,11 +474,24 @@ Filter by:
 ### Notification Details
 
 Click any notification to see:
-- Complete query results
+- The stored query results (when the subscription stores results)
 - Execution metrics (time, row count)
 - Recipient delivery status per channel
-- Error messages (if delivery failed)
-- Query execution plan
+- A generic reason when delivery failed (the details are in the server log)
+
+### Who sees a run
+
+The notification list and details show stored runs, including their result rows; the Home activity feed and the Control Tower detail list the same runs. Each run records the data sources it read when it ran. An API key or MCP caller restricted to projects sees a run only when **one** of its projects holds every data source the run read (by the projects' current data sources, the rule [saved-query tools](/features/saved-query-tools/) follow); other runs are not listed, and their details read as not found. Signed-in users with read permission see every run. An API key or MCP caller without a project restriction, like an anonymous request, sees none.
+
+A failed run's comment is shown only when it is a recorded failure reason (for example `Recipient 7: Notification delivery failed: the destination did not respond in time.`); any other stored text is shown as the generic reason, and the details are in the server log.
+
+:::caution[Upgrading]
+- A new nullable column records the data sources a run read: `data_source_ids` (`integer[]`) on PostgreSQL, `DataSourceIds` (`nvarchar(max)`, JSON) on SQL Server, added by the `AddRunDataSourceIds` migration. Existing rows are not rewritten.
+- Runs recorded before this version have no recorded data sources and are **hidden from project-restricted callers**. Signed-in users still see them.
+- API keys and MCP callers without a project restriction no longer see any run (they get an empty list and 404 on the details), as they are already denied every project.
+- A run is now visible to a restricted caller when one allowed project holds all of its data sources; a run over a data source shared by several projects is visible from each of them that holds all of the run's sources.
+- `INotificationService.GetNotificationDetails` takes a `StoredRunScope`, `GetQueryExecutionHistoryRequest.Scope` is required, and `GetQueryExecutionHistoryDetails` was removed with `QueryExecutionHistoryDetailsData`. `IControlTowerService.GetSubscriptionDetail` takes a `StoredRunScope` too. Subscription runs carry `QueryResult.DataSourceIds`.
+:::
 
 ## Result Formatting
 

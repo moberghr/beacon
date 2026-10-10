@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
-import { useAuth } from '@/auth/useAuth';
+import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { formatRelativeTime } from '@/lib/format';
 import {
+  canClaimTask,
+  canWorkTask,
   useAssignTask,
   useSnoozeTask,
   useTaskCommentsQuery,
@@ -41,6 +43,7 @@ export default function TaskDetailPage() {
   const comments = useTaskCommentsQuery(validId);
 
   const { data: currentUser } = useAuth();
+  const isAdmin = useIsAdmin();
   // Hooks must be called unconditionally — initialize even when validId is unavailable.
   const assign = useAssignTask(validId ?? 0);
   const snooze = useSnoozeTask(validId ?? 0);
@@ -62,15 +65,16 @@ export default function TaskDetailPage() {
       if (target?.isContentEditable) return;
 
       const k = e.key.toLowerCase();
-      if (k === 'r' && !task.resolved) {
+      const canWork = canWorkTask(task, isAdmin);
+      if (k === 'r' && !task.resolved && canWork) {
         e.preventDefault();
         setResolveOpen(true);
-      } else if (k === 'a' && !task.resolved && currentUser?.userId) {
+      } else if (k === 'a' && !task.resolved && currentUser?.userId && canClaimTask(task, isAdmin)) {
         e.preventDefault();
-        if (!assign.isPending && task.assigneeUserId !== currentUser.userId) {
+        if (!assign.isPending) {
           assign.mutate({ assigneeUserId: currentUser.userId });
         }
-      } else if (k === 's' && !task.resolved) {
+      } else if (k === 's' && !task.resolved && canWork) {
         e.preventDefault();
         if (!snooze.isPending) {
           snooze.mutate({
@@ -85,7 +89,7 @@ export default function TaskDetailPage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [task, currentUser?.userId, assign, snooze]);
+  }, [task, currentUser?.userId, isAdmin, assign, snooze]);
 
   if (!Number.isFinite(id)) {
     return (
@@ -124,6 +128,7 @@ export default function TaskDetailPage() {
   const slaRemainingLabel = !task.resolved && slaRemainingMs > 0 ? formatAge(slaRemainingMs) : null;
 
   const relatedResolvedCount = related.data?.related.filter(x => x.resolved).length ?? 0;
+  const canWork = canWorkTask(task, isAdmin);
 
   return (
     <div className="flex flex-col gap-5 p-7" data-screen-label="04 Task Detail">
@@ -131,7 +136,7 @@ export default function TaskDetailPage() {
         task={task}
         ageLabel={ageLabel}
         slaRemainingLabel={slaRemainingLabel}
-        onResolve={onResolve}
+        onResolve={canWork ? onResolve : undefined}
       />
 
       <SlaBanner
@@ -182,7 +187,7 @@ export default function TaskDetailPage() {
         task={task}
         ageLabel={ageLabel}
         slaRemainingLabel={slaRemainingLabel}
-        onResolve={onResolve}
+        onResolve={canWork ? onResolve : undefined}
       />
 
       <ResolveTaskDialog

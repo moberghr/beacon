@@ -9,8 +9,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 {
     public async Task<GetHomeTrendsResult> Handle(GetHomeTrendsQuery request, CancellationToken cancellationToken)
     {
-        // Clamp sub-day windows to 1 day server-side
-        var days = Math.Max(1, request.Days);
+        var days = request.WindowDays;
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -257,7 +256,16 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
 }
 
-public record GetHomeTrendsQuery(int Days = 30) : IRequest<GetHomeTrendsResult>;
+/// <summary>Trends over the last <c>Days</c> days (1 to 90; a value outside that range is clamped).</summary>
+public record GetHomeTrendsQuery(int Days = 30) : IRequest<GetHomeTrendsResult>
+{
+    public const int MinDays = 1;
+
+    public const int MaxDays = 90;
+
+    /// <summary>The window the trends cover: <see cref="Days"/> clamped to 1 to 90 days.</summary>
+    public int WindowDays => Math.Clamp(Days, MinDays, MaxDays);
+}
 
 public record GetHomeTrendsResult(
     int TotalSubscriptions,

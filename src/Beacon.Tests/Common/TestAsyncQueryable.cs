@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Linq.Expressions;
+using System.Reflection;
 using Microsoft.EntityFrameworkCore.Query;
 
 namespace Beacon.Tests.Common;
@@ -8,7 +9,8 @@ namespace Beacon.Tests.Common;
 /// Minimal async-queryable test doubles so a mocked <c>DbSet&lt;T&gt;</c> can service
 /// EF Core async terminal operators (<c>FirstOrDefaultAsync</c>, <c>ToListAsync</c>, …)
 /// against an in-memory sequence — WITHOUT a database connection and WITHOUT the
-/// forbidden <c>UseInMemoryDatabase</c> provider (§4.7).
+/// forbidden <c>UseInMemoryDatabase</c> provider (§4.7). <c>ExecuteUpdateAsync</c> writes
+/// its setters onto the in-memory rows its filter matches.
 ///
 /// This is the standard Microsoft-documented pattern for unit-testing code that calls
 /// async EF operators through a mocked context.
@@ -50,6 +52,24 @@ internal sealed class TestAsyncQueryProvider<TEntity> : IAsyncQueryProvider
             return (TResult)(object)Task.FromResult(_onExecuteDelete(matched));
         }
 
+        // EF's ExecuteUpdateAsync wraps the source in a call to RelationalQueryableExtensions.ExecuteUpdate whose second
+        // argument holds the setters as (property selector, value) pairs. Apply them to the rows the source matches in
+        // memory, as the database would, and answer with the number of rows written.
+        if (expression is MethodCallExpression { Method.Name: "ExecuteUpdate" } updateCall)
+        {
+            var matched = _inner.CreateQuery<TEntity>(updateCall.Arguments[0]).ToList();
+            var setters = SettersOf(updateCall.Arguments[1]);
+            foreach (var row in matched)
+            {
+                foreach (var (property, value) in setters)
+                {
+                    property.SetValue(row, value(row));
+                }
+            }
+
+            return (TResult)(object)Task.FromResult(matched.Count);
+        }
+
         var expectedResultType = typeof(TResult).GetGenericArguments()[0];
         var executionResult = typeof(IQueryProvider)
             .GetMethods()
@@ -61,6 +81,46 @@ internal sealed class TestAsyncQueryProvider<TEntity> : IAsyncQueryProvider
             .GetMethod(nameof(Task.FromResult))!
             .MakeGenericMethod(expectedResultType)
             .Invoke(null, new[] { executionResult })!;
+    }
+
+    private static List<(PropertyInfo Property, Func<TEntity, object?> Value)> SettersOf(Expression setters)
+    {
+        var result = new List<(PropertyInfo Property, Func<TEntity, object?> Value)>();
+        foreach (var setter in ((NewArrayExpression)setters).Expressions)
+        {
+            var pair = (NewExpression)setter;
+            var selector = (LambdaExpression)Unwrap(pair.Arguments[0]);
+            var property = (PropertyInfo)((MemberExpression)StripConvert(selector.Body)).Member;
+            var valueExpression = Unwrap(pair.Arguments[1]);
+            if (valueExpression is LambdaExpression valueLambda)
+            {
+                var compiled = valueLambda.Compile();
+                result.Add((property, row => compiled.DynamicInvoke(row)));
+            }
+            else
+            {
+                var value = Expression.Lambda<Func<object?>>(Expression.Convert(valueExpression, typeof(object))).Compile()();
+                result.Add((property, _ => value));
+            }
+        }
+
+        return result;
+    }
+
+    private static Expression Unwrap(Expression expression)
+    {
+        return expression switch
+        {
+            UnaryExpression { NodeType: ExpressionType.Quote } quote => quote.Operand,
+            ConstantExpression { Value: LambdaExpression lambda } => lambda,
+            UnaryExpression { NodeType: ExpressionType.Convert, Operand: LambdaExpression lambda } => lambda,
+            _ => expression
+        };
+    }
+
+    private static Expression StripConvert(Expression expression)
+    {
+        return expression is UnaryExpression { NodeType: ExpressionType.Convert } convert ? convert.Operand : expression;
     }
 }
 

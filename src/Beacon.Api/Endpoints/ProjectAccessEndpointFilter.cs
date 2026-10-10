@@ -1,8 +1,7 @@
 using System.Security.Claims;
-using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Beacon.Core.Mcp;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Api.Endpoints;
 
@@ -40,30 +39,13 @@ internal static class ProjectAccess
 {
     public static bool IsAllowed(ClaimsPrincipal user, int projectId)
     {
-        var restriction = user.FindFirst(McpCallerClaimTypes.AllowedProjects);
-        if (restriction == null)
+        var allowed = ProjectRestriction.Of(user);
+        if (allowed == null)
         {
-            var isScopedCaller = user.HasClaim(McpCallerClaimTypes.AuthMethod, "api_key")
-                || user.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod);
-
-            return !isScopedCaller;
+            return !BeaconScopes.IsScopedCaller(user);
         }
 
-        if (string.IsNullOrWhiteSpace(restriction.Value))
-        {
-            return false;
-        }
-
-        try
-        {
-            var allowed = JsonSerializer.Deserialize<List<int>>(restriction.Value);
-
-            return allowed != null && allowed.Contains(projectId);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
+        return allowed.Contains(projectId);
     }
 }
 

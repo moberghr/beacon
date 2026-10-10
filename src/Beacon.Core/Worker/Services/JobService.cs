@@ -104,7 +104,12 @@ internal class JobService(
             CompiledSql = queryResult.SqlQuery,
             NotificationStatus = status,
             ExecutionTimeMs = queryResult.ExecutionTimeMs,
-            Results = subscription.StoreResults ? queryResult.QueryResults : null
+            Results = subscription.StoreResults ? queryResult.QueryResults : null,
+            // Which projects' readers may see this run (StoredRunAccess) is decided by what it read.
+            DataSourceIds = queryResult.DataSourceIds
+                .Distinct()
+                .Order()
+                .ToArray()
         };
 
         await context.QueryExecutionHistory.AddAsync(executedQuery, cancellationToken);

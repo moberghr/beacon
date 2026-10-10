@@ -12,15 +12,18 @@ internal static class MigrationsEndpoints
     {
         var migrations = group.MapGroup("/migrations").WithTags("Migrations");
 
+        // Data migration is an Admin feature: its job catalogue and run history are read by Admins only.
         migrations.MapGet("/jobs", ([AsParameters] GetMigrationJobsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
-            .WithName("GetMigrationJobs");
+            .WithName("GetMigrationJobs")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         migrations.MapGet("/jobs/{id:int}", async Task<Results<Ok<MigrationJobListItem>, NotFound>> (int id, IMediator m, CancellationToken ct) =>
             {
                 var job = await m.Send(new GetMigrationJobQuery(id), ct);
                 return job is null ? TypedResults.NotFound() : TypedResults.Ok(job);
             })
-            .WithName("GetMigrationJob");
+            .WithName("GetMigrationJob")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         migrations.MapPost("/jobs", ([FromBody] CreateMigrationJobCommand cmd, IMediator m, CancellationToken ct) =>
                 m.Send(cmd, ct))
@@ -38,7 +41,8 @@ internal static class MigrationsEndpoints
             .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         migrations.MapGet("/executions", ([AsParameters] GetMigrationExecutionsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
-            .WithName("GetMigrationExecutions");
+            .WithName("GetMigrationExecutions")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         return group;
     }

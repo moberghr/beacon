@@ -22,6 +22,22 @@ export interface TaskEntry {
 }
 
 
+/**
+ * The caller may resolve, snooze, reprioritise and release the task: it is the task's assignee, or an Admin. The server
+ * enforces the same rule; this only decides which actions the page offers.
+ */
+export function canWorkTask(task: Pick<TaskDetail, 'assignedToCaller'>, isAdmin: boolean | undefined): boolean {
+  return task.assignedToCaller || isAdmin === true;
+}
+
+/** The caller may assign the task to itself: it is unassigned (anyone may claim it), or the caller is an Admin. */
+export function canClaimTask(
+  task: Pick<TaskDetail, 'assignedToCaller' | 'assigneeUserId'>,
+  isAdmin: boolean | undefined,
+): boolean {
+  return !task.assignedToCaller && (task.assigneeUserId == null || isAdmin === true);
+}
+
 export interface TaskDetail {
   id: number;
   queryId: number;
@@ -44,6 +60,8 @@ export interface TaskDetail {
   priority: TaskPriority;
   assigneeUserId: string | null;
   assigneeUserName: string | null;
+  /** The signed-in caller is the task's assignee (decided by the server, which also matches older assignments). */
+  assignedToCaller: boolean;
   snoozedUntil: string | null;
   slaHours: number | null;
   watcherCount: number;
