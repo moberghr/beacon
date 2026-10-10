@@ -193,7 +193,7 @@ public class ApiKeyIssuanceTests
         if (issued)
         {
             (await act()).PlainTextKey.Should().Be("sk-sem_issued");
-            apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.Is<string[]>(y => y.SequenceEqual(new[] { scope })), null, null, It.IsAny<CancellationToken>()), Times.Once);
+            apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.Is<string[]>(y => y.SequenceEqual(new[] { scope })), null, null, 0, It.IsAny<CancellationToken>()), Times.Once);
         }
         else
         {
@@ -210,7 +210,7 @@ public class ApiKeyIssuanceTests
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
 
-        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, It.IsAny<CancellationToken>()), Times.Once);
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, 0, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -252,7 +252,7 @@ public class ApiKeyIssuanceTests
 
         users.Verify(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()), Times.Once);
         users.VerifyNoOtherCalls();
-        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, It.IsAny<CancellationToken>()), Times.Once);
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, 0, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -271,8 +271,33 @@ public class ApiKeyIssuanceTests
                 It.Is<string[]>(y => y.SequenceEqual(new[] { "Read" })),
                 It.Is<int[]?>(y => y != null && y.SequenceEqual(new[] { 4, 5 })),
                 expiresAt,
+                0,
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Test]
+    public async Task Handler_StampsTheKeyWithTheGenerationReadWithTheOwnersRecord()
+    {
+        var apiKeys = ApiKeyServiceMock();
+        var owner = User(RoleService.RoleLevels.Editor);
+        owner.ApiKeyGeneration = 4;
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(SessionPrincipal()), Users(owner).Object, Authorization(canWrite: true));
+
+        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
+
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, 4, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task GeneratedKey_CarriesTheOwnerGenerationItWasIssuedWith()
+    {
+        var (service, added) = BuildService();
+
+        var (credential, _) = await service.GenerateApiKeyAsync(7, "ci", ["Read"], ownerGeneration: 3);
+
+        credential.OwnerGeneration.Should().Be(3);
+        added.Should().ContainSingle().Which.OwnerGeneration.Should().Be(3);
     }
 
     [Test]
@@ -441,7 +466,7 @@ public class ApiKeyIssuanceTests
     {
         var apiKeys = new Mock<IApiKeyService>();
         apiKeys
-            .Setup(x => x.GenerateApiKeyAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string[]>(), It.IsAny<int[]?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GenerateApiKeyAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string[]>(), It.IsAny<int[]?>(), It.IsAny<DateTime?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((new ApiKeyCredential { Name = "ci", KeyHash = "h", KeyPrefix = "p" }, "sk-sem_issued"));
         return apiKeys;
     }

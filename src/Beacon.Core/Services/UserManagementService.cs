@@ -228,6 +228,7 @@ internal class UserManagementService(
                 IsEnabled = u.IsEnabled,
                 LastLoginAt = u.LastLoginAt,
                 CreatedTime = u.CreatedTime,
+                ApiKeyGeneration = u.ApiKeyGeneration,
                 Roles = u.UserRoles.Select(ur => new BeaconRoleData
                 {
                     Id = ur.Role.Id,
@@ -644,7 +645,7 @@ internal class UserManagementService(
 
         if (!wasEnabled || !user.IsEnabled)
         {
-            await RevokeApiKeysAsync(context, user.Id, ct);
+            await RevokeApiKeysAsync(context, user, ct);
         }
 
         await context.SaveChangesAsync(ct);
@@ -673,7 +674,7 @@ internal class UserManagementService(
         }
 
         user.Archive();
-        await RevokeApiKeysAsync(context, user.Id, ct);
+        await RevokeApiKeysAsync(context, user, ct);
         await context.SaveChangesAsync(ct);
 
         return new BaseResponse { Success = true, Message = "User deleted successfully." };
@@ -701,7 +702,7 @@ internal class UserManagementService(
 
         // Either transition revokes: disabling, and re-enabling too (see RevokeApiKeysAsync).
         user.IsEnabled = !user.IsEnabled;
-        await RevokeApiKeysAsync(context, user.Id, ct);
+        await RevokeApiKeysAsync(context, user, ct);
 
         await context.SaveChangesAsync(ct);
 
@@ -924,10 +925,15 @@ internal class UserManagementService(
     // saved disabled or archived — again on every such save, so it is idempotent — and on the re-enable itself, which
     // also catches a key issued while the user was being disabled and a key of a user disabled before this rule
     // existed. Already revoked keys keep their first revocation time.
-    private async Task RevokeApiKeysAsync(BeaconContext context, int userId, CancellationToken ct)
+    // The keys are enumerated before the save, so a key stored concurrently (approved before the change, inserted after
+    // the enumeration) escapes the revocation; advancing the user's API-key generation in the same save makes that key
+    // carry a generation that is no longer theirs, and validation refuses it.
+    private async Task RevokeApiKeysAsync(BeaconContext context, BeaconUser user, CancellationToken ct)
     {
+        user.ApiKeyGeneration++;
+
         var keys = await context.ApiKeyCredentials
-            .Where(x => x.UserId == userId)
+            .Where(x => x.UserId == user.Id)
             .Where(x => !x.IsRevoked)
             .ToListAsync(ct);
 

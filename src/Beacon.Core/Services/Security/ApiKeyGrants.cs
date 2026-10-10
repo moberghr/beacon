@@ -8,7 +8,8 @@ namespace Beacon.Core.Services.Security;
 /// What an API key grants: its scopes (the <see cref="McpCallerScope"/> names, Read and Execute) and its project list,
 /// both stored as JSON on <c>ApiKeyCredential</c>. Validates the scopes of a new key and reads stored values back the
 /// same way for authentication and for the key listings. The Execute scope never outlives its owner's write
-/// permission: <see cref="OwnerCanWrite"/> decides it when a key is issued and again on every request.
+/// permission: <see cref="OwnerCanWrite"/> and the authorization provider decide it when a key is issued and again on
+/// every request.
 /// </summary>
 internal static class ApiKeyGrants
 {

@@ -5,17 +5,19 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
 /// <summary>
-/// Every user's API keys, or one user's, for an administrator (Admin role, enforced on the route) in a signed-in
-/// session.
+/// Every user's API keys, or one user's, for an administrator in a signed-in session: the Admin role on the route, and
+/// an administrator in the user store now (<see cref="ApiKeyManagementCaller.ResolveAdministratorAsync"/>).
 /// </summary>
 internal sealed class GetAllApiKeysHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IHttpContextAccessor httpContextAccessor,
+    IUserManagementService userManagementService,
     IOptions<ApiKeyOptions> options,
     TimeProvider timeProvider)
     : IRequestHandler<GetAllApiKeysQuery, PagedList<AdminApiKeyEntry>>
@@ -24,10 +26,7 @@ internal sealed class GetAllApiKeysHandler(
         GetAllApiKeysQuery request,
         CancellationToken cancellationToken)
     {
-        if (!ApiKeyManagementCaller.IsInteractiveSession(httpContextAccessor.HttpContext?.User))
-        {
-            throw new UnauthorizedAccessException(ApiKeyManagementCaller.InteractiveSessionRequired);
-        }
+        await ApiKeyManagementCaller.ResolveAdministratorAsync(httpContextAccessor, userManagementService, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -58,10 +57,12 @@ internal sealed class GetAllApiKeysHandler(
                     OwnerExists = x.User != null,
                     OwnerArchived = x.User != null && x.User.ArchivedTime != null,
                     OwnerEnabled = x.User != null && x.User.IsEnabled,
+                    OwnerGenerationIsCurrent = x.User != null && x.User.ApiKeyGeneration == x.OwnerGeneration,
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
 
-        // Active by the rule key validation applies: not revoked, not expired, owner present, enabled, not archived.
+        // Active by the rule key validation applies: not revoked, not expired, owner present, enabled, not archived,
+        // and still in the owner's API-key generation.
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         return page.Map(x =>
@@ -79,7 +80,7 @@ internal sealed class GetAllApiKeysHandler(
                     x.IsRevoked,
                     x.ExpiresAt,
                     x.CreatedAt,
-                    new ApiKeyOwnerState(x.OwnerExists, x.OwnerArchived, x.OwnerEnabled),
+                    new ApiKeyOwnerState(x.OwnerExists, x.OwnerArchived, x.OwnerEnabled, x.OwnerGenerationIsCurrent),
                     now,
                     options.Value) == null,
                 x.UserId,
@@ -117,6 +118,8 @@ internal sealed class GetAllApiKeysHandler(
         public bool OwnerArchived { get; init; }
 
         public bool OwnerEnabled { get; init; }
+
+        public bool OwnerGenerationIsCurrent { get; init; }
     }
 }
 

@@ -27,5 +27,12 @@ public class BeaconUserData
 
     public DateTime CreatedTime { get; set; }
 
+    /// <summary>
+    /// The user's API-key generation (<c>BeaconUser.ApiKeyGeneration</c>), read in the same query as the rest of this
+    /// record so a key issued on its strength is stamped with it. Read by <c>GetUserByExternalIdAsync</c>, the lookup
+    /// API-key management resolves its caller with; the other lookups leave it 0.
+    /// </summary>
+    public int ApiKeyGeneration { get; set; }
+
     public List<BeaconRoleData> Roles { get; set; } = new();
 }

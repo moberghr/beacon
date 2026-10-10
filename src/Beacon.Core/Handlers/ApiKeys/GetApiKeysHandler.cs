@@ -43,11 +43,11 @@ internal sealed class GetApiKeysHandler(
                     LastUsedAt = x.LastUsedAt,
                     ExpiresAt = x.ExpiresAt,
                     IsRevoked = x.IsRevoked,
+                    OwnerGeneration = x.OwnerGeneration,
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
 
         // Active by the rule key validation applies; the owner is the caller, found, so not archived.
-        var owner = new ApiKeyOwnerState(Exists: true, IsArchived: false, user.IsEnabled);
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         return page.Map(x =>
@@ -59,7 +59,17 @@ internal sealed class GetApiKeysHandler(
                 x.CreatedAt,
                 x.LastUsedAt,
                 x.ExpiresAt,
-                ApiKeyStatus.RefusalReason(x.IsRevoked, x.ExpiresAt, x.CreatedAt, owner, now, options.Value) == null,
+                ApiKeyStatus.RefusalReason(
+                    x.IsRevoked,
+                    x.ExpiresAt,
+                    x.CreatedAt,
+                    new ApiKeyOwnerState(
+                        Exists: true,
+                        IsArchived: false,
+                        user.IsEnabled,
+                        KeyGenerationIsCurrent: x.OwnerGeneration == user.ApiKeyGeneration),
+                    now,
+                    options.Value) == null,
                 ApiKeyGrants.ReadProjectIds(x.AllowedProjectIds)));
     }
 
@@ -82,6 +92,8 @@ internal sealed class GetApiKeysHandler(
         public DateTime? ExpiresAt { get; init; }
 
         public bool IsRevoked { get; init; }
+
+        public int OwnerGeneration { get; init; }
     }
 }
 

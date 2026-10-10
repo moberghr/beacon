@@ -35,12 +35,15 @@ internal sealed class CreateApiKeyHandler(
             throw new UnauthorizedAccessException("Only users with write permission can create API keys with the Execute scope.");
         }
 
+        // Stamped with the generation read together with the checks above: when the owner is disabled, archived or
+        // re-enabled before the key is stored, the key is refused even though that change could not revoke it.
         var (_, plainTextKey) = await apiKeyService.GenerateApiKeyAsync(
             userId: user.Id,
             name: request.Name,
             scopes: scopes,
             allowedProjectIds: request.AllowedProjectIds,
             expiresAt: request.ExpiresAt,
+            ownerGeneration: user.ApiKeyGeneration,
             ct: cancellationToken);
 
         return new CreateApiKeyResult(plainTextKey);

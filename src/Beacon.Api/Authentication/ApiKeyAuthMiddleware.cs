@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
 
@@ -53,13 +55,12 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         }
 
         // The Execute scope follows the owner's current write permission, by the rule it was issued under: a key whose
-        // owner lost the Editor role (or super admin) acts as a Read key until the owner regains it.
-        var owner = credential.User;
-        var ownerCanWrite = ApiKeyGrants.OwnerCanWrite(
-            owner.IsSuperAdmin,
-            owner.UserRoles.Select(x => x.Role?.Level ?? 0));
+        // owner lost the Editor role (or super admin), or whom the authorization provider no longer grants write
+        // permission, acts as a Read key until the owner regains it.
+        var holdsExecute = storedScopes.Contains(BeaconScopes.Execute);
+        var ownerCanWrite = holdsExecute && await OwnerCanWriteAsync(context, credential.User);
         var scopes = ApiKeyGrants.ForOwner(storedScopes, ownerCanWrite);
-        if (!ownerCanWrite && storedScopes.Contains(BeaconScopes.Execute))
+        if (holdsExecute && !ownerCanWrite)
         {
             WarnOnceWhenExecuteIsWithheld(logger, credential.Id);
         }
@@ -104,6 +105,49 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         context.User = new ClaimsPrincipal(identity);
 
         await next(context);
+    }
+
+    // The rule issuance applies (CreateApiKeyHandler): the owner's own record — super admin, or the Editor role or
+    // higher — and the authorization provider. The provider decides about the request's user, so it is asked while the
+    // request carries the owner as the signed-in session that issued the key presented them (ExternalId, user name,
+    // roles from the user store); the request's previous user is restored afterwards, whatever the provider does. The
+    // provider is resolved from the request scope only when it is asked.
+    private static async Task<bool> OwnerCanWriteAsync(HttpContext context, BeaconUser owner)
+    {
+        if (!ApiKeyGrants.OwnerCanWrite(owner.IsSuperAdmin, owner.UserRoles.Select(x => x.Role?.Level ?? 0)))
+        {
+            return false;
+        }
+
+        var authorizationProvider = context.RequestServices.GetRequiredService<IBeaconAuthorizationProvider>();
+        var caller = context.User;
+        context.User = OwnerPrincipal(owner);
+        try
+        {
+            return await authorizationProvider.HasWritePermissionAsync(context.RequestAborted);
+        }
+        finally
+        {
+            context.User = caller;
+        }
+    }
+
+    // The claims a sign-in builds for the owner (AuthenticatedUserExtensions.ToClaims), from their stored record.
+    private static ClaimsPrincipal OwnerPrincipal(BeaconUser owner)
+    {
+        var claims = new AuthenticatedUser
+        {
+            UserId = owner.ExternalId,
+            UserName = owner.UserName,
+            Email = owner.Email,
+            DisplayName = owner.DisplayName,
+            Roles = owner.UserRoles
+                .Where(x => x.Role != null)
+                .Select(x => x.Role!.Name)
+                .ToList()
+        }.ToClaims();
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, McpCallerClaimTypes.ApiKeyOwnerAuthenticationType));
     }
 
     private static Task RefuseAsync(HttpContext context)

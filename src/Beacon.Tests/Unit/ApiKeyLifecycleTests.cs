@@ -16,6 +16,7 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.SampleProject.Middleware;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using MediatR;
@@ -40,9 +41,11 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// API keys follow their owner's lifecycle: disabling or archiving a user revokes every key of theirs in the same
 /// save, re-enabling revokes whatever is still active instead of restoring anything, and the key of a disabled or
-/// archived owner no longer validates. The listings call a key active by the same rule. Administrators list every key
-/// and revoke any of them, from a signed-in session only; nobody else can. No database: EF async operators run against
-/// mocked sets backed by the TestAsyncQueryable doubles (§4.7); the handlers' real SQL through SqlCapture.
+/// archived owner no longer validates. Each of those changes also advances the owner's API-key generation in that save,
+/// so a key approved before the change and stored after it never validates. The listings call a key active by the same
+/// rule. Administrators list every key and revoke any of them, from a signed-in session only, and only while the user
+/// store still has them as an administrator; nobody else can. No database: EF async operators run against mocked sets
+/// backed by the TestAsyncQueryable doubles (§4.7); the handlers' real SQL through SqlCapture.
 /// </summary>
 [TestFixture]
 public class ApiKeyLifecycleTests
@@ -72,7 +75,7 @@ public class ApiKeyLifecycleTests
         alreadyRevoked.RevokedAt.Should().Be(earlier, "an earlier revocation keeps its time");
         othersKey.IsRevoked.Should().BeFalse();
         store.Saves.Should().ContainSingle("the user and their keys change in one unit of work")
-            .Which.Should().Be(new SaveSnapshot(UserEnabled: false, UserArchived: false, ActiveKeysOfUser: 0));
+            .Which.Should().Be(new SaveSnapshot(UserEnabled: false, UserArchived: false, ActiveKeysOfUser: 0, ApiKeyGeneration: 1));
     }
 
     [Test]
@@ -105,7 +108,7 @@ public class ApiKeyLifecycleTests
         key.IsRevoked.Should().BeTrue();
         key.RevokedAt.Should().Be(Now.UtcDateTime);
         store.Saves.Should().ContainSingle()
-            .Which.Should().Be(new SaveSnapshot(UserEnabled: true, UserArchived: false, ActiveKeysOfUser: 0));
+            .Which.Should().Be(new SaveSnapshot(UserEnabled: true, UserArchived: false, ActiveKeysOfUser: 0, ApiKeyGeneration: 1));
     }
 
     [Test]
@@ -132,7 +135,7 @@ public class ApiKeyLifecycleTests
 
         key.IsRevoked.Should().BeTrue();
         store.Saves.Should().ContainSingle()
-            .Which.Should().Be(new SaveSnapshot(UserEnabled: false, UserArchived: false, ActiveKeysOfUser: 0));
+            .Which.Should().Be(new SaveSnapshot(UserEnabled: false, UserArchived: false, ActiveKeysOfUser: 0, ApiKeyGeneration: 1));
     }
 
     [Test]
@@ -147,7 +150,7 @@ public class ApiKeyLifecycleTests
         result.Success.Should().BeTrue();
         key.IsRevoked.Should().BeTrue();
         store.Saves.Should().ContainSingle()
-            .Which.Should().Be(new SaveSnapshot(UserEnabled: false, UserArchived: false, ActiveKeysOfUser: 0));
+            .Which.Should().Be(new SaveSnapshot(UserEnabled: false, UserArchived: false, ActiveKeysOfUser: 0, ApiKeyGeneration: 1));
     }
 
     [Test]
@@ -160,6 +163,7 @@ public class ApiKeyLifecycleTests
         await BuildUsers(store).UpdateUserAsync(Update(2, isEnabled: true), CancellationToken.None);
 
         key.IsRevoked.Should().BeFalse();
+        user.ApiKeyGeneration.Should().Be(0, "the user's keys keep working");
     }
 
     [Test]
@@ -174,7 +178,7 @@ public class ApiKeyLifecycleTests
         result.Success.Should().BeTrue();
         key.IsRevoked.Should().BeTrue();
         store.Saves.Should().ContainSingle()
-            .Which.Should().Be(new SaveSnapshot(UserEnabled: true, UserArchived: true, ActiveKeysOfUser: 0));
+            .Which.Should().Be(new SaveSnapshot(UserEnabled: true, UserArchived: true, ActiveKeysOfUser: 0, ApiKeyGeneration: 1));
     }
 
     [Test]
@@ -207,6 +211,97 @@ public class ApiKeyLifecycleTests
 
         before.Should().NotBeNull();
         after.Should().BeNull();
+    }
+
+    [Test]
+    public async Task KeyApprovedBeforeADisableAndReEnable_AndStoredAfterThem_IsRefused()
+    {
+        // The issuing request reads the owner and approves the key; the owner is disabled and re-enabled before the
+        // key is stored, so neither change saw the key to revoke it.
+        var store = new FakeStore();
+        var user = store.AddUser(1);
+        var users = BuildUsers(store);
+        var logs = new LogRecorder();
+        var apiKeys = BuildApiKeys(store, logs: logs);
+        var stalled = new Mock<IApiKeyService>();
+        stalled
+            .Setup(x => x.GenerateApiKeyAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string[]>(), It.IsAny<int[]?>(), It.IsAny<DateTime?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Returns(async (int userId, string name, string[] scopes, int[]? projects, DateTime? expiresAt, int generation, CancellationToken ct) =>
+            {
+                await users.ToggleUserEnabledAsync(1, ct);
+                await users.ToggleUserEnabledAsync(1, ct);
+                return await apiKeys.GenerateApiKeyAsync(userId, name, scopes, projects, expiresAt, generation, ct);
+            });
+        var handler = new CreateApiKeyHandler(stalled.Object, Accessor(CookiePrincipal("editor")), users, Mock.Of<IBeaconAuthorizationProvider>());
+
+        var issued = await handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var validated = await apiKeys.ValidateApiKeyAsync(issued.PlainTextKey, CancellationToken.None);
+
+        var stored = store.Keys.Should().ContainSingle().Subject;
+        stored.IsRevoked.Should().BeFalse("it was stored after both changes enumerated the user's keys");
+        stored.OwnerGeneration.Should().Be(0, "the generation read when the key was approved");
+        user.IsEnabled.Should().BeTrue();
+        user.ApiKeyGeneration.Should().Be(2);
+        validated.Should().BeNull();
+        logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be($"API key {stored.Id} refused: owner_generation_changed");
+    }
+
+    [Test]
+    public async Task KeyIssuedAfterTheOwnerWasDisabledAndReEnabled_Validates()
+    {
+        var store = new FakeStore();
+        var user = store.AddUser(1);
+        var users = BuildUsers(store);
+        var apiKeys = BuildApiKeys(store);
+        await users.ToggleUserEnabledAsync(1, CancellationToken.None);
+        await users.ToggleUserEnabledAsync(1, CancellationToken.None);
+        var handler = new CreateApiKeyHandler(apiKeys, Accessor(CookiePrincipal("editor")), users, Mock.Of<IBeaconAuthorizationProvider>());
+
+        var issued = await handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var validated = await apiKeys.ValidateApiKeyAsync(issued.PlainTextKey, CancellationToken.None);
+
+        store.Keys.Should().ContainSingle().Which.OwnerGeneration.Should().Be(user.ApiKeyGeneration).And.Be(2);
+        validated.Should().NotBeNull();
+        validated!.UserId.Should().Be(1);
+    }
+
+    [TestCase("demoted-to-editor")]
+    [TestCase("demoted-to-viewer")]
+    [TestCase("disabled")]
+    public async Task AdminHandlers_RefuseAnAdministratorWhoIsNoLongerOne_ThoughTheSessionStillSaysAdmin(string change)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(2);
+        var key = store.AddKey(21, owner);
+        var users = StoredAdministrator(change);
+
+        var revoke = () => new AdminRevokeApiKeyHandler(BuildApiKeys(store), Accessor(CookiePrincipal("admin")), users.Object, NullLogger<AdminRevokeApiKeyHandler>.Instance)
+            .Handle(new AdminRevokeApiKeyCommand(21), CancellationToken.None);
+        var list = () => new GetAllApiKeysHandler(BuildFactory(store), Accessor(CookiePrincipal("admin")), users.Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
+            .Handle(new GetAllApiKeysQuery(), CancellationToken.None);
+
+        await revoke.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*administrator*");
+        await list.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*administrator*");
+        key.IsRevoked.Should().BeFalse();
+        users.Verify(x => x.GetUserByExternalIdAsync("ext-1", It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Test]
+    public async Task AdminHandlers_AdmitAnAdministratorByTheirStoredAdminRole()
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(2);
+        var key = store.AddKey(21, owner);
+        var users = StoredAdministrator("admin-role");
+
+        var page = await new GetAllApiKeysHandler(BuildFactory(store), Accessor(CookiePrincipal("admin")), users.Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
+            .Handle(new GetAllApiKeysQuery(), CancellationToken.None);
+        await new AdminRevokeApiKeyHandler(BuildApiKeys(store), Accessor(CookiePrincipal("admin")), users.Object, NullLogger<AdminRevokeApiKeyHandler>.Instance)
+            .Handle(new AdminRevokeApiKeyCommand(21), CancellationToken.None);
+
+        page.Items.Should().ContainSingle().Which.Id.Should().Be(21);
+        key.IsRevoked.Should().BeTrue();
     }
 
     [Test]
@@ -288,7 +383,7 @@ public class ApiKeyLifecycleTests
 
         var revoke = () => new AdminRevokeApiKeyHandler(BuildApiKeys(store), Accessor(principal), AdminUsers().Object, NullLogger<AdminRevokeApiKeyHandler>.Instance)
             .Handle(new AdminRevokeApiKeyCommand(21), CancellationToken.None);
-        var list = () => new GetAllApiKeysHandler(BuildFactory(store), Accessor(principal), Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
+        var list = () => new GetAllApiKeysHandler(BuildFactory(store), Accessor(principal), AdminUsers().Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
             .Handle(new GetAllApiKeysQuery(), CancellationToken.None);
 
         await revoke.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*signed-in session*");
@@ -341,6 +436,7 @@ public class ApiKeyLifecycleTests
     [TestCase("owner-disabled")]
     [TestCase("owner-archived")]
     [TestCase("owner-missing")]
+    [TestCase("owner-generation-changed")]
     [TestCase("legacy-past-the-enforced-maximum")]
     public async Task Listings_CallAKeyActiveOnlyWhenValidationWouldAcceptIt(string state)
     {
@@ -368,6 +464,9 @@ public class ApiKeyLifecycleTests
             case "owner-missing":
                 key.User = null;
                 break;
+            case "owner-generation-changed":
+                owner.ApiKeyGeneration = 1;
+                break;
             default:
                 key.ExpiresAt = null;
                 key.CreatedTime = Now.UtcDateTime.AddDays(-31);
@@ -390,6 +489,21 @@ public class ApiKeyLifecycleTests
         store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(1));
         var users = AdminUsers(enabled: !ownerDisabled);
         var handler = new GetApiKeysHandler(BuildFactory(store), Accessor(CookiePrincipal("admin")), users.Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now));
+
+        var page = await handler.Handle(new GetApiKeysQuery(), CancellationToken.None);
+
+        page.Items.Should().ContainSingle().Which.IsActive.Should().Be(active);
+    }
+
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    public async Task OwnList_CallsAKeyActiveOnlyInTheCallersCurrentGeneration(int keyGeneration, bool active)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(1, userName: "admin", isSuperAdmin: true);
+        var key = store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(1));
+        key.OwnerGeneration = keyGeneration;
+        var handler = new GetApiKeysHandler(BuildFactory(store), Accessor(CookiePrincipal("admin")), AdminUsers(apiKeyGeneration: 1).Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now));
 
         var page = await handler.Handle(new GetApiKeysQuery(), CancellationToken.None);
 
@@ -428,6 +542,7 @@ public class ApiKeyLifecycleTests
         sql.Should().Contain("FROM beacon.api_key_credentials");
         sql.Should().Contain("WHERE a.user_id = @");
         sql.Should().Contain("allowed_project_ids");
+        sql.Should().Contain("a.owner_generation");
         sql.Should().Contain("ORDER BY a.created_time DESC");
     }
 
@@ -452,7 +567,7 @@ public class ApiKeyLifecycleTests
         // The handler's own query, run against the Npgsql provider without a database: the owner join must not drop
         // archived users, and their state is read from the join.
         var capture = new SqlCapture().ThenScalar(1).ThenNoRows();
-        var handler = new GetAllApiKeysHandler(capture.Factory(), Accessor(CookiePrincipal("admin")), Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now));
+        var handler = new GetAllApiKeysHandler(capture.Factory(), Accessor(CookiePrincipal("admin")), AdminUsers().Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now));
 
         await handler.Handle(new GetAllApiKeysQuery { UserId = 2 }, CancellationToken.None);
 
@@ -462,6 +577,19 @@ public class ApiKeyLifecycleTests
         sql.Should().Contain("user_id");
         sql.Should().Contain("archived_time IS NOT NULL");
         sql.Should().NotContain("archived_time IS NULL");
+    }
+
+    [Test]
+    public async Task AdminListQuery_ComparesEachKeyWithItsOwnersGeneration_Translates()
+    {
+        // A key stored after its owner's generation moved on is listed inactive: the comparison runs in the query.
+        var capture = new SqlCapture().ThenScalar(1).ThenNoRows();
+        var handler = new GetAllApiKeysHandler(capture.Factory(), Accessor(CookiePrincipal("admin")), AdminUsers().Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now));
+
+        await handler.Handle(new GetAllApiKeysQuery(), CancellationToken.None);
+
+        var sql = capture.Commands.Should().HaveCount(2).And.Subject.Last();
+        sql.Should().MatchRegex(@"u\.id IS NOT NULL AND u\.api_key_generation = a\d*\.owner_generation\b[^,]* AS ""OwnerGenerationIsCurrent""");
     }
 
     [TestCase("GET", "/beacon/api/api-keys/admin")]
@@ -486,6 +614,35 @@ public class ApiKeyLifecycleTests
         mediator.Invocations.Should().HaveCount(1, "only the administrator's request reaches the handler");
     }
 
+    [TestCase("GET", "/beacon/api/api-keys/admin")]
+    [TestCase("DELETE", "/beacon/api/api-keys/admin/21")]
+    public async Task AdminEndpoints_Answer403_WhenTheSessionStillSaysAdmin_ButTheUserStoreNoLongerDoes(string method, string path)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(2);
+        var key = store.AddKey(21, owner);
+        var users = StoredAdministrator("demoted-to-editor");
+        var mediator = new Mock<IMediator>();
+        await using var app = await StartApiAsync(mediator, users.Object);
+        var accessor = app.Services.GetRequiredService<IHttpContextAccessor>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<GetAllApiKeysQuery>(), It.IsAny<CancellationToken>()))
+            .Returns((GetAllApiKeysQuery query, CancellationToken ct) =>
+                new GetAllApiKeysHandler(BuildFactory(store), accessor, users.Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
+                    .Handle(query, ct));
+        mediator
+            .Setup(x => x.Send(It.IsAny<AdminRevokeApiKeyCommand>(), It.IsAny<CancellationToken>()))
+            .Returns((AdminRevokeApiKeyCommand command, CancellationToken ct) =>
+                new AdminRevokeApiKeyHandler(BuildApiKeys(store), accessor, users.Object, NullLogger<AdminRevokeApiKeyHandler>.Instance)
+                    .Handle(command, ct));
+
+        var response = await SendAsync(app, method, path, principal: "admin");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        mediator.Invocations.Should().HaveCount(1, "the session's Admin claim passes the route; the handler refuses");
+        key.IsRevoked.Should().BeFalse();
+    }
+
     [TestCase("GET", "/beacon/api/api-keys", null)]
     [TestCase("POST", "/beacon/api/api-keys", "{\"name\":\"ci\",\"scopes\":[\"Read\"]}")]
     [TestCase("DELETE", "/beacon/api/api-keys/5", null)]
@@ -505,22 +662,58 @@ public class ApiKeyLifecycleTests
     private static UserManagementService BuildUsers(FakeStore store) =>
         new(BuildFactory(store), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now));
 
-    private static ApiKeyService BuildApiKeys(FakeStore store, ApiKeyOptions? options = null) =>
-        new(BuildFactory(store), Options.Create(options ?? new ApiKeyOptions()), new FakeTimeProvider(Now), NullLogger<ApiKeyService>.Instance);
+    private static ApiKeyService BuildApiKeys(FakeStore store, ApiKeyOptions? options = null, LogRecorder? logs = null) =>
+        new(
+            BuildFactory(store),
+            Options.Create(options ?? new ApiKeyOptions()),
+            new FakeTimeProvider(Now),
+            logs?.For<ApiKeyService>() ?? NullLogger<ApiKeyService>.Instance);
 
     private static AdminRevokeApiKeyHandler AdminRevoke(FakeStore store) =>
         new(BuildApiKeys(store), Accessor(CookiePrincipal("admin")), AdminUsers().Object, NullLogger<AdminRevokeApiKeyHandler>.Instance);
 
     private static GetAllApiKeysHandler AdminList(FakeStore store, ApiKeyOptions? options = null) =>
-        new(BuildFactory(store), Accessor(CookiePrincipal("admin")), Options.Create(options ?? new ApiKeyOptions()), new FakeTimeProvider(Now));
+        new(BuildFactory(store), Accessor(CookiePrincipal("admin")), AdminUsers().Object, Options.Create(options ?? new ApiKeyOptions()), new FakeTimeProvider(Now));
 
     // The signed-in administrator behind CookiePrincipal: Users.ExternalId "ext-1", Beacon user id 1.
-    private static Mock<IUserManagementService> AdminUsers(bool enabled = true)
+    private static Mock<IUserManagementService> AdminUsers(bool enabled = true, int apiKeyGeneration = 0)
     {
         var users = new Mock<IUserManagementService>();
         users
             .Setup(x => x.GetUserByExternalIdAsync("ext-1", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BeaconUserData { Id = 1, ExternalId = "ext-1", UserName = "admin", IsSuperAdmin = true, IsEnabled = enabled });
+            .ReturnsAsync(new BeaconUserData
+            {
+                Id = 1,
+                ExternalId = "ext-1",
+                UserName = "admin",
+                IsSuperAdmin = true,
+                IsEnabled = enabled,
+                ApiKeyGeneration = apiKeyGeneration
+            });
+        return users;
+    }
+
+    // The user behind CookiePrincipal("admin") as the user store has them now, after a change the session's claims do
+    // not show: demoted, disabled, or still holding the Admin role (without being a super admin).
+    private static Mock<IUserManagementService> StoredAdministrator(string change)
+    {
+        var role = change switch
+        {
+            "demoted-to-editor" => new BeaconRoleData { Name = RoleService.RoleNames.Editor, Level = RoleService.RoleLevels.Editor },
+            "demoted-to-viewer" => new BeaconRoleData { Name = RoleService.RoleNames.Viewer, Level = RoleService.RoleLevels.Viewer },
+            _ => new BeaconRoleData { Name = RoleService.RoleNames.Admin, Level = RoleService.RoleLevels.Admin }
+        };
+        var users = new Mock<IUserManagementService>();
+        users
+            .Setup(x => x.GetUserByExternalIdAsync("ext-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BeaconUserData
+            {
+                Id = 1,
+                ExternalId = "ext-1",
+                UserName = "admin",
+                IsEnabled = change != "disabled",
+                Roles = [role]
+            });
         return users;
     }
 
@@ -564,7 +757,7 @@ public class ApiKeyLifecycleTests
         return app.GetTestClient().SendAsync(request);
     }
 
-    private static async Task<WebApplication> StartApiAsync(Mock<IMediator> mediator)
+    private static async Task<WebApplication> StartApiAsync(Mock<IMediator> mediator, IUserManagementService? users = null)
     {
         var apiKeys = new Mock<IApiKeyService>();
         apiKeys
@@ -589,9 +782,10 @@ public class ApiKeyLifecycleTests
         builder.Services.AddSingleton(Mock.Of<IActorUserResolver>());
         builder.Services.AddSingleton(Mock.Of<IBeaconAuthorizationProvider>());
         builder.Services.AddSingleton(Mock.Of<IBeaconUserContext>());
-        builder.Services.AddSingleton(Mock.Of<IUserManagementService>());
+        builder.Services.AddSingleton(users ?? Mock.Of<IUserManagementService>());
         builder.Services.AddSingleton(Mock.Of<IDbContextFactory<BeaconContext>>());
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false });
+        builder.Services.AddHttpContextAccessor();
         builder.Services.AddAntiforgery(x =>
         {
             x.Cookie.Name = AntiforgeryCookieName;
@@ -601,6 +795,9 @@ public class ApiKeyLifecycleTests
         builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, StatusCodeResultHandler>();
 
         var app = builder.Build();
+
+        // The host's mapping of a handler's refusal (UnauthorizedAccessException) to 403.
+        app.UseApiExceptionHandler("/beacon/api");
         app.UseMiddleware<ApiKeyAuthMiddleware>();
         app.Use((context, next) =>
         {
@@ -641,7 +838,7 @@ public class ApiKeyLifecycleTests
     private static string Hash(string key) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
 
-    private sealed record SaveSnapshot(bool UserEnabled, bool UserArchived, int ActiveKeysOfUser);
+    private sealed record SaveSnapshot(bool UserEnabled, bool UserArchived, int ActiveKeysOfUser, int ApiKeyGeneration);
 
     private sealed class FakeStore
     {
@@ -687,13 +884,22 @@ public class ApiKeyLifecycleTests
             return key;
         }
 
+        // A key added through the set, as the database stores and joins it: an id, and its owner.
+        public void StoreKey(ApiKeyCredential key)
+        {
+            key.Id = 100 + Keys.Count;
+            key.User = Users.FirstOrDefault(x => x.Id == key.UserId);
+            Keys.Add(key);
+        }
+
         public void RecordSave()
         {
             var user = Users.First(x => x.Id == _trackedUserId);
             Saves.Add(new SaveSnapshot(
                 user.IsEnabled,
                 user.ArchivedTime != null,
-                Keys.Count(x => x.UserId == user.Id && !x.IsRevoked)));
+                Keys.Count(x => x.UserId == user.Id && !x.IsRevoked),
+                user.ApiKeyGeneration));
         }
     }
 
@@ -714,7 +920,7 @@ public class ApiKeyLifecycleTests
 
             if (typeof(TEntity) == typeof(ApiKeyCredential))
             {
-                return (DbSet<TEntity>)(object)BuildSet(store.Keys, x => x.Id);
+                return (DbSet<TEntity>)(object)BuildSet(store.Keys, x => x.Id, store.StoreKey);
             }
 
             return base.Set<TEntity>();
@@ -730,10 +936,15 @@ public class ApiKeyLifecycleTests
             SaveChangesAsync(cancellationToken);
     }
 
-    private static DbSet<T> BuildSet<T>(List<T> backing, Func<T, int> key) where T : class
+    private static DbSet<T> BuildSet<T>(List<T> backing, Func<T, int> key, Action<T>? add = null) where T : class
     {
         var data = backing.AsQueryable();
         var set = new Mock<DbSet<T>>();
+        if (add != null)
+        {
+            set.Setup(x => x.Add(It.IsAny<T>())).Callback(add);
+        }
+
         set.As<IAsyncEnumerable<T>>()
             .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
             .Returns(() => new TestAsyncEnumerator<T>(backing.GetEnumerator()));

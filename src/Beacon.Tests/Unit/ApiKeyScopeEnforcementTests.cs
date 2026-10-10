@@ -42,8 +42,9 @@ namespace Beacon.Tests.Unit;
 /// <see cref="ApiKeyAuthMiddleware"/> fed keys from a mocked key store, the real authorization policies, the group's
 /// filters and every endpoint <see cref="BeaconApiEndpoints.MapBeaconApi"/> maps. Authorization and user management
 /// stay off (the library default), so the scope gate is proven independent of them. Also covers the Execute scope
-/// following the owner's write permission, keys that grant no scope, the read surface a Read key reaches (a snapshot),
-/// the hub outside the group, and antiforgery for header-authenticated callers versus cookie sessions and forgeries.
+/// following the owner's write permission (their roles and the authorization provider), keys that grant no scope, the
+/// read surface a Read key reaches (a snapshot), the hub outside the group, and antiforgery for header-authenticated
+/// callers versus cookie sessions and forgeries.
 /// </summary>
 [TestFixture]
 public class ApiKeyScopeEnforcementTests
@@ -300,6 +301,54 @@ public class ApiKeyScopeEnforcementTests
         metadata.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         projects.StatusCode.Should().Be(HttpStatusCode.OK, "it still reads");
         mediator.Verify(x => x.Send(It.IsAny<UpdateQueryCommand>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ExecuteKey_ActsAsAReadKey_OnceTheAuthorizationProviderWithdrawsTheOwnersWritePermission()
+    {
+        // The key was issued while the provider granted its owner write permission; the owner keeps the Editor role.
+        var providerGrantsWrite = true;
+        var authorization = new Mock<IBeaconAuthorizationProvider>();
+        authorization
+            .Setup(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => providerGrantsWrite);
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<UpdateQueryCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UpdateQueryResult { QueryId = 9, Success = true });
+        mediator
+            .Setup(x => x.Send(It.IsAny<GetProjectsQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PagedList<ProjectSummaryEntry>.Create([], 0, 25));
+        await using var app = await StartAsync(mediator, authorization: authorization);
+
+        var allowed = await SendAsync(app, HttpMethod.Put, "/beacon/api/queries/9", ExecuteKey, "{\"name\":\"daily\",\"steps\":[]}");
+        providerGrantsWrite = false;
+        var update = await SendAsync(app, HttpMethod.Put, "/beacon/api/queries/9", ExecuteKey, "{\"name\":\"daily\",\"steps\":[]}");
+        var metadata = await SendAsync(app, HttpMethod.Get, "/beacon/api/data-sources/3/metadata", ExecuteKey);
+        var projects = await SendAsync(app, HttpMethod.Get, "/beacon/api/projects", ExecuteKey);
+
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+        update.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the provider no longer lets the owner write, so the key lost Execute");
+        metadata.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        projects.StatusCode.Should().Be(HttpStatusCode.OK, "it still reads");
+        mediator.Verify(x => x.Send(It.IsAny<UpdateQueryCommand>(), It.IsAny<CancellationToken>()), Times.Once);
+        mediator.Verify(x => x.Send(It.IsAny<GetDataSourceMetadataQuery>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ReadKey_NeverAsksTheAuthorizationProviderForWritePermission()
+    {
+        var authorization = new Mock<IBeaconAuthorizationProvider>();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<GetProjectsQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PagedList<ProjectSummaryEntry>.Create([], 0, 25));
+        await using var app = await StartAsync(mediator, authorization: authorization);
+
+        var projects = await SendAsync(app, HttpMethod.Get, "/beacon/api/projects", ReadKey);
+
+        projects.StatusCode.Should().Be(HttpStatusCode.OK);
+        authorization.Verify(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -590,8 +639,21 @@ public class ApiKeyScopeEnforcementTests
             "Beacon.Auth"))
     };
 
-    private async Task<WebApplication> StartAsync(Mock<IMediator> mediator, bool realtime = false, LogRecorder? logs = null)
+    // The authorization provider grants write permission unless a test brings its own.
+    private async Task<WebApplication> StartAsync(
+        Mock<IMediator> mediator,
+        bool realtime = false,
+        LogRecorder? logs = null,
+        Mock<IBeaconAuthorizationProvider>? authorization = null)
     {
+        if (authorization == null)
+        {
+            authorization = new Mock<IBeaconAuthorizationProvider>();
+            authorization
+                .Setup(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+        }
+
         var apiKeys = new Mock<IApiKeyService>();
         SetupKey(apiKeys, ReadKey, 3, "[\"Read\"]");
         SetupKey(apiKeys, ExecuteKey, 4, "[\"Execute\"]");
@@ -618,7 +680,7 @@ public class ApiKeyScopeEnforcementTests
         builder.Services.AddSingleton(new BeaconConfiguration());
         builder.Services.AddSingleton(Mock.Of<IActorUserResolver>());
         builder.Services.AddSingleton(Mock.Of<IBeaconAuthenticationProvider>());
-        builder.Services.AddSingleton(Mock.Of<IBeaconAuthorizationProvider>());
+        builder.Services.AddSingleton(authorization.Object);
         builder.Services.AddSingleton(Mock.Of<IBeaconUserContext>());
         builder.Services.AddSingleton(Mock.Of<IRoleService>());
         builder.Services.AddSingleton(Mock.Of<IUserManagementService>());

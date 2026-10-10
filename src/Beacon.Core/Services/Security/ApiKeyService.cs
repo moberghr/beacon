@@ -25,10 +25,17 @@ internal sealed class ApiKeyService(
     /// <summary>
     /// Issues a key for <paramref name="userId"/> with at least one valid scope (Read, Execute) and an expiry:
     /// <see cref="ApiKeyOptions.DefaultLifetimeDays"/> when none is requested, at most
-    /// <see cref="ApiKeyOptions.MaxLifetimeDays"/>. Throws <see cref="InvalidOperationException"/> otherwise.
+    /// <see cref="ApiKeyOptions.MaxLifetimeDays"/>. Throws <see cref="InvalidOperationException"/> otherwise. The key is
+    /// stamped with <paramref name="ownerGeneration"/>.
     /// </summary>
     public async Task<(ApiKeyCredential Credential, string PlainTextKey)> GenerateApiKeyAsync(
-        int userId, string name, string[] scopes, int[]? allowedProjectIds = null, DateTime? expiresAt = null, CancellationToken ct = default)
+        int userId,
+        string name,
+        string[] scopes,
+        int[]? allowedProjectIds = null,
+        DateTime? expiresAt = null,
+        int ownerGeneration = 0,
+        CancellationToken ct = default)
     {
         var grantedScopes = ApiKeyGrants.ParseRequestedScopes(scopes);
         var expiry = ResolveExpiry(expiresAt);
@@ -49,7 +56,8 @@ internal sealed class ApiKeyService(
             KeyPrefix = keyPrefixStr,
             Scopes = JsonSerializer.Serialize(grantedScopes),
             AllowedProjectIds = allowedProjectIds != null ? JsonSerializer.Serialize(allowedProjectIds) : null,
-            ExpiresAt = expiry
+            ExpiresAt = expiry,
+            OwnerGeneration = ownerGeneration
         };
 
         context.ApiKeyCredentials.Add(credential);
@@ -93,7 +101,11 @@ internal sealed class ApiKeyService(
             credential.IsRevoked,
             credential.ExpiresAt,
             credential.CreatedTime,
-            new ApiKeyOwnerState(owner != null, owner?.ArchivedTime != null, owner?.IsEnabled == true),
+            new ApiKeyOwnerState(
+                owner != null,
+                owner?.ArchivedTime != null,
+                owner?.IsEnabled == true,
+                owner?.ApiKeyGeneration == credential.OwnerGeneration),
             timeProvider.GetUtcNow().UtcDateTime,
             lifetimes);
         if (reason != null)

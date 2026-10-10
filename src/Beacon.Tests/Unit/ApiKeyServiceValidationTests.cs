@@ -18,8 +18,8 @@ namespace Beacon.Tests.Unit;
 
 /// <summary>
 /// <see cref="ApiKeyService.ValidateApiKeyAsync"/> accepts a key only while its owner can sign in: a key with no owner,
-/// or whose owner is missing, archived or disabled, is rejected, as are revoked and expired keys (expired at the expiry
-/// instant). Each refusal is logged with the key id and the reason, never the key. The context's
+/// or whose owner is missing, archived or disabled, or no longer in the API-key generation the key was issued in, is
+/// rejected, as are revoked and expired keys (expired at the expiry instant). Each refusal is logged with the key id and the reason, never the key. The context's
 /// <c>ApiKeyCredentials</c> set is an async in-memory double (§4.7); the real query's SQL through SqlCapture.
 /// </summary>
 [TestFixture]
@@ -169,6 +169,7 @@ public class ApiKeyServiceValidationTests
     [TestCase("owner_disabled")]
     [TestCase("owner_archived")]
     [TestCase("owner_missing")]
+    [TestCase("owner_generation_changed")]
     public async Task Refusal_IsLoggedWithTheKeyIdAndTheReason_NeverTheKey(string reason)
     {
         var refused = Credential(user: EnabledUser());
@@ -187,6 +188,9 @@ public class ApiKeyServiceValidationTests
             case "owner_archived":
                 refused.User!.Archive();
                 break;
+            case "owner_generation_changed":
+                refused.User!.ApiKeyGeneration = 1;
+                break;
             default:
                 refused.User = null;
                 break;
@@ -200,6 +204,21 @@ public class ApiKeyServiceValidationTests
             .Which.Message.Should().Be($"API key 7 refused: {reason}");
         logs.Contains(PlainTextKey).Should().BeFalse();
         logs.Contains(refused.KeyHash).Should().BeFalse();
+    }
+
+    [TestCase(3, 3, true)]
+    [TestCase(3, 4, false)]
+    [TestCase(0, 2, false)]
+    public async Task Key_IsAcceptedOnlyInItsOwnersCurrentGeneration(int keyGeneration, int ownerGeneration, bool accepted)
+    {
+        var owner = EnabledUser();
+        owner.ApiKeyGeneration = ownerGeneration;
+        var key = Credential(user: owner);
+        key.OwnerGeneration = keyGeneration;
+
+        var credential = await BuildService(key).ValidateApiKeyAsync(PlainTextKey);
+
+        (credential != null).Should().Be(accepted);
     }
 
     [Test]
@@ -230,6 +249,8 @@ public class ApiKeyServiceValidationTests
         sql.Should().Contain("beacon.user_roles");
         sql.Should().Contain("beacon.roles");
         sql.Should().Contain("key_hash");
+        sql.Should().Contain("a.owner_generation");
+        sql.Should().Contain("api_key_generation");
         sql.Should().NotContain("archived_time IS NULL");
     }
 

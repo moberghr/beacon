@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
@@ -10,6 +11,8 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
+using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.MCP;
 using Beacon.MCP.Services;
 using Beacon.Tests.Common;
@@ -165,6 +168,36 @@ public class McpScopeEnforcementTests
 
         result.IsError.Should().BeTrue();
         HostEndpointDispatchTests.Text(result).Should().Be(McpAuditCallToolFilter.WithheldMessage);
+    }
+
+    [Test]
+    public async Task ExecuteKey_IsRefusedAndAudited_OnceTheAuthorizationProviderWithdrawsTheOwnersWritePermission()
+    {
+        // The real key middleware mints the caller, for a key issued while the provider granted its owner (an Editor,
+        // still) write permission.
+        var granted = await KeyCallerAsync(providerGrantsWrite: true);
+        var withdrawn = await KeyCallerAsync(providerGrantsWrite: false);
+        var auditLogs = new List<McpAuditLog>();
+        using var provider = AuditingServices(auditLogs, required: false, caller: withdrawn);
+        using var scope = provider.CreateScope();
+        var grantedRan = false;
+        var withdrawnRan = false;
+        var listRan = false;
+
+        var grantedResult = await InvokeAsync(granted, () => grantedRan = true);
+        var withdrawnResult = await InvokeAsync(withdrawn, () => withdrawnRan = true, scope.ServiceProvider);
+        var list = () => InvokeMessageFilterAsync(new JsonRpcRequest { Method = "tools/list" }, withdrawn, () => listRan = true);
+
+        grantedRan.Should().BeTrue();
+        grantedResult.IsError.Should().NotBe(true);
+        withdrawnRan.Should().BeFalse("the key lost Execute with its owner's write permission");
+        HostEndpointDispatchTests.Text(withdrawnResult).Should().Be(McpScopeCallToolFilter.MissingScopeMessage);
+        var row = auditLogs.Should().ContainSingle().Subject;
+        row.Tool.Should().Be(ToolName);
+        row.ApiKeyId.Should().Be(3);
+        row.ErrorMessage.Should().Be(McpScopeCallToolFilter.MissingScopeMessage);
+        await list.Should().ThrowAsync<McpProtocolException>();
+        listRan.Should().BeFalse();
     }
 
     [Test]
@@ -436,6 +469,47 @@ public class McpScopeEnforcementTests
         }
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, authMethod == "api_key" ? "ApiKey" : "Bearer"));
+    }
+
+    // The principal ApiKeyAuthMiddleware mints for Execute key 3 of user 7, an Editor, with the authorization provider's
+    // answer about the owner's write permission.
+    private static async Task<ClaimsPrincipal> KeyCallerAsync(bool providerGrantsWrite)
+    {
+        var apiKeys = new Mock<IApiKeyService>();
+        apiKeys
+            .Setup(x => x.ValidateApiKeyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyCredential
+            {
+                Id = 3,
+                UserId = 7,
+                Name = "agent",
+                KeyHash = "hash",
+                KeyPrefix = "sk-sem_",
+                Scopes = "[\"Execute\"]",
+                AllowedProjectIds = "[7]",
+                User = new BeaconUser
+                {
+                    Id = 7,
+                    UserName = "ada",
+                    ExternalId = "ext-ada",
+                    IsEnabled = true,
+                    UserRoles = [new BeaconUserRole { UserId = 7, Role = new BeaconRole { Name = "Editor", Level = RoleService.RoleLevels.Editor } }]
+                }
+            });
+        var authorization = new Mock<IBeaconAuthorizationProvider>();
+        authorization
+            .Setup(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(providerGrantsWrite);
+        var context = new DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection().AddSingleton(authorization.Object).BuildServiceProvider()
+        };
+        context.Request.Headers.Authorization = "Bearer sk-sem_test-key";
+
+        await new ApiKeyAuthMiddleware(_ => Task.CompletedTask)
+            .InvokeAsync(context, apiKeys.Object, NullLogger<ApiKeyAuthMiddleware>.Instance);
+
+        return context.User;
     }
 
     private static async Task<CallToolResult> InvokeAsync(ClaimsPrincipal? user, Action onTool, IServiceProvider? services = null)

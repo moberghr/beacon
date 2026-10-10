@@ -7,8 +7,9 @@ using Beacon.Core.Services.Security;
 namespace Beacon.Core.Handlers.ApiKeys;
 
 /// <summary>
-/// Revokes any user's API key, for an administrator (Admin role, enforced on the route) in a signed-in session. An
-/// unknown id is an <see cref="InvalidOperationException"/>; revoking a revoked key keeps its first revocation time.
+/// Revokes any user's API key, for an administrator in a signed-in session: the Admin role on the route, and an
+/// administrator in the user store now (<see cref="ApiKeyManagementCaller.ResolveAdministratorAsync"/>). An unknown id
+/// is an <see cref="InvalidOperationException"/>; revoking a revoked key keeps its first revocation time.
 /// </summary>
 internal sealed class AdminRevokeApiKeyHandler(
     IApiKeyService apiKeyService,
@@ -21,7 +22,7 @@ internal sealed class AdminRevokeApiKeyHandler(
         AdminRevokeApiKeyCommand request,
         CancellationToken cancellationToken)
     {
-        var admin = await ApiKeyManagementCaller.ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
+        var admin = await ApiKeyManagementCaller.ResolveAdministratorAsync(httpContextAccessor, userManagementService, cancellationToken);
 
         await apiKeyService.RevokeApiKeyAsync(request.KeyId, cancellationToken);
 
