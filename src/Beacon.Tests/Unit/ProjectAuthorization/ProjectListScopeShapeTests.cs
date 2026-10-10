@@ -11,6 +11,7 @@ using Beacon.Core.Handlers.Notifications;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Handlers.QueryFolders;
+using Beacon.Core.Handlers.QueryVersions;
 using Beacon.Core.Handlers.Subscriptions;
 using Beacon.Core.Handlers.Tasks;
 using Beacon.Tests.Common;
@@ -38,6 +39,7 @@ public class ProjectListScopeShapeTests
         [typeof(GetProjectsQuery)] = new GetProjectsQuery(),
         [typeof(GetQueriesQuery)] = new GetQueriesQuery(),
         [typeof(GetQueryChangeHistoryQuery)] = new GetQueryChangeHistoryQuery { QueryId = 5 },
+        [typeof(GetQueryVersionsQuery)] = new GetQueryVersionsQuery { QueryId = 5 },
         [typeof(GetPendingApprovalsQuery)] = new GetPendingApprovalsQuery(),
         [typeof(GetQueryFoldersQuery)] = new GetQueryFoldersQuery(),
         [typeof(GetDataSourcesQuery)] = new GetDataSourcesQuery(),

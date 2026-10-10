@@ -42,4 +42,20 @@ internal static class QueryVersionSources
             return null;
         }
     }
+
+    /// <summary>
+    /// Whether a caller restricted to <paramref name="readable"/> reads a version whose data sources are
+    /// <paramref name="sources"/> (as <see cref="Of"/> gives them), as the version's detail decides it:
+    /// <paramref name="reachable"/> says whether one project of the set holds them all (or they are all openly reachable);
+    /// a snapshot that cannot be read is an Admin's, and a version without data sources its query owner's.
+    /// </summary>
+    public static bool IsReadable(ProjectSet readable, IReadOnlyList<int>? sources, bool reachable, string? queryOwnerUserId)
+    {
+        if (sources == null)
+        {
+            return false;
+        }
+
+        return sources.Count == 0 ? readable.ReachesStepLessQueryOf(queryOwnerUserId) : reachable;
+    }
 }

@@ -14,52 +14,22 @@ namespace Beacon.Core.Services;
 /// every row — while a preview reads one page and a count. Intermediate steps of a multi-step query still
 /// run in full, because the final query joins them; only their first rows travel to the client.
 /// </summary>
-internal partial class QueryService
+internal partial class QueryService : IStoredQueryPreview
 {
     private const int IntermediatePreviewRows = 10;
 
     public async Task<QueryPreviewResult> PreviewQuery(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
-        List<QueryStep> steps;
-        string? finalQuery;
         if (draft == null)
         {
-            var query = await GetQueryWithSteps(queryId, cancellationToken);
-            steps = query.Steps
-                .OrderBy(x => x.StepOrder)
-                .ToList();
-            finalQuery = query.FinalQuery;
-        }
-        else
-        {
-            steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
-            finalQuery = draft.FinalQuery;
+            var snapshot = await LoadSnapshot(queryId, cancellationToken);
+
+            return await PreviewSnapshot(snapshot, paging, cancellationToken);
         }
 
-        QueryPreviewResult result;
-        if (steps.Count == 1 && string.IsNullOrEmpty(finalQuery))
-        {
-            result = await PreviewSingleStep(steps[0], null, paging, cancellationToken);
-        }
-        else
-        {
-            result = await PreviewMultiStep(steps, finalQuery, paging, cancellationToken);
-        }
+        var steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
 
-        await queryExecutionLogger.LogQueryExecutionAsync(
-            queryText: !string.IsNullOrEmpty(finalQuery)
-                ? finalQuery
-                : string.Join("; ", steps.Select(x => x.SqlValue)),
-            resultCount: result.Result?.TotalCount ?? result.Steps.LastOrDefault()?.TotalRows ?? 0,
-            executionTimeMs: result.TotalExecutionTimeMs,
-            success: result.Success,
-            dataSourceId: steps.FirstOrDefault()?.DataSourceId,
-            executionContext: "FullQueryPreview",
-            errorMessage: result.ErrorMessage,
-            userId: userContext.UserId,
-            cancellationToken: cancellationToken);
-
-        return result;
+        return await PreviewSteps(steps, draft.FinalQuery, paging, cancellationToken);
     }
 
     public async Task<QueryPreviewResult> PreviewQueryStepPaged(
@@ -85,17 +55,85 @@ internal partial class QueryService
             return await PreviewSingleStep(steps[0], parameters, paging, cancellationToken);
         }
 
+        var snapshot = await LoadSnapshot(queryId, cancellationToken);
+
+        return await PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, cancellationToken);
+    }
+
+    public async Task<StoredQuerySnapshot> LoadSnapshot(int queryId, CancellationToken cancellationToken)
+    {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var step = await context.QuerySteps
-            .Include(x => x.DataSource)
-            .Include(x => x.Parameters)
-            .Where(x => x.QueryId == queryId)
-            .Where(x => x.StepOrder == stepOrder)
+        var query = await context.Queries
+            .AsNoTracking()
+            .Include(x => x.Steps)
+                .ThenInclude(x => x.DataSource)
+            .Include(x => x.Steps)
+                .ThenInclude(x => x.Parameters)
+            .Where(x => x.Id == queryId)
             .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException($"Query #{queryId} has no step {stepOrder}.");
+            ?? throw new InvalidOperationException($"Query #{queryId} not found.");
 
-        return await PreviewSingleStep(step, parameters, paging, cancellationToken);
+        return new StoredQuerySnapshot
+        {
+            QueryId = query.Id,
+            Steps = query.Steps
+                .OrderBy(x => x.StepOrder)
+                .ToList(),
+            FinalQuery = query.FinalQuery
+        };
+    }
+
+    public Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, CancellationToken cancellationToken)
+    {
+        return PreviewSteps(snapshot.Steps.ToList(), snapshot.FinalQuery, paging, cancellationToken);
+    }
+
+    public Task<QueryPreviewResult> PreviewSnapshotStep(
+        StoredQuerySnapshot snapshot,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        var step = snapshot.Steps
+            .Where(x => x.StepOrder == stepOrder)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"Query #{snapshot.QueryId} has no step {stepOrder}.");
+
+        return PreviewSingleStep(step, parameters, paging, cancellationToken);
+    }
+
+    private async Task<QueryPreviewResult> PreviewSteps(
+        List<QueryStep> steps,
+        string? finalQuery,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        QueryPreviewResult result;
+        if (steps.Count == 1 && string.IsNullOrEmpty(finalQuery))
+        {
+            result = await PreviewSingleStep(steps[0], null, paging, cancellationToken);
+        }
+        else
+        {
+            result = await PreviewMultiStep(steps, finalQuery, paging, cancellationToken);
+        }
+
+        await queryExecutionLogger.LogQueryExecutionAsync(
+            queryText: !string.IsNullOrEmpty(finalQuery)
+                ? finalQuery
+                : string.Join("; ", steps.Select(x => x.SqlValue)),
+            resultCount: result.Result?.TotalCount ?? result.Steps.LastOrDefault()?.TotalRows ?? 0,
+            executionTimeMs: result.TotalExecutionTimeMs,
+            success: result.Success,
+            dataSourceId: steps.FirstOrDefault()?.DataSourceId,
+            executionContext: "FullQueryPreview",
+            errorMessage: result.ErrorMessage,
+            userId: userContext.UserId,
+            cancellationToken: cancellationToken);
+
+        return result;
     }
 
     /// <summary>

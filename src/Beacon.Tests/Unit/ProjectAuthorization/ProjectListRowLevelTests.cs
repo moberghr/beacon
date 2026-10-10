@@ -10,11 +10,13 @@ using Beacon.Core.Handlers.DataSources;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Handlers.Queries;
+using Beacon.Core.Handlers.QueryVersions;
 using Beacon.Core.Handlers.Subscriptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -141,6 +143,72 @@ public class ProjectListRowLevelTests
     }
 
     [Test]
+    public async Task Versions_AreReadByTheSourcesEachOneRecorded_BeforePaging()
+    {
+        var page = await AnswerAsync<PagedList<QueryVersionSummary>>(new GetQueryVersionsQuery { QueryId = 700 });
+        var firstPage = await AnswerAsync<PagedList<QueryVersionSummary>>(new GetQueryVersionsQuery { QueryId = 700, PageSize = 2 });
+
+        page.Items.Select(x => x.Id).Should().BeEquivalentTo(
+            [7102, 7103, 7105, 7109],
+            "held by a project read (10 by 1, 30 by 3), or all openly reachable, recorded or named by a legacy snapshot");
+        page.TotalCount.Should().Be(4);
+        firstPage.Items.Should().HaveCount(2);
+        firstPage.TotalCount.Should().Be(4, "the count leaves out the same versions as the page");
+    }
+
+    [Test]
+    public async Task VersionsWithoutDataSources_AreTheQueryOwners()
+    {
+        var owned = await AnswerAsync<PagedList<QueryVersionSummary>>(new GetQueryVersionsQuery { QueryId = 900 });
+        var others = await AnswerAsync<PagedList<QueryVersionSummary>>(new GetQueryVersionsQuery { QueryId = 901 });
+
+        owned.Items.Select(x => x.Id).Should().BeEquivalentTo([9001, 9002], "recorded without sources, or a legacy snapshot without steps");
+        owned.TotalCount.Should().Be(2);
+        others.Items.Should().BeEmpty();
+        others.TotalCount.Should().Be(0);
+    }
+
+    [Test]
+    public async Task Versions_AreAllListed_ForAnUnrestrictedCaller()
+    {
+        var answer = await new ListHandlerHarness(TestProjectAccess.Unrestricted).AnswerAsync(new GetQueryVersionsQuery { QueryId = 700 }, new World().Factory());
+        var page = (PagedList<QueryVersionSummary>)answer!;
+
+        page.Items.Should().HaveCount(9);
+        page.TotalCount.Should().Be(9);
+    }
+
+    [TestCase(7101, false)]
+    [TestCase(7102, true)]
+    [TestCase(7104, false)]
+    [TestCase(7105, true)]
+    public async Task TheQuerysApprovedVersion_IsNamed_OnlyToACallerWhoReadsIt(int versionId, bool named)
+    {
+        var world = new World();
+        world.MakeRunnable(700, versionId);
+        var handler = new GetQueryDetailHandler(DetailsWithRunnableVersion(7), world.Factory(), TestProjectAccess.Evaluator(Scope));
+
+        var details = await handler.Handle(new GetQueryDetailQuery { QueryId = 700 }, CancellationToken.None);
+
+        details.McpToolRunnableVersionNumber.Should().Be(named ? 7 : null);
+        details.McpToolIssue.Should().Be(named ? null : GetQueryDetailHandler.UnreadableRunnableVersionIssue);
+    }
+
+    [Test]
+    public async Task TheQuerysApprovedVersion_IsNamedToAnUnrestrictedCaller_WithoutAnotherRead()
+    {
+        var handler = new GetQueryDetailHandler(
+            DetailsWithRunnableVersion(7),
+            new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict).Object,
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted));
+
+        var details = await handler.Handle(new GetQueryDetailQuery { QueryId = 700 }, CancellationToken.None);
+
+        details.McpToolRunnableVersionNumber.Should().Be(7);
+        details.McpToolIssue.Should().BeNull();
+    }
+
+    [Test]
     public async Task AiActors_AreThoseOnReadableSources()
     {
         var page = await AnswerAsync<PagedList<AiActorListItem>>(new GetAiActorListQuery());
@@ -170,6 +238,16 @@ public class ProjectListRowLevelTests
         patches.TotalCount.Should().Be(2);
     }
 
+    private static IQueryService DetailsWithRunnableVersion(int versionNumber)
+    {
+        var queryService = new Mock<IQueryService>();
+        queryService
+            .Setup(x => x.GetQueryDetails(700, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new QueryDetailsData { Id = 700, Name = "query 700", McpToolRunnableVersionNumber = versionNumber });
+
+        return queryService.Object;
+    }
+
     private static async Task<T> AnswerAsync<T>(object request, World? world = null)
     {
         var answer = await new ListHandlerHarness(Scope).AnswerAsync(request, (world ?? new World()).Factory());
@@ -181,6 +259,8 @@ public class ProjectListRowLevelTests
     /// Projects 1 (open), 2 (restricted), 3 (restricted, the caller a Viewer) and 4 (archived), linking sources 10 and 11,
     /// 11 and 20, 30, and 40; source 50 is unlinked and closed, 60 unlinked and open. Queries read 10 (100), 20 (200), 30
     /// (300), 10 and 30 (310), 40 (400) and 60 (600); 900 has no steps and is the caller's, 901 has none and is another's.
+    /// Query 700, now on 10, has versions recorded on 20 (7101), 10 (7102), 30 (7103), none (7107), 10 and 30 (7108) and
+    /// 10 and 60 (7109), and legacy versions whose snapshots name 20 (7104) or 10 (7105) or cannot be read (7106).
     /// </summary>
     private sealed class World
     {
@@ -191,6 +271,8 @@ public class ProjectListRowLevelTests
         private readonly List<QueryStep> _steps = [];
         private readonly List<Subscription> _subscriptions = [];
         private readonly List<QueryExecutionHistory> _runs = [];
+        private readonly List<QueryVersion> _versions = [];
+        private readonly List<QueryApprovalRequest> _approvals = [];
 
         public World()
         {
@@ -225,6 +307,20 @@ public class ProjectListRowLevelTests
             {
                 AddSubscription(1000 + queryId, queryId, archived: false);
             }
+
+            AddVersion(7101, 700, [20]);
+            AddVersion(7102, 700, [10]);
+            AddVersion(7103, 700, [30]);
+            AddVersion(7104, 700, null, Snapshot(20));
+            AddVersion(7105, 700, null, Snapshot(10));
+            AddVersion(7106, 700, null, "not json");
+            AddVersion(7107, 700, []);
+            AddVersion(7108, 700, [10, 30]);
+            AddVersion(7109, 700, [10, 60]);
+            AddVersion(9001, 900, []);
+            AddVersion(9002, 900, null, "[]");
+            AddVersion(9011, 901, []);
+            AddVersion(9012, 901, null, "[]");
         }
 
         public List<QueryStepChangeHistory> History { get; } = [];
@@ -236,6 +332,17 @@ public class ProjectListRowLevelTests
         public List<McpLearnedPattern> Patterns { get; } = [];
 
         public List<McpDocumentationPatch> Patches { get; } = [];
+
+        /// <summary>Makes <paramref name="versionId"/> the query's active version, approved: the one its MCP tool runs.</summary>
+        public void MakeRunnable(int queryId, int versionId)
+        {
+            var query = _queries.Single(x => x.Id == queryId);
+            var version = _versions.Single(x => x.Id == versionId);
+            version.Status = QueryVersionStatus.Active;
+            query.ActiveVersionId = versionId;
+            query.ActiveVersion = version;
+            _approvals.Add(new QueryApprovalRequest { Id = 1, QueryId = queryId, Query = query, QueryVersionId = versionId, QueryVersion = version, Status = ApprovalStatus.Approved });
+        }
 
         public void ArchivedSubscriptions()
         {
@@ -288,7 +395,9 @@ public class ProjectListRowLevelTests
                         [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(new List<DataQualityScore>(), saved),
                         [typeof(McpLearnedPattern)] = RecordingBeaconContext.MemorySet(Patterns, saved),
                         [typeof(McpDocumentationPatch)] = RecordingBeaconContext.MemorySet(Patches, saved),
-                        [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(users, saved)
+                        [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(users, saved),
+                        [typeof(QueryVersion)] = RecordingBeaconContext.MemorySet(_versions, saved),
+                        [typeof(QueryApprovalRequest)] = RecordingBeaconContext.MemorySet(_approvals, saved)
                     },
                     saved,
                     new SqlCapture()));
@@ -327,6 +436,27 @@ public class ProjectListRowLevelTests
             }
 
             _queries.Add(query);
+        }
+
+        private static string Snapshot(int dataSourceId)
+        {
+            return $$"""[{"stepOrder":1,"sqlValue":"select 1","dataSourceId":{{dataSourceId}},"dataSourceName":"source {{dataSourceId}}"}]""";
+        }
+
+        private void AddVersion(int id, int queryId, int[]? dataSourceIds, string? stepsJson = null)
+        {
+            var query = _queries.Single(x => x.Id == queryId);
+            _versions.Add(new QueryVersion
+            {
+                Id = id,
+                QueryId = queryId,
+                Query = query,
+                VersionNumber = id % 100,
+                Status = QueryVersionStatus.Archived,
+                Name = $"version {id}",
+                StepsJson = stepsJson ?? "[]",
+                DataSourceIds = dataSourceIds
+            });
         }
 
         private void AddSubscription(int id, int queryId, bool archived)

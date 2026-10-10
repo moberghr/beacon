@@ -111,7 +111,8 @@ public static class ProjectAccessQueryableExtensions
 
     /// <summary>
     /// Query versions whose recorded data sources one project in the set holds all of (or that are all openly reachable).
-    /// A version recorded before Beacon kept its sources (null) is kept here; the approvals list checks it per row.
+    /// A version recorded before Beacon kept its sources (null) is kept here; the list using it (approvals, a query's
+    /// versions) checks such a version per row.
     /// </summary>
     public static IQueryable<T> WhereVersionSourcesAccessible<T>(
         this IQueryable<T> source,
@@ -133,6 +134,43 @@ public static class ProjectAccessQueryableExtensions
             recorded);
 
         return source.Where(Compose(versionDataSourceIds, predicate));
+    }
+
+    /// <summary>
+    /// As <see cref="WhereVersionSourcesAccessible{T}(IQueryable{T}, BeaconContext, ProjectSet, Expression{Func{T, int[]}})"/>,
+    /// and a version recorded without data sources (one of a query without steps) is kept when its query's owner
+    /// (<paramref name="queryOwnerUserId"/>) is the caller and the set reaches the queries it owns, as the version itself
+    /// is reached. A version recorded before Beacon kept its sources (null) is kept here too, for its list to check per row.
+    /// </summary>
+    public static IQueryable<T> WhereVersionSourcesAccessible<T>(
+        this IQueryable<T> source,
+        BeaconContext context,
+        ProjectSet set,
+        Expression<Func<T, int[]?>> versionDataSourceIds,
+        Expression<Func<T, string?>> queryOwnerUserId)
+    {
+        if (set.Ids == null || set.QueryOwnerUserId == null)
+        {
+            return source.WhereVersionSourcesAccessible(context, set, versionDataSourceIds);
+        }
+
+        // Recorded before sources were kept, or held by one project (or all openly reachable), or recorded without any
+        // and the query is the caller's.
+        var owner = set.QueryOwnerUserId;
+        var reachable = AllSourcesInOneProject(context, set);
+        Expression<Func<IEnumerable<int>, bool>> hasNoSource = x => !x.Any();
+        var isOwner = Compose(queryOwnerUserId, x => x == owner);
+        var parameter = versionDataSourceIds.Parameters[0];
+        var recorded = versionDataSourceIds.Body;
+        var body = Expression.OrElse(
+            Expression.OrElse(
+                Expression.Equal(recorded, Expression.Constant(null, typeof(int[]))),
+                ReplacingExpressionVisitor.Replace(reachable.Parameters[0], recorded, reachable.Body)),
+            Expression.AndAlso(
+                ReplacingExpressionVisitor.Replace(hasNoSource.Parameters[0], recorded, hasNoSource.Body),
+                ReplacingExpressionVisitor.Replace(isOwner.Parameters[0], parameter, isOwner.Body)));
+
+        return source.Where(Expression.Lambda<Func<T, bool>>(body, parameter));
     }
 
     /// <summary>

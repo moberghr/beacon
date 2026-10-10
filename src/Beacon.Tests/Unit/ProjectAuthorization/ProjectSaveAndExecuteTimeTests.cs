@@ -102,8 +102,10 @@ public class ProjectSaveAndExecuteTimeTests
     {
         // The query's source was unlinked from the caller's projects after the request's own check: the re-check refuses.
         var queryService = new Mock<IQueryService>(MockBehavior.Strict);
+        var stored = new RecordingStoredQueryPreview();
         var service = new QueryExecutionPreviewService(
             queryService.Object,
+            stored,
             TestProjectAccess.Authorizer(Member, new FixedResolver(ResolvedProjectResource.InProject(3)), new SqlCapture().Factory()),
             NullLogger<QueryExecutionPreviewService>.Instance);
 
@@ -111,6 +113,8 @@ public class ProjectSaveAndExecuteTimeTests
 
         await act.Should().ThrowAsync<BeaconNotFoundException>();
         queryService.VerifyNoOtherCalls();
+        stored.Loads.Should().BeEmpty();
+        stored.Runs.Should().BeEmpty();
     }
 
     [Test]

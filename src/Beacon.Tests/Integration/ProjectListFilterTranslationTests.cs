@@ -215,6 +215,44 @@ public class ProjectListFilterTranslationTests
     }
 
     [TestCaseSource(nameof(Contexts))]
+    public void VersionListFilter_WithTheQueryOwner_Translates(Func<BeaconContext> create)
+    {
+        using var context = create();
+        var ownersSet = Restricted with { QueryOwnerUserId = "ext-ada" };
+        var unreadableLegacy = new List<int> { 10, 11 };
+
+        var sql = context.QueryVersions
+            .Where(x => x.QueryId == 5)
+            .WhereVersionSourcesAccessible(context, ownersSet, x => x.DataSourceIds, x => x.Query.OwnerUserId)
+            .Where(x => !unreadableLegacy.Contains(x.Id))
+            .Select(x => x.Id)
+            .ToQueryString();
+
+        sql.Should().MatchRegex("(?i)IS NULL", "a version recorded before sources were kept is decided per row");
+        sql.Should().MatchRegex("(?i)project_data_sources|ProjectDataSources");
+        sql.Should().MatchRegex("(?i)owner_user_id|\\[OwnerUserId\\]", "a version recorded without sources is its query owner's");
+        Statement(sql).Should().Contain("@owner").And.NotContain("ext-ada", "the owner is a parameter");
+    }
+
+    [TestCaseSource(nameof(Contexts))]
+    public void WhereVersionSourcesAccessible_WithoutAQueryOwner_IsTheSourceRuleAlone_Translates(Func<BeaconContext> create)
+    {
+        using var context = create();
+
+        var plain = context.QueryVersions
+            .WhereVersionSourcesAccessible(context, Restricted, x => x.DataSourceIds)
+            .Select(x => x.Id)
+            .ToQueryString();
+        var withOwnerSelector = context.QueryVersions
+            .WhereVersionSourcesAccessible(context, Restricted, x => x.DataSourceIds, x => x.Query.OwnerUserId)
+            .Select(x => x.Id)
+            .ToQueryString();
+
+        withOwnerSelector.Should().Be(plain);
+        plain.Should().NotMatchRegex("(?i)owner_user_id|\\[OwnerUserId\\]");
+    }
+
+    [TestCaseSource(nameof(Contexts))]
     public void QueryChangeHistoryPerRowSource_Translates(Func<BeaconContext> create)
     {
         using var context = create();

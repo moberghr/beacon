@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -28,7 +29,12 @@ public interface IQueryVersionService
     /// stored query, because approving a version applies its steps to the live query.
     /// </summary>
     Task<QueryVersion> CreateProposedVersionAsync(int queryId, QueryData proposed, string? userId, string? source, string? reason, CancellationToken cancellationToken = default);
-    Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, CancellationToken cancellationToken);
+    /// <summary>
+    /// The query's versions the caller may read (<paramref name="readable"/>), each by the data sources it recorded as
+    /// its own detail is: one readable project holds all of them (or they are all openly reachable), and a version without
+    /// any is its query owner's. Newest first unless <c>sort</c> says otherwise.
+    /// </summary>
+    Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, ProjectSet readable, CancellationToken cancellationToken);
     Task<QueryVersionDetail?> GetVersionDetailAsync(int versionId, CancellationToken cancellationToken = default);
     Task<int> RestoreVersionAsync(int versionId, string? userId, CancellationToken cancellationToken = default);
     Task<QueryVersionDiff> DiffVersionsAsync(int versionIdA, int versionIdB, CancellationToken cancellationToken = default);
@@ -226,13 +232,21 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         return version;
     }
 
-    public async Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, CancellationToken cancellationToken)
+    public async Task<PagedList<QueryVersionSummary>> GetVersionsAsync(int queryId, ListRequest request, ProjectSet readable, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Versions recorded before Beacon kept their sources are decided from their snapshots before paging, so the
+        // page and its total count leave out the same unreadable versions.
+        var unreadableLegacy = readable.Ids == null
+            ? []
+            : await UnreadableLegacyVersionIdsAsync(context, queryId, readable, cancellationToken);
 
         // StepCount is parsed from StepsJson, so the page is mapped after it is read.
         var page = await context.QueryVersions
             .Where(v => v.QueryId == queryId)
+            .WhereVersionSourcesAccessible(context, readable, x => x.DataSourceIds, x => x.Query.OwnerUserId)
+            .WhereIf(unreadableLegacy.Count > 0, x => !unreadableLegacy.Contains(x.Id))
             .Select(v => new VersionRow
             {
                 Id = v.Id,
@@ -527,6 +541,47 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             logger.LogWarning(ex, "Failed to deserialize query version steps; treating as zero-step version");
             return 0;
         }
+    }
+
+    // The query's versions recorded before Beacon kept their sources that the caller may not read by the sources their
+    // snapshots name: one read of the snapshots and at most one of the links, whatever the number of versions.
+    private static async Task<List<int>> UnreadableLegacyVersionIdsAsync(
+        BeaconContext context,
+        int queryId,
+        ProjectSet readable,
+        CancellationToken cancellationToken)
+    {
+        var legacy = await context.QueryVersions
+            .Where(x => x.QueryId == queryId)
+            .Where(x => x.DataSourceIds == null)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.StepsJson,
+                    QueryOwnerUserId = x.Query.OwnerUserId
+                })
+            .ToListAsync(cancellationToken);
+        if (legacy.Count == 0)
+        {
+            return [];
+        }
+
+        var sources = legacy
+            .Select(x => QueryVersionSources.Of(null, x.StepsJson))
+            .ToList();
+        var reachable = await ProjectSourceFootprint.AllowEachAsync(
+            context,
+            readable,
+            sources
+                .Select(x => x ?? [])
+                .ToList(),
+            cancellationToken);
+
+        return legacy
+            .Where((x, i) => !QueryVersionSources.IsReadable(readable, sources[i], reachable[i], x.QueryOwnerUserId))
+            .Select(x => x.Id)
+            .ToList();
     }
 
     private sealed class VersionRow
