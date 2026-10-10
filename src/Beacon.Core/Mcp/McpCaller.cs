@@ -60,6 +60,14 @@ public static class McpCallerClaimTypes
     /// <summary>Authentication type of the identity <c>ApiKeyAuthMiddleware</c> builds.</summary>
     public const string ApiKeyAuthenticationType = "ApiKey";
 
+    /// <summary>
+    /// Authentication type of the identity an <c>IBeaconAuthorizationProvider</c> sees while <c>ApiKeyAuthMiddleware</c>
+    /// asks it whether a key's owner has write permission: the owner as a signed-in session presents them
+    /// (<c>NameIdentifier</c> = <c>Users.ExternalId</c>, name, email, display name, a role claim per role), without an
+    /// <c>auth_method</c> marker.
+    /// </summary>
+    public const string ApiKeyOwnerAuthenticationType = "ApiKeyOwner";
+
     /// <summary><c>auth_method</c> value for a JWT caller on the MCP route. Scope-gated like an API key.</summary>
     public const string McpCallerAuthMethod = "mcp_caller";
 

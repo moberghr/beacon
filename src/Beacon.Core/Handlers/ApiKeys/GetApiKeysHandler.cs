@@ -1,16 +1,21 @@
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Beacon.Core.Authorization;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
 internal sealed class GetApiKeysHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IBeaconUserContext userContext,
-    IUserManagementService userManagementService)
+    IHttpContextAccessor httpContextAccessor,
+    IUserManagementService userManagementService,
+    IOptions<ApiKeyOptions> options,
+    TimeProvider timeProvider)
     : IRequestHandler<GetApiKeysQuery, PagedList<ApiKeyEntry>>
 {
     public async Task<PagedList<ApiKeyEntry>> Handle(
@@ -19,15 +24,11 @@ internal sealed class GetApiKeysHandler(
     {
         // API keys are scoped to the user who minted them (§1.4) — only ever return the
         // current user's own keys, never the whole table.
-        var externalId = userContext.UserId
-            ?? throw new InvalidOperationException("Cannot list API keys without an authenticated user.");
-
-        var user = await userManagementService.GetUserByExternalIdAsync(externalId, cancellationToken)
-            ?? throw new InvalidOperationException($"Authenticated user '{externalId}' was not found.");
+        var user = await ApiKeyManagementCaller.ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Scopes are stored comma-joined, so the page is split into arrays after it is read.
+        // Scopes and project ids are stored as JSON, so the page is read into arrays after it is loaded.
         var page = await context.ApiKeyCredentials
             .Where(x => x.UserId == user.Id)
             .Select(x =>
@@ -37,23 +38,39 @@ internal sealed class GetApiKeysHandler(
                     Name = x.Name,
                     Prefix = x.KeyPrefix,
                     Scopes = x.Scopes,
+                    AllowedProjectIds = x.AllowedProjectIds,
                     CreatedAt = x.CreatedTime,
                     LastUsedAt = x.LastUsedAt,
                     ExpiresAt = x.ExpiresAt,
                     IsRevoked = x.IsRevoked,
+                    OwnerGeneration = x.OwnerGeneration,
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
+
+        // Active by the rule key validation applies; the owner is the caller, found, so not archived.
+        var now = timeProvider.GetUtcNow().UtcDateTime;
 
         return page.Map(x =>
             new ApiKeyEntry(
                 x.Id,
                 x.Name,
                 x.Prefix,
-                (x.Scopes ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                ApiKeyGrants.ReadScopes(x.Scopes) ?? [],
                 x.CreatedAt,
                 x.LastUsedAt,
                 x.ExpiresAt,
-                !x.IsRevoked));
+                ApiKeyStatus.RefusalReason(
+                    x.IsRevoked,
+                    x.ExpiresAt,
+                    x.CreatedAt,
+                    new ApiKeyOwnerState(
+                        Exists: true,
+                        IsArchived: false,
+                        user.IsEnabled,
+                        KeyGenerationIsCurrent: x.OwnerGeneration == user.ApiKeyGeneration),
+                    now,
+                    options.Value) == null,
+                ApiKeyGrants.ReadProjectIds(x.AllowedProjectIds)));
     }
 
     private sealed class ApiKeyRow
@@ -66,6 +83,8 @@ internal sealed class GetApiKeysHandler(
 
         public string? Scopes { get; init; }
 
+        public string? AllowedProjectIds { get; init; }
+
         public DateTime CreatedAt { get; init; }
 
         public DateTime? LastUsedAt { get; init; }
@@ -73,12 +92,19 @@ internal sealed class GetApiKeysHandler(
         public DateTime? ExpiresAt { get; init; }
 
         public bool IsRevoked { get; init; }
+
+        public int OwnerGeneration { get; init; }
     }
 }
 
 /// <summary>The caller's own keys, newest first; sortable by name, prefix, createdAt, lastUsedAt, expiresAt.</summary>
 public record GetApiKeysQuery : ListRequest, IRequest<PagedList<ApiKeyEntry>>;
 
+/// <summary>
+/// One API key. <see cref="Scopes"/> are the scopes it was issued with (a key stored with the retired Admin scope shows
+/// Execute). <see cref="IsActive"/> is whether it works now: not revoked, not expired, and its owner enabled and not
+/// archived. <see cref="AllowedProjectIds"/> is <c>null</c> when the key is not restricted to projects.
+/// </summary>
 public record ApiKeyEntry(
     int Id,
     string Name,
@@ -87,4 +113,5 @@ public record ApiKeyEntry(
     DateTime CreatedAt,
     DateTime? LastUsedAt,
     DateTime? ExpiresAt,
-    bool IsActive);
+    bool IsActive,
+    int[]? AllowedProjectIds = null);

@@ -2986,6 +2986,122 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param userId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getAllApiKeys(
+    userId: number | null | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfAdminApiKeyEntry> {
+    let url_ = this.baseUrl + "/beacon/api/api-keys/admin?";
+    if (userId !== undefined && userId !== null)
+      url_ += "UserId=" + encodeURIComponent("" + userId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetAllApiKeys(_response);
+    });
+  }
+
+  protected processGetAllApiKeys(
+    response: Response,
+  ): Promise<PagedListOfAdminApiKeyEntry> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfAdminApiKeyEntry);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfAdminApiKeyEntry>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  adminRevokeApiKey(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/api-keys/admin/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processAdminRevokeApiKey(_response);
+    });
+  }
+
+  protected processAdminRevokeApiKey(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @param isShared (optional)
    * @param isDefault (optional)
    * @param searchKeyword (optional)
@@ -16016,11 +16132,29 @@ export interface AnomalySparklinePoint {
   [key: string]: any;
 }
 
+export interface AdminApiKeyEntry {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  allowedProjectIds: number[] | null;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  isActive: boolean;
+  userId: number | null;
+  userName: string | null;
+
+  [key: string]: any;
+}
+
 export interface ApiKeyEntry {
   id: number;
   name: string;
   prefix: string;
   scopes: string[];
+  allowedProjectIds: number[] | null;
   createdAt: Date;
   lastUsedAt: Date | null;
   expiresAt: Date | null;
@@ -17707,6 +17841,14 @@ export enum NotificationType {
 
 export interface PagedListOfAiActorListItem {
   items: AiActorListItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfAdminApiKeyEntry {
+  items: AdminApiKeyEntry[];
   totalCount: number;
   pageCount: number;
 

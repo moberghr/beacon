@@ -237,7 +237,7 @@ public class McpAuditCallToolFilterTests
         using var provider = registration.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<McpServerOptions>>().Value;
 
-        options.Filters.Request.CallToolFilters.Should().ContainSingle("AddBeaconMcp registers exactly one call-tool filter");
+        options.Filters.Request.CallToolFilters.Should().HaveCount(2, "AddBeaconMcp registers the scope filter and the audit filter");
 
         // Compose exactly as the SDK does (McpServerImpl.BuildFilterPipeline: last filter innermost).
         var pipeline = options.Handlers.CallToolHandler!;

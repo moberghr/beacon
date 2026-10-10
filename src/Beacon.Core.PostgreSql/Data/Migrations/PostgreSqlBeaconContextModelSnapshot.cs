@@ -902,6 +902,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<int>("OwnerGeneration")
+                        .HasColumnType("integer")
+                        .HasColumnName("owner_generation");
+
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
@@ -1081,6 +1085,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ApiKeyGeneration")
+                        .HasColumnType("integer")
+                        .HasColumnName("api_key_generation");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")

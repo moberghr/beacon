@@ -93,7 +93,7 @@ After setup, navigate to **Users** in the React UI (`/users`) to:
 
 - Create new internal users
 - Assign roles
-- Enable/disable accounts
+- Enable/disable accounts (disabling or archiving an account revokes its [API keys](/features/api-keys/#when-the-owner-leaves), and re-enabling it revokes any key still active instead of restoring one)
 - View user details and login history
 
 ## Roles and Permissions
@@ -455,6 +455,8 @@ Hosts upgrading from 4.5 must act on the following:
 - **No `GET` sign-out, and sign-out needs the antiforgery token.** `GET /beacon/api/auth/signout` was removed (use `POST /beacon/api/auth/logout`); the OIDC front-channel sign-out path is served only with `EnableFrontChannelLogout: true`. `POST /beacon/api/auth/logout` now validates the antiforgery token for every caller, signed in or not, and answers `400` without signing anything out or emitting any cookie when it is missing or invalid. The SPA sends it (`X-XSRF-TOKEN`) and retries once with a fresh token; a custom client must call `GET /beacon/api/csrf` first, keep the cookies it sets, and send the returned token in `X-XSRF-TOKEN`. The SPA's `/logout` page asks for a click unless the app itself sent the user there.
 - **Return URLs** containing control characters, whitespace or backslashes fall back to the default post-login page.
 - **Internal login** matches internal users only and answers every failure (unknown user, wrong password, disabled or archived account) with the same "Invalid username or password." message.
+- **Disabling, re-enabling and archiving revoke API keys.** Saving a user as disabled, archiving them, and re-enabling them each revoke every API key of theirs still active, in the same save. A re-enabled user starts without working keys. See [API Keys → When the owner leaves](/features/api-keys/#when-the-owner-leaves).
+- **SSO sessions never carry scoped-caller claims.** Sign-in removes the claim types Beacon uses for API keys and MCP callers (`auth_method`, `scope`, `allowed_projects`, `api_key_id`, `api_key_name`, `caller_kind`, `caller_hash`) from what the identity provider sent.
 
 ## See Also
 

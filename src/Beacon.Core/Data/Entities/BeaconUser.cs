@@ -66,6 +66,13 @@ public class BeaconUser : ArchivableBaseEntity
     public DateTime? LastLoginAt { get; set; }
 
     /// <summary>
+    /// The generation of this user's API keys. Disabling, archiving and re-enabling the user advance it in the same
+    /// save that revokes their keys; a key works only while its <see cref="ApiKeyCredential.OwnerGeneration"/> equals
+    /// it, so a key approved before such a change and stored after it never works.
+    /// </summary>
+    public int ApiKeyGeneration { get; set; }
+
+    /// <summary>
     /// Roles assigned to this user.
     /// </summary>
     public List<BeaconUserRole> UserRoles { get; set; } = new();

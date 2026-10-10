@@ -220,6 +220,13 @@ public static class ServiceConfiguration
             x.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostDocs.HostDocsSynchronizer>>()));
         services.TryAddTransient<HostDocs.IProjectBriefService, HostDocs.ProjectBriefService>();
 
+        // API-key issuance (Beacon:ApiKeys): every new key expires, within a configurable maximum lifetime.
+        // ValidateOnStart so a maximum out of range fails the host at boot.
+        services.AddOptions<Configuration.ApiKeyOptions>()
+            .Bind(configuration.GetSection(Configuration.ApiKeyOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<Configuration.ApiKeyOptions>, Configuration.ApiKeyOptionsValidator>();
+
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 

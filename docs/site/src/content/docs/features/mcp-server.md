@@ -25,7 +25,7 @@ Project resolution is **stateless** — it is computed per call, with no session
 ### 1. Create an API Key
 
 Go to **API Keys** in the React UI (`/api-keys`) and create a new key:
-- Choose a **scope**: `Read`, `Execute`, or `Admin` — the MCP endpoint requires `Execute` or `Admin`, because its tools can run SQL; `Read` keys are limited to the REST read API
+- Choose a **scope**: `Read` or `Execute` — the MCP endpoint requires `Execute`, because its tools can run SQL; `Read` keys are limited to the read-only REST API. Creating an `Execute` key needs the Editor role or above
 - Optionally restrict to specific **projects**
 - Copy the key — it's shown only once (the key is SHA256-hashed before storage and never persisted in plaintext)
 
@@ -93,9 +93,9 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 |----------|-------|
 | **Endpoint** | `/beacon/mcp` |
 | **Transport** | Streamable HTTP + JSON-RPC 2.0 (via `ModelContextProtocol.AspNetCore`) |
-| **Authentication** | Required — `Authorization: Bearer sk-sem_...` header with `Execute` or `Admin` scope |
+| **Authentication** | Required — `Authorization: Bearer sk-sem_...` header with the `Execute` scope |
 
-The server is mounted with `app.MapMcp("/beacon/mcp").RequireAuthorization(...)` and enforces the Execute scope for API-key callers (§1.4). Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
+Map the server with `app.MapBeaconMcp()`, which mounts `/beacon/mcp` behind the Execute-scope policy (registered by `AddBeaconApiAuthorization()`): an API key or mapped Entra caller without the `Execute` scope gets `403`. Do not map it with `app.MapMcp("/beacon/mcp").RequireAuthorization()` — the default policy admits any authenticated caller. The MCP layer also refuses a caller that lacks the `Execute` scope — and, over HTTP, a caller that is not authenticated — so a host that maps the route with a weaker policy still fails closed, but it loses the `403` at the door: a tool call answers a tool error (no tool runs, and the refusal is audited like any tool call), and every other request except `initialize` and `ping` — `tools/list`, resources, prompts, completions — a JSON-RPC error. Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
 
 **Protocol niceties the server publishes:**
 
@@ -111,7 +111,7 @@ Remote MCP clients with a "connect by URL" flow — **claude.ai** (Settings → 
 https://your-beacon-host/beacon/mcp
 ```
 
-Authentication is a bearer token in the `Authorization` header — a Beacon API key with the `Execute` or `Admin` scope (`Read` keys cannot reach the SQL-executing tools). Paste the key wherever the client asks for a token/header; clients that probe the URL first will find the discovery documents below and learn the auth requirements automatically.
+Authentication is a bearer token in the `Authorization` header — a Beacon API key with the `Execute` scope (`Read` keys cannot reach the MCP tools). Paste the key wherever the client asks for a token/header; clients that probe the URL first will find the discovery documents below and learn the auth requirements automatically.
 
 Agent platforms can instead call with **Microsoft Entra ID tokens**, either on behalf of a user or as a system identity. Beacon configuration decides their projects and scope. See [Entra ID callers on MCP](/features/mcp-entra-callers/).
 
@@ -121,7 +121,7 @@ Beacon publishes anonymous, read-only discovery metadata so remote clients can b
 
 | Endpoint | What it serves |
 |----------|----------------|
-| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier, `scopes_supported` (`Execute`, `Admin`), bearer-header auth. When SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it |
+| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier, `scopes_supported` (`Execute`), bearer-header auth. When SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it |
 | `/.well-known/oauth-protected-resource/beacon/mcp` | The same document at the RFC 9728 path-inserted variant clients derive from the `/beacon/mcp` resource path |
 | `/.well-known/mcp/server-card.json` | A server card (per the draft SEP-2127 proposal): server name and version, transport (`streamable-http`), endpoint URL, auth summary, and the full tool list with titles |
 
@@ -319,7 +319,7 @@ The MCP server enforces several safety measures:
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 | **Content retention** | Whether questions, SQL, and error text are persisted at all — per project, lockable deployment-wide | Retained |
 
-`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. `McpSignalService` records the three SQL-carrying tools (`ask`, `query`, `dry_run`); the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design.
+`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. A tool call refused for a missing `Execute` scope (or an unauthenticated caller) is audited too, with the tool name, the caller's identifiers and a permission error; when `Beacon:Mcp:Audit:Required` is set and that row cannot be written, the refusal answers with the withheld-result message instead. `McpSignalService` records the three SQL-carrying tools (`ask`, `query`, `dry_run`); the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design.
 
 ## Content retention
 
@@ -509,6 +509,8 @@ The server streams the JSON-RPC response back on the same connection.
 **Connection drops or timeouts** — Streaming connections may be interrupted by proxies or load balancers. Reconnect by re-initializing against `/beacon/mcp` — a fresh session will be created.
 
 **Authentication fails** — Verify your API key starts with `sk-sem_`, hasn't expired, and hasn't been revoked. Check the `Authorization: Bearer` header format.
+
+**"Permission denied: this credential does not have the Execute scope"** — the key (or Entra caller) has only `Read`, or it has `Execute` but its owner no longer has the Editor role or above. Use an `Execute` key of a user with write permission.
 
 **Answers miss obvious joins or misread a business term** — the model can only use what it was given. Check the [Knowledge Base guide](/features/knowledge-base/): register the join path, add the glossary term, or promote a correct answer to a golden example.
 

@@ -64,7 +64,8 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
         bool withMcpServer = false,
         Action<WebApplication>? beforeMcp = null,
         bool retainContent = true,
-        bool fallbackPolicy = false)
+        bool fallbackPolicy = false,
+        bool requireAuthorizationOnMcp = false)
     {
         var auditLogs = new List<McpAuditLog>();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -152,7 +153,12 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
 
         if (withMcpServer)
         {
-            app.MapMcp("/beacon/mcp");
+            // A host that maps the route itself: with no policy, or the bare default policy, not MapBeaconMcp().
+            var mcp = app.MapMcp("/beacon/mcp");
+            if (requireAuthorizationOnMcp)
+            {
+                mcp.RequireAuthorization();
+            }
         }
 
         await app.StartAsync();
@@ -183,7 +189,8 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
                 new Claim(McpCallerClaimTypes.AllowedProjects, JsonSerializer.Serialize(caller.AllowedProjectIds)),
                 new Claim(McpCallerClaimTypes.Scope, caller.Scope.ToString()),
                 new Claim(McpCallerClaimTypes.CallerKind, caller.Kind.ToString()),
-                new Claim(McpCallerClaimTypes.CallerHash, caller.SubjectHash)
+                new Claim(McpCallerClaimTypes.CallerHash, caller.SubjectHash),
+                new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod)
             ],
             "Bearer"));
 

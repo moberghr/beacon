@@ -225,6 +225,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 // 4. REST API + real-time. SignalR is wired for you — add nothing.
 //    Opt out with: AddBeaconApiServices(x => x.Realtime = false)
 builder.Services.AddBeaconApiServices();
+builder.Services.AddBeaconApiAuthorization();   // the API, Admin and Execute-scope policies (MapBeaconApi, MapBeaconMcp)
 
 // 5. Authentication, AI, MCP, OpenAPI
 builder.Services.AddBeaconCookieAuthentication("/");          // login redirect target
@@ -247,7 +248,7 @@ app.UseAntiforgery();
 app.MapOpenApi();                 // /openapi/v1.json
 app.MapBeaconApi();               // /beacon/api/* + the SignalR hub at /beacon/api/hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
-app.MapMcp("/beacon/mcp").RequireAuthorization();
+app.MapBeaconMcp();               // MCP server at /beacon/mcp, behind the Execute-scope policy
 app.MapBeaconUi();                // React SPA at root /
 
 app.Run();
@@ -422,7 +423,7 @@ Beacon supports:
 - **Login form** — React `/login` route, backed by the cookie scheme
 - **OIDC / SSO** — optional, via `AddBeaconOidcAuthentication(...)`
 - **JWT bearer** — for MCP clients
-- **API keys** — SHA256-hashed at rest, carry scopes (`Read`, `Execute`, `Admin`) and optional project restrictions; the raw key is shown once at creation
+- **API keys** — SHA256-hashed at rest, carry scopes (`Read`, `Execute`) and optional project restrictions, always expire, and stop working when their owner is disabled; the raw key is shown once at creation
 
 See the [Configuration Guide](/getting-started/configuration/#authentication) and the [User Management Guide](/features/user-management/) for details.
 

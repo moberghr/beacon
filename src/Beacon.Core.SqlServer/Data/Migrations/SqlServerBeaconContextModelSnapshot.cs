@@ -702,6 +702,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("OwnerGeneration")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("datetime2");
 
@@ -845,6 +848,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ApiKeyGeneration")
+                        .HasColumnType("int");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");

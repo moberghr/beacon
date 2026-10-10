@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Beacon.Core.Handlers.DataSources;
 using MediatR;
@@ -30,9 +31,11 @@ internal static class DataSourcesEndpoints
             .WithName("TestDataSourceConnection")
             .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
+        // Scans the data source live when no metadata is stored yet, so a scoped caller needs the Execute scope.
         ds.MapGet("/{id:int}/metadata", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetDataSourceMetadataQuery(id), ct))
-            .WithName("GetDataSourceMetadata");
+            .WithName("GetDataSourceMetadata")
+            .RequiresExecuteScope();
 
         ds.MapPost("/{id:int}/refresh-metadata", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RefreshDataSourceMetadataCommand(id), ct))

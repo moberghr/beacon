@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 
 namespace Beacon.MCP.Services;
 
@@ -37,15 +39,23 @@ internal static class ProjectContextFactory
             var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
             ctx.UserId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
 
-            var apiKeyIdClaim = user.FindFirst("api_key_id");
-            ctx.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
-
             // Fail CLOSED by default: absent/empty restriction claim denies all projects (empty list),
             // never null. Null would be read downstream as "unrestricted" for explicit project_id
             // requests (see ResolveProjectId), which is a fail-open security bug.
             ctx.AllowedProjectIds = [];
 
-            var allowedProjectsClaim = user.FindFirst("allowed_projects");
+            // The key id and the project restriction are honoured only from the principals that mint them — an API key
+            // or a mapped MCP caller. Any other principal (a browser session, a REST bearer token) carrying these claim
+            // types got them from elsewhere and is not trusted with them: no key id, and no projects.
+            if (!BeaconScopes.IsScopedCaller(user))
+            {
+                return ctx;
+            }
+
+            var apiKeyIdClaim = user.FindFirst(McpCallerClaimTypes.ApiKeyId);
+            ctx.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
+
+            var allowedProjectsClaim = user.FindFirst(McpCallerClaimTypes.AllowedProjects);
             if (allowedProjectsClaim != null && !string.IsNullOrEmpty(allowedProjectsClaim.Value))
             {
                 try

@@ -13,6 +13,7 @@ using NUnit.Framework;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
@@ -348,6 +349,40 @@ public class OidcEventHandlersTests
         context.HttpContext.User = principal;
         new HttpContextUserContext(new HttpContextAccessor { HttpContext = context.HttpContext })
             .UserId.Should().Be("sub-hal");
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_TokenSuppliedScopedCallerClaims_NeverReachTheSession()
+    {
+        // A browser session is never a scoped caller: whatever the identity provider sends under the claim types that
+        // mark one (method, scope, projects, key, MCP caller) is removed, so the session is neither scope-gated nor
+        // project-restricted by it and carries no key id.
+        var userService = ProvisioningAs(Viewer("sub-ivy"));
+        var context = BuildContext(
+            userService.Object,
+            sub: "sub-ivy",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ivy",
+            preferredUsername: "ivy",
+            existingRoleFromIdp: null,
+            extraClaims:
+            [
+                new Claim("auth_method", "api_key"),
+                new Claim("scope", "Execute"),
+                new Claim("allowed_projects", "[1,2]"),
+                new Claim("api_key_id", "42"),
+                new Claim("api_key_name", "ci"),
+                new Claim("caller_kind", "System"),
+                new Claim("CALLER_HASH", "abc")
+            ]);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result.Should().BeNull();
+        var types = context.Principal!.Claims.Select(x => x.Type).ToList();
+        types.Should().NotContain(x => McpCallerClaimTypes.Reserved.Contains(x));
+        BeaconScopes.IsScopedCaller(context.Principal).Should().BeFalse();
     }
 
     [Test]

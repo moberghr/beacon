@@ -226,12 +226,11 @@ public class BeaconPermissionEndpointFilterTests
         AssertForbidden(outcome.Result);
     }
 
-    [TestCase("Execute")]
-    [TestCase("Admin")]
-    public async Task WriteScopedApiKey_OnMutatingRequest_Passes(string scope)
+    [Test]
+    public async Task ExecuteScopedApiKey_OnMutatingRequest_Passes()
     {
         GrantPermissions(read: true, write: true);
-        var context = CreateContext(HttpMethods.Put, ScopedCaller("api_key", scope));
+        var context = CreateContext(HttpMethods.Put, ScopedCaller("api_key", "Execute"));
 
         var outcome = await InvokeAsync(context);
 

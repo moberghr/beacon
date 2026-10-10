@@ -54,7 +54,7 @@ public class McpDiscoveryEndpointTests
         document["resource"]!.GetValue<string>().Should().EndWith("/beacon/mcp");
         document["scopes_supported"]!.AsArray()
             .Select(x => x!.GetValue<string>())
-            .Should().Contain(["Execute", "Admin"]);
+            .Should().Equal("Execute");
         document.ContainsKey("authorization_servers").Should().BeFalse(
             "the test harness runs with OIDC disabled, so no authorization server may be advertised");
     }

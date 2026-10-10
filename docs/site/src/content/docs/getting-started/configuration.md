@@ -42,6 +42,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 
 builder.Services.AddBeaconCookieAuthentication("/");
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
+builder.Services.AddBeaconApiAuthorization();   // the API, Admin and Execute-scope policies (MapBeaconApi, MapBeaconMcp)
 builder.Services.AddBeaconAI(builder.Configuration);
 builder.Services.AddBeaconMcp();
 builder.Services.AddOpenApi();
@@ -58,7 +59,7 @@ app.UseAntiforgery();
 app.MapOpenApi();                 // /openapi/v1.json
 app.MapBeaconApi();               // /beacon/api/* + the SignalR hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
-app.MapMcp("/beacon/mcp").RequireAuthorization();
+app.MapBeaconMcp();               // MCP server at /beacon/mcp, behind the Execute-scope policy
 app.MapBeaconUi();                // React SPA at root /
 ```
 
@@ -254,8 +255,9 @@ Prefer **app roles** in `RequiredRoles` over `RequiredGroups`: Entra leaves the 
 Beacon issues API keys for programmatic and MCP access — see the [API Keys Guide](/features/api-keys/):
 
 - SHA256-hashed at rest; the raw key is shown **once** at creation
-- Carry scopes: `Read`, `Execute`, `Admin`
+- Carry scopes: `Read` (read-only requests) and `Execute` (everything else, including MCP)
 - Support optional project restrictions
+- Always expire — see [API Keys](#api-keys) for the lifetime settings
 - Authenticated by `ApiKeyAuthMiddleware`, which runs **before** `UseAuthentication`
 
 ### JWT Bearer for MCP Clients
@@ -365,6 +367,30 @@ options.UserManagement = new UserManagementOptions
 
 :::caution[Upgrading from 4.5]
 Identity and admission are tighter: first-run setup needs a setup token, SSO needs `AllowedTenants` (or `AllowAnyTenant`) and no longer gives new users a role by default, JWT issuer, audience and lifetime validation are mandatory, REST bearer tokens must name an existing external Beacon user, and `GET /beacon/api/auth/signout` is gone. See [User Management → Upgrading from 4.5](/features/user-management/#upgrading-from-45) for what to change.
+:::
+
+## API Keys
+
+Every new [API key](/features/api-keys/) expires. A key created without an expiry date lives 90 days; no key may be created to live longer than `MaxLifetimeDays`. Keys created before these rules keep their stored expiry; one stored without an expiry keeps working unless `EnforceMaxLifetimeOnExistingKeys` is set.
+
+```json
+{
+  "Beacon": {
+    "ApiKeys": {
+      "MaxLifetimeDays": 365,
+      "EnforceMaxLifetimeOnExistingKeys": false
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `MaxLifetimeDays` | Longest lifetime a new key may be created with, in days (1–3650). The 90-day default is capped at this value. A value out of range fails startup. | `365` |
+| `EnforceMaxLifetimeOnExistingKeys` | When `true`, a key stored without an expiry (created before expiry became mandatory) expires `MaxLifetimeDays` days after it was created. Nothing stored changes, so turning it off again restores such keys. When `false`, they keep working and each logs a warning with its key id once per process. | `false` |
+
+:::caution[Upgrading from 4.5]
+API-key scopes are enforced on every route, the `Admin` scope is retired, `Execute` follows the owner's current role, new keys must expire, keys are managed from a browser session only, a disabled or archived user's keys are revoked, and `/beacon/mcp` should be mapped with `app.MapBeaconMcp()`. See [API Keys → Upgrading from 4.5](/features/api-keys/#upgrading-from-45) for what to change.
 :::
 
 ## AI / LLM Configuration (Optional — Experimental)

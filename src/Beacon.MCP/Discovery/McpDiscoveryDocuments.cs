@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Beacon.Core.Mcp;
@@ -24,7 +25,7 @@ internal static class McpDiscoveryDocuments
     public const string ServerCardPath = McpDiscoveryPaths.ServerCardPath;
     public const string DocumentationUrl = "https://moberghr.github.io/beacon/features/mcp-server/";
 
-    public static readonly IReadOnlyList<string> ScopesSupported = ["Execute", "Admin"];
+    public static readonly IReadOnlyList<string> ScopesSupported = [BeaconScopes.Execute];
 
     private const string Description =
         "Governed, read-only access to a project's data sources: natural-language ask, "

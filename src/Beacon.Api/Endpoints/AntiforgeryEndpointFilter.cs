@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,7 @@ namespace Beacon.Api.Endpoints;
 /// Validates the antiforgery token for non-GET/HEAD/OPTIONS requests from
 /// authenticated users, and from anonymous callers too on an endpoint that carries
 /// <see cref="AntiforgeryForAnonymousCallers"/>. Anonymous endpoints opt out via <c>.DisableAntiforgery()</c>.
+/// Requests authenticated from their Authorization header (<see cref="HeaderAuthenticatedRequest"/>) are not validated.
 /// </summary>
 internal sealed class AntiforgeryEndpointFilter(
     IAntiforgery antiforgery,
@@ -33,6 +35,13 @@ internal sealed class AntiforgeryEndpointFilter(
         }
 
         if (httpContext.User.Identity?.IsAuthenticated != true && !ValidatesAnonymousCallers(httpContext))
+        {
+            return await next(context);
+        }
+
+        // An API key or bearer token in the Authorization header is not sent by a browser on its own, so the request
+        // cannot be forged; such callers get no antiforgery token either (GET /csrf).
+        if (HeaderAuthenticatedRequest.Is(httpContext))
         {
             return await next(context);
         }
