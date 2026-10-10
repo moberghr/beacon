@@ -4,10 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
+using Beacon.Core.Models;
 using Beacon.Core.Services.Retention;
 using Beacon.Tests.Common;
 
@@ -41,7 +43,7 @@ public class RecordQueryFeedbackHandlerTests
             .ReturnsAsync(new PromoteSignalToGoldenResult(99));
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
@@ -70,7 +72,7 @@ public class RecordQueryFeedbackHandlerTests
             SourceSignalId = 1
         };
         var idempotentHandler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase> { promotedCase }), mediator.Object, BuildPolicy().Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase> { promotedCase }), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await idempotentHandler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
@@ -92,7 +94,7 @@ public class RecordQueryFeedbackHandlerTests
         var mediator = new Mock<ISender>();
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect, Note: "wrong join"),
@@ -112,7 +114,7 @@ public class RecordQueryFeedbackHandlerTests
         var mediator = new Mock<ISender>();
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal>(), new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal>(), new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         var act = async () => await handler.Handle(
             new RecordQueryFeedbackCommand(404, McpUserVerdict.Correct),
@@ -134,7 +136,7 @@ public class RecordQueryFeedbackHandlerTests
         var mediator = new Mock<ISender>();
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, Note: "correct but no data source"),
@@ -157,7 +159,7 @@ public class RecordQueryFeedbackHandlerTests
         var policy = BuildPolicy(retainQueryContent: true, allowExplicitFeedbackContent: false);
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
@@ -193,7 +195,7 @@ public class RecordQueryFeedbackHandlerTests
         var policy = BuildPolicy(retainQueryContent: false, allowExplicitFeedbackContent: false);
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
@@ -221,7 +223,7 @@ public class RecordQueryFeedbackHandlerTests
         var policy = BuildPolicy(retainQueryContent: true, allowExplicitFeedbackContent: true);
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
@@ -248,7 +250,7 @@ public class RecordQueryFeedbackHandlerTests
             .ThrowsAsync(new InvalidOperationException("settings unavailable"));
 
         var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         var act = () => handler.Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
@@ -262,6 +264,43 @@ public class RecordQueryFeedbackHandlerTests
             x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
             Times.Never,
             "fail closed also means no promotion");
+    }
+
+    // --- who may rate a signal -------------------------------------------------------------------------------
+
+    [TestCase(3, ProjectRole.Editor, true, TestName = "Feedback_OnTheCallersOwnSignal_IsRecorded")]
+    [TestCase(4, ProjectRole.Editor, false, TestName = "Feedback_OnAnotherCallersSignal_IsRefusedForAnEditor")]
+    [TestCase(4, ProjectRole.ProjectAdmin, true, TestName = "Feedback_OnAnotherCallersSignal_IsRecordedForAProjectAdmin")]
+    [TestCase(null, ProjectRole.Editor, false, TestName = "Feedback_OnASignalWithoutACaller_IsRefusedForAnEditor")]
+    public async Task Feedback_IsTheSignalsCallersOrAProjectAdmins(int? signalUserId, ProjectRole role, bool recorded)
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
+        signal.UserId = signalUserId;
+        var scope = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = role }, includesOpen: true, notOpen: []);
+        var mediator = new Mock<ISender>();
+        var handler = new RecordQueryFeedbackHandler(
+            BuildFactory([signal], []),
+            mediator.Object,
+            BuildPolicy().Object,
+            TestProjectAccess.Evaluator(scope),
+            TestProjectAccess.Actors(beaconUserId: 3),
+            NullLogger<RecordQueryFeedbackHandler>.Instance);
+
+        var act = () => handler.Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect, CorrectedSql: "SELECT 2"), CancellationToken.None);
+
+        if (recorded)
+        {
+            await act.Should().NotThrowAsync();
+            signal.UserVerdict.Should().Be(McpUserVerdict.Incorrect);
+            signal.UserCorrectedSql.Should().Be("SELECT 2");
+        }
+        else
+        {
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
+            signal.UserVerdict.Should().Be(McpUserVerdict.Unset, "a refused verdict changes nothing");
+            signal.UserCorrectedSql.Should().BeNull();
+            mediator.VerifyNoOtherCalls();
+        }
     }
 
     private static Mock<IContentRetentionPolicy> BuildPolicy(

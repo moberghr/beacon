@@ -1,6 +1,7 @@
 using MediatR;
 using Beacon.Core.Services;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Approvals;
 
@@ -33,6 +34,7 @@ internal sealed class RejectQueryChangeHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated: rejecting a change is an approval decision", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record RejectQueryChangeCommand : IRequest
 {
     public required int RequestId { get; init; }

@@ -154,5 +154,12 @@ public record UpdateDataContractCommand(
     bool AlertOnFailure,
     int FailureThresholdScore,
     List<DataContractRuleData> Rules,
-    List<int>? RecipientIds = null
-) : IRequest;
+    [property: ProjectScopeExempt("recipients are project-less; attaching them needs Write on the contract's data source, checked")] List<int>? RecipientIds = null
+) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataContract(DataContractId), ProjectAction.Write),
+        new(ProjectResource.DataSource(DataSourceId), ProjectAction.Write)
+    ];
+}

@@ -66,6 +66,18 @@ public class SubscriptionDetailsData
     public List<RecipientData> Recipients { get; set; } = new();
 
     /// <summary>
+    /// The owner's <c>Users.ExternalId</c>, whose access the scheduled runs are checked against; null for subscriptions
+    /// created before owners were recorded.
+    /// </summary>
+    public string? OwnerUserId { get; set; }
+
+    /// <summary>
+    /// The owner's display name, or a neutral "User {id}" label without one (never the user name or external id); null
+    /// when there is no owner or no matching user.
+    /// </summary>
+    public string? OwnerDisplayName { get; set; }
+
+    /// <summary>
     /// Anomaly detection configuration for this subscription
     /// </summary>
     public AnomalyConfigData? AnomalyConfig { get; set; }

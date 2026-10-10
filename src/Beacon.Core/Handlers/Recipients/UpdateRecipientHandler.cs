@@ -3,6 +3,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Recipients;
 
@@ -68,6 +69,7 @@ internal sealed class UpdateRecipientHandler(
 }
 
 /// <summary>An empty or masked <c>Destination</c>, or masked header values, keep the stored secrets.</summary>
+[ProjectScopeExempt("recipients are project-less; changing them is admin-gated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record UpdateRecipientCommand(
     int Id,
     string Name,

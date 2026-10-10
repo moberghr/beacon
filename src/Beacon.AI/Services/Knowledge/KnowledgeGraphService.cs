@@ -49,7 +49,15 @@ internal sealed class KnowledgeGraphService(
     // Golden eval cases are data-source-scoped (like Exemplar/metadata), so retrieval passes a dataSourceId
     // (not a projectId) to the shared nearest-neighbour helpers.
     private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
-    public async Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
+
+    public Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
+    {
+        return BuildTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
+    }
+
+    // Documentation and code references belong to a project: they come from projectId alone, never from another project
+    // that links the same data source, and without a project there are none.
+    private async Task<TableKnowledge> BuildTableKnowledgeAsync(int dataSourceId, int? projectId, string schemaName, string tableName, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -65,20 +73,29 @@ internal sealed class KnowledgeGraphService(
             .Where(m => m.DataSourceId == dataSourceId && m.SchemaName == schemaName && m.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        // Get documentation from project documentation (DataModel section)
-        var docContent = await context.ProjectDocumentationSections
-            .Where(s => s.Documentation.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId)
-                && s.SectionType == ProjectDocSectionType.DataModel)
-            .OrderByDescending(s => s.Documentation.GeneratedAt)
-            .Select(s => s.Content)
-            .FirstOrDefaultAsync(ct);
+        // Get documentation from the project's documentation (DataModel section)
+        var docContent = projectId == null
+            ? null
+            : await context.ProjectDocumentationSections
+                .Where(x => x.Documentation.ProjectId == projectId.Value)
+                .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+                .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
+                .OrderByDescending(x => x.Documentation.GeneratedAt)
+                .Select(x => x.Content)
+                .FirstOrDefaultAsync(ct);
 
-        // Get code references (from GitHub scanner)
-        var codeRefs = await context.CodeReferences
-            .Where(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId))
-            .Where(r => r.TableName != null && r.TableName.ToLower() == tableName.ToLower())
-            .Take(50)
-            .ToListAsync(ct);
+        // Get code references (from the project's repositories, GitHub scanner)
+        var codeReferences = projectId == null
+            ? []
+            : await context.CodeReferences
+                .Where(x => x.GitHubRepository.ProjectId == projectId.Value)
+                .Where(x => x.GitHubRepository.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+                .Where(x => x.TableName != null)
+                .Where(x => x.TableName!.ToLower() == tableName.ToLower())
+                .Take(50)
+                .Select(x =>
+                    new CodeReferenceInfo(x.FilePath, x.LineNumber, x.ReferenceType, x.ClassName, x.MethodName, x.CodeSnippet))
+                .ToListAsync(ct);
 
         // Get data quality score - property is Score, not OverallScore
         var qualityScore = await context.DataQualityScores
@@ -149,9 +166,7 @@ internal sealed class KnowledgeGraphService(
             Relationships = relationships,
             Description = docContent != null ? ExtractTableDoc(docContent, tableName) : null,
             BusinessPurpose = metadata?.TableDescription,
-            CodeReferences = codeRefs.Select(r => new CodeReferenceInfo(
-                r.FilePath, r.LineNumber, r.ReferenceType, r.ClassName, r.MethodName, r.CodeSnippet
-            )).ToList(),
+            CodeReferences = codeReferences,
             // DataQualityScore property is Score, not OverallScore
             QualityScore = qualityScore?.Score,
             QualityTrend = qualityScore?.TrendDirection.ToString(),
@@ -160,65 +175,9 @@ internal sealed class KnowledgeGraphService(
         };
     }
 
-    public async Task<DataSourceKnowledge> GetDataSourceKnowledgeAsync(int dataSourceId, CancellationToken ct = default)
+    public Task<DataSourceKnowledge> GetDataSourceKnowledgeAsync(int dataSourceId, int projectId, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        var dataSource = await context.DataSources
-            .Where(ds => ds.Id == dataSourceId)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
-
-        // Aggregate server-side — materializing every metadata/quality row here made each
-        // `ask` pay for full-catalog loads per data source.
-        var schemaTableCounts = await context.DatabaseMetadata
-            .Where(x => x.DataSourceId == dataSourceId)
-            .GroupBy(x => x.SchemaName)
-            .Select(x => new { SchemaName = x.Key, TableCount = x.Count() })
-            .ToListAsync(ct);
-
-        var schemaQuality = await context.DataQualityScores
-            .Where(x => x.DataSourceId == dataSourceId)
-            .GroupBy(x => x.SchemaName)
-            .Select(x => new { SchemaName = x.Key, AverageScore = x.Average(y => (double?)y.Score), ScoreCount = x.Count() })
-            .ToListAsync(ct);
-
-        var codeRefCount = await context.CodeReferences
-            .CountAsync(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
-
-        var hasDoc = await context.ProjectDocumentations
-            .AnyAsync(d => d.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
-
-        // DataQualityScore property is Score, not OverallScore
-        var schemas = schemaTableCounts
-            .Select(x => new SchemaOverview(
-                x.SchemaName,
-                x.TableCount,
-                schemaQuality
-                    .Where(y => y.SchemaName == x.SchemaName)
-                    .Select(y => y.AverageScore)
-                    .FirstOrDefault()
-            ))
-            .ToList();
-
-        var totalScoreCount = schemaQuality.Sum(x => x.ScoreCount);
-
-        return new DataSourceKnowledge
-        {
-            DataSourceId = dataSourceId,
-            Name = dataSource.Name,
-            DataSourceType = dataSource.DataSourceType,
-            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
-                ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
-                : dataSource.DatabaseEngineType?.ToString(),
-            TableCount = schemaTableCounts.Sum(x => x.TableCount),
-            OverallQualityScore = totalScoreCount != 0
-                ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
-                : null,
-            CodeReferenceCount = codeRefCount,
-            HasDocumentation = hasDoc,
-            Schemas = schemas
-        };
+        return DataSourceKnowledgeAsync(dataSourceId, projectId, ct);
     }
 
     public async Task<List<SearchResult>> SearchAsync(string query, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default)
@@ -608,14 +567,17 @@ internal sealed class KnowledgeGraphService(
 
     private readonly record struct EmbeddingHit(McpEmbeddingOwnerType OwnerType, int OwnerId);
 
-    public async Task<LineageInfo> GetLineageAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
+    public async Task<LineageInfo> GetLineageAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        // Get code references that touch this table
+        // Get code references that touch this table, from the project's repositories only (never another project's
+        // that links the same data source)
         var codeRefs = await context.CodeReferences
-            .Where(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId))
-            .Where(r => r.TableName != null && r.TableName.ToLower() == tableName.ToLower())
+            .Where(x => x.GitHubRepository.ProjectId == projectId)
+            .Where(x => x.GitHubRepository.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.TableName != null)
+            .Where(x => x.TableName!.ToLower() == tableName.ToLower())
             .ToListAsync(ct);
 
         var writtenBy = codeRefs
@@ -673,7 +635,8 @@ internal sealed class KnowledgeGraphService(
 
         if (tableName != null && schemaName != null)
         {
-            var knowledge = await GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
+            // No project here: the table's columns and quality, without any project's documentation.
+            var knowledge = await BuildTableKnowledgeAsync(dataSourceId, null, schemaName, tableName, ct);
 
             if (isApi)
             {
@@ -710,7 +673,7 @@ internal sealed class KnowledgeGraphService(
         }
         else
         {
-            var dsKnowledge = await GetDataSourceKnowledgeAsync(dataSourceId, ct);
+            var dsKnowledge = await DataSourceKnowledgeAsync(dataSourceId, null, ct);
 
             if (isApi)
             {
@@ -1239,7 +1202,7 @@ internal sealed class KnowledgeGraphService(
 
         var results = new List<DataSourceKnowledge>();
         foreach (var dsId in dsIds)
-            results.Add(await GetDataSourceKnowledgeAsync(dsId, ct));
+            results.Add(await DataSourceKnowledgeAsync(dsId, projectId, ct));
 
         return results;
     }
@@ -2400,6 +2363,75 @@ internal sealed class KnowledgeGraphService(
         var omitted = related.Count - admitted.Count;
 
         return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
+    }
+
+    // A data source's overview; code references and documentation of projectId only (none without one).
+    private async Task<DataSourceKnowledge> DataSourceKnowledgeAsync(int dataSourceId, int? projectId, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var dataSource = await context.DataSources
+            .Where(ds => ds.Id == dataSourceId)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+        // Aggregate server-side — materializing every metadata/quality row here made each
+        // `ask` pay for full-catalog loads per data source.
+        var schemaTableCounts = await context.DatabaseMetadata
+            .Where(x => x.DataSourceId == dataSourceId)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, TableCount = x.Count() })
+            .ToListAsync(ct);
+
+        var schemaQuality = await context.DataQualityScores
+            .Where(x => x.DataSourceId == dataSourceId)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, AverageScore = x.Average(y => (double?)y.Score), ScoreCount = x.Count() })
+            .ToListAsync(ct);
+
+        // Code references and documentation belong to a project: only the caller's project counts. Without one (the LLM
+        // context, which shows neither) they are not read.
+        var codeRefCount = projectId == null
+            ? 0
+            : await context.CodeReferences
+                .Where(x => x.GitHubRepository.ProjectId == projectId)
+                .CountAsync(ct);
+
+        var hasDoc = projectId != null
+            && await context.ProjectDocumentations
+                .Where(x => x.ProjectId == projectId)
+                .AnyAsync(ct);
+
+        // DataQualityScore property is Score, not OverallScore
+        var schemas = schemaTableCounts
+            .Select(x => new SchemaOverview(
+                x.SchemaName,
+                x.TableCount,
+                schemaQuality
+                    .Where(y => y.SchemaName == x.SchemaName)
+                    .Select(y => y.AverageScore)
+                    .FirstOrDefault()
+            ))
+            .ToList();
+
+        var totalScoreCount = schemaQuality.Sum(x => x.ScoreCount);
+
+        return new DataSourceKnowledge
+        {
+            DataSourceId = dataSourceId,
+            Name = dataSource.Name,
+            DataSourceType = dataSource.DataSourceType,
+            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
+                ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
+                : dataSource.DatabaseEngineType?.ToString(),
+            TableCount = schemaTableCounts.Sum(x => x.TableCount),
+            OverallQualityScore = totalScoreCount != 0
+                ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
+                : null,
+            CodeReferenceCount = codeRefCount,
+            HasDocumentation = hasDoc,
+            Schemas = schemas
+        };
     }
 }
 

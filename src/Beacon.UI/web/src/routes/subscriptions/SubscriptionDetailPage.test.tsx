@@ -158,4 +158,57 @@ describe('SubscriptionDetailPage', () => {
       expect(screen.getAllByRole('button', { name: /^archive$/i }).length).toBeGreaterThan(0);
     });
   });
+
+  it('shows the owner the scheduled runs act for by name, never by id, or that none was recorded', async () => {
+    let owner: Record<string, unknown> = { hasOwner: true, ownerDisplayName: 'Ada Lovelace' };
+    mswServer.use(
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({ userId: 'u1', displayName: 'Tester', email: 't@example.com', isAuthenticated: true, roles: [] }),
+      ),
+      http.get('*/beacon/api/subscriptions/42', () => HttpResponse.json(detailPayload(owner))),
+      http.get('*/beacon/api/notifications', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
+    );
+    const renderPage = () =>
+      renderWithProviders(
+        <Routes>
+          <Route path="/subscriptions/:id" element={<SubscriptionDetailPage />} />
+        </Routes>,
+        { initialEntries: ['/subscriptions/42'] },
+      );
+
+    const named = renderPage();
+    expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+    named.unmount();
+
+    // An owner whose user no longer exists: a neutral label, even if a stray id field came along.
+    owner = { hasOwner: true, ownerDisplayName: null, ownerUserId: 'ext-ada' };
+    const unknown = renderPage();
+    expect(await screen.findByText('unknown user')).toBeInTheDocument();
+    expect(screen.queryByText('ext-ada')).not.toBeInTheDocument();
+    unknown.unmount();
+
+    owner = { hasOwner: false, ownerDisplayName: null };
+    renderPage();
+    expect(await screen.findByText('no owner recorded')).toBeInTheDocument();
+  });
+
+  it('shows the not-found state when the subscription answers 404', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({ userId: 'u1', displayName: 'Tester', email: 't@example.com', isAuthenticated: true, roles: [] }),
+      ),
+      http.get('*/beacon/api/subscriptions/42', () => HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404 })),
+      http.get('*/beacon/api/notifications', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/subscriptions/:id" element={<SubscriptionDetailPage />} />
+      </Routes>,
+      { initialEntries: ['/subscriptions/42'] },
+    );
+
+    expect(await screen.findByText('Subscription not found')).toBeInTheDocument();
+    expect(screen.queryByText(/failed to load subscription/i)).not.toBeInTheDocument();
+  });
 });

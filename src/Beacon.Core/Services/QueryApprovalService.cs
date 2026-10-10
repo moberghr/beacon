@@ -1,4 +1,6 @@
 using Beacon.Core.Helpers;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
@@ -10,7 +12,11 @@ namespace Beacon.Core.Services;
 
 public interface IQueryApprovalService
 {
-    Task<PagedList<ApprovalRequestSummary>> GetPendingApprovalsAsync(ListRequest request, int? queryId, CancellationToken cancellationToken);
+    /// <summary>
+    /// The pending approval requests a caller may read (<paramref name="readable"/>): those whose query one readable
+    /// project holds every source of, and whose version's recorded sources are readable the same way.
+    /// </summary>
+    Task<PagedList<ApprovalRequestSummary>> GetPendingApprovalsAsync(ListRequest request, int? queryId, ProjectSet readable, CancellationToken cancellationToken);
     Task<ApprovalRequestDetail?> GetApprovalDetailAsync(int requestId, CancellationToken cancellationToken = default);
     Task ApproveAsync(int requestId, string? reviewerUserId, string? reviewerName, string? comment, CancellationToken cancellationToken = default);
     Task RejectAsync(int requestId, string? reviewerUserId, string? reviewerName, string? comment, CancellationToken cancellationToken = default);
@@ -26,13 +32,26 @@ internal class QueryApprovalService(
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public async Task<PagedList<ApprovalRequestSummary>> GetPendingApprovalsAsync(ListRequest request, int? queryId, CancellationToken cancellationToken)
+    public async Task<PagedList<ApprovalRequestSummary>> GetPendingApprovalsAsync(
+        ListRequest request,
+        int? queryId,
+        ProjectSet readable,
+        CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Versions recorded before Beacon kept their sources are decided from their snapshots before paging, so the
+        // page and its total count leave out the same unreadable requests.
+        var unreadableLegacy = readable.Ids == null
+            ? []
+            : await UnreadableLegacyRequestIdsAsync(context, queryId, readable, cancellationToken);
 
         return await context.QueryApprovalRequests
             .Where(r => r.Status == ApprovalStatus.Pending)
             .Where(r => !queryId.HasValue || r.QueryId == queryId.Value)
+            .WhereAllSourcesInOneProject(context, readable, x => x.Query.Steps.Select(y => y.DataSourceId))
+            .WhereVersionSourcesAccessible(context, readable, x => x.QueryVersion.DataSourceIds)
+            .WhereIf(unreadableLegacy.Count > 0, x => !unreadableLegacy.Contains(x.Id))
             .Select(r => new ApprovalRequestSummary
             {
                 Id = r.Id,
@@ -231,5 +250,42 @@ internal class QueryApprovalService(
             ChangeReason = version.ChangeReason,
             Steps = steps
         };
+    }
+
+    // The pending requests (that the query filter keeps) whose version predates recorded sources and whose snapshot's
+    // sources the caller may not read, or whose snapshot cannot be read: one read of the snapshots and at most one of
+    // the links, whatever the number of requests.
+    private static async Task<List<int>> UnreadableLegacyRequestIdsAsync(
+        BeaconContext context,
+        int? queryId,
+        ProjectSet readable,
+        CancellationToken cancellationToken)
+    {
+        var legacy = await context.QueryApprovalRequests
+            .Where(x => x.Status == ApprovalStatus.Pending)
+            .Where(x => !queryId.HasValue || x.QueryId == queryId.Value)
+            .Where(x => x.QueryVersion.DataSourceIds == null)
+            .WhereAllSourcesInOneProject(context, readable, x => x.Query.Steps.Select(y => y.DataSourceId))
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.QueryVersion.StepsJson
+                })
+            .ToListAsync(cancellationToken);
+        if (legacy.Count == 0)
+        {
+            return [];
+        }
+
+        var sources = legacy
+            .Select(x => QueryVersionSources.Of(null, x.StepsJson) ?? [])
+            .ToList();
+        var reachable = await ProjectSourceFootprint.AllowEachAsync(context, readable, sources, cancellationToken);
+
+        return legacy
+            .Where((_, i) => !reachable[i])
+            .Select(x => x.Id)
+            .ToList();
     }
 }

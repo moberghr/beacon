@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -209,6 +210,9 @@ internal static class HostSyncRunner
     {
         using var scope = services.CreateScope();
         var provider = scope.ServiceProvider;
+
+        // Host sync is Beacon's own startup work, with no request behind it.
+        provider.GetService<ISystemWorkScope>()?.MarkAsSystemWork();
 
         await using var hostSyncLock = await provider.GetRequiredService<IHostSyncLock>().AcquireAsync(cancellationToken);
 

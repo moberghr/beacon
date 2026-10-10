@@ -160,6 +160,10 @@ export interface SubscriptionDetail {
   parameters: SubscriptionDetailParameter[];
   recipients: SubscriptionDetailRecipient[];
   anomalyConfig: SubscriptionDetailAnomalyConfig | null;
+  /** An owner is recorded: scheduled runs are checked against the owner's access. False for subscriptions created before owners. */
+  hasOwner: boolean;
+  /** The owner's display name, or a neutral "User {id}" label; null when no owner or no matching user exists. Never an id. */
+  ownerDisplayName: string | null;
 }
 
 interface GetSubscriptionDetailResult {

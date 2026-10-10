@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
@@ -42,5 +43,11 @@ internal sealed class MoveQueryToFolderHandler(IDbContextFactory<BeaconContext> 
 
 public record MoveQueryToFolderCommand(
     int QueryId,
-    int? FolderId  // Null means move to root (no folder)
-) : IRequest<Unit>;
+    [property: ProjectScopeExempt("query folders are project-less")] int? FolderId  // Null means move to root (no folder)
+) : IRequest<Unit>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Query(QueryId), ProjectAction.Write)
+    ];
+}

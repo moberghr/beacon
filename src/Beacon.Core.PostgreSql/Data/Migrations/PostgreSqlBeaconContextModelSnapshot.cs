@@ -2062,6 +2062,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
+                    b.Property<bool>("OpenWhenUnlinked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("open_when_unlinked");
+
                     b.Property<bool>("UseReadOnlyIntent")
                         .HasColumnType("boolean")
                         .HasColumnName("use_read_only_intent");
@@ -3955,6 +3959,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("RequiresMembership")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_membership");
+
                     b.HasKey("Id")
                         .HasName("pk_projects");
 
@@ -3984,6 +3992,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("DataSourceId")
                         .HasColumnType("integer")
                         .HasColumnName("data_source_id");
+
+                    b.Property<int?>("LinkedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("linked_by_user_id");
 
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
@@ -4187,6 +4199,52 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("project_imported_documents", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectMember", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AddedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("added_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer")
+                        .HasColumnName("role");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_members");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_project_members_user_id");
+
+                    b.HasIndex("ProjectId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_project_members_project_id_user_id");
+
+                    b.ToTable("project_members", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
                 {
                     b.Property<int>("Id")
@@ -4255,6 +4313,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("name");
+
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("owner_user_id");
 
                     b.HasKey("Id")
                         .HasName("pk_queries");
@@ -4618,6 +4681,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
                     b.Property<string>("NewSql")
                         .IsRequired()
                         .HasColumnType("text")
@@ -4823,6 +4890,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.PrimitiveCollection<int[]>("DataSourceIds")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("data_source_ids");
+
                     b.Property<string>("Description")
                         .HasColumnType("text")
                         .HasColumnName("description");
@@ -4967,6 +5038,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("notification_trigger");
 
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("owner_user_id");
+
                     b.Property<int>("QueryId")
                         .HasColumnType("integer")
                         .HasColumnName("query_id");
@@ -4996,6 +5072,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("AiActorId")
                         .HasDatabaseName("ix_subscriptions_ai_actor_id");
+
+                    b.HasIndex("OwnerUserId")
+                        .HasDatabaseName("ix_subscriptions_owner_user_id");
 
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_subscriptions_query_id");
@@ -5697,6 +5776,27 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectMember", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany("Members")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_members_projects_project_id");
+
+                    b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_members_users_user_id");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.QueryVersion", "ActiveVersion")
@@ -6034,6 +6134,8 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("DataSources");
 
                     b.Navigation("Documentations");
+
+                    b.Navigation("Members");
 
                     b.Navigation("Repositories");
                 });

@@ -2,16 +2,19 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models.Tasks;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Tasks;
 
-internal sealed class GetTasksHandler(ITaskService taskService)
+internal sealed class GetTasksHandler(ITaskService taskService, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetTasksQuery, PagedList<TaskEntry>>
 {
     public async Task<PagedList<TaskEntry>> Handle(GetTasksQuery request, CancellationToken cancellationToken)
     {
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
         var serviceRequest = new GetTasksRequest
         {
+            Readable = scope.For(ProjectAction.Read),
             Page = request.Page,
             PageSize = request.PageSize,
             Sort = request.Sort,
@@ -39,8 +42,9 @@ internal sealed class GetTasksHandler(ITaskService taskService)
     }
 }
 
-public record GetTasksQuery : ListRequest, IRequest<PagedList<TaskEntry>>
+public record GetTasksQuery : ListRequest, IRequest<PagedList<TaskEntry>>, IProjectFilteredRequest
 {
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? SubscriptionId { get; init; }
 
     public bool? Resolved { get; init; }

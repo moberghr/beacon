@@ -24,6 +24,18 @@ export interface DataSourceEntry {
   queryCount: number;
   migrationJobsCount: number;
   metadataLoadingEnabled: boolean;
+  /** Reachable without a project link (sources that existed before project access); new sources are not. */
+  openWhenUnlinked: boolean;
+  /** The live projects linking the source that the caller may read. */
+  projects: DataSourceProjectChip[];
+  /** Live projects linking the source that the caller may not read. */
+  otherProjectCount: number;
+}
+
+/** A project linking a data source. */
+export interface DataSourceProjectChip {
+  id: number;
+  name: string;
 }
 
 const DATA_SOURCES_KEY = ['data-sources'] as const;
@@ -105,6 +117,8 @@ export interface CreateDataSourcePayload {
   metadataLoadTableNamesOnly: boolean;
   metadataExcludeSchemas: string[];
   metadataIncludeSchemas: string[];
+  /** Projects to link the new source into; without one, only Admins can use it until it is linked. */
+  projectIds: number[];
 }
 
 export interface TestDataSourceConnectionPayload {
@@ -128,7 +142,7 @@ export function useCreateDataSource() {
         const r = await beaconApi().createDataSource(values as never);
         return { success: r.success ?? false, message: r.message ?? null };
       },
-      invalidate: [DATA_SOURCES_KEY],
+      invalidate: [DATA_SOURCES_KEY, ['projects']],
       errorFallback: 'Create data source failed',
     }),
   );

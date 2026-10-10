@@ -1,15 +1,16 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
 using MediatR;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.Home;
 
 internal sealed class GetHomeActivityHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IHttpContextAccessor httpContextAccessor)
+    IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetHomeActivityQuery, GetHomeActivityResult>
 {
     public async Task<GetHomeActivityResult> Handle(GetHomeActivityQuery request, CancellationToken cancellationToken)
@@ -20,8 +21,17 @@ internal sealed class GetHomeActivityHandler(
 
         var since = DateTime.UtcNow.AddDays(-30);
 
-        // Runs are listed as the stored runs the caller may read (StoredRunAccess).
-        var runScope = StoredRunAccess.ScopeOf(httpContextAccessor.HttpContext?.User);
+        // Runs are listed as the stored runs the caller may read (StoredRunAccess); subscriptions, tasks and anomalies as
+        // their subscription's query.
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
+        var runScope = StoredRunScope.From(readable);
+        var subscriptions = context.Subscriptions
+            .WhereAllSourcesInOneProject(context, readable, x => x.Query.Steps.Select(y => y.DataSourceId), x => x.Query.OwnerUserId);
+        var tasks = context.QueryTasks
+            .WhereAllSourcesInOneProject(context, readable, x => x.Subscription.Query.Steps.Select(y => y.DataSourceId), x => x.Subscription.Query.OwnerUserId);
+        var anomalyEvents = readable.Ids == null
+            ? context.AnomalyEvents
+            : context.AnomalyEvents.Where(x => subscriptions.Any(y => y.Id == x.SubscriptionId));
 
         // Recent successful executions (ok tone)
         var successExecs = await context.QueryExecutionHistory
@@ -58,7 +68,7 @@ internal sealed class GetHomeActivityHandler(
             .ToListAsync(cancellationToken);
 
         // New subscriptions (info tone). Global query filter excludes archived rows.
-        var newSubs = await context.Subscriptions
+        var newSubs = await subscriptions
             .Where(x => x.CreatedTime >= since)
             .OrderByDescending(x => x.CreatedTime)
             .Take(limit)
@@ -72,7 +82,7 @@ internal sealed class GetHomeActivityHandler(
             .ToListAsync(cancellationToken);
 
         // Resolved tasks (ok tone). Global query filter excludes archived rows.
-        var resolvedTasks = await context.QueryTasks
+        var resolvedTasks = await tasks
             .Where(x => x.Resolved)
             .Where(x => x.ResolvedAt >= since)
             .OrderByDescending(x => x.ResolvedAt)
@@ -87,7 +97,7 @@ internal sealed class GetHomeActivityHandler(
             .ToListAsync(cancellationToken);
 
         // Unresolved / new tasks (warn tone). Global query filter excludes archived rows.
-        var openTasks = await context.QueryTasks
+        var openTasks = await tasks
             .Where(x => !x.Resolved)
             .Where(x => x.CreatedTime >= since)
             .OrderByDescending(x => x.CreatedTime)
@@ -102,7 +112,7 @@ internal sealed class GetHomeActivityHandler(
             .ToListAsync(cancellationToken);
 
         // Detected anomalies (warn/crit tone based on severity)
-        var anomalies = await context.AnomalyEvents
+        var anomalies = await anomalyEvents
             .Where(x => x.DetectedTime >= since)
             .OrderByDescending(x => x.DetectedTime)
             .Take(limit)
@@ -130,7 +140,7 @@ internal sealed class GetHomeActivityHandler(
     }
 }
 
-public record GetHomeActivityQuery(int Limit = 10) : IRequest<GetHomeActivityResult>;
+public record GetHomeActivityQuery(int Limit = 10) : IRequest<GetHomeActivityResult>, IProjectFilteredRequest;
 
 public record GetHomeActivityResult(List<HomeActivityItem> Items);
 

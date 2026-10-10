@@ -1,6 +1,7 @@
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Metadata;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Metadata;
 
@@ -44,7 +45,13 @@ internal sealed class PreviewSchemaRelationshipDiscoveryHandler(ISchemaRelations
 }
 
 public record PreviewSchemaRelationshipDiscoveryQuery(int DataSourceId)
-    : IRequest<PreviewSchemaRelationshipDiscoveryResult>;
+    : IRequest<PreviewSchemaRelationshipDiscoveryResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.SharedSource(ProjectResource.DataSource(DataSourceId), ProjectAction.Write)
+    ];
+}
 
 public record PreviewSchemaRelationshipDiscoveryResult(IReadOnlyList<ProposedRelationshipItem> Proposals);
 

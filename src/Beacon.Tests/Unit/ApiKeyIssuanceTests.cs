@@ -9,11 +9,13 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Handlers.ApiKeys;
 using Beacon.Core.Mcp;
+using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 using FluentAssertions;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
@@ -188,16 +190,16 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, roleLevel: roleLevel);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", [scope], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", [scope], [1], null), CancellationToken.None);
 
         if (issued)
         {
             (await act()).PlainTextKey.Should().Be("sk-sem_issued");
-            apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.Is<string[]>(y => y.SequenceEqual(new[] { scope })), null, null, 0, It.IsAny<CancellationToken>()), Times.Once);
+            apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.Is<string[]>(y => y.SequenceEqual(new[] { scope })), It.Is<int[]?>(y => y != null && y.SequenceEqual(new[] { 1 })), null, 0, It.IsAny<CancellationToken>()), Times.Once);
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*write permission*");
+            await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*write permission*");
             apiKeys.VerifyNoOtherCalls();
         }
     }
@@ -208,9 +210,9 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, roleLevel: null, isSuperAdmin: true);
 
-        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
+        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
-        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, 0, It.IsAny<CancellationToken>()), Times.Once);
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), It.Is<int[]?>(y => y != null && y.SequenceEqual(new[] { 1 })), null, 0, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -219,9 +221,9 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, roleLevel: RoleService.RoleLevels.Editor, providerCanWrite: false);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*write permission*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*write permission*");
         apiKeys.VerifyNoOtherCalls();
     }
 
@@ -231,9 +233,9 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, roleLevel: RoleService.RoleLevels.Viewer, providerCanWrite: true);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*write permission*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*write permission*");
         apiKeys.VerifyNoOtherCalls();
     }
 
@@ -246,13 +248,13 @@ public class ApiKeyIssuanceTests
             .Setup(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()))
             .ReturnsAsync(User(RoleService.RoleLevels.Editor));
         var principal = SessionPrincipal(new Claim(BeaconClaims.UserId, "ext-bob"));
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(principal), users.Object, Authorization(canWrite: true));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(principal), users.Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
 
-        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
+        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
         users.Verify(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()), Times.Once);
         users.VerifyNoOtherCalls();
-        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, 0, It.IsAny<CancellationToken>()), Times.Once);
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), It.Is<int[]?>(y => y != null && y.SequenceEqual(new[] { 1 })), null, 0, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -282,11 +284,11 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var owner = User(RoleService.RoleLevels.Editor);
         owner.ApiKeyGeneration = 4;
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(SessionPrincipal()), Users(owner).Object, Authorization(canWrite: true));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(SessionPrincipal()), Users(owner).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
 
-        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], null, null), CancellationToken.None);
+        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
-        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), null, null, 4, It.IsAny<CancellationToken>()), Times.Once);
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), It.Is<int[]?>(y => y != null && y.SequenceEqual(new[] { 1 })), null, 4, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -306,9 +308,9 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, enabled: false);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*disabled*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*disabled*");
         apiKeys.VerifyNoOtherCalls();
     }
 
@@ -318,7 +320,7 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, found: false);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not found*");
         apiKeys.VerifyNoOtherCalls();
@@ -333,9 +335,9 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, roleLevel: RoleService.RoleLevels.Editor, authMethod: authMethod);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*signed-in session*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*signed-in session*");
         apiKeys.VerifyNoOtherCalls();
     }
 
@@ -344,12 +346,64 @@ public class ApiKeyIssuanceTests
     {
         var apiKeys = ApiKeyServiceMock();
         var anonymous = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")]));
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(anonymous), Users(User(RoleService.RoleLevels.Editor)).Object, Authorization(canWrite: true));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(anonymous), Users(User(RoleService.RoleLevels.Editor)).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*signed-in session*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*signed-in session*");
         apiKeys.VerifyNoOtherCalls();
+    }
+
+    [TestCase(null)]
+    [TestCase(new int[0])]
+    public async Task ANewKey_WithoutAProject_IsABadRequest(int[]? projects)
+    {
+        var apiKeys = ApiKeyServiceMock();
+        var handler = BuildHandler(apiKeys, roleLevel: RoleService.RoleLevels.Editor);
+
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], projects, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*at least one project*");
+        apiKeys.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task ANewKey_ForAProjectItsOwnerCannotRead_IsNotFound()
+    {
+        var apiKeys = ApiKeyServiceMock();
+        var handler = BuildHandler(apiKeys, roleLevel: RoleService.RoleLevels.Editor);
+
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1, 9], null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconNotFoundException>();
+        apiKeys.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task ANewKeysProjects_AreCheckedAsTheKeyWouldReachThem_WithoutTheAdminBypass()
+    {
+        var apiKeys = ApiKeyServiceMock();
+        var evaluator = new Mock<IProjectAccessEvaluator>();
+        evaluator
+            .Setup(x => x.GetScopeAsync(It.IsAny<BeaconActor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(TestProjectAccess.ReadableIn(1));
+        var handler = new CreateApiKeyHandler(
+            apiKeys.Object,
+            Accessor(SessionPrincipal()),
+            Users(User(RoleService.RoleLevels.Admin)).Object,
+            Authorization(canWrite: true),
+            TestProjectAccess.Actors(),
+            evaluator.Object);
+
+        await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1, 1], null), CancellationToken.None);
+
+        evaluator.Verify(
+            x => x.GetScopeAsync(
+                It.Is<BeaconActor>(y => y.Kind == BeaconPrincipalKind.ApiKey && y.ScopeCeiling == McpCallerScope.Read && y.AllowedProjectIds == null),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        evaluator.Verify(x => x.GetScopeAsync(It.IsAny<CancellationToken>()), Times.Never);
+        apiKeys.Verify(x => x.GenerateApiKeyAsync(3, "ci", It.IsAny<string[]>(), It.Is<int[]?>(y => y != null && y.SequenceEqual(new[] { 1 })), null, 0, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -358,7 +412,7 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var handler = BuildHandler(apiKeys, roleLevel: RoleService.RoleLevels.Editor);
 
-        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Execute", "Admin"], null, null), CancellationToken.None);
+        var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Execute", "Admin"], [1], null), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Admin scope*");
         apiKeys.VerifyNoOtherCalls();
@@ -485,7 +539,7 @@ public class ApiKeyIssuanceTests
             : SessionPrincipal(new Claim(McpCallerClaimTypes.AuthMethod, authMethod));
         var user = found ? User(roleLevel, isSuperAdmin, enabled) : null;
 
-        return new CreateApiKeyHandler(apiKeys.Object, Accessor(principal), Users(user).Object, Authorization(providerCanWrite));
+        return new CreateApiKeyHandler(apiKeys.Object, Accessor(principal), Users(user).Object, Authorization(providerCanWrite), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
     }
 
     // A signed-in browser session: NameIdentifier carries Users.ExternalId.

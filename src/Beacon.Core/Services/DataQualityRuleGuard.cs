@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services.Validation;
 
@@ -69,13 +70,13 @@ internal static class DataQualityRuleGuard
         return rules.Any(x => x.RuleType == DataContractRuleType.CustomSql);
     }
 
-    /// <summary>Throws <see cref="UnauthorizedAccessException"/> unless the caller holds the Admin role.</summary>
+    /// <summary>Throws <see cref="BeaconForbiddenException"/> unless the caller holds the Admin role.</summary>
     public static void EnsureAdmin(IBeaconUserContext userContext)
     {
         // The same role the BeaconApiAdmin policy requires. API-key principals carry no role, so a key never passes.
         if (!userContext.HasClaim(ClaimTypes.Role, RoleService.RoleNames.Admin))
         {
-            throw new UnauthorizedAccessException("Only an Admin can create, change or delete a data contract with a Custom SQL rule.");
+            throw new BeaconForbiddenException("Only an Admin can create, change or delete a data contract with a Custom SQL rule.");
         }
     }
 

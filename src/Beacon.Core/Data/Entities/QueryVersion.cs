@@ -24,6 +24,12 @@ public class QueryVersion : BaseEntity
     /// </summary>
     public string StepsJson { get; set; } = null!;
 
+    /// <summary>
+    /// The distinct data sources of the version's steps, recorded when the version is created. Null for versions
+    /// recorded before Beacon kept them: their sources are read from <see cref="StepsJson"/>.
+    /// </summary>
+    public int[]? DataSourceIds { get; set; }
+
     public string? CreatedByUserId { get; set; }
 
     /// <summary>

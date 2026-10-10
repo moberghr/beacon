@@ -7,6 +7,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpSettings;
 
@@ -151,4 +152,5 @@ internal sealed class UpdateMcpSettingsHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated security configuration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record UpdateMcpSettingsCommand(McpSettingsData Data) : IRequest;

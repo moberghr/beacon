@@ -18,6 +18,7 @@ using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Services;
 
@@ -185,6 +186,12 @@ public class SubscriptionListData
 
 public record GetQueriesRequest : ListRequest
 {
+    /// <summary>
+    /// Where the caller may read: the list keeps the queries one of these projects holds every source of. Required, so
+    /// no caller lists every query by leaving it out; <see cref="ProjectSet.All"/> is an explicit choice.
+    /// </summary>
+    public required ProjectSet Readable { get; init; }
+
     public int? QueryId { get; init; }
 
     public int? DataSourceId { get; init; }
@@ -202,7 +209,7 @@ public record GetQueriesRequest : ListRequest
     public string? SearchTerm { get; init; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard) : IQueryService
+internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard, IBeaconActorAccessor actorAccessor) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
@@ -245,6 +252,8 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
 
         ValidateFinalQuery(queryData.FinalQuery);
 
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Build the full object graph (query + steps + parameters via navigation
@@ -254,6 +263,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
             Name = queryData.Name,
             Description = queryData.Description,
             FinalQuery = queryData.FinalQuery,
+            OwnerUserId = actor.UserId,
             Steps = queryData.Steps
                 .Select(x =>
                     new QueryStep
@@ -317,6 +327,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var results = await context.Queries
+            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId)
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
             .WhereIf(request.QueryName != null, x => x.Name == request.QueryName)
             .WhereIf(request.DataSourceId.HasValue, x => x.Steps.Any(s => s.DataSourceId == request.DataSourceId))

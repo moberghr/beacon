@@ -169,7 +169,8 @@ public class SqlReadOnlyValidatorRemoteAccessTests
             null!,
             Mock.Of<IBeaconUserContext>(),
             _validator,
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
+            TestProjectAccess.Actors());
         var stepData = new QueryStepData
         {
             Name = "step",

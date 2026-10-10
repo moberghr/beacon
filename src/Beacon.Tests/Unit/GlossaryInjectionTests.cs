@@ -234,6 +234,29 @@ public class GlossaryInjectionTests
     }
 
     [Test]
+    public async Task CreateGlossaryTermHandler_ADataSourceNotLinkedToTheProject_IsRefused()
+    {
+        var set = BuildDbSet(new List<McpGlossaryTerm>());
+        var context = new GlossaryHandlerContext(set.Object, links: []);
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
+        var handler = new CreateGlossaryTermHandler(factory.Object);
+
+        var act = () => handler.Handle(new CreateGlossaryTermCommand
+        {
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            Term = "revenue",
+            Definition = "Total sales amount recognized"
+        }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not linked to project*");
+        set.Verify(x => x.Add(It.IsAny<McpGlossaryTerm>()), Times.Never);
+    }
+
+    [Test]
     public async Task CreateGlossaryTermHandler_BlankTerm_Throws()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
@@ -546,14 +569,25 @@ public class GlossaryInjectionTests
                 .Options;
 
         private readonly DbSet<McpGlossaryTerm> _terms;
+        private readonly DbSet<ProjectDataSource> _links;
 
-        public GlossaryHandlerContext(DbSet<McpGlossaryTerm> terms) : base(Options, "beacon") => _terms = terms;
+        // By default the test project links the test data source, as the consistency rule requires.
+        public GlossaryHandlerContext(DbSet<McpGlossaryTerm> terms, List<ProjectDataSource>? links = null) : base(Options, "beacon")
+        {
+            _terms = terms;
+            _links = BuildDbSet(links ?? [new ProjectDataSource { ProjectId = ProjectId, DataSourceId = DataSourceId }]).Object;
+        }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
             if (typeof(TEntity) == typeof(McpGlossaryTerm))
             {
                 return (DbSet<TEntity>)(object)_terms;
+            }
+
+            if (typeof(TEntity) == typeof(ProjectDataSource))
+            {
+                return (DbSet<TEntity>)(object)_links;
             }
 
             return base.Set<TEntity>();

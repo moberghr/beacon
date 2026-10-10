@@ -1,6 +1,7 @@
 using MediatR;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Approvals;
 
@@ -13,7 +14,12 @@ internal sealed class GetApprovalDetailHandler(IQueryApprovalService approvalSer
     }
 }
 
-public record GetApprovalDetailQuery : IRequest<ApprovalRequestDetail?>
+public record GetApprovalDetailQuery : IRequest<ApprovalRequestDetail?>, IProjectAuthorizedRequest
 {
     public required int RequestId { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.ApprovalRequest(RequestId), ProjectAction.Read)
+    ];
 }

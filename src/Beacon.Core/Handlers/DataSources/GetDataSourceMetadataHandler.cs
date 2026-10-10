@@ -1,6 +1,7 @@
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
@@ -25,4 +26,10 @@ internal sealed class GetDataSourceMetadataHandler(IDatabaseMetadataService meta
     }
 }
 
-public record GetDataSourceMetadataQuery(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>;
+public record GetDataSourceMetadataQuery(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataSource(DataSourceId), ProjectAction.Read)
+    ];
+}

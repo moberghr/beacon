@@ -49,35 +49,6 @@ public class SampleAuthorizationProvider(
         return user.Roles.Any(x => x.Level >= RoleService.RoleLevels.Editor);
     }
 
-    public Task<AuthorizationResult?> AuthorizeAsync(
-        ResourceType resourceType,
-        int resourceId,
-        PermissionAction action,
-        CancellationToken cancellationToken = default)
-    {
-        // Return null to use global permissions only (no resource-level checks)
-        return Task.FromResult<AuthorizationResult?>(null);
-    }
-
-    public Task<AuthorizationResult?> AuthorizeNewResourceAsync(
-        ResourceType resourceType,
-        PermissionAction action,
-        object? resourceContext = null,
-        CancellationToken cancellationToken = default)
-    {
-        // Return null to use global permissions only (no resource-level checks)
-        return Task.FromResult<AuthorizationResult?>(null);
-    }
-
-    public Task<IEnumerable<int>?> GetAccessibleResourceIdsAsync(
-        ResourceType resourceType,
-        PermissionAction action,
-        CancellationToken cancellationToken = default)
-    {
-        // Return null = user sees all resources (no filtering)
-        return Task.FromResult<IEnumerable<int>?>(null);
-    }
-
     private async Task<BeaconUserData?> GetCurrentUserAsync(CancellationToken cancellationToken)
     {
         if (_userFetched)

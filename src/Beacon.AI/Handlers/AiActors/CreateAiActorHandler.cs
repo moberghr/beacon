@@ -4,6 +4,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
 using Beacon.Core.Authorization;
+using Beacon.Core;
 using Beacon.Core.Handlers.AiActors;
 
 namespace Beacon.AI.Handlers.AiActors;
@@ -13,15 +14,18 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
     private readonly IAiActorServiceExtended _aiActorService;
     private readonly ILogger<CreateAiActorHandler> _logger;
     private readonly IBeaconActorAccessor _actorAccessor;
+    private readonly BeaconConfiguration _configuration;
 
     public CreateAiActorHandler(
         IAiActorServiceExtended aiActorService,
         ILogger<CreateAiActorHandler> logger,
-        IBeaconActorAccessor actorAccessor)
+        IBeaconActorAccessor actorAccessor,
+        BeaconConfiguration configuration)
     {
         _aiActorService = aiActorService;
         _logger = logger;
         _actorAccessor = actorAccessor;
+        _configuration = configuration;
     }
 
     public async Task<CreateAiActorResult> Handle(
@@ -31,10 +35,9 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
         _logger.LogInformation("Creating AI Actor '{Name}' for DataSource {DataSourceId}",
             request.Name, request.DataSourceId);
 
-        // The creator is the signed-in caller, never a value from the request; an actor is never stored without one.
-        var creator = await _actorAccessor.GetCurrentAsync(cancellationToken);
-        var creatorUserId = creator.UserId
-            ?? throw new InvalidOperationException("The caller has no resolvable user to record as the AI actor's creator.");
+        // The creator is the signed-in caller, never a value from the request; an actor is never stored without one, and
+        // with user management on its creator is a stored Beacon user (its think cycles act with the creator's access).
+        var creatorUserId = ScheduledWorkOwner.Require(await _actorAccessor.GetCurrentAsync(cancellationToken), _configuration);
 
         var options = new CreateAiActorOptions
         {

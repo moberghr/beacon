@@ -62,7 +62,28 @@ describe('AddDataSourceDialog (multi-engine)', () => {
       dataSourceType: 1,
       databaseEngineType: 1,
       connectionString: 'Host=db;Database=app;Username=u;Password=p',
+      projectIds: [],
     });
+  });
+
+  it('links the new data source into the projects picked on the last step', async () => {
+    let captured: unknown = null;
+    mswServer.use(
+      http.post('*/beacon/api/data-sources', async ({ request }) => {
+        captured = await request.json();
+        return HttpResponse.json({ success: true, message: 'Created.' });
+      }),
+    );
+
+    renderWithProviders(<AddDataSourceDialog open onClose={vi.fn()} />);
+    await advanceToTestStep();
+
+    // Without a project the source stays Admin-only, and the dialog says so.
+    expect(screen.getByText(/only admins can use it until it is linked/i)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('checkbox', { name: /beta pipeline/i }));
+    fireEvent.click(screen.getByRole('button', { name: /create data source/i }));
+
+    await waitFor(() => expect(captured).toMatchObject({ projectIds: [2] }));
   });
 
   it('explains a 403 on test-connection instead of showing a bare status code', async () => {

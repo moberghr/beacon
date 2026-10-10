@@ -2,11 +2,26 @@ namespace Beacon.AI.Services.Knowledge;
 
 public interface IKnowledgeGraphService
 {
-    Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default);
-    Task<DataSourceKnowledge> GetDataSourceKnowledgeAsync(int dataSourceId, CancellationToken ct = default);
+    /// <summary>
+    /// One table's knowledge. Documentation and code references come only from the caller's AUTHORIZED
+    /// <paramref name="projectId"/>: a data source can be shared by several projects, and one project's documentation
+    /// and repositories must never reach another's caller.
+    /// </summary>
+    Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default);
+
+    /// <summary>
+    /// One data source's overview. Its code-reference count and whether documentation exists come only from the
+    /// caller's AUTHORIZED <paramref name="projectId"/>, for the same reason as on <see cref="GetTableKnowledgeAsync"/>.
+    /// </summary>
+    Task<DataSourceKnowledge> GetDataSourceKnowledgeAsync(int dataSourceId, int projectId, CancellationToken ct = default);
     Task<List<SearchResult>> SearchAsync(string query, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default);
     Task<List<SearchResult>> SearchProjectAsync(string query, int projectId, int maxResults = 20, CancellationToken ct = default);
-    Task<LineageInfo> GetLineageAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default);
+
+    /// <summary>
+    /// One table's lineage. Code references come only from the repositories of the caller's AUTHORIZED
+    /// <paramref name="projectId"/>, for the same reason as on <see cref="GetTableKnowledgeAsync"/>.
+    /// </summary>
+    Task<LineageInfo> GetLineageAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default);
     Task<string> GetContextForLlmAsync(int dataSourceId, string? schemaName = null, string? tableName = null, CancellationToken ct = default);
     Task<string> GetProjectContextForLlmAsync(int projectId, CancellationToken ct = default);
     Task<List<DataSourceKnowledge>> GetProjectDataSourcesAsync(int projectId, CancellationToken ct = default);

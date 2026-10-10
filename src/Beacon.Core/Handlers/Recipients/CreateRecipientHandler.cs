@@ -4,6 +4,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Recipients;
 
@@ -64,6 +65,7 @@ internal sealed class CreateRecipientHandler(
     }
 }
 
+[ProjectScopeExempt("recipients are project-less; changing them is admin-gated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record CreateRecipientCommand(
     string Name,
     string? Description,

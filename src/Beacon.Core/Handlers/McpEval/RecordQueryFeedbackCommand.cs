@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Retention;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -15,11 +16,15 @@ namespace Beacon.Core.Handlers.McpEval;
 /// signal is missing. R12: explicit feedback content (<see cref="Data.Entities.McpQuerySignal.UserCorrectedSql"/>,
 /// <see cref="Data.Entities.McpQuerySignal.FeedbackNote"/>) is persisted only when the project's content-retention
 /// decision allows it; promotion into a golden case (which copies the question) is blocked under the content lock.
+/// Only the signal's own caller, a ProjectAdmin of its project or an Admin records a verdict on it (403 otherwise);
+/// promotion is then sent on from here, after that check.
 /// </summary>
 internal sealed class RecordQueryFeedbackHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     ISender mediator,
     IContentRetentionPolicy policy,
+    IProjectAccessEvaluator projectAccess,
+    IBeaconActorAccessor actorAccessor,
     ILogger<RecordQueryFeedbackHandler> logger)
     : IRequestHandler<RecordQueryFeedbackCommand>
 {
@@ -31,6 +36,8 @@ internal sealed class RecordQueryFeedbackHandler(
             .Where(x => x.Id == request.SignalId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Query signal {request.SignalId} not found.");
+
+        await EnsureMayRateAsync(signal.Id, signal.UserId, signal.ProjectId, cancellationToken);
 
         var decision = await ResolveOrLockAsync(signal.ProjectId, request.SignalId, cancellationToken);
 
@@ -76,6 +83,30 @@ internal sealed class RecordQueryFeedbackHandler(
         await mediator.Send(new PromoteSignalToGoldenCommand(request.SignalId, signal.FeedbackNote), cancellationToken);
     }
 
+    // A verdict (and corrected SQL) on someone else's answer is a ProjectAdmin's or an Admin's: the signal's own caller
+    // rates it otherwise. A signal recorded without a caller has no own caller.
+    private async Task EnsureMayRateAsync(int signalId, int? signalUserId, int? signalProjectId, CancellationToken cancellationToken)
+    {
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        if (scope.IsUnrestricted)
+        {
+            return;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var isOwnSignal = signalUserId != null && signalUserId == actor.BeaconUserId;
+        var isProjectAdmin = signalProjectId != null && scope.RoleIn(signalProjectId.Value) == ProjectRole.ProjectAdmin;
+        if (!isOwnSignal && !isProjectAdmin)
+        {
+            throw AccessRefusal.Of(
+                logger,
+                actor,
+                "query signal",
+                signalId,
+                "Only the caller who asked, a project admin of the signal's project or an Admin can record feedback on it.");
+        }
+    }
+
     // §1.7 — a settings/cache failure must not escape into the tool and cost us the audit row. Fails CLOSED
     // (no content retained, no promotion), mirroring McpAuditService.RetainsContentAsync and the interceptor.
     private async Task<ContentRetentionDecision> ResolveOrLockAsync(int? projectId, int signalId, CancellationToken cancellationToken)
@@ -104,4 +135,10 @@ internal sealed class RecordQueryFeedbackHandler(
     }
 }
 
-public record RecordQueryFeedbackCommand(int SignalId, McpUserVerdict Verdict, string? CorrectedSql = null, string? Note = null) : IRequest;
+public record RecordQueryFeedbackCommand(int SignalId, McpUserVerdict Verdict, string? CorrectedSql = null, string? Note = null) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.QuerySignal(SignalId), ProjectAction.Query)
+    ];
+}

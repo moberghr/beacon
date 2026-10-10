@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpSettings;
 
@@ -35,6 +36,7 @@ internal sealed class GetMcpProjectSettingsHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated security configuration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetMcpProjectSettingsQuery(int ProjectId) : IRequest<GetMcpProjectSettingsResult>;
 
 /// <param name="Overrides">Stored per-project values; a null member means "inherit".</param>

@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
@@ -59,9 +60,16 @@ internal class DataSourceService(
             MetadataLoadTableNamesOnly = dataSourceData.MetadataLoadTableNamesOnly,
             MetadataExcludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null,
             MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null,
+            // Admin-only until a project links it: only sources that existed before project access stay open unlinked.
+            OpenWhenUnlinked = false
         };
 
         context.DataSources.Add(dataSource);
+        foreach (var projectId in dataSourceData.ProjectIds.Distinct())
+        {
+            context.ProjectDataSources.Add(new ProjectDataSource { ProjectId = projectId, DataSource = dataSource, LinkedByUserId = dataSourceData.LinkedByUserId });
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
         // For API data sources, import endpoint metadata from OpenAPI spec

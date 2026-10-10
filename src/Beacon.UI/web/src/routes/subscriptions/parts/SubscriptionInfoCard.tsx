@@ -97,13 +97,25 @@ export function SubscriptionInfoCard({ subscription }: SubscriptionInfoCardProps
             <KV
               label="Owner"
               value={
-                subscription.aiActorName ? (
-                  <span className="mono">{subscription.aiActorName} · AI</span>
+                !subscription.hasOwner ? (
+                  <span className="text-text-subtle" title="Created before owners were recorded">
+                    no owner recorded
+                  </span>
                 ) : (
-                  <span className="mono">user-defined</span>
+                  subscription.ownerDisplayName ?? (
+                    <span className="text-text-subtle" title="The recorded owner no longer matches a Beacon user">
+                      unknown user
+                    </span>
+                  )
                 )
               }
             />
+            {subscription.aiActorName && (
+              <KV
+                label="Created by"
+                value={<span className="mono">{subscription.aiActorName} · AI</span>}
+              />
+            )}
           </KvList>
         </CardBody>
       </Card>

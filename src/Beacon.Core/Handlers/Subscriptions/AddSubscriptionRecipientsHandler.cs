@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -17,4 +18,12 @@ internal sealed class AddSubscriptionRecipientsHandler(ISubscriptionService subs
     }
 }
 
-public record AddSubscriptionRecipientsCommand(int SubscriptionId, List<int> RecipientIds) : IRequest;
+public record AddSubscriptionRecipientsCommand(
+    int SubscriptionId,
+    [property: ProjectScopeExempt("recipients are project-less; attaching them needs Write on the subscription, checked")] List<int> RecipientIds) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Write)
+    ];
+}

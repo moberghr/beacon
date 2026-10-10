@@ -129,6 +129,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<ProjectDataSource> ProjectDataSources => Set<ProjectDataSource>();
 
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+
     public DbSet<GitHubRepository> GitHubRepositories => Set<GitHubRepository>();
 
     public DbSet<CodeReference> CodeReferences => Set<CodeReference>();
@@ -763,6 +765,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.UserId).HasMaxLength(100);
             entity.Property(e => e.ChangeReason).HasMaxLength(2000);
 
+            // DataSourceId records the step's source at the time of the change; it is no foreign key, so the history
+            // outlives the source.
+
             // Indexes
             // Note: Don't add explicit HasIndex for FK columns - EF Core creates indexes automatically for FKs
             entity.HasIndex(e => e.ChangedAt);
@@ -794,12 +799,19 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.AiActorId);
             entity.HasIndex(e => e.IsLocked);
             entity.Property(e => e.LockedByUserId).HasMaxLength(100);
+
+            // The creator (Users.ExternalId, like Subscription.OwnerUserId).
+            entity.Property(e => e.OwnerUserId).HasMaxLength(200);
         });
 
         // Add indexes to Subscription for AiActorId
         modelBuilder.Entity<Subscription>(entity =>
         {
             entity.HasIndex(e => e.AiActorId);
+
+            // The owner scheduled runs act as (Users.ExternalId, like DataContract.OwnerUserId).
+            entity.Property(e => e.OwnerUserId).HasMaxLength(200);
+            entity.HasIndex(e => e.OwnerUserId).HasDatabaseName("ix_subscriptions_owner_user_id");
         });
     }
 
@@ -1247,6 +1259,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             // by its (non-unique, user-editable) name. Ordinary projects leave it null.
             entity.Property(e => e.HostManagedKey).HasMaxLength(200);
             entity.HasIndex(e => e.HostManagedKey).IsUnique();
+
+            // Restricted projects are reached through membership only; no store default, every new row sets it.
+            entity.Property(e => e.RequiresMembership).IsRequired();
         });
 
         modelBuilder.Entity<DataSource>(entity =>
@@ -1255,6 +1270,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.HostManagedKey).HasMaxLength(200);
             entity.Property(e => e.HostModelHash).HasMaxLength(64);
             entity.HasIndex(e => e.HostManagedKey).IsUnique();
+
+            // Every new row sets it (false); the migration that added it opened the sources that existed then.
+            entity.Property(e => e.OpenWhenUnlinked).IsRequired();
         });
 
         modelBuilder.Entity<ProjectDataSource>(entity =>
@@ -1267,6 +1285,33 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(e => new { e.ProjectId, e.DataSourceId }).IsUnique();
+
+            // LinkedByUserId names a Users.Id without a foreign key, like ProjectMember.AddedByUserId.
+        });
+
+        // A user's role in a project. The names are explicit so both providers create the same objects. No check
+        // constraint on Role: handlers validate it. AddedByUserId is no foreign key (a second path from Users).
+        modelBuilder.Entity<ProjectMember>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_project_members");
+            entity.Property(e => e.Role).HasConversion<int>();
+
+            entity.HasOne(e => e.Project)
+                .WithMany(e => e.Members)
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_project_members_projects_project_id");
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_project_members_users_user_id");
+
+            entity.HasIndex(e => new { e.ProjectId, e.UserId })
+                .IsUnique()
+                .HasDatabaseName("ux_project_members_project_id_user_id");
+            entity.HasIndex(e => e.UserId).HasDatabaseName("ix_project_members_user_id");
         });
 
         modelBuilder.Entity<GitHubRepository>(entity =>

@@ -101,7 +101,8 @@ public class QueryServiceHostStepTests
             null!,
             Mock.Of<IBeaconUserContext>(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new HostDataSourceGuard(new SingleHostRegistry(snapshot)));
+            new HostDataSourceGuard(new SingleHostRegistry(snapshot)),
+            TestProjectAccess.Actors());
     }
 
     private sealed class ExecutionReachedException : Exception;

@@ -26,6 +26,7 @@ using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Tests.Unit.Notifications;
 
@@ -63,7 +64,7 @@ public class NotificationResultAccessTests
         var projectResponse = await client.GetAsync("/beacon/api/projects/2/imported-documents");
         var response = await client.GetAsync("/beacon/api/notifications/2");
 
-        projectResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        projectResponse.StatusCode.Should().Be(HttpStatusCode.NotFound, "another project is unreadable to the key, as if missing");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await response.Content.ReadAsStringAsync()).Should().NotContain("HR1210010051863000160");
     }
@@ -109,7 +110,7 @@ public class NotificationResultAccessTests
 
         detail.StatusCode.Should().Be(HttpStatusCode.NotFound);
         list.RootElement.GetProperty("items").GetArrayLength().Should().Be(0);
-        project.StatusCode.Should().Be(HttpStatusCode.Forbidden, "a scoped caller without projects is denied every project, and every run");
+        project.StatusCode.Should().Be(HttpStatusCode.NotFound, "a scoped caller without projects reaches no project, and no run");
     }
 
     // --- who reads which run ------------------------------------------------------------------------------------
@@ -131,16 +132,16 @@ public class NotificationResultAccessTests
     [TestCaseSource(nameof(CallersThatReadNoRun))]
     public async Task Handler_CallerThatReadsNoRun_GetsNoDetail_AndAnEmptyList(ClaimsPrincipal? caller)
     {
-        var accessor = new HttpContextAccessor { HttpContext = caller == null ? null : new DefaultHttpContext { User = caller } };
+        var access = TestProjectAccess.ForPrincipal(caller);
         var service = CreateService(Factory());
 
         foreach (var id in RunIds)
         {
-            var result = await new GetNotificationDetailHandler(service, accessor).Handle(new GetNotificationDetailQuery(id), CancellationToken.None);
+            var result = await new GetNotificationDetailHandler(service, access).Handle(new GetNotificationDetailQuery(id), CancellationToken.None);
             result.Entry.Should().BeNull($"run {id} is not readable");
         }
 
-        var page = await new GetNotificationsHandler(service, accessor).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
+        var page = await new GetNotificationsHandler(service, access).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
         page.Items.Should().BeEmpty();
     }
 
@@ -167,11 +168,11 @@ public class NotificationResultAccessTests
         string allowedProjects, int runId, bool readable)
     {
         var caller = Principal(("auth_method", "mcp_caller"), ("scope", "Read"), ("allowed_projects", allowedProjects));
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
+        var access = TestProjectAccess.ForPrincipal(caller);
         var service = CreateService(Factory());
 
-        var detail = await new GetNotificationDetailHandler(service, accessor).Handle(new GetNotificationDetailQuery(runId), CancellationToken.None);
-        var page = await new GetNotificationsHandler(service, accessor).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
+        var detail = await new GetNotificationDetailHandler(service, access).Handle(new GetNotificationDetailQuery(runId), CancellationToken.None);
+        var page = await new GetNotificationsHandler(service, access).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
 
         if (readable)
         {
@@ -184,22 +185,6 @@ public class NotificationResultAccessTests
             detail.Entry.Should().BeNull();
             page.Items.Select(x => x.Id).Should().NotContain(runId);
         }
-    }
-
-    [Test]
-    public void Scope_OfEachKindOfCaller()
-    {
-        var anonymous = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-1")]));
-
-        StoredRunAccess.ScopeOf(null).Should().BeSameAs(StoredRunScope.None);
-        StoredRunAccess.ScopeOf(anonymous).Should().BeSameAs(StoredRunScope.None);
-        StoredRunAccess.ScopeOf(Principal(("auth_method", "api_key"), ("scope", "Read"))).Should().BeSameAs(StoredRunScope.None);
-        StoredRunAccess.ScopeOf(Principal(("auth_method", "mcp_caller"), ("scope", "Read"))).Should().BeSameAs(StoredRunScope.None);
-        StoredRunAccess.ScopeOf(Principal((ClaimTypes.NameIdentifier, "ext-1"))).Should().BeSameAs(StoredRunScope.Unrestricted);
-        StoredRunAccess.ScopeOf(ApiKey("[2,1,2]")).AllowedProjectIds.Should().Equal(2, 1);
-        StoredRunAccess.ScopeOf(ApiKey("")).AllowedProjectIds.Should().BeEmpty();
-        StoredRunAccess.ScopeOf(Principal((ClaimTypes.NameIdentifier, "ext-1"), ("allowed_projects", "[1]")))
-            .AllowedProjectIds.Should().Equal([1], "whoever carries the claim is restricted by it");
     }
 
     [TestCase("")]
@@ -339,26 +324,37 @@ public class NotificationResultAccessTests
 
     private static GetNotificationDetailHandler DetailHandler(ClaimsPrincipal caller)
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
-
-        return new GetNotificationDetailHandler(CreateService(Factory()), accessor);
+        return new GetNotificationDetailHandler(CreateService(Factory()), TestProjectAccess.ForPrincipal(caller));
     }
 
     private static async Task<WebApplication> StartAsync(ClaimsPrincipal caller)
     {
         var accessor = new HttpContextAccessor();
+        var access = TestProjectAccess.ForPrincipal(caller);
         var service = CreateService(Factory());
 
         var mediator = new Mock<IMediator>();
         mediator
             .Setup(x => x.Send(It.IsAny<GetNotificationDetailQuery>(), It.IsAny<CancellationToken>()))
-            .Returns((GetNotificationDetailQuery q, CancellationToken ct) => new GetNotificationDetailHandler(service, accessor).Handle(q, ct));
+            .Returns((GetNotificationDetailQuery q, CancellationToken ct) => new GetNotificationDetailHandler(service, access).Handle(q, ct));
         mediator
             .Setup(x => x.Send(It.IsAny<GetNotificationsQuery>(), It.IsAny<CancellationToken>()))
-            .Returns((GetNotificationsQuery q, CancellationToken ct) => new GetNotificationsHandler(service, accessor).Handle(q, ct));
+            .Returns((GetNotificationsQuery q, CancellationToken ct) => new GetNotificationsHandler(service, access).Handle(q, ct));
+        // The project route is decided by the project authorization behaviour, as the MediatR pipeline runs it.
+        var authorizer = new ProjectRequestAuthorizer(
+            access,
+            new ProjectResolver(),
+            new SqlCapture().Factory(),
+            TestProjectAccess.Actors(),
+            NullLogger<ProjectRequestAuthorizer>.Instance);
         mediator
             .Setup(x => x.Send(It.IsAny<GetImportedDocumentsQuery>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new GetImportedDocumentsResult([]));
+            .Returns(async (GetImportedDocumentsQuery q, CancellationToken ct) =>
+            {
+                await authorizer.DemandAsync(((IProjectAuthorizedRequest)q).ProjectChecks, ct);
+
+                return new GetImportedDocumentsResult([]);
+            });
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.WebHost.UseTestServer();
@@ -373,7 +369,8 @@ public class NotificationResultAccessTests
             context.User = caller;
             await next(context);
         });
-        var api = app.MapGroup("/beacon/api");
+        var api = app.MapGroup("/beacon/api")
+            .AddEndpointFilter<BeaconAccessExceptionEndpointFilter>();
         api.MapNotificationsEndpoints();
         api.MapProjectsEndpoints();
         await app.StartAsync();
@@ -475,5 +472,12 @@ public class NotificationResultAccessTests
             Comment = comment,
             DataSourceIds = dataSourceIds
         };
+    }
+
+    // Every project exists: a project resource resolves to itself.
+    private sealed class ProjectResolver : IProjectResourceResolver
+    {
+        public Task<ResolvedProjectResource> ResolveAsync(BeaconContext context, ProjectResource resource, CancellationToken cancellationToken) =>
+            Task.FromResult(ResolvedProjectResource.InProject(resource.Id));
     }
 }

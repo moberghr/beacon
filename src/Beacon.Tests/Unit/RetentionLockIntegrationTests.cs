@@ -189,7 +189,7 @@ public class RetentionLockIntegrationTests
             .Setup(x => x.ResolveAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(ContentRetentionDecision.From(settings));
 
-        var handler = new RecordQueryFeedbackHandler(factory, mediator.Object, policy.Object, NullLogger<RecordQueryFeedbackHandler>.Instance);
+        var handler = new RecordQueryFeedbackHandler(factory, mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(seededSignal.Id, McpUserVerdict.Correct, FeedbackCorrectedSql, FeedbackNote),

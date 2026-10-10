@@ -97,7 +97,8 @@ public class QueryServiceDraftPreviewTests
             null!,
             Mock.Of<IBeaconUserContext>(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
+            TestProjectAccess.Actors());
     }
 
     private sealed class DataSourcesOnlyContext : BeaconContext

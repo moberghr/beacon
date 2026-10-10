@@ -9,6 +9,7 @@ using NUnit.Framework;
 using Beacon.AI.Handlers.AiActors;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -17,6 +18,7 @@ using Beacon.Core.Handlers.Subscriptions;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
 using Beacon.Tests.Common;
+using Beacon.Core.Models;
 
 namespace Beacon.Tests.Unit;
 
@@ -74,7 +76,7 @@ public class AiActorOwnershipTests
         var command = JsonSerializer.Deserialize<CreateAiActorCommand>(
             """{"name":"watcher","instructions":"watch","dataSourceId":1,"createdByUserId":"someone-else"}""",
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")));
+        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")), new BeaconConfiguration());
 
         await handler.Handle(command, CancellationToken.None);
 
@@ -85,11 +87,11 @@ public class AiActorOwnershipTests
     [Test]
     public async Task Create_ByACallerWithoutAResolvableUser_IsRefused_AndNoActorIsStoredWithoutACreator()
     {
-        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-cid")));
+        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-cid")), new BeaconConfiguration());
 
         var act = () => handler.Handle(new CreateAiActorCommand { Name = "watcher", Instructions = "watch", DataSourceId = 1 }, CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no resolvable user*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ScheduledWorkOwner.OwnerRequiredMessage);
         _service.Verify(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -127,7 +129,7 @@ public class AiActorOwnershipTests
 
         foreach (var call in ChangesAndRuns(Actor(Interactive("ext-ben", RoleService.RoleNames.Editor))))
         {
-            await call.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+            await call.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
         }
 
         _service.VerifyNoOtherCalls();
@@ -140,7 +142,7 @@ public class AiActorOwnershipTests
 
         foreach (var call in ChangesAndRuns(Actor(Interactive("ext-cid", RoleService.RoleNames.Editor))))
         {
-            await call.Should().ThrowAsync<UnauthorizedAccessException>();
+            await call.Should().ThrowAsync<BeaconForbiddenException>();
         }
 
         _service.VerifyNoOtherCalls();
@@ -152,7 +154,7 @@ public class AiActorOwnershipTests
         var editor = () => AiActorOwnership.EnsureCreatorOrAdminAsync(Actor(Interactive("ext-ben", RoleService.RoleNames.Editor)), Factory(), 404, NullLogger.Instance, CancellationToken.None);
         var admin = () => AiActorOwnership.EnsureCreatorOrAdminAsync(Actor(Interactive("ext-admin", RoleService.RoleNames.Admin)), Factory(), 404, NullLogger.Instance, CancellationToken.None);
 
-        await editor.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+        await editor.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
         await admin.Should().ThrowAsync<InvalidOperationException>().WithMessage("AI actor 404 not found.");
     }
 
@@ -164,7 +166,7 @@ public class AiActorOwnershipTests
 
         var act = () => AiActorOwnership.EnsureCreatorOrAdminAsync(caller, capture.Factory(), ActorId, NullLogger.Instance, CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("created_by_user_id").And.Contain("FROM beacon.ai_actors");
         capture.CommandParameters[0].Values.Should().Contain(ActorId);
@@ -188,7 +190,7 @@ public class AiActorOwnershipTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>();
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
             _service.VerifyNoOtherCalls();
         }
     }
@@ -200,7 +202,7 @@ public class AiActorOwnershipTests
 
         var act = () => handler.Handle(new RequestPlanRevisionCommand { PlanId = 404, Feedback = "narrower" }, CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         _service.VerifyNoOtherCalls();
     }
 
@@ -218,7 +220,7 @@ public class AiActorOwnershipTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+            await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
             _service.VerifyNoOtherCalls();
         }
     }
@@ -237,7 +239,7 @@ public class AiActorOwnershipTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+            await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
             _service.VerifyNoOtherCalls();
         }
     }
@@ -251,8 +253,8 @@ public class AiActorOwnershipTests
         var reject = () => RejectHandler(Interactive("ext-ana", RoleService.RoleNames.Editor)).Handle(new RejectAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ana", Reason = "no" }, CancellationToken.None);
         var adminApprove = () => ApproveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-admin" }, CancellationToken.None);
 
-        await approve.Should().ThrowAsync<UnauthorizedAccessException>();
-        await reject.Should().ThrowAsync<UnauthorizedAccessException>();
+        await approve.Should().ThrowAsync<BeaconForbiddenException>();
+        await reject.Should().ThrowAsync<BeaconForbiddenException>();
         await adminApprove.Should().NotThrowAsync();
         _service.Verify(x => x.ApprovePlanAsync(It.IsAny<ApprovePlanOptions>(), It.IsAny<CancellationToken>()), Times.Once);
         _service.Verify(x => x.RejectPlanAsync(It.IsAny<RejectPlanOptions>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -265,8 +267,8 @@ public class AiActorOwnershipTests
         var editorReject = () => RejectHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new RejectAiActorPlanCommand { PlanId = 404, UserId = "ext-ben", Reason = "no" }, CancellationToken.None);
         var adminApprove = () => ApproveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ApproveAiActorPlanCommand { PlanId = 404, UserId = "ext-admin" }, CancellationToken.None);
 
-        await editorApprove.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
-        await editorReject.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*creator or an Admin*");
+        await editorApprove.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
+        await editorReject.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
         await adminApprove.Should().ThrowAsync<InvalidOperationException>().WithMessage("AI actor plan 404 not found.");
         _service.VerifyNoOtherCalls();
     }
@@ -279,7 +281,7 @@ public class AiActorOwnershipTests
 
         var act = () => AiActorOwnership.EnsureCreatorOrAdminOfPlanAsync(caller, capture.Factory(), PlanId, NullLogger.Instance, CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("FROM beacon.ai_actor_plans").And.Contain("beacon.ai_actors").And.Contain("created_by_user_id");
         capture.CommandParameters[0].Values.Should().Contain(PlanId);
@@ -293,7 +295,7 @@ public class AiActorOwnershipTests
     public async Task RunningAnActorsSubscriptionNow_IsTheCreatorsOrAnAdmins(string caller, string? role, bool allowed)
     {
         var jobs = new Mock<IJobService>();
-        var handler = new TestSubscriptionHandler(jobs.Object, Factory(), Actor(Interactive(caller, role)), NullLogger<TestSubscriptionHandler>.Instance);
+        var handler = new TestSubscriptionHandler(jobs.Object, Factory(), Actor(Interactive(caller, role)), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted), NullLogger<TestSubscriptionHandler>.Instance);
 
         var act = () => handler.Handle(new TestSubscriptionCommand(ActorSubscriptionId), CancellationToken.None);
 
@@ -304,7 +306,7 @@ public class AiActorOwnershipTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>();
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
             jobs.VerifyNoOtherCalls();
         }
     }
@@ -313,7 +315,7 @@ public class AiActorOwnershipTests
     public async Task RunningASubscriptionNoActorManages_IsUnchanged()
     {
         var jobs = new Mock<IJobService>();
-        var handler = new TestSubscriptionHandler(jobs.Object, Factory(), Actor(Interactive("ext-ben", RoleService.RoleNames.Editor)), NullLogger<TestSubscriptionHandler>.Instance);
+        var handler = new TestSubscriptionHandler(jobs.Object, Factory(), Actor(Interactive("ext-ben", RoleService.RoleNames.Editor)), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted), NullLogger<TestSubscriptionHandler>.Instance);
 
         await handler.Handle(new TestSubscriptionCommand(PlainSubscriptionId), CancellationToken.None);
 
@@ -337,7 +339,7 @@ public class AiActorOwnershipTests
     {
         var act = () => SetOwnerHandler(Interactive("ext-ana", RoleService.RoleNames.Editor)).Handle(new SetAiActorOwnerCommand(ActorId, 2), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         _actors[0].CreatedByUserId.Should().Be("ext-ana");
     }
 
@@ -387,7 +389,7 @@ public class AiActorOwnershipTests
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)
     {
-        return new BeaconActorAccessor(new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } }, Factory());
+        return TestProjectAccess.ActorAccessor(new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } }, Factory());
     }
 
     private static IBeaconActorAccessor FixedActor(BeaconActor actor)

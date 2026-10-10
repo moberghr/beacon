@@ -15,6 +15,7 @@ using Beacon.Core.Handlers.Tasks;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
+using Beacon.Core.Models;
 
 namespace Beacon.Tests.Unit.Tasks;
 
@@ -83,7 +84,7 @@ public class TaskWorkRulesTests
 
         var act = () => ResolveHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new ResolveTaskCommand(TaskId, "mine now"), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.Resolved.Should().BeFalse();
         task.ResolvedByUserId.Should().BeNull();
     }
@@ -123,7 +124,7 @@ public class TaskWorkRulesTests
 
         var act = () => ResolveHandler(Interactive("ext-cid")).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.Resolved.Should().BeFalse();
     }
 
@@ -204,7 +205,7 @@ public class TaskWorkRulesTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>();
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
             task.SnoozedUntil.Should().BeNull();
         }
     }
@@ -226,7 +227,7 @@ public class TaskWorkRulesTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>();
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
             task.Priority.Should().Be(TaskPriority.Normal);
         }
     }
@@ -339,7 +340,7 @@ public class TaskWorkRulesTests
 
         foreach (var call in calls)
         {
-            await call.Should().ThrowAsync<UnauthorizedAccessException>("a missing user id must never match a missing assignee");
+            await call.Should().ThrowAsync<BeaconForbiddenException>("a missing user id must never match a missing assignee");
         }
 
         task.Resolved.Should().BeFalse();
@@ -388,7 +389,7 @@ public class TaskWorkRulesTests
 
         var act = () => AssignHandler(Interactive("ext-cid")).Handle(new AssignTaskCommand(TaskId, "ext-cid"), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.AssigneeUserId.Should().BeNull();
     }
 
@@ -401,7 +402,7 @@ public class TaskWorkRulesTests
 
         var act = () => AssignHandler(caller).Handle(new AssignTaskCommand(TaskId, "ana"), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.AssigneeUserId.Should().BeNull();
     }
 
@@ -412,7 +413,7 @@ public class TaskWorkRulesTests
 
         var act = () => AssignHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new AssignTaskCommand(TaskId, "ext-ana"), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.AssigneeUserId.Should().BeNull();
     }
 
@@ -425,7 +426,7 @@ public class TaskWorkRulesTests
 
         var act = () => AssignHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new AssignTaskCommand(TaskId, newAssignee), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.AssigneeUserId.Should().Be("ext-ana");
     }
 
@@ -530,8 +531,8 @@ public class TaskWorkRulesTests
         var admin = () => ResolveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ResolveTaskCommand(404, null), CancellationToken.None);
         AddTask(assignee: "ext-ana");
 
-        var missingForEditor = (await editor.Should().ThrowAsync<UnauthorizedAccessException>()).Which;
-        var notTheirsForEditor = (await notTheirs.Should().ThrowAsync<UnauthorizedAccessException>()).Which;
+        var missingForEditor = (await editor.Should().ThrowAsync<BeaconForbiddenException>()).Which;
+        var notTheirsForEditor = (await notTheirs.Should().ThrowAsync<BeaconForbiddenException>()).Which;
         await admin.Should().ThrowAsync<InvalidOperationException>().WithMessage("Task 404 not found.");
         missingForEditor.Message.Should().Be(notTheirsForEditor.Message);
     }
@@ -545,10 +546,10 @@ public class TaskWorkRulesTests
 
         var act = () => handler.Handle(new SnoozeTaskCommand(TaskId, DateTime.UtcNow.AddHours(1)), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         var entry = logs.Entries.Should().ContainSingle().Subject;
         entry.Level.Should().Be(LogLevel.Warning);
-        entry.Message.Should().Contain($"task {TaskId}").And.Contain("ext-ben").And.NotContain("ext-ana");
+        entry.Message.Should().Contain($"task {TaskId}").And.Contain("user 2", "the caller is named by its Users.Id").And.NotContain("ext-ana");
     }
 
     // --- tasks assigned by earlier versions ---------------------------------------------------------------------
@@ -573,7 +574,7 @@ public class TaskWorkRulesTests
 
         var act = () => ResolveHandler(ApiKeyOf("ben", userId: 2)).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.Resolved.Should().BeFalse();
     }
 
@@ -616,7 +617,7 @@ public class TaskWorkRulesTests
 
         var act = () => AssignHandler(Interactive("host-sub-7", RoleService.RoleNames.Editor)).Handle(new AssignTaskCommand(TaskId, "host-sub-9"), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         task.AssigneeUserId.Should().BeNull();
     }
 
@@ -682,7 +683,7 @@ public class TaskWorkRulesTests
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)
     {
-        return new BeaconActorAccessor(Accessor(caller), Factory());
+        return TestProjectAccess.ActorAccessor(Accessor(caller), Factory());
     }
 
     private static IBeaconActorAccessor FixedActor(BeaconActor actor)

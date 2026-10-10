@@ -1,6 +1,7 @@
 using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Recipients;
 
@@ -41,4 +42,5 @@ internal sealed class DeleteRecipientHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
+[ProjectScopeExempt("recipients are project-less; changing them is admin-gated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record DeleteRecipientCommand(int Id) : IRequest;

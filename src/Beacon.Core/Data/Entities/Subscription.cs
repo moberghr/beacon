@@ -57,6 +57,13 @@ public class Subscription : ArchivableBaseEntity
     /// </summary>
     public int? AiActorId { get; set; }
 
+    /// <summary>
+    /// The owner's <c>Users.ExternalId</c> (the signed-in creator, or an AI actor's creator), stamped when the
+    /// subscription is created and never taken from a request body. Null for subscriptions created before owners were
+    /// recorded.
+    /// </summary>
+    public string? OwnerUserId { get; set; }
+
     public Query Query { get; set; } = null!;
 
     /// <summary>

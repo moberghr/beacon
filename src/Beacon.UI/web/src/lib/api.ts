@@ -139,3 +139,14 @@ export function httpErrorInfo(err: unknown): { status: number; body: string } | 
   }
   return undefined;
 }
+
+/**
+ * True when the request failed with 404. The API answers 404 both for a resource that does not exist and for one the
+ * caller may not read, so detail pages show the same not-found state for both.
+ */
+export function isNotFound(err: unknown): boolean {
+  return httpErrorInfo(err)?.status === 404;
+}
+
+/** The not-found state's explanation: the same for a missing resource and one the caller may not read. */
+export const NOT_FOUND_DETAIL = 'It does not exist, or you do not have access to it.';

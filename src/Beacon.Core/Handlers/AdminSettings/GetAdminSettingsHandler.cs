@@ -1,6 +1,7 @@
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.AdminSettings;
 
@@ -44,6 +45,7 @@ internal sealed class GetAdminSettingsHandler(IAppSettingsService settingsServic
     }
 }
 
+[ProjectScopeExempt("admin-gated settings, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetAdminSettingsQuery : IRequest<GetAdminSettingsResult>;
 
 public record GetAdminSettingsResult(AdminSettingsView Settings, List<AdminSettingHistoryEntry> History);

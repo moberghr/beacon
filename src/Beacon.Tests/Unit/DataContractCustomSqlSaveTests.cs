@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -63,11 +64,11 @@ public class DataContractCustomSqlSaveTests
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var editor = Interactive(RoleService.RoleNames.Editor);
-        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), new BeaconActorAccessor(Accessor(editor), factory.Object));
+        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration());
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
         _scheduler.VerifyNoOtherCalls();
     }
@@ -79,7 +80,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>("an API key carries no role, so it is never an Admin");
+        await act.Should().ThrowAsync<BeaconForbiddenException>("an API key carries no role, so it is never an Admin");
         AssertNothingWritten();
     }
 
@@ -90,7 +91,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql, isEnabled: false)), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>("a disabled rule can be switched on later");
+        await act.Should().ThrowAsync<BeaconForbiddenException>("a disabled rule can be switched on later");
         AssertNothingWritten();
     }
 
@@ -225,7 +226,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>("removing or rewriting an Admin's custom SQL is an Admin's change too");
+        await act.Should().ThrowAsync<BeaconForbiddenException>("removing or rewriting an Admin's custom SQL is an Admin's change too");
         AssertNothingWritten();
     }
 
@@ -236,7 +237,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(UpdateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         AssertNothingWritten();
     }
 
@@ -255,7 +256,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         _store.Saves.Should().Be(0);
         _store.Commits.Should().Be(0);
         _store.PurgedResults.Should().Be(0);
@@ -348,7 +349,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         contract.ArchivedTime.Should().BeNull();
         _store.Saves.Should().Be(0);
         _scheduler.VerifyNoOtherCalls();
@@ -414,7 +415,7 @@ public class DataContractCustomSqlSaveTests
         // Disabling it and pointing it at another data source.
         var act = () => handler.Handle(UpdateCommand(VolumeRule()) with { DataSourceId = 99, IsEnabled = false }, CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
         contract.IsEnabled.Should().BeTrue();
         contract.DataSourceId.Should().Be(DataSourceId);
         AssertNothingWritten();
@@ -450,7 +451,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
         contract.ArchivedTime.Should().BeNull();
         _scheduler.VerifyNoOtherCalls();
     }
@@ -474,7 +475,7 @@ public class DataContractCustomSqlSaveTests
 
         var act = () => handler.Handle(CreateCommand(VolumeRule()), CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no resolvable user*");
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ScheduledWorkOwner.OwnerRequiredMessage);
         AssertNothingWritten();
     }
 
@@ -491,9 +492,9 @@ public class DataContractCustomSqlSaveTests
         Func<Task> adminDelete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(Admin()), Actor(Admin()), NullLogger<DeleteDataContractHandler>.Instance)
             .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
 
-        await update.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
-        await delete.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
-        await evaluate.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        await update.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
+        await delete.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
+        await evaluate.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
         await adminDelete.Should().ThrowAsync<BeaconException>().WithMessage($"Data contract {ContractId} not found");
         _evaluation.VerifyNoOtherCalls();
         AssertNothingWritten();
@@ -510,9 +511,9 @@ public class DataContractCustomSqlSaveTests
         Func<Task> delete = () => DeleteHandler(caller, contract).Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
         Func<Task> evaluate = () => EvaluateHandler(caller, contract).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
 
-        await update.Should().ThrowAsync<UnauthorizedAccessException>();
-        await delete.Should().ThrowAsync<UnauthorizedAccessException>();
-        await evaluate.Should().ThrowAsync<UnauthorizedAccessException>();
+        await update.Should().ThrowAsync<BeaconForbiddenException>();
+        await delete.Should().ThrowAsync<BeaconForbiddenException>();
+        await evaluate.Should().ThrowAsync<BeaconForbiddenException>();
         contract.ArchivedTime.Should().BeNull();
         _evaluation.VerifyNoOtherCalls();
         AssertNothingWritten();
@@ -537,7 +538,7 @@ public class DataContractCustomSqlSaveTests
         }
         else
         {
-            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+            await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
             _evaluation.VerifyNoOtherCalls();
         }
     }
@@ -562,7 +563,7 @@ public class DataContractCustomSqlSaveTests
         var act = () => SetOwnerHandler(Interactive(RoleService.RoleNames.Editor), ContextFactory(OrdinarySource(), contract, users: Users()))
             .Handle(new SetDataContractOwnerCommand(ContractId, 3), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         contract.OwnerUserId.Should().Be("1");
     }
 
@@ -620,7 +621,7 @@ public class DataContractCustomSqlSaveTests
 
     private CreateDataContractHandler CreateHandler(DataSource? dataSource, ClaimsPrincipal user)
     {
-        return new CreateDataContractHandler(ContextFactory(dataSource), _scheduler.Object, UserContext(user), TestSqlGate.Create(), Actor(user));
+        return new CreateDataContractHandler(ContextFactory(dataSource), _scheduler.Object, UserContext(user), TestSqlGate.Create(), Actor(user), new BeaconConfiguration());
     }
 
     private UpdateDataContractHandler UpdateHandler(ClaimsPrincipal user, DataSource? dataSource, params DataContractRule[] existingRules)
@@ -777,7 +778,7 @@ public class DataContractCustomSqlSaveTests
 
     private BeaconActorAccessor Actor(ClaimsPrincipal user)
     {
-        return new BeaconActorAccessor(Accessor(user), ContextFactory(dataSource: null));
+        return TestProjectAccess.ActorAccessor(Accessor(user), ContextFactory(dataSource: null));
     }
 
     private static IBeaconUserContext UserContext(ClaimsPrincipal user)

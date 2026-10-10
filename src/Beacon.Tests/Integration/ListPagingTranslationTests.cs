@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.DataSources;
 using Beacon.Core.Handlers.Queries;
@@ -51,7 +52,7 @@ public class ListPagingTranslationTests
     public void ControlTowerSort_Translates(string? sort)
     {
         using var context = NpgsqlTestContext.Create();
-        var request = new GetControlTowerDataRequest { Sort = sort, PageSize = 50 };
+        var request = new GetControlTowerDataRequest { Readable = ProjectSet.All, Sort = sort, PageSize = 50 };
 
         var sql = ControlTowerService
             .ApplySort(ControlTowerService.BuildSubscriptionStatsQuery(context, request, DateTime.UtcNow.AddDays(-30)), request.SortCriteria())

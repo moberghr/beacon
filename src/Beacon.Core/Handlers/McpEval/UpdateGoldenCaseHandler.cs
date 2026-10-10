@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -47,6 +48,7 @@ internal sealed class UpdateGoldenCaseHandler(IDbContextFactory<BeaconContext> c
     }
 }
 
+[ProjectScopeExempt("admin-gated curation (the eval harness)", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record UpdateGoldenCaseCommand : IRequest
 {
     public required int Id { get; init; }

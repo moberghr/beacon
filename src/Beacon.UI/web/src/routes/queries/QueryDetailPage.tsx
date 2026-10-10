@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
-import { describeError } from '@/lib/api';
+import { describeError, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { sortToParam, toggleSort, type SortState } from '@/lib/paging';
 import { useQueryDetailQuery, usePreviewQueryMutation, type QueryPreviewResult } from './queries';
 import { QueryHero } from './parts/QueryHero';
@@ -122,8 +122,12 @@ export default function QueryDetailPage() {
       <div className="flex flex-col gap-5 p-7">
         <EmptyState
           icon={<AlertTriangle size={20} />}
-          title="Failed to load query"
-          description={detail.error instanceof Error ? detail.error.message : 'Unknown error'}
+          title={isNotFound(detail.error) ? 'Query not found' : 'Failed to load query'}
+          description={
+            isNotFound(detail.error)
+              ? NOT_FOUND_DETAIL
+              : detail.error instanceof Error ? detail.error.message : 'Unknown error'
+          }
         />
       </div>
     );

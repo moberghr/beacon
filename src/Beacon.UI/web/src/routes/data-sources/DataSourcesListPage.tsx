@@ -15,8 +15,9 @@ import {
   type DataSourceEntry,
 } from './queries';
 import { AddDataSourceDialog } from './AddDataSourceDialog';
+import { ProjectChips } from './ProjectChips';
 
-const GRID_TEMPLATE = '0.6fr 1.6fr 1fr 1fr 0.7fr 0.7fr 100px 60px';
+const GRID_TEMPLATE = '0.6fr 1.6fr 0.8fr 0.9fr 1.6fr 0.7fr 0.7fr 60px';
 
 export default function DataSourcesListPage() {
   const navigate = useNavigate();
@@ -49,6 +50,17 @@ export default function DataSourcesListPage() {
       render: r => r.databaseEngineType
         ? <span className="mono text-text-muted">{r.databaseEngineType}</span>
         : <span className="text-text-muted">—</span>,
+    },
+    {
+      key: 'projects',
+      header: 'Projects',
+      render: r => (
+        <ProjectChips
+          projects={r.projects ?? []}
+          otherProjectCount={r.otherProjectCount ?? 0}
+          openWhenUnlinked={r.openWhenUnlinked ?? true}
+        />
+      ),
     },
     {
       key: 'queries',

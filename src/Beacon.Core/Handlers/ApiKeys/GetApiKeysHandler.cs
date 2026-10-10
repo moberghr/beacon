@@ -7,6 +7,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
@@ -98,6 +99,7 @@ internal sealed class GetApiKeysHandler(
 }
 
 /// <summary>The caller's own keys, newest first; sortable by name, prefix, createdAt, lastUsedAt, expiresAt.</summary>
+[ProjectScopeExempt("owner-scoped: the caller's own keys")]
 public record GetApiKeysQuery : ListRequest, IRequest<PagedList<ApiKeyEntry>>;
 
 /// <summary>

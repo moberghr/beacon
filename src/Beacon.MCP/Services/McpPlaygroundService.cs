@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
+using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Services;
 using Beacon.MCP.Discovery;
 using Beacon.MCP.Tools;
@@ -11,6 +13,8 @@ namespace Beacon.MCP.Services;
 
 internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
 {
+    internal const string NoRequestMessage = "Access denied: the playground runs only for a signed-in request.";
+
     public IReadOnlyList<string> ToolNames => McpToolCatalog.Names;
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
@@ -19,16 +23,21 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         using var scope = serviceProvider.CreateScope();
         var sp = scope.ServiceProvider;
 
+        // The playground serves a signed-in request only. Without one there is no caller to authorize, and work with no
+        // request would otherwise be unrestricted, so it is refused outright.
         var httpUser = sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User;
-
-        // §1.4 — An API-key caller is confined to the projects in its 'allowed_projects' claim.
-        // The playground path bypasses the MCP transport's context factory, so the same restriction
-        // must be enforced here; otherwise a scoped key could target any project via the request body.
-        // Cookie/OIDC sessions carry no such claim and are not project-scoped (role-gated only).
-        if (httpUser != null && !IsProjectAllowedForCaller(httpUser, projectId))
+        if (httpUser == null)
         {
-            return new McpPlaygroundResult(
-                $"Access denied: your API key does not have access to project {projectId}.", true);
+            return new McpPlaygroundResult(NoRequestMessage, true);
+        }
+
+        // The caller's project access, as on every other path: the catalog tools read the project, the SQL-carrying
+        // tools and feedback work ad hoc in it (Query). A restricted project the caller is not a member of, and a
+        // project outside an API key's list, are refused before any tool runs.
+        var access = await sp.GetRequiredService<IProjectAccessEvaluator>().GetScopeAsync(ct);
+        if (!access.Allows(projectId, McpToolProjectAction.Of(toolName)))
+        {
+            return new McpPlaygroundResult($"Access denied: you do not have access to project {projectId}.", true);
         }
 
         // Set up project context directly (bypasses the MCP transport's context factory since this
@@ -38,14 +47,11 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         context.ActiveProjectId = projectId;
         context.AllowedProjectIds = [projectId];
 
-        if (httpUser != null)
-        {
-            var userIdClaim = httpUser.FindFirst(ClaimTypes.NameIdentifier);
-            context.UserId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
+        var userIdClaim = httpUser.FindFirst(ClaimTypes.NameIdentifier);
+        context.UserId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
 
-            var apiKeyIdClaim = httpUser.FindFirst("api_key_id");
-            context.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
-        }
+        var apiKeyIdClaim = httpUser.FindFirst("api_key_id");
+        context.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
 
         try
         {
@@ -178,32 +184,5 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         }
 
         return value is string text && bool.TryParse(text, out var fromText) ? fromText : null;
-    }
-
-    // Mirrors ProjectContextFactory's fail-closed reading of the API-key 'allowed_projects' claim.
-    // Returns true for callers that are not API keys (cookie/OIDC) — they are not project-scoped.
-    private static bool IsProjectAllowedForCaller(ClaimsPrincipal user, int projectId)
-    {
-        var isApiKey = user.HasClaim("auth_method", "api_key");
-        if (!isApiKey)
-        {
-            return true;
-        }
-
-        var allowedProjectsClaim = user.FindFirst("allowed_projects");
-        if (allowedProjectsClaim == null || string.IsNullOrEmpty(allowedProjectsClaim.Value))
-        {
-            return false;
-        }
-
-        try
-        {
-            var allowed = JsonSerializer.Deserialize<List<int>>(allowedProjectsClaim.Value);
-            return allowed != null && allowed.Contains(projectId);
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
     }
 }

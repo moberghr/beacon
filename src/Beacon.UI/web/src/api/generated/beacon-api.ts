@@ -741,6 +741,7 @@ export class BeaconApiClient {
 
   /**
    * @param search (optional)
+   * @param forApiKey (optional)
    * @param page (optional)
    * @param pageSize (optional)
    * @param sort (optional)
@@ -748,6 +749,7 @@ export class BeaconApiClient {
    */
   getProjects(
     search: string | undefined,
+    forApiKey: boolean | undefined,
     page: number | undefined,
     pageSize: number | undefined,
     sort: string | undefined,
@@ -757,6 +759,10 @@ export class BeaconApiClient {
       throw new Error("The parameter 'search' cannot be null.");
     else if (search !== undefined)
       url_ += "Search=" + encodeURIComponent("" + search) + "&";
+    if (forApiKey === null)
+      throw new Error("The parameter 'forApiKey' cannot be null.");
+    else if (forApiKey !== undefined)
+      url_ += "ForApiKey=" + encodeURIComponent("" + forApiKey) + "&";
     if (page === null) throw new Error("The parameter 'page' cannot be null.");
     else if (page !== undefined)
       url_ += "Page=" + encodeURIComponent("" + page) + "&";
@@ -1491,6 +1497,443 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<GetProjectMcpContextResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  linkProjectDataSources(
+    id: number,
+    body: LinkProjectDataSourcesRequest,
+  ): Promise<LinkProjectDataSourcesResult> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/data-sources";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processLinkProjectDataSources(_response);
+    });
+  }
+
+  protected processLinkProjectDataSources(
+    response: Response,
+  ): Promise<LinkProjectDataSourcesResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as LinkProjectDataSourcesResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<LinkProjectDataSourcesResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  unlinkProjectDataSource(
+    id: number,
+    dataSourceId: number,
+  ): Promise<UnlinkProjectDataSourceResult> {
+    let url_ =
+      this.baseUrl + "/beacon/api/projects/{id}/data-sources/{dataSourceId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processUnlinkProjectDataSource(_response);
+    });
+  }
+
+  protected processUnlinkProjectDataSource(
+    response: Response,
+  ): Promise<UnlinkProjectDataSourceResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as UnlinkProjectDataSourceResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<UnlinkProjectDataSourceResult>(null as any);
+  }
+
+  /**
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getProjectMembers(
+    projectId: number,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfProjectMemberEntry> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{projectId}/members?";
+    if (projectId === undefined || projectId === null)
+      throw new Error("The parameter 'projectId' must be defined.");
+    url_ = url_.replace("{projectId}", encodeURIComponent("" + projectId));
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetProjectMembers(_response);
+    });
+  }
+
+  protected processGetProjectMembers(
+    response: Response,
+  ): Promise<PagedListOfProjectMemberEntry> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfProjectMemberEntry);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfProjectMemberEntry>(null as any);
+  }
+
+  /**
+   * @param search (optional)
+   * @return OK
+   */
+  searchProjectMemberCandidates(
+    id: number,
+    search: string | undefined,
+  ): Promise<SearchProjectMemberCandidatesResult> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/member-candidates?";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (search === null)
+      throw new Error("The parameter 'search' cannot be null.");
+    else if (search !== undefined)
+      url_ += "search=" + encodeURIComponent("" + search) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSearchProjectMemberCandidates(_response);
+    });
+  }
+
+  protected processSearchProjectMemberCandidates(
+    response: Response,
+  ): Promise<SearchProjectMemberCandidatesResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as SearchProjectMemberCandidatesResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<SearchProjectMemberCandidatesResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  setProjectMember(
+    id: number,
+    userId: number,
+    body: SetProjectMemberRequest,
+  ): Promise<SetProjectMemberResult> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/members/{userId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (userId === undefined || userId === null)
+      throw new Error("The parameter 'userId' must be defined.");
+    url_ = url_.replace("{userId}", encodeURIComponent("" + userId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSetProjectMember(_response);
+    });
+  }
+
+  protected processSetProjectMember(
+    response: Response,
+  ): Promise<SetProjectMemberResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as SetProjectMemberResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<SetProjectMemberResult>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  removeProjectMember(id: number, userId: number): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/members/{userId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (userId === undefined || userId === null)
+      throw new Error("The parameter 'userId' must be defined.");
+    url_ = url_.replace("{userId}", encodeURIComponent("" + userId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "DELETE",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRemoveProjectMember(_response);
+    });
+  }
+
+  protected processRemoveProjectMember(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  setProjectAccessMode(
+    id: number,
+    body: SetProjectAccessModeRequest,
+  ): Promise<SetProjectAccessModeResult> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/access";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSetProjectAccessMode(_response);
+    });
+  }
+
+  protected processSetProjectAccessMode(
+    response: Response,
+  ): Promise<SetProjectAccessModeResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as SetProjectAccessModeResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<SetProjectAccessModeResult>(null as any);
   }
 
   /**
@@ -2993,13 +3436,15 @@ export class BeaconApiClient {
    * @return OK
    */
   getAllApiKeys(
-    userId: number | null | undefined,
+    userId: number | undefined,
     page: number | undefined,
     pageSize: number | undefined,
     sort: string | undefined,
   ): Promise<PagedListOfAdminApiKeyEntry> {
     let url_ = this.baseUrl + "/beacon/api/api-keys/admin?";
-    if (userId !== undefined && userId !== null)
+    if (userId === null)
+      throw new Error("The parameter 'userId' cannot be null.");
+    else if (userId !== undefined)
       url_ += "UserId=" + encodeURIComponent("" + userId) + "&";
     if (page === null) throw new Error("The parameter 'page' cannot be null.");
     else if (page !== undefined)
@@ -4047,7 +4492,10 @@ export class BeaconApiClient {
   /**
    * @return No Content
    */
-  setDataContractOwner(id: number, body: SetDataContractOwnerBody): Promise<void> {
+  setDataContractOwner(
+    id: number,
+    body: SetDataContractOwnerBody,
+  ): Promise<void> {
     let url_ = this.baseUrl + "/beacon/api/data-quality/contracts/{id}/owner";
     if (id === undefined || id === null)
       throw new Error("The parameter 'id' must be defined.");
@@ -8590,12 +9038,19 @@ export class BeaconApiClient {
    * @return No Content
    */
   updateSchemaRelationship(
+    dataSourceId: number,
     relationshipId: number,
     body: UpdateSchemaRelationshipBody,
   ): Promise<void> {
     let url_ =
       this.baseUrl +
       "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
     if (relationshipId === undefined || relationshipId === null)
       throw new Error("The parameter 'relationshipId' must be defined.");
     url_ = url_.replace(
@@ -8645,10 +9100,19 @@ export class BeaconApiClient {
   /**
    * @return No Content
    */
-  deleteSchemaRelationship(relationshipId: number): Promise<void> {
+  deleteSchemaRelationship(
+    dataSourceId: number,
+    relationshipId: number,
+  ): Promise<void> {
     let url_ =
       this.baseUrl +
       "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
     if (relationshipId === undefined || relationshipId === null)
       throw new Error("The parameter 'relationshipId' must be defined.");
     url_ = url_.replace(
@@ -8694,12 +9158,19 @@ export class BeaconApiClient {
    * @return No Content
    */
   verifySchemaRelationship(
+    dataSourceId: number,
     relationshipId: number,
     body: VerifySchemaRelationshipBody,
   ): Promise<void> {
     let url_ =
       this.baseUrl +
       "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}/verify";
+    if (dataSourceId === undefined || dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' must be defined.");
+    url_ = url_.replace(
+      "{dataSourceId}",
+      encodeURIComponent("" + dataSourceId),
+    );
     if (relationshipId === undefined || relationshipId === null)
       throw new Error("The parameter 'relationshipId' must be defined.");
     url_ = url_.replace(
@@ -16055,6 +16526,23 @@ export interface AddWidgetResult {
   [key: string]: any;
 }
 
+export interface AdminApiKeyEntry {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  allowedProjectIds: number[] | null;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  isActive: boolean;
+  userId: number | null;
+  userName: string | null;
+
+  [key: string]: any;
+}
+
 export interface AdminSettingHistoryEntry {
   settingKey: string;
   oldValue: string | null;
@@ -16228,33 +16716,16 @@ export interface AnomalySparklinePoint {
   [key: string]: any;
 }
 
-export interface AdminApiKeyEntry {
-  id: number;
-  name: string;
-  prefix: string;
-  scopes: string[];
-  allowedProjectIds: number[] | null;
-  createdAt: Date;
-  lastUsedAt: Date | null;
-  expiresAt: Date | null;
-  revokedAt: Date | null;
-  isActive: boolean;
-  userId: number | null;
-  userName: string | null;
-
-  [key: string]: any;
-}
-
 export interface ApiKeyEntry {
   id: number;
   name: string;
   prefix: string;
   scopes: string[];
-  allowedProjectIds: number[] | null;
   createdAt: Date;
   lastUsedAt: Date | null;
   expiresAt: Date | null;
   isActive: boolean;
+  allowedProjectIds?: number[] | null;
 
   [key: string]: any;
 }
@@ -16594,6 +17065,7 @@ export interface CreateDataSourceCommand {
   metadataLoadTableNamesOnly: boolean;
   metadataExcludeSchemas: string[] | null;
   metadataIncludeSchemas: string[] | null;
+  projectIds?: number[] | null;
 
   [key: string]: any;
 }
@@ -16674,8 +17146,8 @@ export interface CreateMigrationJobResult {
 export interface CreateProjectCommand {
   name: string;
   description: string | null;
-  dataSourceIds: number[];
-  repositoryUrls: string[];
+  dataSourceIds: number[] | null;
+  repositoryUrls: string[] | null;
   accessToken?: string | null;
 
   [key: string]: any;
@@ -17071,6 +17543,16 @@ export interface DataSourceEntry {
   queryCount?: number;
   migrationJobsCount?: number;
   metadataLoadingEnabled?: boolean;
+  openWhenUnlinked?: boolean;
+  projects?: DataSourceProjectChip[];
+  otherProjectCount?: number;
+
+  [key: string]: any;
+}
+
+export interface DataSourceProjectChip {
+  id?: number;
+  name?: string;
 
   [key: string]: any;
 }
@@ -17649,6 +18131,19 @@ export interface LearningStatsResult {
   [key: string]: any;
 }
 
+export interface LinkProjectDataSourcesRequest {
+  dataSourceIds: number[];
+
+  [key: string]: any;
+}
+
+export interface LinkProjectDataSourcesResult {
+  projectId: number;
+  linkedDataSourceIds: number[];
+
+  [key: string]: any;
+}
+
 export interface LoginRequest {
   username: string | null;
   password: string | null;
@@ -17808,6 +18303,14 @@ export enum McpUserVerdict {
   Incorrect = 2,
 }
 
+export interface MemberCandidate {
+  userId: number;
+  displayName: string;
+  isMember: boolean;
+
+  [key: string]: any;
+}
+
 export interface MigrationExecutionDto {
   id: number;
   migrationJobId: number;
@@ -17933,16 +18436,16 @@ export enum NotificationType {
   Webhook = 5,
 }
 
-export interface PagedListOfAiActorListItem {
-  items: AiActorListItem[];
+export interface PagedListOfAdminApiKeyEntry {
+  items: AdminApiKeyEntry[];
   totalCount: number;
   pageCount: number;
 
   [key: string]: any;
 }
 
-export interface PagedListOfAdminApiKeyEntry {
-  items: AdminApiKeyEntry[];
+export interface PagedListOfAiActorListItem {
+  items: AiActorListItem[];
   totalCount: number;
   pageCount: number;
 
@@ -18047,6 +18550,14 @@ export interface PagedListOfMigrationJobListItem {
 
 export interface PagedListOfNotificationEntry {
   items: NotificationEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfProjectMemberEntry {
+  items: ProjectMemberEntry[];
   totalCount: number;
   pageCount: number;
 
@@ -18208,6 +18719,7 @@ export interface ProblemTableEntry {
 }
 
 export interface ProjectDataSourceEntry {
+  id: number;
   name: string;
   type: string;
   tableCount: number;
@@ -18227,6 +18739,12 @@ export interface ProjectDetailEntry {
   dataSources: ProjectDataSourceEntry[];
   repositories: ProjectRepositoryEntry[];
   hasDocumentation: boolean;
+  requiresMembership: boolean;
+  myRole: ProjectRole | null;
+  canManageMembers: boolean;
+  openlyReachableDataSourceIds: number[];
+  sharedSourceProjects: SharedSourceProjectEntry[];
+  membershipManagement: ProjectMembershipManagement;
 
   [key: string]: any;
 }
@@ -18280,6 +18798,23 @@ export interface ProjectDocumentationHistoryEntry {
   [key: string]: any;
 }
 
+export interface ProjectMemberEntry {
+  userId: number;
+  displayName: string;
+  role: ProjectRole;
+  isActive: boolean;
+  addedAt: Date;
+  modifiedAt: Date | null;
+
+  [key: string]: any;
+}
+
+export enum ProjectMembershipManagement {
+  Beacon = 1,
+  Host = 2,
+  Unavailable = 3,
+}
+
 export interface ProjectRepositoryEntry {
   id: number;
   name: string;
@@ -18292,6 +18827,12 @@ export interface ProjectRepositoryEntry {
   [key: string]: any;
 }
 
+export enum ProjectRole {
+  Viewer = 1,
+  Editor = 2,
+  ProjectAdmin = 3,
+}
+
 export interface ProjectSummaryEntry {
   id: number;
   name: string;
@@ -18302,6 +18843,9 @@ export interface ProjectSummaryEntry {
   lastScanStatus: string | null;
   lastScanAt: Date | null;
   createdAt: Date;
+  requiresMembership: boolean;
+  myRole: ProjectRole | null;
+  memberCount: number;
 
   [key: string]: any;
 }
@@ -18786,6 +19330,12 @@ export enum SchemaRelationshipOrigin {
   Manual = 2,
 }
 
+export interface SearchProjectMemberCandidatesResult {
+  candidates: MemberCandidate[];
+
+  [key: string]: any;
+}
+
 export interface ServerLogModel {
   id?: number;
   taskName?: string;
@@ -18834,6 +19384,35 @@ export interface SetDataContractOwnerBody {
   [key: string]: any;
 }
 
+export interface SetProjectAccessModeRequest {
+  requiresMembership: boolean;
+
+  [key: string]: any;
+}
+
+export interface SetProjectAccessModeResult {
+  projectId: number;
+  requiresMembership: boolean;
+  sharedSourceProjects: SharedSourceProjectEntry[];
+
+  [key: string]: any;
+}
+
+export interface SetProjectMemberRequest {
+  role: ProjectRole;
+
+  [key: string]: any;
+}
+
+export interface SetProjectMemberResult {
+  projectId: number;
+  userId: number;
+  role: ProjectRole;
+  added: boolean;
+
+  [key: string]: any;
+}
+
 export interface SetQueryMcpToolRequest {
   enabled: boolean;
   name: string | null;
@@ -18869,6 +19448,16 @@ export interface SetTaskPriorityBody {
 export interface ShareDashboardBody {
   userId: string;
   permissionLevel: DashboardPermissionLevel;
+
+  [key: string]: any;
+}
+
+export interface SharedSourceProjectEntry {
+  projectId: number;
+  name: string;
+  requiresMembership: boolean;
+  sharedDataSourceIds: number[];
+  projectAdminNames: string[];
 
   [key: string]: any;
 }
@@ -18969,6 +19558,8 @@ export interface SubscriptionDetail {
   parameters: SubscriptionDetailParameter[];
   recipients: SubscriptionDetailRecipient[];
   anomalyConfig: SubscriptionDetailAnomalyConfig | null;
+  hasOwner: boolean;
+  ownerDisplayName: string | null;
 
   [key: string]: any;
 }
@@ -19247,6 +19838,14 @@ export interface UIExtensionPage {
   path: string;
   label: string;
   icon?: string | null;
+
+  [key: string]: any;
+}
+
+export interface UnlinkProjectDataSourceResult {
+  projectId: number;
+  dataSourceId: number;
+  leftUnlinked: boolean;
 
   [key: string]: any;
 }

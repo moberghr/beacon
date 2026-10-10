@@ -56,12 +56,14 @@ public static class BeaconApiEndpoints
     {
         // Group-level auth policy: every endpoint requires an authenticated cookie session.
         // Endpoints opt out via .AllowAnonymous() (health, auth/me, csrf).
-        // The scope filter always runs first: a scoped caller (API key, mapped MCP caller) needs the Execute scope for
+        // The access-exception filter is outermost: it maps refused and missing resources to 403/404 problems.
+        // The scope filter runs next: a scoped caller (API key, mapped MCP caller) needs the Execute scope for
         // every request that is not GET/HEAD/OPTIONS and for GETs marked RequiresExecuteScope().
         // The permission filter enforces Viewer (read) vs Editor (write) when authorization or user
         // management is on; it runs after antiforgery so a forged request never reaches the user lookup.
         var group = endpoints.MapGroup("/beacon/api")
             .RequireAuthorization(AuthPolicyName)
+            .AddEndpointFilter<BeaconAccessExceptionEndpointFilter>()
             .AddEndpointFilter<BeaconScopeEndpointFilter>()
             .AddEndpointFilter<AntiforgeryEndpointFilter>()
             .AddEndpointFilter<BeaconPermissionEndpointFilter>()

@@ -3,6 +3,7 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
@@ -41,4 +42,10 @@ internal sealed class RefreshDataSourceMetadataHandler(
     }
 }
 
-public record RefreshDataSourceMetadataCommand(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>;
+public record RefreshDataSourceMetadataCommand(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.SharedSource(ProjectResource.DataSource(DataSourceId), ProjectAction.Manage)
+    ];
+}

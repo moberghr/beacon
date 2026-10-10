@@ -2,9 +2,12 @@ using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Mcp;
@@ -63,7 +66,9 @@ public class BeaconActorAccessorTests
 
         var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None);
 
-        actor.Should().Be(BeaconActor.Nobody);
+        actor.UserId.Should().BeNull();
+        actor.IsAdmin.Should().BeFalse();
+        actor.BeaconUserId.Should().BeNull("no stored user is matched");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -83,6 +88,27 @@ public class BeaconActorAccessorTests
 
         actor.UserId.Should().Be("ext-admin");
         actor.IsAdmin.Should().BeFalse("an API key carries no role claim");
+    }
+
+    [Test]
+    public async Task AnApiKey_CarriesItsKeyId_AndIsLoggedByItsOwnersUsersId()
+    {
+        var principal = ApiKey(nameIdentifier: "1", userName: "ana");
+        ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(McpCallerClaimTypes.ApiKeyId, "41"));
+
+        var actor = await Resolve(principal);
+
+        actor.ApiKeyId.Should().Be(41);
+        actor.LogId.Should().Be("1", "access logs name a stored user by its Users.Id");
+    }
+
+    [Test]
+    public void ACallerWithoutAStoredUser_IsLoggedByTheIdItsSessionPresents()
+    {
+        var hostAdmin = new BeaconActor("host-admin", true) { Kind = BeaconPrincipalKind.Session };
+
+        hostAdmin.LogId.Should().Be("host-admin");
+        BeaconActor.Nobody.LogId.Should().BeNull();
     }
 
     [Test]
@@ -176,7 +202,7 @@ public class BeaconActorAccessorTests
     public async Task TheAccessor_ResolvesTheCallerOncePerScope()
     {
         var capture = new SqlCapture().ThenNoRows();
-        var accessor = new BeaconActorAccessor(Accessor(Interactive("ext-ana")), capture.Factory());
+        var accessor = TestProjectAccess.ActorAccessor(Accessor(Interactive("ext-ana")), capture.Factory());
 
         var first = await accessor.GetCurrentAsync(CancellationToken.None);
         var second = await accessor.GetCurrentAsync(CancellationToken.None);
@@ -259,6 +285,185 @@ public class BeaconActorAccessorTests
         yield return new TestCaseData(ApiKey(nameIdentifier: "0", userName: "ana")).SetName("{m}(API key with owner id zero)");
     }
 
+    [Test]
+    public async Task AMappedMcpCaller_IsItsProvisionedUserByUsersId_NotAnExternalIdLookup()
+    {
+        // A user whose ExternalId is the caller's numeric id must not be taken for it.
+        _users.Add(User(6, "2", "someone-else"));
+
+        var actor = await Resolve(McpCaller(nameIdentifier: "2", allowedProjects: "[4]"));
+
+        actor.UserId.Should().Be("ext-ben");
+        actor.Kind.Should().Be(BeaconPrincipalKind.McpCaller);
+        actor.BeaconUserId.Should().Be(2);
+        actor.CallerKind.Should().Be(McpCallerKind.User);
+        actor.ScopeCeiling.Should().Be(McpCallerScope.Execute);
+        actor.AllowedProjectIds.Should().Equal(4);
+        actor.SessionIds.Should().BeEmpty("an MCP caller never names a legacy assignee by its session ids");
+    }
+
+    [Test]
+    public async Task AMappedMcpCallerWithoutAProvisionedUser_ActsWithoutOne()
+    {
+        var actor = await Resolve(McpCaller(nameIdentifier: "f00dfeed", allowedProjects: "[4]"));
+
+        actor.UserId.Should().BeNull();
+        actor.BeaconUserId.Should().BeNull();
+        actor.Kind.Should().Be(BeaconPrincipalKind.McpCaller);
+        actor.AllowedProjectIds.Should().Equal(4);
+    }
+
+    [Test]
+    public async Task AStoredUser_CarriesItsLiveAdminStandingAndRoleLevel_WhateverItsClaims()
+    {
+        _users[0].UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = RoleService.RoleNames.Admin, Level = RoleService.RoleLevels.Admin } });
+        _users[1].UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = RoleService.RoleNames.Viewer, Level = RoleService.RoleLevels.Viewer } });
+
+        var promoted = await Resolve(Interactive("ext-ana"));
+        var demoted = await Resolve(Interactive("ext-ben", RoleService.RoleNames.Admin));
+
+        promoted.IsLiveAdmin.Should().BeTrue();
+        promoted.IsAdmin.Should().BeFalse("the claim-based Admin check is unchanged");
+        promoted.Kind.Should().Be(BeaconPrincipalKind.User);
+        demoted.IsLiveAdmin.Should().BeFalse("a stale Admin claim is not a live Admin role");
+        demoted.RoleLevel.Should().Be(RoleService.RoleLevels.Viewer);
+    }
+
+    [Test]
+    public async Task AnApiKey_CarriesItsScopeAndProjectList()
+    {
+        var actor = await Resolve(ApiKey(nameIdentifier: "1", userName: "ana"));
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.ApiKey);
+        actor.BeaconUserId.Should().Be(1);
+        actor.ScopeCeiling.Should().Be(McpCallerScope.Execute);
+        actor.AllowedProjectIds.Should().BeNull("a key without a list carries no claim");
+    }
+
+    [Test]
+    public async Task WorkWithoutARequest_IsTheSystem_AndOwnsNothing()
+    {
+        var accessor = TestProjectAccess.ActorAccessor(new HttpContextAccessor(), Factory());
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.System);
+        actor.UserId.Should().BeNull();
+        actor.IsAdmin.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task AnOwner_IsResolvedByExternalId_WithItsActiveState()
+    {
+        var accessor = TestProjectAccess.ActorAccessor(new HttpContextAccessor(), Factory());
+
+        var active = await accessor.ResolveOwnerAsync("ext-ana", CancellationToken.None);
+        var disabled = await accessor.ResolveOwnerAsync("ext-cid", CancellationToken.None);
+        var unknown = await accessor.ResolveOwnerAsync("ext-gone", CancellationToken.None);
+        var ownerless = await accessor.ResolveOwnerAsync(null, CancellationToken.None);
+
+        active.Should().BeEquivalentTo(new { Kind = BeaconPrincipalKind.Owner, UserId = "ext-ana", BeaconUserId = (int?)1, IsActiveUser = true }, x => x.ExcludingMissingMembers());
+        disabled.IsActiveUser.Should().BeFalse();
+        disabled.BeaconUserId.Should().Be(3);
+        unknown.BeaconUserId.Should().BeNull();
+        unknown.UserId.Should().Be("ext-gone");
+        ownerless.UserId.Should().BeNull();
+        ownerless.Kind.Should().Be(BeaconPrincipalKind.Owner);
+    }
+
+    [TestCase("System", McpCallerKind.System)]
+    [TestCase("User", McpCallerKind.User)]
+    [TestCase("", null)]
+    [TestCase("system", null)]
+    [TestCase("99", null)]
+    [TestCase(null, null)]
+    public async Task AMappedMcpCallersKind_IsReadOnlyFromItsExactName(string? callerKind, McpCallerKind? expected)
+    {
+        var actor = await Resolve(McpCallerWith(callerKind, BeaconScopes.Execute, nameIdentifier: "f00dfeed"));
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.McpCaller);
+        actor.CallerKind.Should().Be(expected);
+    }
+
+    [TestCase(BeaconScopes.Execute, McpCallerScope.Execute)]
+    [TestCase(BeaconScopes.Read, McpCallerScope.Read)]
+    [TestCase(null, null)]
+    public async Task AScopedCallersScope_IsExecuteOrRead_OrNoneWithoutTheClaim(string? scope, McpCallerScope? expected)
+    {
+        var key = await Resolve(ApiKeyWith(nameIdentifier: "1", userName: "ana", scope));
+        var caller = await Resolve(McpCallerWith(nameof(McpCallerKind.User), scope, nameIdentifier: "2"));
+
+        key.Kind.Should().Be(BeaconPrincipalKind.ApiKey);
+        key.ScopeCeiling.Should().Be(expected);
+        caller.Kind.Should().Be(BeaconPrincipalKind.McpCaller);
+        caller.ScopeCeiling.Should().Be(expected);
+    }
+
+    [TestCase("3")]
+    [TestCase("4")]
+    public async Task AScopedCallerOfADisabledOrArchivedUser_IsNobody(string userId)
+    {
+        var key = await Resolve(ApiKey(nameIdentifier: userId, userName: "cid"));
+        var caller = await Resolve(McpCallerWith(nameof(McpCallerKind.User), BeaconScopes.Execute, nameIdentifier: userId));
+
+        key.Should().BeSameAs(BeaconActor.Nobody);
+        caller.Should().BeSameAs(BeaconActor.Nobody);
+    }
+
+    [Test]
+    public async Task WorkWithoutARequest_InAScopeMarkedAsSystemWork_IsTheSystem_WithoutAWarning()
+    {
+        var logs = new LogRecorder();
+        var systemWork = new SystemWorkScope();
+        systemWork.MarkAsSystemWork();
+        var accessor = new BeaconActorAccessor(
+            new HttpContextAccessor(),
+            Factory(),
+            systemWork,
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()));
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.System);
+        logs.Entries.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task WorkWithoutARequest_InAnUnmarkedScope_IsStillTheSystem_AndWarnsAtMostOncePerInterval()
+    {
+        var logs = new LogRecorder();
+        var time = new FakeTimeProvider();
+        var unmarked = new UnmarkedSystemWorkLog(time, logs.For<UnmarkedSystemWorkLog>());
+
+        var first = await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), unmarked).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), unmarked).GetCurrentAsync(CancellationToken.None);
+        var afterBurst = logs.Entries.Count;
+        time.Advance(UnmarkedSystemWorkLog.Interval);
+        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), unmarked).GetCurrentAsync(CancellationToken.None);
+
+        first.Kind.Should().Be(BeaconPrincipalKind.System);
+        afterBurst.Should().Be(1, "a second unmarked scope within the interval is not reported again");
+        logs.Entries.Should().HaveCount(2);
+        logs.Entries.Should().OnlyContain(x => x.Level == LogLevel.Warning && x.Message.Contains("not marked as system work"));
+    }
+
+    [Test]
+    public async Task ARequestsCaller_IsResolvedFromItsPrincipal_EvenInAScopeMarkedAsSystemWork()
+    {
+        var systemWork = new SystemWorkScope();
+        systemWork.MarkAsSystemWork();
+        var accessor = new BeaconActorAccessor(
+            Accessor(Interactive("ext-ana")),
+            Factory(),
+            systemWork,
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()));
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.User);
+        actor.UserId.Should().Be("ext-ana");
+    }
+
     private Task<BeaconActor> Resolve(ClaimsPrincipal principal)
     {
         return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None);
@@ -310,6 +515,57 @@ public class BeaconActorAccessorTests
         }
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Cookies"));
+    }
+
+    private static ClaimsPrincipal McpCaller(string nameIdentifier, string allowedProjects)
+    {
+        var claims = new List<Claim>
+        {
+            new(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod),
+            new(McpCallerClaimTypes.Scope, "Execute"),
+            new(McpCallerClaimTypes.CallerKind, nameof(McpCallerKind.User)),
+            new(McpCallerClaimTypes.AllowedProjects, allowedProjects),
+            new(ClaimTypes.NameIdentifier, nameIdentifier)
+        };
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
+    }
+
+    private static ClaimsPrincipal McpCallerWith(string? callerKind, string? scope, string nameIdentifier)
+    {
+        var claims = new List<Claim>
+        {
+            new(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod),
+            new(McpCallerClaimTypes.AllowedProjects, "[4]"),
+            new(ClaimTypes.NameIdentifier, nameIdentifier)
+        };
+        if (callerKind != null)
+        {
+            claims.Add(new Claim(McpCallerClaimTypes.CallerKind, callerKind));
+        }
+
+        if (scope != null)
+        {
+            claims.Add(new Claim(McpCallerClaimTypes.Scope, scope));
+        }
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
+    }
+
+    private static ClaimsPrincipal ApiKeyWith(string nameIdentifier, string userName, string? scope)
+    {
+        var claims = new List<Claim>
+        {
+            new(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.ApiKeyAuthMethod),
+            new(McpCallerClaimTypes.UserNameClaim, userName),
+            new(ClaimTypes.NameIdentifier, nameIdentifier)
+        };
+        if (scope != null)
+        {
+            claims.Add(new Claim(McpCallerClaimTypes.Scope, scope));
+        }
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, McpCallerClaimTypes.ApiKeyAuthenticationType));
     }
 
     private static ClaimsPrincipal ApiKey(string? nameIdentifier, string userName)

@@ -3,6 +3,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
@@ -38,6 +39,7 @@ internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> c
 }
 
 /// <summary>Newest first unless <c>sort</c> says otherwise; <c>search</c> matches the job name.</summary>
+[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetMigrationJobsQuery : ListRequest, IRequest<PagedList<MigrationJobListItem>>
 {
     public string? Search { get; init; }

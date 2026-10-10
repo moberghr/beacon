@@ -23,6 +23,7 @@ internal sealed class SqlCapture
     private readonly List<string> _commands = [];
     private readonly List<IReadOnlyDictionary<string, object?>> _parameters = [];
     private readonly List<IsolationLevel> _transactions = [];
+    private Func<string, (Func<DbDataReader> Reader, int RowsAffected)>? _fallback;
 
     public IReadOnlyList<string> Commands => _commands;
 
@@ -30,6 +31,23 @@ internal sealed class SqlCapture
     public IReadOnlyList<IReadOnlyDictionary<string, object?>> CommandParameters => _parameters;
 
     public IReadOnlyList<IsolationLevel> TransactionIsolationLevels => _transactions;
+
+    /// <summary>How many of the stand-in transactions were committed (the others were rolled back or disposed).</summary>
+    public int Commits { get; private set; }
+
+    /// <summary>
+    /// Answers every command the script does not: a <c>count(*)</c> read with one, anything else with no rows. For tests
+    /// that compare the SQL a handler sends, not what it does with the rows.
+    /// </summary>
+    public SqlCapture AnsweringCountsWithOne()
+    {
+        _fallback = sql => sql.Contains("count(*)", StringComparison.OrdinalIgnoreCase)
+            && sql.TrimStart().StartsWith("SELECT count(", StringComparison.OrdinalIgnoreCase)
+                ? (() => Scalar(1), 1)
+                : (() => new DataTable().CreateDataReader(), 1);
+
+        return this;
+    }
 
     /// <summary>Answers the next command with no rows.</summary>
     public SqlCapture ThenNoRows()
@@ -39,7 +57,10 @@ internal sealed class SqlCapture
         return this;
     }
 
-    /// <summary>Answers the next command with one row holding <paramref name="values"/>, in column order.</summary>
+    /// <summary>
+    /// Answers the next command with one row holding <paramref name="values"/>, in column order; <see cref="DBNull.Value"/>
+    /// stands for a null column.
+    /// </summary>
     public SqlCapture ThenRow(params object[] values)
     {
         _answers.Enqueue((() =>
@@ -47,7 +68,7 @@ internal sealed class SqlCapture
             var table = new DataTable();
             for (var i = 0; i < values.Length; i++)
             {
-                table.Columns.Add($"c{i}", values[i].GetType());
+                table.Columns.Add($"c{i}", ColumnTypeOf(values[i]));
             }
 
             table.Rows.Add(values);
@@ -58,10 +79,45 @@ internal sealed class SqlCapture
         return this;
     }
 
+    /// <summary>Answers the next command with <paramref name="rows"/>, each holding its values in column order.</summary>
+    public SqlCapture ThenRows(params object[][] rows)
+    {
+        if (rows.Length == 0)
+        {
+            return ThenNoRows();
+        }
+
+        _answers.Enqueue((() =>
+        {
+            var table = new DataTable();
+            for (var i = 0; i < rows[0].Length; i++)
+            {
+                table.Columns.Add($"c{i}", ColumnTypeOf(rows[0][i]));
+            }
+
+            foreach (var row in rows)
+            {
+                table.Rows.Add(row);
+            }
+
+            return table.CreateDataReader();
+        }, rows.Length));
+
+        return this;
+    }
+
     /// <summary>Answers the next command, a write such as <c>ExecuteUpdateAsync</c>, as having changed <paramref name="rows"/> rows.</summary>
     public SqlCapture ThenRowsAffected(int rows)
     {
         _answers.Enqueue((() => new DataTable().CreateDataReader(), rows));
+
+        return this;
+    }
+
+    /// <summary>Answers the next command by throwing <paramref name="exception"/>, as the database would on a failed write.</summary>
+    public SqlCapture ThenThrow(Exception exception)
+    {
+        _answers.Enqueue((() => throw exception, 0));
 
         return this;
     }
@@ -79,6 +135,30 @@ internal sealed class SqlCapture
         }, 1));
 
         return this;
+    }
+
+    // A null column is read through IsDBNull, whatever its type.
+    private static Type ColumnTypeOf(object value)
+    {
+        return value is DBNull ? typeof(string) : value.GetType();
+    }
+
+    private static DbDataReader Scalar(object value)
+    {
+        var table = new DataTable();
+        table.Columns.Add("value", value.GetType());
+        table.Rows.Add(value);
+
+        return table.CreateDataReader();
+    }
+
+    /// <summary>
+    /// The interceptors that keep a context offline without capturing its commands: opening a connection is suppressed and
+    /// transactions are stand-ins recorded in <see cref="TransactionIsolationLevels"/>.
+    /// </summary>
+    internal IInterceptor[] OfflineInterceptors()
+    {
+        return [new NoConnection(), new StandInTransactions(this)];
     }
 
     public IDbContextFactory<BeaconContext> Factory()
@@ -113,6 +193,13 @@ internal sealed class SqlCapture
             _parameters.Add(parameters
                 .Cast<DbParameter>()
                 .ToDictionary(x => x.ParameterName, x => x.Value == DBNull.Value ? null : x.Value));
+            if (_answers.Count == 0 && _fallback != null)
+            {
+                var fallback = _fallback(sql);
+
+                return (fallback.Reader(), fallback.RowsAffected);
+            }
+
             if (_answers.Count == 0)
             {
                 throw new SqlCapturedException();
@@ -164,7 +251,7 @@ internal sealed class SqlCapture
         {
             capture._transactions.Add(eventData.IsolationLevel);
 
-            return InterceptionResult<DbTransaction>.SuppressWithResult(new StandInTransaction(connection, eventData.IsolationLevel));
+            return InterceptionResult<DbTransaction>.SuppressWithResult(new StandInTransaction(capture, connection, eventData.IsolationLevel));
         }
 
         public override ValueTask<InterceptionResult<DbTransaction>> TransactionStartingAsync(
@@ -177,7 +264,7 @@ internal sealed class SqlCapture
         }
     }
 
-    private sealed class StandInTransaction(DbConnection connection, IsolationLevel isolationLevel) : DbTransaction
+    private sealed class StandInTransaction(SqlCapture capture, DbConnection connection, IsolationLevel isolationLevel) : DbTransaction
     {
         public override IsolationLevel IsolationLevel => isolationLevel;
 
@@ -185,6 +272,7 @@ internal sealed class SqlCapture
 
         public override void Commit()
         {
+            capture.Commits++;
         }
 
         public override void Rollback()

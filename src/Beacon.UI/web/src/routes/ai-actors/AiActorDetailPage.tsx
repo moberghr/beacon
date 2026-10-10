@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeftRight } from 'lucide-react';
 import { Button, Card, CardBody, KPI, KPIGrid, PageHeader } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useIsAdmin } from '@/auth/useAuth';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
@@ -55,8 +56,8 @@ export default function AiActorDetailPage() {
       {isError && (
         <EmptyState
           icon={<AlertTriangle />}
-          title="Failed to load actor"
-          description={error instanceof Error ? error.message : 'Unknown error'}
+          title={isNotFound(error) ? 'AI actor not found' : 'Failed to load actor'}
+          description={isNotFound(error) ? NOT_FOUND_DETAIL : error instanceof Error ? error.message : 'Unknown error'}
         />
       )}
 

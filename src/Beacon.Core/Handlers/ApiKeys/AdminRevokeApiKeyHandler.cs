@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
@@ -31,4 +32,5 @@ internal sealed class AdminRevokeApiKeyHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated key administration, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record AdminRevokeApiKeyCommand(int KeyId) : IRequest;

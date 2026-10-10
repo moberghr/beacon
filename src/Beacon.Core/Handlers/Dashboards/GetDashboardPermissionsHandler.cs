@@ -49,6 +49,7 @@ internal sealed class GetDashboardPermissionsHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record GetDashboardPermissionsQuery(int DashboardId) : IRequest<List<DashboardPermissionData>>;
 
 public record DashboardPermissionData

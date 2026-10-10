@@ -4,6 +4,7 @@ import { useIsAdmin } from '@/auth/useAuth';
 import { toast } from 'sonner';
 import { PageHeader, Button, Card, KPI, KPIGrid, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { Tabs } from '@/components/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
@@ -75,9 +76,11 @@ export default function DataContractDetailPage() {
     return (
       <div className="flex flex-col gap-5 p-7">
         <EmptyState
-          title="Contract not found"
+          title={contractQ.isError && !isNotFound(contractQ.error) ? 'Failed to load contract' : 'Contract not found'}
           description={
-            contractQ.error instanceof Error ? contractQ.error.message : 'It may have been deleted.'
+            !contractQ.isError || isNotFound(contractQ.error)
+              ? NOT_FOUND_DETAIL
+              : contractQ.error instanceof Error ? contractQ.error.message : 'Unknown error'
           }
         />
       </div>

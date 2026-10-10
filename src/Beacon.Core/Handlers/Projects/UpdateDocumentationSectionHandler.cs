@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -32,4 +33,10 @@ internal sealed class UpdateDocumentationSectionHandler(
 
 public record UpdateDocumentationSectionCommand(
     int SectionId,
-    string Content) : IRequest;
+    string Content) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DocumentationSection(SectionId), ProjectAction.Write)
+    ];
+}

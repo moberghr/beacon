@@ -56,7 +56,13 @@ internal sealed class GetTaskDetailHandler(
     }
 }
 
-public record GetTaskDetailQuery(int Id) : IRequest<TaskDetailResult?>;
+public record GetTaskDetailQuery(int Id) : IRequest<TaskDetailResult?>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(Id), ProjectAction.Read)
+    ];
+}
 
 /// <summary>
 /// A task's detail. <c>AssignedToCaller</c> says whether the caller is the task's assignee, the check resolving,

@@ -2,6 +2,8 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Handlers.Home;
 
@@ -9,12 +11,13 @@ namespace Beacon.Core.Handlers.Home;
 /// Per-hour execution status for the BeaconHero status rail.
 /// 24 buckets, oldest → newest. Empty hour → "muted".
 /// </summary>
-internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetExecutionUptimeQuery, GetExecutionUptimeResult>
 {
     public async Task<GetExecutionUptimeResult> Handle(GetExecutionUptimeQuery request, CancellationToken cancellationToken)
     {
         var hours = Math.Clamp(request.Hours, 1, 168);
+        var runScope = await StoredRunAccess.ScopeOfAsync(projectAccess, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -27,6 +30,7 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
         var firstBucketStart = currentHourStart.AddHours(-(hours - 1));
 
         var rows = await context.QueryExecutionHistory
+            .WhereReadableWithin(context, runScope)
             .Where(x => x.CreatedTime >= firstBucketStart)
             .Select(x => new { x.CreatedTime, x.NotificationStatus })
             .ToListAsync(cancellationToken);
@@ -76,6 +80,6 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
     };
 }
 
-public record GetExecutionUptimeQuery(int Hours = 24) : IRequest<GetExecutionUptimeResult>;
+public record GetExecutionUptimeQuery(int Hours = 24) : IRequest<GetExecutionUptimeResult>, IProjectFilteredRequest;
 
 public record GetExecutionUptimeResult(string[] Ticks);

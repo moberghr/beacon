@@ -7,11 +7,13 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
+using Beacon.Core.Models;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -30,6 +32,7 @@ public class FeedbackToolTests
 {
     private const int SignalId = 812;
     private const int SignalProjectId = 42;
+    private const int ProjectlessSignalId = 813;
     private const string PiiSql = "SELECT ssn FROM patients WHERE email = 'john@example.com'";
     private const string PiiNote = "wrong — should filter to patient 12345 (john@example.com)";
 
@@ -96,15 +99,12 @@ public class FeedbackToolTests
     }
 
     [Test]
-    public async Task SignalNotFound_AuditsNullProject_AndSurfacesHandlerError()
+    public async Task SignalNotFound_AuditsNullProject_AndNeverSends()
     {
-        // A signal_id outside the seeded set: the tool's project lookup finds nothing (null attribution)
-        // and RecordQueryFeedbackHandler rejects the command. The mocked mediator reproduces the handler's
-        // actual throw — InvalidOperationException($"Query signal {id} not found.").
+        // A signal_id outside the seeded set: the tool's project lookup finds nothing (null attribution), so the
+        // signal has no project to rate it in and the tool refuses it before the command.
         const int unknownSignalId = 999;
-        var mediator = new Mock<IMediator>();
-        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException($"Query signal {unknownSignalId} not found."));
+        var mediator = new Mock<IMediator>(MockBehavior.Strict);
 
         var (tool, audit) = BuildTool(mediator);
 
@@ -112,13 +112,123 @@ public class FeedbackToolTests
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text
-            .Should().Contain($"Query signal {unknownSignalId} not found.");
+            .Should().Be($"Query signal {unknownSignalId} not found.");
         audit.Logs.Should().ContainSingle();
         audit.Logs[0].ProjectId.Should().BeNull("the rated signal does not exist, so no project attribution is possible");
-        audit.Logs[0].ErrorMessage.Should().Contain($"Query signal {unknownSignalId} not found.");
+        audit.Logs[0].ErrorMessage.Should().Be($"Query signal {unknownSignalId} not found.");
     }
 
-    private static (FeedbackTool Tool, AuditCapture Audit) BuildTool(Mock<IMediator> mediator)
+    [Test]
+    public async Task SignalWithoutAProject_IsRefused_EvenForAnAdmin()
+    {
+        var mediator = new Mock<IMediator>(MockBehavior.Strict);
+        var (tool, audit) = BuildTool(mediator, access: TestProjectAccess.Unrestricted);
+
+        var result = await tool.ExecuteAsync(ProjectlessSignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {ProjectlessSignalId} not found.");
+        audit.Logs.Should().ContainSingle()
+            .Which.ErrorMessage.Should().Be($"Query signal {ProjectlessSignalId} not found.", "every refusal is audited");
+    }
+
+    [Test]
+    public async Task SignalOfAnotherProjectThanThePinnedOne_IsRefused()
+    {
+        // The playground pins project 7; the signal belongs to project 42, which the caller could otherwise query.
+        var mediator = new Mock<IMediator>(MockBehavior.Strict);
+        var (tool, audit) = BuildTool(mediator, access: TestProjectAccess.Unrestricted, activeProjectId: 7, allowedProjectIds: [7]);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
+        audit.Logs.Should().ContainSingle()
+            .Which.ProjectId.Should().Be(7, "a refusal is attributed to the pinned project, not the probed one");
+    }
+
+    [Test]
+    public async Task SignalOutsideTheCallersProjectList_IsRefused()
+    {
+        var mediator = new Mock<IMediator>(MockBehavior.Strict);
+        var (tool, _) = BuildTool(mediator, access: TestProjectAccess.Unrestricted, allowedProjectIds: [7]);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
+    }
+
+    [Test]
+    public async Task ViewerInTheSignalsProject_IsRefused_FeedbackNeedsQuery()
+    {
+        var mediator = new Mock<IMediator>(MockBehavior.Strict);
+        var viewer = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);
+        var (tool, _) = BuildTool(mediator, access: viewer, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
+    }
+
+    [TestCase(7, false, false, TestName = "Feedback_PinnedToAnotherProject_WithoutAProjectList_IsRefused")]
+    [TestCase(7, true, false, TestName = "Feedback_PinnedToAnotherProject_WithAnEmptyProjectList_IsRefused")]
+    [TestCase(SignalProjectId, true, false, TestName = "Feedback_InTheSignalsProject_WithAnEmptyProjectList_IsRefused")]
+    [TestCase(SignalProjectId, false, true, TestName = "Feedback_InTheSignalsProject_WithoutAProjectList_IsRecorded")]
+    public async Task Feedback_FollowsThePinnedProjectAndTheProjectList(int activeProjectId, bool emptyList, bool recorded)
+    {
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var editor = TestProjectAccess.Scope(
+            new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor, [7] = ProjectRole.Editor },
+            includesOpen: false,
+            notOpen: []);
+        var (tool, audit) = BuildTool(mediator, access: editor, activeProjectId: activeProjectId, allowedProjectIds: emptyList ? [] : null);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().Be(recorded ? null : true);
+        mediator.Verify(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()), recorded ? Times.Once() : Times.Never());
+        audit.Logs.Should().ContainSingle("every call is audited, refused or not");
+    }
+
+    [Test]
+    public async Task ARefusedRating_IsAuditedAndAnswered_NotThrown()
+    {
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new BeaconForbiddenException("Only the caller who asked can record feedback."));
+        var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
+        var (tool, audit) = BuildTool(mediator, access: editor, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        audit.Logs.Should().ContainSingle().Which.ErrorMessage.Should().Be("Only the caller who asked can record feedback.");
+    }
+
+    [Test]
+    public async Task EditorInThePinnedSignalsProject_RecordsTheVerdict()
+    {
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
+        var (tool, _) = BuildTool(mediator, access: editor, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+
+        result.IsError.Should().NotBe(true);
+        mediator.Verify(x => x.Send(It.Is<RecordQueryFeedbackCommand>(y => y.SignalId == SignalId), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static (FeedbackTool Tool, AuditCapture Audit) BuildTool(
+        Mock<IMediator> mediator,
+        ProjectAccessScope? access = null,
+        int? activeProjectId = null,
+        List<int>? allowedProjectIds = null)
     {
         // One factory serves both the tool (signal → project lookup) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured log list (§4.7 —
@@ -132,7 +242,8 @@ public class FeedbackToolTests
 
         var projectContext = new Mock<IProjectContext>();
         projectContext.SetupGet(x => x.UserId).Returns(1);
-        projectContext.SetupGet(x => x.ActiveProjectId).Returns((int?)null);
+        projectContext.SetupGet(x => x.ActiveProjectId).Returns(activeProjectId);
+        projectContext.SetupGet(x => x.AllowedProjectIds).Returns(allowedProjectIds);
         projectContext.SetupGet(x => x.ApiKeyId).Returns((int?)null);
 
         var tool = new FeedbackTool(
@@ -140,6 +251,7 @@ public class FeedbackToolTests
             projectContext.Object,
             auditService,
             mediator.Object,
+            TestProjectAccess.Evaluator(access ?? TestProjectAccess.Unrestricted),
             NullLogger<FeedbackTool>.Instance);
 
         return (tool, new AuditCapture(logs));
@@ -197,6 +309,13 @@ public class FeedbackToolTests
                 {
                     Id = SignalId,
                     ProjectId = SignalProjectId,
+                    Tool = "ask",
+                    Question = "q"
+                },
+                new()
+                {
+                    Id = ProjectlessSignalId,
+                    ProjectId = null,
                     Tool = "ask",
                     Question = "q"
                 }

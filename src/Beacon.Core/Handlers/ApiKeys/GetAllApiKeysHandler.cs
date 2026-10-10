@@ -7,6 +7,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
@@ -127,6 +128,7 @@ internal sealed class GetAllApiKeysHandler(
 /// All API keys, newest first, optionally only those of <see cref="UserId"/>; sortable by name, prefix, createdAt,
 /// lastUsedAt, expiresAt, revokedAt and userName.
 /// </summary>
+[ProjectScopeExempt("admin-gated key administration, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetAllApiKeysQuery : ListRequest, IRequest<PagedList<AdminApiKeyEntry>>
 {
     public int? UserId { get; init; }

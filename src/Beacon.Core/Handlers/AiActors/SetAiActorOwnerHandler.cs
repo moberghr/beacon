@@ -40,4 +40,5 @@ internal sealed class SetAiActorOwnerHandler(
 /// then pause, resume, archive, refine and run it (for instance an actor created before creators were recorded). Admin
 /// only; the user must be an existing, enabled user.
 /// </summary>
+[ProjectScopeExempt("admin-gated ownership transfer; the new owner is a user", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record SetAiActorOwnerCommand(int ActorId, int UserId) : IRequest;

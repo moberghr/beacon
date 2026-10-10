@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
@@ -38,4 +39,5 @@ internal sealed class RevokeApiKeyHandler(
     }
 }
 
+[ProjectScopeExempt("owner-scoped: the caller's own key")]
 public record RevokeApiKeyCommand(int KeyId) : IRequest;

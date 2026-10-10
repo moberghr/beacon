@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Cronos;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -35,11 +36,16 @@ public interface ISubscriptionService
 internal class SubscriptionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconScheduler beaconScheduler,
-    IAnomalyDetectionService anomalyDetectionService)
+    IAnomalyDetectionService anomalyDetectionService,
+    IBeaconActorAccessor actorAccessor,
+    BeaconConfiguration configuration)
     : ISubscriptionService
 {
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        // The owner its runs act as: the caller, never a value from the request.
+        var ownerUserId = ScheduledWorkOwner.Require(await actorAccessor.GetCurrentAsync(cancellationToken), configuration);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         CronExpression.Parse(subscriptionData.CronExpression);
@@ -82,6 +88,7 @@ internal class SubscriptionService(
             StoreResults = subscriptionData.StoreResults,
             CreateTasks = subscriptionData.CreateTasks,
             NotificationTrigger = subscriptionData.NotificationTrigger,
+            OwnerUserId = ownerUserId,
             Recipients = recipients,
             Parameters = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters)
         };
@@ -364,6 +371,11 @@ internal class SubscriptionService(
                 CreateTasks = x.CreateTasks,
                 NotificationTrigger = x.NotificationTrigger,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
+                OwnerUserId = x.OwnerUserId,
+                OwnerDisplayName = context.Users
+                    .Where(y => y.ExternalId == x.OwnerUserId)
+                    .Select(y => y.DisplayName ?? "User " + y.Id.ToString())
+                    .FirstOrDefault(),
                 Parameters = x.Parameters.Select(y => new SubscriptionParameterData()
                 {
                     QueryPlaceholder = y.QueryPlaceholder,

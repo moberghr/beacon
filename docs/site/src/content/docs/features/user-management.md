@@ -122,6 +122,24 @@ Besides the role levels, some resources belong to a person: an alert task is wor
 `GET /users`, `GET /users/roles`, `GET /mcp/settings`, `GET /mcp/projects/{projectId}/settings`, `GET /migrations/jobs`, `GET /migrations/jobs/{id}` and `GET /migrations/executions` now need the Admin role (API keys never pass), as do `PUT /projects/repositories/{id}/token` and a project created with an access token. The sidebar hides User Management, MCP Settings and Data Migration from non-admins. `GET /home/trends` clamps `days` to 1–90. New Admin-only routes set a data contract's owner (`PUT /data-quality/contracts/{id}/owner`) and an AI actor's creator (`PUT /ai-actors/{id}/owner`). A disabled or archived user's session is no Admin for these checks, whatever its claims.
 :::
 
+### Project roles and membership
+
+The global role caps what a user may do; [project access](/features/authorization/#project-access) decides where. Every project is **open** until an Admin **restricts** it: an open project is used by everyone with a role, a restricted one only by its members and Admins. A member holds one project role:
+
+| Project role | In the project |
+|---|---|
+| **Viewer** | reads its resources and runs its saved SQL |
+| **Editor** | also works ad hoc (draft SQL, AI) and creates and changes resources; deletes only what they own |
+| **Project admin** | also deletes any of its resources, manages its members and links data sources into it |
+
+A member's effective role is the lower of the project role and their global role, so a global Viewer is a Viewer everywhere. Project admins and Admins manage members on the project page's **Members** tab; only an Admin restricts or opens a project. A disabled or archived user keeps their membership rows, which grant nothing.
+
+- **Searching for people.** The Members tab searches **display names** only (case-insensitive, at least two characters). Users without a display name are not found there, and are shown as "User {id}"; user names, e-mail addresses and external ids are never shown to other users. Set a display name for everyone who should be added to projects.
+- **The last project admin.** A project keeps an effective project admin: an enabled, non-archived member with the project admin role whose global role is Editor or above. Removing or demoting the last one is refused unless an Admin does it.
+- **Who has a project role.** With user management on, every caller that uses Beacon is a stored user: a session or bearer token without a stored user reaches no project, and the session's `Admin` claim does not make it an Admin. Global roles keep capping project roles when `Beacon:Authorization:Enabled` is `false`.
+
+**Membership managed by the host.** Memberships live in Beacon's database while user management is on. A host can supply its own `IProjectMembershipSource` (for example from IdP groups); Beacon's membership routes then answer `409` ("managed by the host") and the UI hides the Members tab. Without user management and without such a source, membership is unavailable: the membership routes answer `409` ("not available in this deployment"), a restricted project is Admin-only, and a project cannot be restricted. The project page's **Access** card tells an Admin which case applies. See [Host seams](/features/authorization/#host-seams).
+
 ## Authentication Providers
 
 Beacon supports multiple authentication strategies through pluggable providers.
@@ -463,6 +481,7 @@ Hosts upgrading from 4.5 must act on the following:
 - **Internal login** matches internal users only and answers every failure (unknown user, wrong password, disabled or archived account) with the same "Invalid username or password." message.
 - **Disabling, re-enabling and archiving revoke API keys.** Saving a user as disabled, archiving them, and re-enabling them each revoke every API key of theirs still active, in the same save. A re-enabled user starts without working keys. See [API Keys → When the owner leaves](/features/api-keys/#when-the-owner-leaves).
 - **SSO sessions never carry scoped-caller claims.** Sign-in removes the claim types Beacon uses for API keys and MCP callers (`auth_method`, `scope`, `allowed_projects`, `api_key_id`, `api_key_name`, `caller_kind`, `caller_hash`) from what the identity provider sent.
+- **Project membership.** Projects can be restricted to their members (see [Project roles and membership](#project-roles-and-membership)); existing projects stay open. For project access, a stored user is an Admin by their current roles, not by the session's claim, a disabled or archived user reaches no project, and a session without a stored user reaches no project while user management is on. Member search matches display names only. See [Authorization → Upgrading from 4.5: project access](/features/authorization/#upgrading-from-45-project-access).
 
 ## See Also
 

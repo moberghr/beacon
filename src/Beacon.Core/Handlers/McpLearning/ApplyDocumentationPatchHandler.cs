@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
@@ -122,8 +123,14 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
     }
 }
 
-public record ApplyDocumentationPatchCommand : IRequest
+public record ApplyDocumentationPatchCommand : IRequest, IProjectAuthorizedRequest
 {
     public required int PatchId { get; init; }
+    [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public int? AppliedByUserId { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.SharedSource(ProjectResource.DocumentationPatch(PatchId), ProjectAction.Write)
+    ];
 }

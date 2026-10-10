@@ -1,6 +1,10 @@
 using Beacon.Core;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Services;
@@ -14,6 +18,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 
@@ -134,6 +139,121 @@ public class HostDataSourceSynchronizerTests
         store.ProjectDataSources.Should().ContainSingle("the old project must lose access to the host database")
             .Which.ProjectId.Should().Be(newProject.Id);
         store.ProjectDataSources.Should().NotContain(x => x.ProjectId == oldProjectId);
+    }
+
+    [Test]
+    public async Task SyncAsync_ProjectNameChangedAwayFromARestrictedProject_RestrictsTheHostProject_AndCarriesItsMembers()
+    {
+        var store = new HostSyncStore();
+        var (first, firstRegistration) = Build(store, x => x.AllowTables("Customer"));
+        await first.SyncAsync(firstRegistration, CancellationToken.None);
+        var oldProject = store.Projects.Single();
+        oldProject.RequiresMembership = true;
+        store.ProjectMembers.Add(new ProjectMember { ProjectId = oldProject.Id, UserId = 3, Role = ProjectRole.ProjectAdmin });
+        store.ProjectMembers.Add(new ProjectMember { ProjectId = oldProject.Id, UserId = 4, Role = ProjectRole.Viewer });
+
+        var (second, secondRegistration) = Build(store, x => x.AllowTables("Customer"), projectName: "Netgiro Ops");
+        await second.SyncAsync(secondRegistration, CancellationToken.None);
+
+        var newProject = store.Projects.Single(x => x.HostManagedKey == "host:netgiro ops");
+        newProject.RequiresMembership.Should().BeTrue("moving the source must not open it");
+        store.ProjectMembers
+            .Where(x => x.ProjectId == newProject.Id)
+            .Select(x => (x.UserId, x.Role))
+            .Should().BeEquivalentTo([(3, ProjectRole.ProjectAdmin), (4, ProjectRole.Viewer)]);
+        store.ProjectDataSources.Should().ContainSingle().Which.ProjectId.Should().Be(newProject.Id);
+    }
+
+    [Test]
+    public async Task SyncAsync_ProjectNameChangedAwayFromARestrictedProject_WhileTheHostManagesMembership_DoesNotRelink()
+    {
+        var store = new HostSyncStore();
+        var (first, firstRegistration) = Build(store, x => x.AllowTables("Customer"));
+        await first.SyncAsync(firstRegistration, CancellationToken.None);
+        var oldProject = store.Projects.Single();
+        oldProject.RequiresMembership = true;
+        var logs = new LogRecorder();
+
+        var (second, secondRegistration) = Build(
+            store,
+            x => x.AllowTables("Customer"),
+            projectName: "Netgiro Ops",
+            membershipSource: Mock.Of<IProjectMembershipSource>(x => x.IsAvailable == true),
+            logs: logs);
+        await second.SyncAsync(secondRegistration, CancellationToken.None);
+
+        var newProject = store.Projects.Single(x => x.HostManagedKey == "host:netgiro ops");
+        newProject.RequiresMembership.Should().BeFalse();
+        store.ProjectDataSources.Should().ContainSingle("the source stays in the restricted project, never opened")
+            .Which.ProjectId.Should().Be(oldProject.Id);
+        logs.Entries.Should().Contain(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Error && x.Message.Contains("was not moved"));
+    }
+
+    [Test]
+    public async Task SyncAsync_SourceHeldByTwoRestrictedProjects_IsNotRelinked()
+    {
+        var store = new HostSyncStore();
+        var (first, firstRegistration) = Build(store, x => x.AllowTables("Customer"));
+        await first.SyncAsync(firstRegistration, CancellationToken.None);
+        var oldProject = store.Projects.Single();
+        oldProject.RequiresMembership = true;
+        var other = new Project { Id = 900, Name = "Finance", RequiresMembership = true };
+        store.Projects.Add(other);
+        store.ProjectDataSources.Add(new ProjectDataSource { ProjectId = other.Id, DataSourceId = store.DataSources.Single().Id });
+
+        var (second, secondRegistration) = Build(store, x => x.AllowTables("Customer"), projectName: "Netgiro Ops");
+        await second.SyncAsync(secondRegistration, CancellationToken.None);
+
+        var newProject = store.Projects.Single(x => x.HostManagedKey == "host:netgiro ops");
+        store.ProjectDataSources.Select(x => x.ProjectId).Should().BeEquivalentTo([oldProject.Id, other.Id]);
+        store.ProjectDataSources.Should().NotContain(x => x.ProjectId == newProject.Id);
+    }
+
+    [Test]
+    public async Task SyncAsync_ProjectNameChangedAwayFromAnArchivedRestrictedProject_RestrictsTheHostProject_WithoutItsMembers()
+    {
+        var store = new HostSyncStore();
+        var (first, firstRegistration) = Build(store, x => x.AllowTables("Customer"));
+        await first.SyncAsync(firstRegistration, CancellationToken.None);
+        var oldProject = store.Projects.Single();
+        oldProject.RequiresMembership = true;
+        oldProject.ArchivedTime = DateTime.UtcNow;
+        store.ProjectMembers.Add(new ProjectMember { ProjectId = oldProject.Id, UserId = 3, Role = ProjectRole.ProjectAdmin });
+
+        var (second, secondRegistration) = Build(store, x => x.AllowTables("Customer"), projectName: "Netgiro Ops");
+        await second.SyncAsync(secondRegistration, CancellationToken.None);
+
+        var newProject = store.Projects.Single(x => x.HostManagedKey == "host:netgiro ops");
+        newProject.RequiresMembership.Should().BeTrue("the source was reachable by Admins only, and must not be opened by the move");
+        store.ProjectMembers.Should().NotContain(x => x.ProjectId == newProject.Id, "an archived project's members held nothing there");
+        var link = store.ProjectDataSources.Should().ContainSingle().Subject;
+        link.ProjectId.Should().Be(newProject.Id);
+        link.LinkedByUserId.Should().BeNull("the host links its own source; no user did");
+    }
+
+    [Test]
+    public async Task SyncAsync_HostProjectWithMembersTheRestrictedProjectLacks_IsNotRelinked()
+    {
+        var store = new HostSyncStore();
+        var (first, firstRegistration) = Build(store, x => x.AllowTables("Customer"));
+        await first.SyncAsync(firstRegistration, CancellationToken.None);
+        var oldProject = store.Projects.Single();
+        oldProject.RequiresMembership = true;
+        store.ProjectMembers.Add(new ProjectMember { ProjectId = oldProject.Id, UserId = 3, Role = ProjectRole.ProjectAdmin });
+        var hostProject = new Project { Id = 950, Name = "Netgiro Ops", HostManagedKey = "host:netgiro ops" };
+        store.Projects.Add(hostProject);
+        store.ProjectMembers.Add(new ProjectMember { ProjectId = hostProject.Id, UserId = 3, Role = ProjectRole.Viewer });
+        store.ProjectMembers.Add(new ProjectMember { ProjectId = hostProject.Id, UserId = 9, Role = ProjectRole.Editor });
+        var logs = new LogRecorder();
+
+        var (second, secondRegistration) = Build(store, x => x.AllowTables("Customer"), projectName: "Netgiro Ops", logs: logs);
+        await second.SyncAsync(secondRegistration, CancellationToken.None);
+
+        hostProject.RequiresMembership.Should().BeFalse();
+        store.ProjectDataSources.Should().ContainSingle("user 9 would gain the restricted source")
+            .Which.ProjectId.Should().Be(oldProject.Id);
+        store.ProjectMembers.Where(x => x.ProjectId == hostProject.Id).Should().HaveCount(2);
+        logs.Entries.Should().Contain(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Error && x.Message.Contains("1 member(s)"));
     }
 
     [Test]
@@ -375,7 +495,9 @@ public class HostDataSourceSynchronizerTests
         Action<HostDbContextOptions> configure,
         Mock<ISchemaRelationshipSyncService>? relationships = null,
         string? connectionString = ReadOnlyConnectionString,
-        string projectName = "Netgiro Admin")
+        string projectName = "Netgiro Admin",
+        IProjectMembershipSource? membershipSource = null,
+        LogRecorder? logs = null)
     {
         var registry = BuildRegistry(configure, projectName);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -392,9 +514,20 @@ public class HostDataSourceSynchronizerTests
             (relationships ?? new Mock<ISchemaRelationshipSyncService>()).Object,
             Mock.Of<ISchemaGraphService>(),
             new MemoryCache(new MemoryCacheOptions()),
-            NullLogger<HostDataSourceSynchronizer>.Instance);
+            membershipSource ?? BeaconMembership(factory.Object),
+            Options.Create(new ProjectAuthorizationOptions()),
+            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance);
 
         return (synchronizer, registry.Registrations.Single());
+    }
+
+    // Beacon manages project membership (user management on, the default membership source).
+    private static IProjectMembershipSource BeaconMembership(IDbContextFactory<BeaconContext> factory)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+
+        return new DatabaseProjectMembershipSource(configuration, factory);
     }
 
     private static HostDataSourceRegistry BuildRegistry(Action<HostDbContextOptions> configure, string projectName = "Netgiro Admin")

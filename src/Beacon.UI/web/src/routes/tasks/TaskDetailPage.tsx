@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
+import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { formatRelativeTime } from '@/lib/format';
 import {
@@ -104,8 +105,12 @@ export default function TaskDetailPage() {
       <div className="flex flex-col gap-5 p-7">
         <EmptyState
           icon={<AlertTriangle />}
-          title="Failed to load task"
-          description={detail.error instanceof Error ? detail.error.message : 'Unknown error'}
+          title={isNotFound(detail.error) ? 'Task not found' : 'Failed to load task'}
+          description={
+            isNotFound(detail.error)
+              ? NOT_FOUND_DETAIL
+              : detail.error instanceof Error ? detail.error.message : 'Unknown error'
+          }
         />
       </div>
     );

@@ -3,17 +3,21 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
-internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetLearnedPatternsQuery, PagedList<LearnedPatternEntry>>
 {
     public async Task<PagedList<LearnedPatternEntry>> Handle(GetLearnedPatternsQuery request, CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = context.McpLearnedPatterns.AsQueryable();
+        var query = context.McpLearnedPatterns
+            .WhereProjectIn(readable, x => x.ProjectId);
 
         if (request.ProjectId.HasValue)
             query = query.Where(p => p.ProjectId == request.ProjectId.Value);
@@ -54,9 +58,11 @@ internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext>
 }
 
 /// <summary>Most confident first (then most signals) unless <c>sort</c> says otherwise.</summary>
-public record GetLearnedPatternsQuery : ListRequest, IRequest<PagedList<LearnedPatternEntry>>
+public record GetLearnedPatternsQuery : ListRequest, IRequest<PagedList<LearnedPatternEntry>>, IProjectFilteredRequest
 {
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? ProjectId { get; init; }
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? DataSourceId { get; init; }
     public McpPatternStatus? Status { get; init; }
     public McpPatternType? PatternType { get; init; }

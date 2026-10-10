@@ -60,4 +60,10 @@ internal sealed class SnoozeTaskHandler(
 /// Snoozes an open task until the given time, or wakes it with none. Allowed for the task's assignee or an Admin;
 /// a resolved task is not snoozed.
 /// </summary>
-public record SnoozeTaskCommand(int TaskId, DateTime? SnoozeUntil) : IRequest;
+public record SnoozeTaskCommand(int TaskId, DateTime? SnoozeUntil) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Write)
+    ];
+}

@@ -1,6 +1,7 @@
 using MediatR;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataQuality.GetEvaluationHistory;
 
@@ -15,5 +16,11 @@ internal sealed class GetEvaluationHistoryHandler(
     }
 }
 
-public record GetEvaluationHistoryQuery(int DataContractId, int? Take = null) : IRequest<GetEvaluationHistoryResult>;
+public record GetEvaluationHistoryQuery(int DataContractId, int? Take = null) : IRequest<GetEvaluationHistoryResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataContract(DataContractId), ProjectAction.Read)
+    ];
+}
 public record GetEvaluationHistoryResult(List<DataQualityEvaluationData> Evaluations);

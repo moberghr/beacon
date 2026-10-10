@@ -77,7 +77,13 @@ public static class ServiceConfiguration
         }
 
         // MediatR for CQRS pattern
-        services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
+        // Project authorization runs before the handler of every request that declares ProjectChecks; the behaviour
+        // is registered once and applies to every handler assembly.
+        services.AddMediatR(cfg =>
+        {
+            cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly);
+            cfg.AddOpenBehavior(typeof(Authorization.ProjectAccess.ProjectAuthorizationBehavior<,>));
+        });
 
         // Encryption service for sensitive data (e.g., connection strings)
         var encryptionKey = configuration["Beacon:EncryptionKey"];
@@ -316,6 +322,21 @@ public static class ServiceConfiguration
         // The request's caller as the owner/creator/assignee of resources and as an Admin (scoped: resolved once per
         // request; reads IHttpContextAccessor, which the API registration adds). TryAdd so a host can supply its own.
         services.TryAddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
+        services.TryAddScoped<ISystemWorkScope, Authorization.ProjectAccess.SystemWorkScope>();
+        services.TryAddSingleton<Authorization.ProjectAccess.UnmarkedSystemWorkLog>();
+
+        // Project access (Beacon:Authorization): the evaluator is scoped and memoized per scope; the membership and
+        // ceiling sources are host seams. TryAdd so a host can supply any of them. ValidateOnStart so restricting every
+        // project without a membership source fails the host at boot.
+        services.AddOptions<Configuration.ProjectAuthorizationOptions>()
+            .Bind(configuration.GetSection(Configuration.ProjectAuthorizationOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.ProjectAuthorizationOptions>, Configuration.ProjectAuthorizationOptionsValidator>());
+        services.TryAddSingleton<IProjectMembershipSource, Authorization.ProjectAccess.DatabaseProjectMembershipSource>();
+        services.TryAddSingleton<IRunAsCeilingSource, Authorization.ProjectAccess.DatabaseRunAsCeilingSource>();
+        services.TryAddScoped<IProjectAccessEvaluator, Authorization.ProjectAccess.ProjectAccessEvaluator>();
+        services.TryAddScoped<Authorization.ProjectAccess.IProjectResourceResolver, Authorization.ProjectAccess.ProjectResourceResolver>();
+        services.TryAddScoped<Authorization.ProjectAccess.ProjectRequestAuthorizer>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

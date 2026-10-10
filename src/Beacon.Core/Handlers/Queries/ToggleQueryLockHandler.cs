@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Queries;
 
@@ -86,11 +87,18 @@ internal sealed class ToggleQueryLockHandler(
     }
 }
 
-public record ToggleQueryLockCommand : IRequest<ToggleQueryLockResult>
+public record ToggleQueryLockCommand : IRequest<ToggleQueryLockResult>, IProjectAuthorizedRequest
 {
     public required int QueryId { get; init; }
     public required bool Lock { get; init; }
+    [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public string? UserId { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        // Unlocking takes Manage; the lock holder, its recorded owner, may unlock wherever it may write.
+        new(ProjectResource.Query(QueryId), Lock ? ProjectAction.Write : ProjectAction.Manage)
+    ];
 }
 
 public record ToggleQueryLockResult

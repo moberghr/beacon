@@ -10,10 +10,12 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api.Endpoints;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
@@ -21,6 +23,7 @@ using Beacon.Core.Handlers.Home;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
+using Beacon.Core.Models;
 
 namespace Beacon.Tests.Unit;
 
@@ -90,7 +93,7 @@ public class AdminGatedRoutesTests
     {
         // The subscription count, then the count as of the window's start, whose cutoff is the clamped window.
         var capture = new SqlCapture().ThenScalar(0);
-        var handler = new GetHomeTrendsHandler(capture.Factory());
+        var handler = new GetHomeTrendsHandler(capture.Factory(), TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted));
 
         var act = () => handler.Handle(new GetHomeTrendsQuery(requested), CancellationToken.None);
 
@@ -109,7 +112,7 @@ public class AdminGatedRoutesTests
 
         var act = () => handler.Handle(new CreateProjectCommand("p", null, [], ["https://github.com/acme/repo"], "ghp_secret"), CancellationToken.None);
 
-        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
         saved.Should().BeEmpty();
         var entry = logs.Entries.Should().ContainSingle().Subject;
         entry.Level.Should().Be(LogLevel.Warning);
@@ -146,7 +149,9 @@ public class AdminGatedRoutesTests
         return new CreateProjectHandler(
             factory.Object,
             encryption.Object,
-            new BeaconActorAccessor(accessor, factory.Object),
+            TestProjectAccess.ActorAccessor(accessor, factory.Object),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            Options.Create(new ProjectAuthorizationOptions()),
             (logs ?? new LogRecorder()).For<CreateProjectHandler>());
     }
 

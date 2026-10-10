@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.ControlTower;
@@ -107,7 +109,8 @@ internal class ControlTowerService(
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}";
+        // The statistics depend on what the caller may read, so callers share an entry only with the same scope.
+        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}:{ProjectSetFingerprint.Of(request.Readable)}";
         if (memoryCache.TryGetValue(cacheKey, out ControlTowerStatistics? cached))
         {
             return cached!;
@@ -297,7 +300,8 @@ internal class ControlTowerService(
         GetControlTowerDataRequest request,
         DateTime windowStart)
     {
-        var query = context.Subscriptions.AsQueryable();
+        var query = context.Subscriptions
+            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Query.Steps.Select(y => y.DataSourceId), x => x.Query.OwnerUserId);
 
         if (request.FolderId.HasValue)
         {

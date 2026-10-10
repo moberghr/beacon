@@ -24,7 +24,9 @@
  * Coverage (GET unless noted):
  * - csrf, auth/me, auth/logout (POST)
  * - home: trends, activity, migration-summary, task-summary, uptime
- * - projects, projects/:id, projects/:id/documentation
+ * - projects, projects/:id, projects/:id/documentation, projects/:id/members, projects/:id/member-candidates,
+ *   PUT/DELETE projects/:id/members/:userId, PUT projects/:id/access, POST projects/:id/data-sources,
+ *   DELETE projects/:id/data-sources/:dataSourceId (no state kept)
  * - queries, query-folders, queries/:id, queries/:id/versions, query-versions/:id
  * - data-sources, data-sources/:id/metadata
  * - notifications (filters by ?subscriptionId), notifications/:id
@@ -59,6 +61,8 @@ import {
   NotificationTrigger,
   NotificationType,
   ParameterType,
+  ProjectMembershipManagement,
+  ProjectRole,
   QueryVersionStatus,
   TaskPriority,
 } from '@/lib/enums';
@@ -169,6 +173,9 @@ const projectsHandlers = [
           lastScanStatus: 'Completed',
           lastScanAt: iso(1),
           createdAt: iso(40),
+          requiresMembership: false,
+          myRole: ProjectRole.ProjectAdmin,
+          memberCount: 1,
         },
         {
           id: 2,
@@ -180,6 +187,9 @@ const projectsHandlers = [
           lastScanStatus: null,
           lastScanAt: null,
           createdAt: iso(12),
+          requiresMembership: true,
+          myRole: ProjectRole.ProjectAdmin,
+          memberCount: 1,
         },
       ]))),
   http.get('/beacon/api/projects/:id', ({ params }) =>
@@ -193,8 +203,8 @@ const projectsHandlers = [
         codeReferenceCount: 342,
         lastScanAt: iso(1),
         dataSources: [
-          { name: 'Demo Warehouse (PostgreSQL)', type: 'Database', tableCount: 96, qualityScore: 91 },
-          { name: 'Sample CRM (SQL Server)', type: 'Database', tableCount: 32, qualityScore: 78 },
+          { id: 1, name: 'Demo Warehouse (PostgreSQL)', type: 'Database', tableCount: 96, qualityScore: 91 },
+          { id: 2, name: 'Sample CRM (SQL Server)', type: 'Database', tableCount: 32, qualityScore: 78 },
         ],
         repositories: [
           {
@@ -208,11 +218,64 @@ const projectsHandlers = [
           },
         ],
         hasDocumentation: false,
+        // The mock user is an Admin: project admin everywhere, and Beacon manages membership.
+        requiresMembership: Number(params.id) === 2,
+        myRole: ProjectRole.ProjectAdmin,
+        canManageMembers: true,
+        // Sample CRM is also linked to the open Demo Analytics project.
+        openlyReachableDataSourceIds: Number(params.id) === 2 ? [2] : [],
+        sharedSourceProjects: sharedSourceProjects(Number(params.id)),
+        membershipManagement: ProjectMembershipManagement.Beacon,
       },
     })),
   http.get('/beacon/api/projects/:id/documentation', () =>
     HttpResponse.json({ latest: null, history: [] })),
+  http.get('/beacon/api/projects/:id/members', () =>
+    HttpResponse.json(paged([
+      {
+        userId: 1,
+        displayName: 'Mock Admin',
+        role: ProjectRole.ProjectAdmin,
+        isActive: true,
+        addedAt: iso(40),
+        modifiedAt: null,
+      },
+    ]))),
+  http.get('/beacon/api/projects/:id/member-candidates', ({ request }) => {
+    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase();
+    const people = [
+      { userId: 1, displayName: 'Mock Admin', isMember: true },
+      { userId: 2, displayName: 'Sample Analyst', isMember: false },
+    ];
+    return HttpResponse.json({ candidates: people.filter(x => x.displayName.toLowerCase().includes(search)) });
+  }),
+  http.put('/beacon/api/projects/:id/members/:userId', async ({ params, request }) => {
+    const body = (await request.json()) as { role: ProjectRole };
+    return HttpResponse.json({ projectId: Number(params.id), userId: Number(params.userId), role: body.role, added: true });
+  }),
+  http.delete('/beacon/api/projects/:id/members/:userId', () => new HttpResponse(null, { status: 204 })),
+  http.put('/beacon/api/projects/:id/access', async ({ params, request }) => {
+    const body = (await request.json()) as { requiresMembership: boolean };
+    return HttpResponse.json({
+      projectId: Number(params.id),
+      requiresMembership: body.requiresMembership,
+      sharedSourceProjects: sharedSourceProjects(Number(params.id)),
+    });
+  }),
+  http.post('/beacon/api/projects/:id/data-sources', async ({ params, request }) => {
+    const body = (await request.json()) as { dataSourceIds: number[] };
+    return HttpResponse.json({ projectId: Number(params.id), linkedDataSourceIds: body.dataSourceIds });
+  }),
+  http.delete('/beacon/api/projects/:id/data-sources/:dataSourceId', ({ params }) =>
+    HttpResponse.json({ projectId: Number(params.id), dataSourceId: Number(params.dataSourceId), leftUnlinked: false })),
 ];
+
+/** The two mock projects share Sample CRM (data source 2); Sample Warehouse is the restricted one. */
+function sharedSourceProjects(projectId: number) {
+  return projectId === 2
+    ? [{ projectId: 1, name: 'Demo Analytics', requiresMembership: false, sharedDataSourceIds: [2], projectAdminNames: ['Mock Admin'] }]
+    : [{ projectId: 2, name: 'Sample Warehouse', requiresMembership: true, sharedDataSourceIds: [2], projectAdminNames: [] }];
+}
 
 // ---------- queries ----------------------------------------------------------
 
@@ -440,6 +503,10 @@ const dataSourceEntries = [
           queryCount: 2,
           migrationJobsCount: 0,
           metadataLoadingEnabled: true,
+          openWhenUnlinked: true,
+          projects: [{ id: 1, name: 'Demo Analytics' }],
+          // A project the mock user may not see: shown as "+1 other".
+          otherProjectCount: 1,
         },
         {
           id: 2,
@@ -449,6 +516,9 @@ const dataSourceEntries = [
           queryCount: 1,
           migrationJobsCount: 0,
           metadataLoadingEnabled: false,
+          openWhenUnlinked: true,
+          projects: [{ id: 1, name: 'Demo Analytics' }, { id: 2, name: 'Sample Warehouse' }],
+          otherProjectCount: 0,
         },
       ];
 
@@ -796,6 +866,8 @@ const listHandlers = [
         cronNextAt: iso(-1),
         aiActorId: null,
         aiActorName: null,
+        hasOwner: true,
+        ownerDisplayName: 'Mock Admin',
         maxRows: 100,
         minimumRowCount: null,
         includeAttachment: !crossSource,

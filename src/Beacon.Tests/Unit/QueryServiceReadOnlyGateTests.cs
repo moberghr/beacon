@@ -64,7 +64,8 @@ public class QueryServiceReadOnlyGateTests
             new BeaconConfiguration(),
             Mock.Of<IBeaconUserContext>(),
             validator,
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
+            TestProjectAccess.Actors());
     }
 
     [Test]
@@ -151,6 +152,17 @@ public class QueryServiceReadOnlyGateTests
 
         response.Success.Should().BeTrue();
         spy.SaveChangesCalls.Should().Be(1);
+    }
+
+    [Test]
+    public async Task CreateQuery_RecordsTheCallerAsTheOwner()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+
+        await service.CreateQuery(NewQuery(null), CancellationToken.None);
+
+        spy.Queries.Should().ContainSingle().Which.OwnerUserId.Should().Be("ext-ada", "the signed-in caller (Users.ExternalId) owns what it creates");
     }
 
     [Test]
@@ -320,6 +332,7 @@ public class QueryServiceReadOnlyGateTests
         set.As<IQueryable<T>>().Setup(x => x.Expression).Returns(data.Expression);
         set.As<IQueryable<T>>().Setup(x => x.ElementType).Returns(data.ElementType);
         set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());
+        set.Setup(x => x.Add(It.IsAny<T>())).Callback<T>(rows.Add);
         return set.Object;
     }
 }

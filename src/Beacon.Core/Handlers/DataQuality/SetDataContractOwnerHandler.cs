@@ -40,4 +40,5 @@ internal sealed class SetDataContractOwnerHandler(
 /// Makes a Beacon user (<c>UserId</c>, the user's id in the user directory) the owner of a data contract, for instance a
 /// contract created before owners were recorded. Admin only; the user must be an existing, enabled user.
 /// </summary>
+[ProjectScopeExempt("admin-gated ownership transfer; the new owner is a user", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record SetDataContractOwnerCommand(int DataContractId, int UserId) : IRequest;

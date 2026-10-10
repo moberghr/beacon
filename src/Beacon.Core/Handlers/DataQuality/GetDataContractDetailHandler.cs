@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataQuality.GetDataContractDetail;
 
@@ -66,4 +67,10 @@ internal sealed class GetDataContractDetailHandler(
     }
 }
 
-public record GetDataContractDetailQuery(int DataContractId) : IRequest<DataContractData>;
+public record GetDataContractDetailQuery(int DataContractId) : IRequest<DataContractData>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataContract(DataContractId), ProjectAction.Read)
+    ];
+}

@@ -3,6 +3,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
@@ -32,6 +33,7 @@ internal sealed class GetMigrationExecutionsHandler(IMigrationService migrationS
 /// Newest first unless <c>sort</c> names <c>startedAt</c>, <c>completedAt</c>, <c>status</c> or
 /// <c>sourceRowsRead</c> (optionally <c>-</c> prefixed).
 /// </summary>
+[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetMigrationExecutionsQuery : ListRequest, IRequest<PagedList<MigrationExecutionDto>>
 {
     public int? MigrationJobId { get; init; }

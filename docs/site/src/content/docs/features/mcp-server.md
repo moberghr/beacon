@@ -275,6 +275,8 @@ Retrieve AI-generated documentation at three levels of detail.
 2. **Data source level** (`datasource_name` only) — Tables, schemas, code references, quality scores. Defaults to `detailed`; `concise` omits the LLM schema context section
 3. **Table level** (`table_name`) — Columns with types, relationships, quality rules; `detailed` (the default) adds code references and lineage, `concise` omits them
 
+Table documentation, code references and lineage come from the resolved project only: on a data source several projects share, another project's documentation and repositories never appear.
+
 When the host ships documents with [`ExposeDocs`](/features/host-docs/), the project-level response ends with an *Imported documents* listing (title + path) and `document: "<path>"` returns one of them.
 
 ### `search`
@@ -302,6 +304,8 @@ Record whether a previous `ask` answer was correct. A `correct` verdict is saved
 | `note` | string | No | A short note — **only when the user explicitly asked to record one**, never a summary of the conversation |
 
 Every `ask` response that ran a data query ends with a `_signal_id: N_` marker — pass that value back here. Conceptual answers from the knowledge base don't record a query signal and carry no marker.
+
+A signal is rated only in its own project: the signal must belong to a project, that project must be the one the call resolves to (in the playground, the selected project; on the transport, one of the caller's projects), and the caller needs Query there. Anything else answers "Query signal N not found." — the same as a signal that does not exist — and is audited. Within its project, a verdict is recorded only by the caller who asked, a project admin of that project, or an Admin; anyone else gets an error saying so, and the refusal is audited too. The same rule applies to `POST /beacon/api/eval/feedback`, which answers `403`.
 
 The verdict is always recorded. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow explicit feedback content** setting — see [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
 
@@ -446,6 +450,8 @@ Changes take effect without a restart. These settings are part of [Admin Setting
 ## MCP Playground
 
 You don't need to wire up an external MCP client to try the server. The React UI ships an **MCP Playground** (`/mcp-playground`) where you select a project and ask questions interactively — the same tools, routing, guardrails, and audit trail as a real MCP session. Use it to validate documentation quality and tune the system prompt before pointing Claude or Cursor at your data.
+
+The playground runs as the signed-in user and checks their [project access](/features/authorization/#project-access) on every call: the catalog tools (`get_context`, `get_documentation`, `search`, `get_query_context`) need Read in the selected project, and `ask`, `query`, `dry_run` and `feedback` need Query. A restricted project the user is not a member of, or a project outside an API key's list, is refused before any tool runs; a call without a signed-in request is refused outright. In this version, tool calls over `/beacon/mcp` keep their previous rule — the API key's or mapped caller's project list.
 
 The companion **MCP Learning** page (`/mcp-learning`) shows the learning loop at work: usage signals, success rate, learned schema patterns awaiting approval, and proposed documentation patches you can apply or reject.
 

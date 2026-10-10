@@ -36,4 +36,10 @@ internal sealed class UnwatchTaskHandler(
     }
 }
 
-public record UnwatchTaskCommand(int TaskId) : IRequest;
+public record UnwatchTaskCommand(int TaskId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Read)
+    ];
+}

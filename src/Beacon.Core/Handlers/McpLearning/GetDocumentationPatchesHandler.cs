@@ -3,17 +3,21 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
-internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetDocumentationPatchesQuery, PagedList<DocumentationPatchEntry>>
 {
     public async Task<PagedList<DocumentationPatchEntry>> Handle(GetDocumentationPatchesQuery request, CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = context.McpDocumentationPatches.AsQueryable();
+        var query = context.McpDocumentationPatches
+            .WhereProjectIn(readable, x => x.ProjectId);
 
         if (request.ProjectId.HasValue)
             query = query.Where(p => p.ProjectId == request.ProjectId.Value);
@@ -42,8 +46,9 @@ internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconCon
 }
 
 /// <summary>Best-supported first unless <c>sort</c> says otherwise.</summary>
-public record GetDocumentationPatchesQuery : ListRequest, IRequest<PagedList<DocumentationPatchEntry>>
+public record GetDocumentationPatchesQuery : ListRequest, IRequest<PagedList<DocumentationPatchEntry>>, IProjectFilteredRequest
 {
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? ProjectId { get; init; }
     public McpDocPatchStatus? Status { get; init; }
 }

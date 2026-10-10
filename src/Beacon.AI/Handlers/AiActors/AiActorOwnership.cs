@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.Core.Models;
 
 namespace Beacon.AI.Handlers.AiActors;
 
@@ -84,10 +85,8 @@ internal static class AiActorOwnership
         }
     }
 
-    private static UnauthorizedAccessException Refuse(ILogger logger, BeaconActor caller, int? actorId)
+    private static BeaconForbiddenException Refuse(ILogger logger, BeaconActor caller, int? actorId)
     {
-        logger.LogWarning("Refused a change to {Resource} {ResourceId} by user {UserId}", "AI actor", actorId, caller.UserId);
-
-        return new UnauthorizedAccessException(Refusal);
+        return AccessRefusal.Of(logger, caller, "AI actor", actorId, Refusal);
     }
 }

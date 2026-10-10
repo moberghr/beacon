@@ -2,6 +2,7 @@ using Beacon.Core.Data;
 using Beacon.Core.HostDocs;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -20,6 +21,12 @@ internal sealed class GetImportedDocumentsHandler(IDbContextFactory<BeaconContex
 }
 
 /// <summary>The host-imported documents (ExposeDocs) of a project, without their content.</summary>
-public record GetImportedDocumentsQuery(int ProjectId) : IRequest<GetImportedDocumentsResult>;
+public record GetImportedDocumentsQuery(int ProjectId) : IRequest<GetImportedDocumentsResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Project(ProjectId), ProjectAction.Read)
+    ];
+}
 
 public record GetImportedDocumentsResult(List<ImportedDocumentSummary> Documents);

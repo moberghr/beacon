@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Telemetry;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpAudit;
 
@@ -163,6 +164,7 @@ internal sealed class GetMcpAuditLogsHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
+[ProjectScopeExempt("admin-gated audit; not filtered by membership", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetMcpAuditLogsQuery(
     DateTime From,
     DateTime To,

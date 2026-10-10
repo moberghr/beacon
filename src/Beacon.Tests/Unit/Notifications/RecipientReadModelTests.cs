@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataQuality.GetDataContractDetail;
 using Beacon.Core.Handlers.Subscriptions;
@@ -10,6 +11,7 @@ using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.Notifications;
 
@@ -25,7 +27,7 @@ public class RecipientReadModelTests
     public async Task SubscriptionDetails_NeverSelectsDestinationsOrArchivedRecipients()
     {
         var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>());
+        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration());
 
         var act = () => service.GetSubscriptionDetails(5, CancellationToken.None);
 
@@ -39,7 +41,7 @@ public class RecipientReadModelTests
     public async Task SubscriptionList_NeverSelectsDestinations()
     {
         var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>());
+        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration());
 
         await service.GetSubscriptions(null, null, null, null!, CancellationToken.None);
 

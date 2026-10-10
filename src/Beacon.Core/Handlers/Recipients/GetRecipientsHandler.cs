@@ -98,6 +98,7 @@ internal sealed class GetRecipientsHandler(
 }
 
 /// <summary>Alphabetical unless <c>sort</c> says otherwise; <c>search</c> matches name and description.</summary>
+[ProjectScopeExempt("recipients are project-less; destinations are masked for non-Admins")]
 public record GetRecipientsQuery : ListRequest, IRequest<PagedList<RecipientEntry>>
 {
     public string? Search { get; init; }

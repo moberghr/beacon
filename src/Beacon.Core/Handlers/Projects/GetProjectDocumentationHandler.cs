@@ -2,10 +2,17 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Projects;
 
-public record GetProjectDocumentationQuery(int ProjectId) : IRequest<GetProjectDocumentationResult>;
+public record GetProjectDocumentationQuery(int ProjectId) : IRequest<GetProjectDocumentationResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Project(ProjectId), ProjectAction.Read)
+    ];
+}
 
 public record GetProjectDocumentationResult(ProjectDocumentationDetailEntry? Latest, List<ProjectDocumentationHistoryEntry> History);
 

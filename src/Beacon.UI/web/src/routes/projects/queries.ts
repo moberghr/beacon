@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { beaconApi } from '@/api/client';
-import { unwrap } from '@/lib/api';
+import { fetchJson, unwrap } from '@/lib/api';
+import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import { fetchPagedList } from '@/lib/paging';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
@@ -18,9 +19,15 @@ export interface ProjectSummaryEntry {
   lastScanStatus: string | null;
   lastScanAt: string | null;
   createdAt: string;
+  /** Restricted: members and Admins only. */
+  requiresMembership: boolean;
+  /** The caller's effective role in the project; null when it has none. */
+  myRole: ProjectRole | null;
+  memberCount: number;
 }
 
 export interface ProjectDataSourceEntry {
+  id: number;
   name: string;
   type: string;
   tableCount: number;
@@ -48,6 +55,26 @@ export interface ProjectDetailEntry {
   dataSources: ProjectDataSourceEntry[];
   repositories: ProjectRepositoryEntry[];
   hasDocumentation: boolean;
+  requiresMembership: boolean;
+  myRole: ProjectRole | null;
+  /** The caller may manage members and link data sources, and Beacon (not the host) manages membership. */
+  canManageMembers: boolean;
+  /** For a caller who manages members: the project's data sources another open project also links. */
+  openlyReachableDataSourceIds: number[];
+  /** For an Admin: every other live project linking any of this project's data sources (empty for anyone else). */
+  sharedSourceProjects: SharedSourceProjectEntry[];
+  /** Who manages project memberships in this deployment: Beacon, the host, or nobody (membership unavailable). */
+  membershipManagement: ProjectMembershipManagement;
+}
+
+/** Another live project that links some of this project's data sources, and who administers it. */
+export interface SharedSourceProjectEntry {
+  projectId: number;
+  name: string;
+  requiresMembership: boolean;
+  sharedDataSourceIds: number[];
+  /** Its active project admins: display names, or "User {id}" for one without a display name. */
+  projectAdminNames: string[];
 }
 
 export interface GetProjectDetailResult {
@@ -152,6 +179,157 @@ export function useUpdateDocumentationSection() {
         beaconApi().updateDocumentationSection(sectionId, { content }),
       invalidate: (vars) => [['projects', vars.projectId, 'documentation']],
       errorFallback: 'Update documentation section failed',
+    }),
+  );
+}
+
+// ---------- Project access: members, data-source links, restriction ----------
+
+export const PROJECT_ROLE_LABEL: Record<ProjectRole, string> = {
+  [ProjectRole.Viewer]: 'Viewer',
+  [ProjectRole.Editor]: 'Editor',
+  [ProjectRole.ProjectAdmin]: 'Project admin',
+};
+
+export interface ProjectMemberEntry {
+  userId: number;
+  displayName: string;
+  role: ProjectRole;
+  /** False for a disabled or archived user: the row grants nothing until removed. */
+  isActive: boolean;
+  addedAt: string;
+  modifiedAt: string | null;
+}
+
+export interface MemberCandidate {
+  userId: number;
+  displayName: string;
+  isMember: boolean;
+}
+
+/**
+ * How a user is named to other users: their display name, or "User {id}" without one. The server already sends this
+ * label; the fallback only covers a blank one. Never a user name, e-mail or external id.
+ */
+export function userLabel(userId: number, displayName: string | null | undefined): string {
+  return displayName?.trim() ? displayName : `User ${userId}`;
+}
+
+/** The server needs at least this many characters before it searches for users (by display name). */
+export const MEMBER_SEARCH_MIN_LENGTH = 2;
+
+const membersKey = (projectId: number) => ['projects', projectId, 'members'] as const;
+
+/** A project's members: server-paged, by display name. Only for callers who manage members. */
+export function useProjectMembers(projectId: number) {
+  return usePagedList<ProjectMemberEntry>({
+    queryKey: membersKey(projectId),
+    path: `/beacon/api/projects/${projectId}/members`,
+    urlPrefix: 'members',
+  });
+}
+
+/** Users to add, matching `search` (at least two characters; the server returns a short list). */
+export function useMemberCandidates(projectId: number, search: string) {
+  const term = search.trim();
+  return useQuery({
+    queryKey: ['projects', projectId, 'member-candidates', term],
+    queryFn: () =>
+      fetchJson<{ candidates: MemberCandidate[] }>(
+        `/beacon/api/projects/${projectId}/member-candidates?search=${encodeURIComponent(term)}`,
+      ),
+    enabled: term.length >= MEMBER_SEARCH_MIN_LENGTH,
+    retry: false,
+  });
+}
+
+/** Adds a member or changes a member's role. */
+export function useSetProjectMember(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ userId: number; role: ProjectRole }, unknown>({
+      qc,
+      mutationFn: ({ userId, role }) =>
+        fetchJson(`/beacon/api/projects/${projectId}/members/${userId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ role }),
+        }),
+      invalidate: [membersKey(projectId), ['projects', projectId, 'member-candidates'], ['projects']],
+      successMsg: 'Member saved',
+      errorFallback: 'Saving the member failed',
+    }),
+  );
+}
+
+export function useRemoveProjectMember(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, unknown>({
+      qc,
+      mutationFn: (userId) =>
+        fetchJson(`/beacon/api/projects/${projectId}/members/${userId}`, { method: 'DELETE' }),
+      invalidate: [membersKey(projectId), ['projects']],
+      successMsg: 'Member removed',
+      errorFallback: 'Removing the member failed',
+    }),
+  );
+}
+
+/** Restricts (members and Admins only) or opens a project. Admin only. */
+export function useSetProjectAccess(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<boolean, unknown>({
+      qc,
+      mutationFn: (requiresMembership) =>
+        fetchJson(`/beacon/api/projects/${projectId}/access`, {
+          method: 'PUT',
+          body: JSON.stringify({ requiresMembership }),
+        }),
+      invalidate: [['projects']],
+      successMsg: (requiresMembership) => (requiresMembership ? 'Project restricted' : 'Project opened'),
+      errorFallback: 'Changing project access failed',
+    }),
+  );
+}
+
+/**
+ * Removes a data source's link to a project. Admin only. A refusal (409: the links changed concurrently, or a host's
+ * data source the host links) refreshes the projects as well, so the page shows the links as they are now.
+ */
+export function useUnlinkProjectDataSource() {
+  const qc = useQueryClient();
+  const options = createSimpleMutation<{ projectId: number; dataSourceId: number }, unknown>({
+    qc,
+    mutationFn: ({ projectId, dataSourceId }) =>
+      fetchJson(`/beacon/api/projects/${projectId}/data-sources/${dataSourceId}`, { method: 'DELETE' }),
+    invalidate: [['projects'], ['data-sources']],
+    successMsg: 'Data source unlinked',
+    errorFallback: 'Unlinking the data source failed',
+  });
+  return useMutation({
+    ...options,
+    onError: (...args) => {
+      options.onError?.(...args);
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+/** Links data sources into a project. */
+export function useLinkProjectDataSources(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number[], unknown>({
+      qc,
+      mutationFn: (dataSourceIds) =>
+        fetchJson(`/beacon/api/projects/${projectId}/data-sources`, {
+          method: 'POST',
+          body: JSON.stringify({ dataSourceIds }),
+        }),
+      invalidate: [['projects'], ['data-sources']],
+      successMsg: (ids) => (ids.length === 1 ? 'Data source linked' : `${ids.length} data sources linked`),
+      errorFallback: 'Linking data sources failed',
     }),
   );
 }

@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Queries;
 
@@ -19,7 +20,12 @@ internal sealed class GetQueryDetailHandler(IQueryService queryService)
     }
 }
 
-public record GetQueryDetailQuery : IRequest<QueryDetailsData>
+public record GetQueryDetailQuery : IRequest<QueryDetailsData>, IProjectAuthorizedRequest
 {
     public required int QueryId { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Query(QueryId), ProjectAction.Read)
+    ];
 }

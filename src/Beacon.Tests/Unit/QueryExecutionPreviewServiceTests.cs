@@ -6,6 +6,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -80,7 +81,7 @@ public class QueryExecutionPreviewServiceTests
     }
 
     private static IQueryExecutionPreviewService CreateService(Mock<IQueryService> queryService) =>
-        new QueryExecutionPreviewService(queryService.Object, NullLogger<QueryExecutionPreviewService>.Instance);
+        new QueryExecutionPreviewService(queryService.Object, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted), NullLogger<QueryExecutionPreviewService>.Instance);
 
     private sealed record Paging : ListRequest;
 }

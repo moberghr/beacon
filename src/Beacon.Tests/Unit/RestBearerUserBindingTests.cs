@@ -534,7 +534,7 @@ public class RestBearerUserBindingTests
         (await AuthorizeAsync(mcp.User!, BeaconApiEndpoints.ExecuteScopePolicyName)).Should().BeFalse();
         mcp.User!.FindAll("scope").Select(x => x.Value).Should().Equal("Read");
         mcp.User.FindAll("allowed_projects").Select(x => x.Value).Should().Equal("[1]");
-        ProjectAccess.IsAllowed(mcp.User, 7).Should().BeFalse();
+        ProjectRestriction.Of(mcp.User).Should().Equal(1);
 
         // The same token on a REST route names no Beacon user: refused before any endpoint, the playground included.
         var rest = await RunAsync("/beacon/api/mcp/tools/run", token, CreateMapper(), users.Object);

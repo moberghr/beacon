@@ -1,6 +1,8 @@
 using Beacon.Core.Helpers;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Services;
 
@@ -20,16 +22,20 @@ public interface IQueryExecutionPreviewService
 internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewService
 {
     private readonly IQueryService _queryService;
+    private readonly ProjectRequestAuthorizer _authorizer;
     private readonly ILogger<QueryExecutionPreviewService> _logger;
 
-    public QueryExecutionPreviewService(IQueryService queryService, ILogger<QueryExecutionPreviewService> logger)
+    public QueryExecutionPreviewService(IQueryService queryService, ProjectRequestAuthorizer authorizer, ILogger<QueryExecutionPreviewService> logger)
     {
         _queryService = queryService;
+        _authorizer = authorizer;
         _logger = logger;
     }
 
     public async Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
+        await DemandMayRunAsync(queryId, draft, cancellationToken);
+
         try
         {
             return await _queryService.PreviewQuery(queryId, draft, paging, cancellationToken);
@@ -54,6 +60,8 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         ListRequest paging,
         CancellationToken cancellationToken)
     {
+        await DemandMayRunAsync(queryId, draft, cancellationToken);
+
         try
         {
             return await _queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, draft, paging, cancellationToken);
@@ -92,9 +100,10 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
                 return null;
             }
 
-            // Find the created query
+            // Find the created query: a lookup of the row this method just created, not a listing for the caller.
             var queries = await _queryService.GetQueries(new GetQueriesRequest
             {
+                Readable = ProjectSet.All,
                 QueryName = tempQueryName
             }, cancellationToken);
 
@@ -146,9 +155,10 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
                 return null;
             }
 
-            // Find the created query
+            // Find the created query: a lookup of the row this method just created, not a listing for the caller.
             var queries = await _queryService.GetQueries(new GetQueriesRequest
             {
+                Readable = ProjectSet.All,
                 QueryName = tempQueryName
             }, cancellationToken);
 
@@ -178,6 +188,17 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
                 }
             }
         }
+    }
+
+    // Re-checked right before the SQL runs, outside the catch that turns failures into results: the stored query's
+    // current sources need Run, a draft's sources need Query (one project holding all of them, or all openly reachable).
+    private Task DemandMayRunAsync(int queryId, QueryDraft? draft, CancellationToken cancellationToken)
+    {
+        var check = draft == null
+            ? new ProjectCheck(ProjectResource.Query(queryId), ProjectAction.Run)
+            : new ProjectCheck(ProjectResource.DataSources(draft.Steps?.Select(x => x.DataSourceId)), ProjectAction.Query);
+
+        return _authorizer.DemandAsync(check, cancellationToken);
     }
 
     // A preview is run by the user who wrote the query, so the failure goes back to them as the result

@@ -2,6 +2,8 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -38,6 +40,8 @@ internal sealed class PromoteSignalToGoldenHandler(IDbContextFactory<BeaconConte
             throw new InvalidOperationException($"Query signal {request.SignalId} is not associated with a data source.");
         }
 
+        await ProjectDataSourceLinks.EnsureLinkedAsync(context, projectId, dataSourceId, cancellationToken);
+
         var evalCase = new McpEvalCase
         {
             ProjectId = projectId,
@@ -56,6 +60,7 @@ internal sealed class PromoteSignalToGoldenHandler(IDbContextFactory<BeaconConte
     }
 }
 
+[ProjectScopeExempt("admin-gated curation on its route (the eval harness); also sent by the feedback handler, after that request's own signal check and rating rule; the golden case's data source must be linked to its project", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record PromoteSignalToGoldenCommand(int SignalId, string? Notes = null) : IRequest<PromoteSignalToGoldenResult>;
 
 public record PromoteSignalToGoldenResult(int EvalCaseId);

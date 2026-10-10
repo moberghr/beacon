@@ -55,5 +55,13 @@ public class DataSource : ArchivableBaseEntity
     /// <summary>Hash of the exposed host model slice at the last sync; an unchanged hash skips the metadata rewrite.</summary>
     public string? HostModelHash { get; set; }
 
+    /// <summary>
+    /// Whether the source, while no project links it, stays reachable by every reader (as before projects bounded
+    /// access). True for sources that existed when project access was introduced; false for every source created since,
+    /// which only an Admin reaches until it is linked to a project. A path that unlinks a source's last project must
+    /// clear it first.
+    /// </summary>
+    public bool OpenWhenUnlinked { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

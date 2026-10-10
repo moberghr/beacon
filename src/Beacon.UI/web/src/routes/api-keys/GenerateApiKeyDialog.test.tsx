@@ -34,6 +34,10 @@ const typeName = (value: string) =>
 
 const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Generate key' }));
 
+// The default test handlers list two projects; a key must name at least one.
+const pickProject = async (name = 'Acme Analytics') =>
+  fireEvent.click(await screen.findByRole('checkbox', { name }));
+
 describe('GenerateApiKeyDialog', () => {
   beforeEach(cleanup);
 
@@ -44,11 +48,12 @@ describe('GenerateApiKeyDialog', () => {
     await screen.findByText(/requires the Editor role/);
 
     typeName('Reporting');
+    await pickProject();
     submit();
 
     expect(await screen.findByText('sk-sem_shown-once')).toBeInTheDocument();
     expect(payloads).toHaveLength(1);
-    expect(payloads[0]).toMatchObject({ name: 'Reporting', scopes: ['Read'], allowedProjectIds: null, expiresAt: null });
+    expect(payloads[0]).toMatchObject({ name: 'Reporting', scopes: ['Read'], allowedProjectIds: [1], expiresAt: null });
   });
 
   it("submits a writer's Read and Execute key", async () => {
@@ -59,10 +64,50 @@ describe('GenerateApiKeyDialog', () => {
 
     typeName('Pipeline');
     fireEvent.click(scopeCheckbox(/^Execute$/));
+    await pickProject('Beta Pipeline');
     submit();
 
     await screen.findByText('sk-sem_shown-once');
-    expect(payloads[0]).toMatchObject({ name: 'Pipeline', scopes: ['Read', 'Execute'] });
+    expect(payloads[0]).toMatchObject({ name: 'Pipeline', scopes: ['Read', 'Execute'], allowedProjectIds: [2] });
+  });
+
+  it('offers only the projects a key can use: those read without the Admin bypass', async () => {
+    mswServer.use(permissions(true));
+    const asked: URL[] = [];
+    mswServer.use(
+      http.get('*/beacon/api/projects', ({ request }) => {
+        asked.push(new URL(request.url));
+        return HttpResponse.json({
+          items: [{ id: 5, name: 'Member project', requiresMembership: true, myRole: 3, memberCount: 2 }],
+          totalCount: 1,
+          pageCount: 1,
+        });
+      }),
+    );
+    const payloads = recordCreates();
+    renderWithProviders(<GenerateApiKeyDialog open onClose={() => {}} />);
+
+    typeName('Scoped');
+    await pickProject('Member project');
+    submit();
+
+    await screen.findByText('sk-sem_shown-once');
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every(x => x.searchParams.get('forApiKey') === 'true')).toBe(true);
+    expect(payloads[0]).toMatchObject({ allowedProjectIds: [5] });
+  });
+
+  it('refuses to submit without a project and says why', async () => {
+    mswServer.use(permissions(true));
+    const payloads = recordCreates();
+    renderWithProviders(<GenerateApiKeyDialog open onClose={() => {}} />);
+    await waitFor(() => expect(scopeCheckbox(/^Execute$/)).toBeEnabled());
+
+    typeName('Nowhere');
+    submit();
+
+    expect(await screen.findByText('Pick at least one project')).toBeInTheDocument();
+    expect(payloads).toHaveLength(0);
   });
 
   it('says why a requested Execute key cannot be issued instead of creating a Read key', async () => {

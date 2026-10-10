@@ -16,7 +16,8 @@ internal sealed class CreateDataContractHandler(
     IBeaconScheduler scheduler,
     IBeaconUserContext userContext,
     ISqlExecutionGate gate,
-    IBeaconActorAccessor actorAccessor) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
+    IBeaconActorAccessor actorAccessor,
+    BeaconConfiguration configuration) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
 {
     public async Task<CreateDataContractResult> Handle(CreateDataContractCommand request, CancellationToken cancellationToken)
     {
@@ -26,10 +27,9 @@ internal sealed class CreateDataContractHandler(
             DataQualityRuleGuard.EnsureAdmin(userContext);
         }
 
-        // The owner is the signed-in caller, never a value from the request; a contract is never stored without one.
-        var owner = await actorAccessor.GetCurrentAsync(cancellationToken);
-        var ownerUserId = owner.UserId
-            ?? throw new InvalidOperationException("The caller has no resolvable user to own the data contract.");
+        // The owner is the signed-in caller, never a value from the request; a contract is never stored without one, and
+        // with user management on its owner is a stored Beacon user (its evaluations act with the owner's access).
+        var ownerUserId = ScheduledWorkOwner.Require(await actorAccessor.GetCurrentAsync(cancellationToken), configuration);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -104,8 +104,14 @@ public record CreateDataContractCommand(
     bool AlertOnFailure,
     int FailureThresholdScore,
     List<DataContractRuleData> Rules,
-    List<int>? RecipientIds = null
-) : IRequest<CreateDataContractResult>;
+    [property: ProjectScopeExempt("recipients are project-less; attaching them needs Write on the contract's data source, checked")] List<int>? RecipientIds = null
+) : IRequest<CreateDataContractResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataSource(DataSourceId), ProjectAction.Write)
+    ];
+}
 
 public record CreateDataContractResult
 {

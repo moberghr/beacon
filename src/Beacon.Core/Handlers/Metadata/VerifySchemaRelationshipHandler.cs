@@ -1,5 +1,6 @@
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.Core.Models;
 using Beacon.Core.Services.Metadata;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -16,10 +17,12 @@ internal sealed class VerifySchemaRelationshipHandler(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // The relationship must belong to the route's data source, the one the caller's access was checked on.
         var relationship = await context.SchemaRelationships
             .Where(x => x.Id == request.Id)
+            .Where(x => x.DataSourceId == request.DataSourceId)
             .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException($"Schema relationship {request.Id} not found.");
+            ?? throw new BeaconNotFoundException($"Schema relationship {request.Id} not found.");
 
         relationship.IsVerified = request.IsVerified;
         relationship.VerifiedByUserId = request.IsVerified ? ParseUserId(userContext.UserId) : null;
@@ -35,4 +38,14 @@ internal sealed class VerifySchemaRelationshipHandler(
         int.TryParse(userId, out var parsed) ? parsed : null;
 }
 
-public record VerifySchemaRelationshipCommand(int Id, bool IsVerified) : IRequest;
+/// <summary>Marks a relationship of the data source <c>DataSourceId</c> verified or not; 404 when it is not that source's.</summary>
+public record VerifySchemaRelationshipCommand(
+    int DataSourceId,
+    [property: ProjectScopeExempt("bound to the route's data source by the handler (404 when it is another source's)")] int Id,
+    bool IsVerified) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.SharedSource(ProjectResource.DataSource(DataSourceId), ProjectAction.Write)
+    ];
+}

@@ -1,13 +1,13 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using MediatR;
-using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
 internal sealed class GetSubscriptionAnomalyChartHandler(
     IAnomalyDetectionService anomalyDetectionService,
-    IHttpContextAccessor httpContextAccessor)
+    IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetSubscriptionAnomalyChartQuery, GetSubscriptionAnomalyChartResult>
 {
     public async Task<GetSubscriptionAnomalyChartResult> Handle(GetSubscriptionAnomalyChartQuery request, CancellationToken cancellationToken)
@@ -16,7 +16,7 @@ internal sealed class GetSubscriptionAnomalyChartHandler(
         var data = await anomalyDetectionService.GetAnomalyChartDataAsync(
             request.SubscriptionId,
             request.Days,
-            StoredRunAccess.ScopeOf(httpContextAccessor.HttpContext?.User),
+            await StoredRunAccess.ScopeOfAsync(projectAccess, cancellationToken),
             cancellationToken);
 
         if (data is null || !data.HasAnomalyDetection)
@@ -51,7 +51,13 @@ internal sealed class GetSubscriptionAnomalyChartHandler(
 }
 
 public record GetSubscriptionAnomalyChartQuery(int SubscriptionId, int Days = 30)
-    : IRequest<GetSubscriptionAnomalyChartResult>;
+    : IRequest<GetSubscriptionAnomalyChartResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Read)
+    ];
+}
 
 public record GetSubscriptionAnomalyChartResult(
     bool HasAnomalyDetection,

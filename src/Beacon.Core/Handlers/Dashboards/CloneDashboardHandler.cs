@@ -84,6 +84,7 @@ internal sealed class CloneDashboardHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record CloneDashboardCommand(
     int SourceDashboardId,
     string NewName

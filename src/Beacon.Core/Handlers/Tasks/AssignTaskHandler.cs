@@ -61,4 +61,12 @@ internal sealed class AssignTaskHandler(
 /// permission may claim an unassigned task for themselves; the assignee may release or hand over their task; anything
 /// else needs an Admin. With Beacon user management the assignee must be an existing, enabled user.
 /// </summary>
-public record AssignTaskCommand(int TaskId, string? AssigneeUserId) : IRequest;
+public record AssignTaskCommand(
+    int TaskId,
+    [property: ProjectScopeExempt("the assignee: a user, not a project resource")] string? AssigneeUserId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Write)
+    ];
+}

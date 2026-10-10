@@ -28,6 +28,8 @@ export {
   NotificationTrigger,
   NotificationType,
   ParameterType,
+  ProjectMembershipManagement,
+  ProjectRole,
   QueryVersionStatus,
   TaskPriority,
   WidgetType,

@@ -1,3 +1,6 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
@@ -9,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.HostData;
 
@@ -31,6 +35,8 @@ internal sealed class HostDataSourceSynchronizer(
     ISchemaRelationshipSyncService relationshipSyncService,
     ISchemaGraphService schemaGraphService,
     IMemoryCache cache,
+    IProjectMembershipSource membershipSource,
+    IOptions<ProjectAuthorizationOptions> authorizationOptions,
     ILogger<HostDataSourceSynchronizer> logger)
 {
     public async Task SyncAllAsync(CancellationToken cancellationToken)
@@ -79,6 +85,8 @@ internal sealed class HostDataSourceSynchronizer(
         var staleLinks = links
             .Where(x => x.ProjectId != projectId)
             .ToList();
+        var mayRelink = linked || staleLinks.Count == 0
+            || await CarryRestrictionAsync(context, registration, projectId, staleLinks, cancellationToken);
 
         var rewriteMetadata = created || dataSource.HostModelHash != snapshot.ModelHash;
         HostMetadataMergeResult? merge = null;
@@ -102,7 +110,7 @@ internal sealed class HostDataSourceSynchronizer(
             context.DataSources.Add(dataSource);
         }
 
-        if (staleLinks.Count > 0)
+        if (mayRelink && staleLinks.Count > 0)
         {
             // Only the declared host project may reach the host database (e.g. after ProjectName changed).
             context.ProjectDataSources.RemoveRange(staleLinks);
@@ -112,7 +120,7 @@ internal sealed class HostDataSourceSynchronizer(
                 staleLinks.Count);
         }
 
-        if (!linked)
+        if (mayRelink && !linked)
         {
             context.ProjectDataSources.Add(new ProjectDataSource { ProjectId = projectId, DataSource = dataSource });
         }
@@ -136,6 +144,107 @@ internal sealed class HostDataSourceSynchronizer(
         LogOutcome(registration, snapshot, merge, created);
 
         return new HostSyncOutcome(dataSource.Id, created, rewriteMetadata, snapshot.Tables.Count);
+    }
+
+    // The source leaves the projects it was linked to for the host project. When one of them is restricted, the host
+    // project becomes restricted, so the move never opens the source, and takes the members of the live restricted
+    // project (an archived project grants nothing, so its members are never carried over). When that is impossible (the
+    // host manages membership, several live restricted projects held it, or the host project already has members the
+    // restricted project does not, who would gain the source) the source stays where it is.
+    private async Task<bool> CarryRestrictionAsync(
+        BeaconContext context,
+        HostDataSourceRegistration registration,
+        int projectId,
+        IReadOnlyList<ProjectDataSource> staleLinks,
+        CancellationToken cancellationToken)
+    {
+        var restrictsEverywhere = authorizationOptions.Value.RequireProjectMembership;
+        var leftProjectIds = staleLinks
+            .Select(x => x.ProjectId)
+            .Distinct()
+            .ToList();
+        var restricted = await context.Projects
+            .IgnoreQueryFilters()
+            .Where(x => leftProjectIds.Contains(x.Id))
+            .Where(x => restrictsEverywhere || x.RequiresMembership)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    IsLive = x.ArchivedTime == null
+                })
+            .ToListAsync(cancellationToken);
+        if (restricted.Count == 0)
+        {
+            return true;
+        }
+
+        var live = restricted
+            .Where(x => x.IsLive)
+            .Select(x => x.Id)
+            .ToList();
+        if (live.Count > 1 || !ProjectMembershipRules.IsManagedByBeacon(membershipSource))
+        {
+            logger.LogError(
+                "Host data source {DataSourceName} was not moved to host project {ProjectId}: it is held by restricted project(s) {RestrictedProjectIds} whose access cannot be carried over ({Reason}). Link it by hand or restrict the host project.",
+                registration.Name,
+                projectId,
+                restricted.Select(x => x.Id).ToList(),
+                live.Count > 1 ? "more than one restricted project" : "project membership is not managed by Beacon");
+
+            return false;
+        }
+
+        int? predecessorId = live.Count == 1 ? live[0] : null;
+        var existingMemberIds = await context.ProjectMembers
+            .Where(x => x.ProjectId == projectId)
+            .Select(x => x.UserId)
+            .ToListAsync(cancellationToken);
+        var predecessorMembers = await context.ProjectMembers
+            .Where(x => x.ProjectId == predecessorId)
+            .Select(x =>
+                new
+                {
+                    x.UserId,
+                    x.Role
+                })
+            .ToListAsync(cancellationToken);
+
+        var unrelatedMemberCount = existingMemberIds.Count(x => predecessorMembers.All(y => y.UserId != x));
+        if (unrelatedMemberCount > 0)
+        {
+            logger.LogError(
+                "Host data source {DataSourceName} was not moved to host project {ProjectId}: restricted project(s) {RestrictedProjectIds} hold it, and the host project has {UnrelatedMemberCount} member(s) the live one does not, who would gain the source. Link it by hand or align the members.",
+                registration.Name,
+                projectId,
+                restricted.Select(x => x.Id).ToList(),
+                unrelatedMemberCount);
+
+            return false;
+        }
+
+        var hostProject = await context.Projects
+            .Where(x => x.Id == projectId)
+            .FirstAsync(cancellationToken);
+        hostProject.RequiresMembership = true;
+
+        var inherited = predecessorMembers
+            .Where(x => !existingMemberIds.Contains(x.UserId))
+            .ToList();
+        foreach (var member in inherited)
+        {
+            context.ProjectMembers.Add(new ProjectMember { ProjectId = projectId, UserId = member.UserId, Role = member.Role });
+        }
+
+        logger.LogWarning(
+            ProjectAccessEvents.AccessModeChanged,
+            "Host project {ProjectId} restricted with {MemberCount} member(s) carried over from restricted project {PredecessorProjectId}, which held host data source {DataSourceName}.",
+            projectId,
+            inherited.Count,
+            predecessorId,
+            registration.Name);
+
+        return true;
     }
 
     private void ApplyDataSourceFields(DataSource dataSource, HostDataSourceRegistration registration, HostExposureSnapshot snapshot)

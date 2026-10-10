@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.UpdateDashboard;
@@ -24,7 +25,7 @@ internal sealed class UpdateDashboardHandler(
 
         if (!hasPermission)
         {
-            throw new UnauthorizedAccessException("Insufficient permissions to update this dashboard");
+            throw new BeaconForbiddenException("Insufficient permissions to update this dashboard");
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -70,6 +71,7 @@ internal sealed class UpdateDashboardHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record UpdateDashboardCommand(
     int DashboardId,
     string Name,

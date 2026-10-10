@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CalendarClock } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
+import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import {
@@ -44,6 +45,19 @@ export default function SubscriptionDetailPage() {
     return (
       <div className="flex flex-col gap-5 p-7">
         <EmptyState icon={<AlertTriangle />} title="Invalid subscription id" />
+      </div>
+    );
+  }
+
+  // A subscription the caller may not read answers 404, like a missing one.
+  if (detail.isError && isNotFound(detail.error)) {
+    return (
+      <div className="flex flex-col gap-5 p-7">
+        <EmptyState
+          icon={<CalendarClock />}
+          title="Subscription not found"
+          description={NOT_FOUND_DETAIL}
+        />
       </div>
     );
   }

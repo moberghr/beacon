@@ -254,7 +254,9 @@ describe('GenerateApiKeyDialog', () => {
     expect(await screen.findByText(/requires the Editor role/)).toBeInTheDocument();
     expect(scopeCheckbox(/^Execute$/)).toBeDisabled();
     expect(scopeCheckbox(/^Read$/)).toBeEnabled();
-    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+    // The scope group offers exactly two scopes (the dialog's other checkboxes pick projects).
+    const scopeGroup = scopeCheckbox(/^Read$/).closest('label')!.parentElement!;
+    expect(scopeGroup.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     expect(screen.queryByText(/Admin/)).not.toBeInTheDocument();
   });
 

@@ -1,6 +1,7 @@
 using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
@@ -33,4 +34,5 @@ internal sealed class GetMigrationJobHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
+[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetMigrationJobQuery(int Id) : IRequest<MigrationJobListItem?>;

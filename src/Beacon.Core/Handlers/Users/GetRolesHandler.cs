@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Users;
 
@@ -18,6 +19,7 @@ internal sealed class GetRolesHandler(IRoleService roleService)
     }
 }
 
+[ProjectScopeExempt("admin-gated user management, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetRolesQuery : IRequest<GetRolesResult>;
 
 public record GetRolesResult(List<RoleEntry> Entries);

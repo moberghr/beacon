@@ -1,6 +1,7 @@
 using MediatR;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -22,6 +23,7 @@ internal sealed class RunEvalHandler(IMcpEvalService evalService, IBeaconSchedul
     }
 }
 
+[ProjectScopeExempt("admin-gated curation (the eval harness)", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record RunEvalCommand(int? ProjectId, int? TriggeredByUserId) : IRequest<RunEvalResult>;
 
 public record RunEvalResult(int RunId);

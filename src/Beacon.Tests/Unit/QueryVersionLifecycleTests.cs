@@ -196,7 +196,8 @@ public class QueryVersionLifecycleTests
                 new BeaconConfiguration(),
                 UserContext(),
                 new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-                Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+                Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
+                TestProjectAccess.Actors());
 
         /// <summary>A save as it happens now: the stored state becomes the Active version, which history then holds.</summary>
         public async Task ActivateCurrentState()

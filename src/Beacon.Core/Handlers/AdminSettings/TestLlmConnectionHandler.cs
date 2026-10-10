@@ -1,6 +1,7 @@
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.AdminSettings;
 
@@ -39,6 +40,7 @@ internal sealed class TestLlmConnectionHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated settings, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record TestLlmConnectionCommand(
     AiProvider? LlmProvider,
     string? LlmModel,

@@ -3,17 +3,22 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.DataQuality.GetDataContracts;
 
 internal sealed class GetDataContractsHandler(
-    IDbContextFactory<BeaconContext> contextFactory) : IRequestHandler<GetDataContractsQuery, PagedList<DataContractData>>
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess) : IRequestHandler<GetDataContractsQuery, PagedList<DataContractData>>
 {
     public async Task<PagedList<DataContractData>> Handle(GetDataContractsQuery request, CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = context.DataContracts.AsQueryable();
+        var query = context.DataContracts
+            .WhereSourceAccessible(context, readable, x => x.DataSourceId);
 
         if (request.DataSourceId.HasValue)
             query = query.Where(c => c.DataSourceId == request.DataSourceId.Value);
@@ -46,7 +51,8 @@ internal sealed class GetDataContractsHandler(
 }
 
 /// <summary>Newest first unless <c>sort</c> says otherwise; optionally one data source.</summary>
-public record GetDataContractsQuery : ListRequest, IRequest<PagedList<DataContractData>>
+public record GetDataContractsQuery : ListRequest, IRequest<PagedList<DataContractData>>, IProjectFilteredRequest
 {
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? DataSourceId { get; init; }
 }

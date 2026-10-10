@@ -148,11 +148,11 @@ internal sealed class ProjectGetDocumentationTool(
                 var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, cancellationToken);
                 if (string.IsNullOrEmpty(schema_name))
                     schema_name = resolvedSchema;
-                result = await GetTableDocumentationAsync(dsId.Value, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
+                result = await GetTableDocumentationAsync(dsId.Value, projectId, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
             }
             else
             {
-                result = await GetDataSourceDocumentationAsync(dsId.Value, includeDetailSections, cancellationToken);
+                result = await GetDataSourceDocumentationAsync(dsId.Value, projectId, includeDetailSections, cancellationToken);
             }
 
             sw.Stop();
@@ -332,13 +332,14 @@ internal sealed class ProjectGetDocumentationTool(
             + "\n\n_Truncated (concise). Pass response_format: \"detailed\" for the full document._\n";
     }
 
-    private async Task<string> GetTableDocumentationAsync(int dataSourceId, string schemaName, string tableName, bool isApi, bool includeDetailSections, CancellationToken ct)
+    // Documentation and code references come from the resolved (pinned) project only, even on a shared data source.
+    private async Task<string> GetTableDocumentationAsync(int dataSourceId, int projectId, string schemaName, string tableName, bool isApi, bool includeDetailSections, CancellationToken ct)
     {
-        var knowledgeTask = knowledgeGraph.GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
+        var knowledgeTask = knowledgeGraph.GetTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
 
         // Concise omits the lineage section entirely, so skip the lookup as well.
         var lineageTask = includeDetailSections
-            ? knowledgeGraph.GetLineageAsync(dataSourceId, schemaName, tableName, ct)
+            ? knowledgeGraph.GetLineageAsync(dataSourceId, projectId, schemaName, tableName, ct)
             : null;
 
         var knowledge = await knowledgeTask;
@@ -496,9 +497,10 @@ internal sealed class ProjectGetDocumentationTool(
         return text;
     }
 
-    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, bool includeDetailSections, CancellationToken ct)
+    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, int projectId, bool includeDetailSections, CancellationToken ct)
     {
-        var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, ct);
+        // Code references and documentation are counted in the caller's project only.
+        var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, projectId, ct);
 
         // Concise omits the "Detailed Context" section entirely, so skip the lookup as well.
         var llmContextTask = includeDetailSections

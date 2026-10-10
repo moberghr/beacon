@@ -6,8 +6,18 @@ import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Banner, Field, Input } from '@/components/beacon';
+import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { usePermissions } from '@/auth/useAuth';
 import { useCreateApiKey } from './queries';
+
+/**
+ * A project the key may use: the picker lists only projects the signed-in user reads without the Admin bypass (open
+ * projects, and restricted ones they are a member of), because keys never carry that bypass.
+ */
+interface KeyProject {
+  id: number;
+  name: string;
+}
 
 const SCOPES = ['Read', 'Execute'] as const;
 type Scope = (typeof SCOPES)[number];
@@ -53,6 +63,9 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
   // dialog (CLAUDE.md §1.3 — never persist or log it).
   const [plainKey, setPlainKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Every key names its projects; the server refuses a key without one and never lets it exceed its owner.
+  const [projects, setProjects] = useState<KeyProject[]>([]);
+  const [projectsError, setProjectsError] = useState(false);
 
   const {
     register,
@@ -73,6 +86,8 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
     if (open) {
       setPlainKey(null);
       setCopied(false);
+      setProjects([]);
+      setProjectsError(false);
       reset({ name: '', scopeRead: true, scopeExecute: false, expiresAt: '' });
     }
   }, [open, reset]);
@@ -103,6 +118,11 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
       return;
     }
 
+    if (projects.length === 0) {
+      setProjectsError(true);
+      return;
+    }
+
     const expiresAt = values.expiresAt?.trim() ? new Date(values.expiresAt) : null;
     if (expiresAt && Number.isNaN(expiresAt.getTime())) {
       toast.error('Invalid expiration date');
@@ -113,7 +133,7 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
       const result = await create.mutateAsync({
         name: values.name,
         scopes,
-        allowedProjectIds: null,
+        allowedProjectIds: projects.map(x => x.id),
         expiresAt,
       });
       setPlainKey(result.plainTextKey);
@@ -207,6 +227,30 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
             {errors.scopeRead && <span className="text-xs text-crit">{errors.scopeRead.message}</span>}
             {errors.scopeExecute && <span className="text-xs text-crit">{errors.scopeExecute.message}</span>}
           </Field>
+
+          {/* Not a <Field>: that wraps its children in a <label>, and the picker holds its own checkboxes. */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">
+              Projects <span className="text-crit">*</span>
+            </span>
+            <SearchMultiSelect<KeyProject>
+              path="/beacon/api/projects"
+              params={{ forApiKey: true }}
+              queryKey={['projects']}
+              selected={projects}
+              onChange={x => {
+                setProjects(x);
+                setProjectsError(false);
+              }}
+              getId={x => x.id}
+              getLabel={x => x.name}
+              noun="projects"
+              hasError={projectsError}
+            />
+            {projectsError
+              ? <span className="text-xs text-crit">Pick at least one project</span>
+              : <span className="text-xs text-text-subtle">The key works only in these projects, and only while you can use them.</span>}
+          </div>
 
           <Field
             label="Expiration date"

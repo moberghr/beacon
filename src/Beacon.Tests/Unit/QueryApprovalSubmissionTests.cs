@@ -87,6 +87,7 @@ public class QueryApprovalSubmissionTests
         version.Status.Should().Be(QueryVersionStatus.PendingApproval);
         version.VersionNumber.Should().Be(1);
         version.CreatedByUserName.Should().Be("Ana Admin");
+        version.DataSourceIds.Should().Equal([DataSourceId], "the version records the data sources its steps read");
         var steps = JsonSerializer.Deserialize<List<QueryStepSnapshot>>(version.StepsJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         steps.Should().ContainSingle().Which.Should().BeEquivalentTo(new
         {
@@ -94,6 +95,13 @@ public class QueryApprovalSubmissionTests
             DataSourceId,
             DataSourceName = "warehouse",
         });
+    }
+
+    [Test]
+    public void RecordedDataSourceIds_AreTheDistinctSourcesInOrder()
+    {
+        QueryVersionService.RecordedDataSourceIds([7, 3, 7, 5]).Should().Equal(3, 5, 7);
+        QueryVersionService.RecordedDataSourceIds([]).Should().BeEmpty();
     }
 
     [Test]
@@ -157,7 +165,8 @@ public class QueryApprovalSubmissionTests
             new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
             UserContext(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
+            TestProjectAccess.Actors());
 
     private static IBeaconUserContext UserContext() =>
         Mock.Of<IBeaconUserContext>(x => x.UserId == "u1" && x.DisplayName == "Ana Admin");

@@ -67,4 +67,10 @@ internal sealed class ResolveTaskHandler(
 /// Resolves an open task. Allowed for the task's assignee or an Admin; the resolver is recorded as the signed-in caller.
 /// Resolving a task that is already resolved fails.
 /// </summary>
-public record ResolveTaskCommand(int Id, string? ResolutionNotes) : IRequest;
+public record ResolveTaskCommand(int Id, string? ResolutionNotes) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(Id), ProjectAction.Write)
+    ];
+}

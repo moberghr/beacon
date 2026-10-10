@@ -1,3 +1,5 @@
+using Beacon.Core;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Models.Subscriptions;
@@ -8,6 +10,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Models;
 
 namespace Beacon.Tests.Unit;
 
@@ -42,6 +45,44 @@ public class SubscriptionLifecycleTests
         context.Added.Should().ContainSingle()
             .Which.ArchivedTime.Should().BeNull();
         _scheduler.Verify(x => x.AddOrUpdate(It.IsAny<int>(), query.Name, "0 8 * * *"), Times.Once);
+    }
+
+    [Test]
+    public async Task CreateSubscription_RecordsTheCallerAsItsOwner()
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+
+        await BuildService(context).CreateSubscription(NewSubscriptionData(query.Id), CancellationToken.None);
+
+        context.Added.Should().ContainSingle().Which.OwnerUserId.Should().Be("ext-ada");
+    }
+
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task CreateSubscription_ByACallerWithoutAStoredUser_NeedsAHostWithoutUserManagement(bool userManagement, bool created)
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+        var hostSession = new Mock<IBeaconActorAccessor>();
+        hostSession
+            .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BeaconActor("host-user", false));
+        var configuration = new BeaconConfiguration();
+        configuration.UserManagement.Enabled = userManagement;
+
+        var act = () => BuildService(context, hostSession.Object, configuration).CreateSubscription(NewSubscriptionData(query.Id), CancellationToken.None);
+
+        if (created)
+        {
+            await act.Should().NotThrowAsync();
+            context.Added.Should().ContainSingle().Which.OwnerUserId.Should().Be("host-user");
+        }
+        else
+        {
+            await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner*");
+            context.Added.Should().BeEmpty();
+        }
     }
 
     [Test]
@@ -121,14 +162,22 @@ public class SubscriptionLifecycleTests
         _scheduler.Verify(x => x.AddOrUpdate(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
-    private SubscriptionService BuildService(SubscriptionContext context)
+    private SubscriptionService BuildService(
+        SubscriptionContext context,
+        IBeaconActorAccessor? actors = null,
+        BeaconConfiguration? configuration = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        return new SubscriptionService(factory.Object, _scheduler.Object, Mock.Of<IAnomalyDetectionService>());
+        return new SubscriptionService(
+            factory.Object,
+            _scheduler.Object,
+            Mock.Of<IAnomalyDetectionService>(),
+            actors ?? TestProjectAccess.Actors(),
+            configuration ?? new BeaconConfiguration());
     }
 
     private static SubscriptionData NewSubscriptionData(int queryId) =>

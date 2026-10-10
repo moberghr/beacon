@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
@@ -22,9 +23,15 @@ internal sealed class UpdatePatternStatusHandler(IDbContextFactory<BeaconContext
     }
 }
 
-public record UpdatePatternStatusCommand : IRequest
+public record UpdatePatternStatusCommand : IRequest, IProjectAuthorizedRequest
 {
     public required int PatternId { get; init; }
     public required McpPatternStatus NewStatus { get; init; }
+    [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public int? ReviewedByUserId { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.LearnedPattern(PatternId), ProjectAction.Write)
+    ];
 }

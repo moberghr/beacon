@@ -2,6 +2,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
@@ -34,6 +35,7 @@ internal sealed class RunMigrationJobHandler(IMigrationService migrationService)
     }
 }
 
+[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record RunMigrationJobCommand(int MigrationJobId) : IRequest<RunMigrationJobResult>;
 
 public record RunMigrationJobResult(

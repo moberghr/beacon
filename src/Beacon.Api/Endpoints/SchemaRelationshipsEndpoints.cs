@@ -38,10 +38,11 @@ internal static class SchemaRelationshipsEndpoints
             .WithName("CreateSchemaRelationship");
 
         relationships.MapPut("/relationships/{relationshipId:int}",
-            async (int relationshipId, UpdateSchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
+            async (int dataSourceId, int relationshipId, UpdateSchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
             {
                 await m.Send(new UpdateSchemaRelationshipCommand
                 {
+                    DataSourceId = dataSourceId,
                     Id = relationshipId,
                     Label = body.Label,
                     Cardinality = body.Cardinality
@@ -50,16 +51,16 @@ internal static class SchemaRelationshipsEndpoints
             }).WithName("UpdateSchemaRelationship");
 
         relationships.MapPost("/relationships/{relationshipId:int}/verify",
-            async (int relationshipId, VerifySchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
+            async (int dataSourceId, int relationshipId, VerifySchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
             {
-                await m.Send(new VerifySchemaRelationshipCommand(relationshipId, body.IsVerified), ct);
+                await m.Send(new VerifySchemaRelationshipCommand(dataSourceId, relationshipId, body.IsVerified), ct);
                 return TypedResults.NoContent();
             }).WithName("VerifySchemaRelationship");
 
         relationships.MapDelete("/relationships/{relationshipId:int}",
-            async (int relationshipId, IMediator m, CancellationToken ct) =>
+            async (int dataSourceId, int relationshipId, IMediator m, CancellationToken ct) =>
             {
-                await m.Send(new DeleteSchemaRelationshipCommand(relationshipId), ct);
+                await m.Send(new DeleteSchemaRelationshipCommand(dataSourceId, relationshipId), ct);
                 return TypedResults.NoContent();
             }).WithName("DeleteSchemaRelationship");
 

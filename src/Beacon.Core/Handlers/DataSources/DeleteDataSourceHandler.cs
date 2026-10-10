@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
@@ -12,4 +13,5 @@ internal sealed class DeleteDataSourceHandler(IDataSourceService dataSourceServi
     }
 }
 
+[ProjectScopeExempt("admin-gated data-source administration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record DeleteDataSourceCommand(int DataSourceId) : IRequest;

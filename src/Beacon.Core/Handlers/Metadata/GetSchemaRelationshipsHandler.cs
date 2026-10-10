@@ -3,6 +3,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Metadata;
 
@@ -58,13 +59,18 @@ internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconCont
 /// A data source's relationships, ordered by source schema, table and column unless <c>sort</c> says
 /// otherwise. <c>DataSourceId</c> binds from the route.
 /// </summary>
-public record GetSchemaRelationshipsQuery : ListRequest, IRequest<PagedList<SchemaRelationshipItem>>
+public record GetSchemaRelationshipsQuery : ListRequest, IRequest<PagedList<SchemaRelationshipItem>>, IProjectAuthorizedRequest
 {
     public int DataSourceId { get; init; }
 
     public SchemaRelationshipOrigin? Origin { get; init; }
 
     public bool? VerifiedOnly { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataSource(DataSourceId), ProjectAction.Read)
+    ];
 }
 
 public record SchemaRelationshipItem

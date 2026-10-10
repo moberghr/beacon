@@ -77,7 +77,7 @@ internal sealed class CreateSchemaRelationshipHandler(
         int.TryParse(userId, out var parsed) ? parsed : null;
 }
 
-public record CreateSchemaRelationshipCommand : IRequest<CreateSchemaRelationshipResult>
+public record CreateSchemaRelationshipCommand : IRequest<CreateSchemaRelationshipResult>, IProjectAuthorizedRequest
 {
     public int DataSourceId { get; init; }
     public required string SourceSchema { get; init; }
@@ -88,6 +88,11 @@ public record CreateSchemaRelationshipCommand : IRequest<CreateSchemaRelationshi
     public required string TargetColumn { get; init; }
     public string? Label { get; init; }
     public SchemaRelationshipCardinality Cardinality { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.SharedSource(ProjectResource.DataSource(DataSourceId), ProjectAction.Write)
+    ];
 }
 
 public record CreateSchemaRelationshipResult(int Id);

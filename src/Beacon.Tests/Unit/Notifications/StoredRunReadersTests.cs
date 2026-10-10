@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using FluentAssertions;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -83,8 +82,7 @@ public class StoredRunReadersTests
     [Test]
     public async Task ControlTowerDetail_ProjectRestrictedCaller_SeesOnlyItsProjectsRuns()
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = ApiKey("[2]") } };
-        var handler = new GetControlTowerSubscriptionDetailHandler(ControlTower(), accessor);
+        var handler = new GetControlTowerSubscriptionDetailHandler(ControlTower(), TestProjectAccess.ForPrincipal(ApiKey("[2]")));
 
         var result = await handler.Handle(new GetControlTowerSubscriptionDetailQuery(SubscriptionId), CancellationToken.None);
 
@@ -172,9 +170,9 @@ public class StoredRunReadersTests
 
     private static async Task<GetHomeActivityResult> HomeActivity(ClaimsPrincipal caller)
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
+        var access = TestProjectAccess.ForPrincipal(caller);
 
-        return await new GetHomeActivityHandler(Factory(), accessor).Handle(new GetHomeActivityQuery(50), CancellationToken.None);
+        return await new GetHomeActivityHandler(Factory(), access).Handle(new GetHomeActivityQuery(50), CancellationToken.None);
     }
 
     private static ControlTowerService ControlTower()
@@ -184,24 +182,24 @@ public class StoredRunReadersTests
 
     private static async Task<TaskExecutionsResult> TaskExecutions(ClaimsPrincipal caller)
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
+        var access = TestProjectAccess.ForPrincipal(caller);
 
-        return await new GetTaskExecutionsHandler(TaskService(Factory()), accessor).Handle(new GetTaskExecutionsQuery(TaskId), CancellationToken.None);
+        return await new GetTaskExecutionsHandler(TaskService(Factory()), access).Handle(new GetTaskExecutionsQuery(TaskId), CancellationToken.None);
     }
 
     private static async Task<TaskResultHistoryResult> TaskResultHistory(ClaimsPrincipal caller)
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
+        var access = TestProjectAccess.ForPrincipal(caller);
 
-        return await new GetTaskResultHistoryHandler(TaskService(Factory()), accessor).Handle(new GetTaskResultHistoryQuery(TaskId), CancellationToken.None);
+        return await new GetTaskResultHistoryHandler(TaskService(Factory()), access).Handle(new GetTaskResultHistoryQuery(TaskId), CancellationToken.None);
     }
 
     private static async Task<GetSubscriptionAnomalyChartResult> AnomalyChart(ClaimsPrincipal caller)
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
+        var access = TestProjectAccess.ForPrincipal(caller);
         var service = new AnomalyDetectionService(Factory(), NullLogger<AnomalyDetectionService>.Instance);
 
-        return await new GetSubscriptionAnomalyChartHandler(service, accessor).Handle(new GetSubscriptionAnomalyChartQuery(SubscriptionId), CancellationToken.None);
+        return await new GetSubscriptionAnomalyChartHandler(service, access).Handle(new GetSubscriptionAnomalyChartQuery(SubscriptionId), CancellationToken.None);
     }
 
     private static TaskService TaskService(IDbContextFactory<BeaconContext> factory)

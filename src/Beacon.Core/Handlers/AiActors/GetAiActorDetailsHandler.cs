@@ -2,15 +2,21 @@ using MediatR;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Authorization;
 
 
 
 namespace Beacon.Core.Handlers.AiActors;
 
-public record GetAiActorDetailsQuery : IRequest<GetAiActorDetailsResult?>
+public record GetAiActorDetailsQuery : IRequest<GetAiActorDetailsResult?>, IProjectAuthorizedRequest
 {
     public required int ActorId { get; init; }
     public int? ExecutionHistoryLimit { get; init; } = 10;
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.AiActor(ActorId), ProjectAction.Read)
+    ];
 }
 
 public record GetAiActorDetailsResult

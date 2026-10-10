@@ -8,6 +8,8 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Tasks;
 using Beacon.Core.Notifications;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Services;
 
@@ -208,7 +210,8 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var query = context.QueryTasks.AsQueryable();
+        var query = context.QueryTasks
+            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Subscription.Query.Steps.Select(y => y.DataSourceId), x => x.Subscription.Query.OwnerUserId);
 
         // Apply filters
         if (request.SubscriptionId.HasValue)

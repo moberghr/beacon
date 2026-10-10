@@ -1069,6 +1069,7 @@ public class AiActorService : IAiActorServiceExtended
             Name = name,
             Description = description,
             AiActorId = actor.Id,
+            OwnerUserId = actor.CreatedByUserId,
             Steps = { queryStep }
         };
 
@@ -1206,7 +1207,9 @@ public class AiActorService : IAiActorServiceExtended
             CreateTasks = true, // AI-created subscriptions create tasks by default
             ShowQuery = true,
             IncludeAttachment = false,
-            AiActorId = actor.Id
+            AiActorId = actor.Id,
+            // Owned by the actor's creator, whose access its runs act with.
+            OwnerUserId = actor.CreatedByUserId
         };
 
         context.Subscriptions.Add(subscription);
@@ -1320,6 +1323,7 @@ public class AiActorService : IAiActorServiceExtended
         var changeHistory = new QueryStepChangeHistory
         {
             QueryStepId = firstStep.Id,
+            DataSourceId = firstStep.DataSourceId,
             AiActorId = actor.Id,
             AiActorExecutionId = executionId,
             AiActorPlanId = planId,

@@ -2,6 +2,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
@@ -68,6 +69,7 @@ internal sealed class CreateMigrationJobHandler(IMigrationService migrationServi
     }
 }
 
+[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record CreateMigrationJobCommand(
     string Name,
     string Description,

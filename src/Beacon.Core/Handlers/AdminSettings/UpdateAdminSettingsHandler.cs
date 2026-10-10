@@ -40,6 +40,7 @@ internal sealed class UpdateAdminSettingsHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated settings, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record UpdateAdminSettingsCommand(
     string? BaseUrl,
     AiProvider? LlmProvider,

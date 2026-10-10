@@ -42,4 +42,10 @@ internal sealed class EvaluateDataContractHandler(
 }
 
 /// <summary>Runs a data contract's rules now. Allowed for the contract's owner or an Admin.</summary>
-public record EvaluateDataContractCommand(int DataContractId) : IRequest<DataQualityEvaluationData>;
+public record EvaluateDataContractCommand(int DataContractId) : IRequest<DataQualityEvaluationData>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataContract(DataContractId), ProjectAction.Run)
+    ];
+}

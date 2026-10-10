@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,8 @@ using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -194,6 +197,118 @@ public class McpPlaygroundServiceTests
     }
 
     [Test]
+    public async Task NoRequest_IsDenied_BeforeAnyTool()
+    {
+        var service = new McpPlaygroundService(BuildServiceProvider(withRequest: false));
+
+        var result = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Text.Should().Be(McpPlaygroundService.NoRequestMessage);
+        _queryExecution.Verify(
+            x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "work with no request is unrestricted, so the playground refuses it outright");
+    }
+
+    [Test]
+    public async Task Playground_UsesTheCallersProjectAccess_NonMemberOfARestrictedProjectIsDenied()
+    {
+        // A member of another project only: the restricted project is not in the caller's scope.
+        var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId + 1] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+
+        var result = await service.ExecuteToolAsync(
+            "get_documentation", new Dictionary<string, object?>(), ProjectId, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Text.Should().Be($"Access denied: you do not have access to project {ProjectId}.");
+    }
+
+    [Test]
+    public async Task Viewer_ReadsTheCatalog_ButCannotRunSqlCarryingTools()
+    {
+        var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+
+        var dryRun = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+        var documentation = await service.ExecuteToolAsync(
+            "get_documentation", new Dictionary<string, object?> { ["response_format"] = "bogus" }, ProjectId, CancellationToken.None);
+
+        dryRun.Text.Should().Be($"Access denied: you do not have access to project {ProjectId}.", "dry_run needs Query, a Viewer has Read and Run");
+        _queryExecution.Verify(
+            x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        documentation.Text.Should().Be("response_format must be 'concise' or 'detailed'.", "the catalog tool ran: a Viewer reads the project");
+    }
+
+    [TestCase("ask", true)]
+    [TestCase("query", true)]
+    [TestCase("dry_run", true)]
+    [TestCase("feedback", true)]
+    [TestCase("search", false)]
+    [TestCase("get_context", false)]
+    [TestCase("get_query_context", false)]
+    [TestCase("get_documentation", false)]
+    public async Task AViewer_IsDeniedTheToolsThatQuery_AndRunsTheCatalogTools(string tool, bool needsQuery)
+    {
+        var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+
+        var result = await service.ExecuteToolAsync(tool, new Dictionary<string, object?>(), ProjectId, CancellationToken.None);
+
+        McpToolProjectAction.Of(tool).Should().Be(needsQuery ? ProjectAction.Query : ProjectAction.Read);
+        if (needsQuery)
+        {
+            result.IsError.Should().BeTrue();
+            result.Text.Should().Be($"Access denied: you do not have access to project {ProjectId}.");
+        }
+        else
+        {
+            result.Text.Should().NotStartWith("Access denied", "a Viewer reads the project's catalog");
+        }
+    }
+
+    [Test]
+    public async Task GetDocumentationArm_ReadsTableKnowledgeAndLineage_ForThePinnedProjectOnly()
+    {
+        _knowledgeGraph
+            .Setup(x => x.GetTableKnowledgeAsync(DataSourceId, ProjectId, "public", "customers", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TableKnowledge
+            {
+                DataSourceId = DataSourceId,
+                DataSourceName = "warehouse",
+                SchemaName = "public",
+                TableName = "customers",
+                Description = "Customers of the pinned project"
+            });
+        _knowledgeGraph
+            .Setup(x => x.GetLineageAsync(DataSourceId, ProjectId, "public", "customers", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LineageInfo { SchemaName = "public", TableName = "customers" });
+        var service = new McpPlaygroundService(BuildServiceProvider());
+
+        var result = await service.ExecuteToolAsync(
+            "get_documentation",
+            new Dictionary<string, object?> { ["datasource_name"] = "warehouse", ["table_name"] = "customers" },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse(result.Text);
+        result.Text.Should().Contain("Customers of the pinned project");
+        _knowledgeGraph.Verify(
+            x => x.GetTableKnowledgeAsync(It.IsAny<int>(), It.Is<int>(y => y != ProjectId), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
+            "documentation and code references are read for the pinned project, never another one sharing the source");
+        _knowledgeGraph.Verify(
+            x => x.GetLineageAsync(DataSourceId, ProjectId, "public", "customers", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
     public async Task UnknownTool_ReturnsError()
     {
         var service = new McpPlaygroundService(BuildServiceProvider());
@@ -205,7 +320,11 @@ public class McpPlaygroundServiceTests
         result.Text.Should().Be("Unknown tool: definitely_not_a_tool");
     }
 
-    private IServiceProvider BuildServiceProvider(bool auditRequired = false, bool auditSaveThrows = false)
+    private IServiceProvider BuildServiceProvider(
+        bool auditRequired = false,
+        bool auditSaveThrows = false,
+        bool withRequest = true,
+        ProjectAccessScope? access = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -236,11 +355,15 @@ public class McpPlaygroundServiceTests
 
         // The playground mutates the SCOPED McpProjectContext; the tools must observe the same
         // instance, so IProjectContext maps onto it exactly like ServiceConfiguration's factory
-        // does on the playground path (no HttpContext: attribution is skipped and the API-key
-        // project gate passes for non-API-key callers).
+        // does on the playground path. A signed-in request (unless withRequest is false) whose
+        // project access is the given scope (default: an Admin's).
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
-        services.AddSingleton(Mock.Of<IHttpContextAccessor>());
+        var request = withRequest
+            ? new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "5")], "Cookies")) }
+            : null;
+        services.AddSingleton(Mock.Of<IHttpContextAccessor>(x => x.HttpContext == request));
+        services.AddSingleton(TestProjectAccess.Evaluator(access ?? TestProjectAccess.Unrestricted));
         // Same shape as ServiceConfiguration: one scoped McpAuditOutcome per playground scope, shared by the audit
         // service and the playground's withhold decision.
         services.AddSingleton(deploymentOptions);
@@ -348,7 +471,7 @@ public class McpPlaygroundServiceTests
             {
                 return (DbSet<TEntity>)(object)BuildSet(new List<ProjectDataSource>
                 {
-                    new() { ProjectId = ProjectId, DataSourceId = DataSourceId }
+                    new() { ProjectId = ProjectId, DataSourceId = DataSourceId, DataSource = new DataSource { Id = DataSourceId, Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "encrypted" } }
                 });
             }
 

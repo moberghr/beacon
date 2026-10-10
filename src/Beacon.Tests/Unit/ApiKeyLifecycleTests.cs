@@ -35,6 +35,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Models;
 
 namespace Beacon.Tests.Unit;
 
@@ -232,9 +233,9 @@ public class ApiKeyLifecycleTests
                 await users.ToggleUserEnabledAsync(1, ct);
                 return await apiKeys.GenerateApiKeyAsync(userId, name, scopes, projects, expiresAt, generation, ct);
             });
-        var handler = new CreateApiKeyHandler(stalled.Object, Accessor(CookiePrincipal("editor")), users, Mock.Of<IBeaconAuthorizationProvider>());
+        var handler = new CreateApiKeyHandler(stalled.Object, Accessor(CookiePrincipal("editor")), users, Mock.Of<IBeaconAuthorizationProvider>(), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
 
-        var issued = await handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var issued = await handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
         var validated = await apiKeys.ValidateApiKeyAsync(issued.PlainTextKey, CancellationToken.None);
 
         var stored = store.Keys.Should().ContainSingle().Subject;
@@ -256,9 +257,9 @@ public class ApiKeyLifecycleTests
         var apiKeys = BuildApiKeys(store);
         await users.ToggleUserEnabledAsync(1, CancellationToken.None);
         await users.ToggleUserEnabledAsync(1, CancellationToken.None);
-        var handler = new CreateApiKeyHandler(apiKeys, Accessor(CookiePrincipal("editor")), users, Mock.Of<IBeaconAuthorizationProvider>());
+        var handler = new CreateApiKeyHandler(apiKeys, Accessor(CookiePrincipal("editor")), users, Mock.Of<IBeaconAuthorizationProvider>(), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
 
-        var issued = await handler.Handle(new CreateApiKeyCommand("ci", ["Read"], null, null), CancellationToken.None);
+        var issued = await handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
         var validated = await apiKeys.ValidateApiKeyAsync(issued.PlainTextKey, CancellationToken.None);
 
         store.Keys.Should().ContainSingle().Which.OwnerGeneration.Should().Be(user.ApiKeyGeneration).And.Be(2);
@@ -281,8 +282,8 @@ public class ApiKeyLifecycleTests
         var list = () => new GetAllApiKeysHandler(BuildFactory(store), Accessor(CookiePrincipal("admin")), users.Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
             .Handle(new GetAllApiKeysQuery(), CancellationToken.None);
 
-        await revoke.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*administrator*");
-        await list.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*administrator*");
+        await revoke.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*administrator*");
+        await list.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*administrator*");
         key.IsRevoked.Should().BeFalse();
         users.Verify(x => x.GetUserByExternalIdAsync("ext-1", It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
@@ -386,8 +387,8 @@ public class ApiKeyLifecycleTests
         var list = () => new GetAllApiKeysHandler(BuildFactory(store), Accessor(principal), AdminUsers().Object, Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now))
             .Handle(new GetAllApiKeysQuery(), CancellationToken.None);
 
-        await revoke.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*signed-in session*");
-        await list.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*signed-in session*");
+        await revoke.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*signed-in session*");
+        await list.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*signed-in session*");
         key.IsRevoked.Should().BeFalse();
     }
 
@@ -796,7 +797,7 @@ public class ApiKeyLifecycleTests
 
         var app = builder.Build();
 
-        // The host's mapping of a handler's refusal (UnauthorizedAccessException) to 403.
+        // The host's own exception handling, behind the API group's mapping of Beacon's refusals.
         app.UseApiExceptionHandler("/beacon/api");
         app.UseMiddleware<ApiKeyAuthMiddleware>();
         app.Use((context, next) =>

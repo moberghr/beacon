@@ -79,15 +79,16 @@ If connection fails, check:
 
 ### Step 5: Save Data Source
 
-Click **Save** to create the data source.
+Pick the **Projects** the data source belongs to, then click **Save** to create it. A new data source that no project links is usable by Admins only until it is linked (see [Projects and access](#projects-and-access)).
 
 ## Managing Data Sources
 
 ### View Data Sources
 
-The Data Sources page shows all configured data sources with:
+The Data Sources page shows the data sources you can reach with:
 - Data source name and description
 - Database type
+- The projects that link it: the ones you can use by name, plus "+N other" for projects you cannot see (never named). "Admins only" marks a data source no project links yet
 - Number of queries using this data source
 - Last query execution time
 - Actions (Edit, Delete, View Queries)
@@ -166,6 +167,18 @@ Loaded metadata tells Beacon what tables exist; **schema relationships** tell it
 Only verified relationships are presented to the SQL generator as authoritative join paths; unverified inferences are passed separately and explicitly flagged. The page opens with a **schema health** panel — table and relationship counts, how many are unverified, connected groups, isolated tables, and detected junction tables — which is the fastest way to see which parts of a schema an AI assistant currently has no way to reach.
 
 See the [Knowledge Base guide](/features/knowledge-base/#schema-relationships) for how join paths are used during generation, and the REST endpoints for managing them.
+
+## Projects and access
+
+A data source is reached through the projects that link it ([Project access](/features/authorization/#data-sources-follow-their-projects)): a caller uses it only through a project they may use, and a query that reads several data sources only through one project that links all of them.
+
+- **Linking.** Link data sources on create (the **Projects** field, `projectIds` on `POST /beacon/api/data-sources`) or from a project's page (**Link data sources**, `POST /beacon/api/projects/{id}/data-sources`), which needs that project's admin role or Admin. Anyone but an Admin may link only data sources already linked to a live open project. A data source registered by the host for a host project (a [host DbContext](/features/host-dbcontext/) source) links only into the project the host declares for it (the same host key), for Admins too. An unreadable or missing data source answers `404`, a readable one that may not be linked `403`. Each link records who created it.
+- **Unlinking.** An Admin unlinks a data source from a project (`DELETE /beacon/api/projects/{id}/data-sources/{dataSourceId}`), or from the **Access** card of a project that shares it, which lists the other projects linking its data sources and their project admins. When that was the source's last link, the source becomes Admin-only until it is linked again; it never becomes unlinked and open. A host's data source cannot be unlinked (`409`), a missing link answers `404`, and a concurrent change `409` (retry).
+- **Unlinked data sources.** Data sources that existed before project access stay reachable while no project links them (`openWhenUnlinked`). A new data source is created with `openWhenUnlinked: false`: Admin-only until a project links it. With `Beacon:Authorization:RequireProjectMembership` every unlinked data source is Admin-only.
+- **Shared data sources.** A data source linked to an open project is reachable through it by everyone with a role, even when a restricted project links it too. The project page warns Admins about such sources before they restrict a project, and lists every other project, open or restricted, that links them.
+- **Counts.** A data source's query count includes only the queries you may read; its migration job count is shown to Admins only (zero for anyone else).
+- **Shared state.** Relationships, metadata description edits, a forced metadata refresh and documentation patches that write descriptions change what every linking project sees, so they need Write in every live project that links the data source, or an Admin.
+- **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the login can read: use a login per data source that sees only what its projects should see, rather than one broad login shared by several boundaries.
 
 ## Connection Best Practices
 

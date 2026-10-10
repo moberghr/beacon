@@ -5,6 +5,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Setup;
 
@@ -146,6 +147,7 @@ internal sealed class CreateSuperAdminHandler(
     }
 }
 
+[ProjectScopeExempt("first-run setup, no project data")]
 public record CreateSuperAdminCommand(CreateSuperAdminRequest Request) : IRequest<CreateSuperAdminResult>;
 
 public record CreateSuperAdminResult

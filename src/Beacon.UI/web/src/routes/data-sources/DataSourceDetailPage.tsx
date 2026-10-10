@@ -15,7 +15,8 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError } from '@/lib/api';
+import { describeError, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
+import { ProjectChips } from './ProjectChips';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourceQuery,
@@ -23,6 +24,7 @@ import {
   useDeleteDataSource,
   useRefreshDataSourceMetadata,
   type ColumnMetadataDto,
+  type DataSourceEntry,
   type TableMetadataDto,
 } from './queries';
 
@@ -63,6 +65,24 @@ export default function DataSourceDetailPage() {
     );
   }
 
+  if (listQuery.isError && !isNotFound(listQuery.error)) {
+    return (
+      <div className="flex flex-col gap-5 p-7">
+        <PageHeader
+          variant="nodes"
+          emphasis={`Data source #${numericId}`}
+          sub={<Link to="/data-sources" className="text-text-muted">← back to data sources</Link>}
+        />
+        <EmptyState
+          icon={<AlertTriangle />}
+          title="Failed to load data source"
+          description={listQuery.error instanceof Error ? listQuery.error.message : 'Unknown error'}
+        />
+      </div>
+    );
+  }
+
+  // A data source the caller may not read answers 404, like a missing one: both show the not-found state.
   if (!entry) {
     return (
       <div className="flex flex-col gap-5 p-7">
@@ -71,7 +91,11 @@ export default function DataSourceDetailPage() {
           emphasis={`Data source #${numericId}`}
           sub={<Link to="/data-sources" className="text-text-muted">← back to data sources</Link>}
         />
-        <EmptyState icon={<Database />} title="Data source not found" />
+        <EmptyState
+          icon={<Database />}
+          title="Data source not found"
+          description={NOT_FOUND_DETAIL}
+        />
       </div>
     );
   }
@@ -177,7 +201,7 @@ export default function DataSourceDetailPage() {
 }
 
 interface OverviewProps {
-  entry: { id: number; name: string; dataSourceType: string; databaseEngineType: string | null; queryCount: number; migrationJobsCount: number; metadataLoadingEnabled: boolean };
+  entry: DataSourceEntry;
   metadataLoading: boolean;
 }
 
@@ -201,6 +225,15 @@ function OverviewTab({ entry, metadataLoading }: OverviewProps) {
         <dd>{entry.metadataLoadingEnabled
           ? <Pill tone="ok">Enabled</Pill>
           : <span className="text-text-muted">Disabled</span>}</dd>
+        <dt className="text-text-muted">Projects</dt>
+        <dd>
+          <ProjectChips
+            projects={entry.projects ?? []}
+            otherProjectCount={entry.otherProjectCount ?? 0}
+            openWhenUnlinked={entry.openWhenUnlinked ?? true}
+            linked
+          />
+        </dd>
         <dt className="text-text-muted">Queries</dt>
         <dd>{formatNumber(entry.queryCount)}</dd>
         <dt className="text-text-muted">Migration jobs</dt>

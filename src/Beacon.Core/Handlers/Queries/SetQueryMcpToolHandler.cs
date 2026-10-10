@@ -3,6 +3,7 @@ using Beacon.Core.SavedQueries;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Queries;
 
@@ -116,6 +117,7 @@ internal sealed class SetQueryMcpToolHandler(
     }
 }
 
+[ProjectScopeExempt("admin-gated: publishing a saved query as an MCP tool is a publishing decision", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record SetQueryMcpToolCommand(int QueryId, bool Enabled, string? Name, string? Description, string? UserId)
     : IRequest<SetQueryMcpToolResult>;
 

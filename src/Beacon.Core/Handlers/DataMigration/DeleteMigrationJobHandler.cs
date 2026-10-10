@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
@@ -24,6 +25,7 @@ internal sealed class DeleteMigrationJobHandler(IMigrationService migrationServi
     }
 }
 
+[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record DeleteMigrationJobCommand(int MigrationJobId, bool ForceDelete = false)
     : IRequest<DeleteMigrationJobResult>;
 

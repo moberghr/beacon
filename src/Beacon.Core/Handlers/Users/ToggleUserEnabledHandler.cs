@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Users;
 
@@ -17,4 +18,5 @@ internal sealed class ToggleUserEnabledHandler(IUserManagementService userServic
     }
 }
 
+[ProjectScopeExempt("admin-gated user management, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record ToggleUserEnabledCommand(int UserId) : IRequest;

@@ -71,6 +71,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Description = query.Description,
             FinalQuery = query.FinalQuery,
             StepsJson = SerializeSteps(query),
+            DataSourceIds = RecordedDataSourceIds(query.Steps.Select(x => x.DataSourceId)),
             CreatedByUserId = userId,
             CreatedByUserName = AuthorName(userId),
             ChangeSource = source,
@@ -146,6 +147,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Description = query.Description,
             FinalQuery = query.FinalQuery,
             StepsJson = stepsJson,
+            DataSourceIds = RecordedDataSourceIds(query.Steps.Select(x => x.DataSourceId)),
             ChangeSource = "Baseline",
             ChangeReason = "The query as stored before this edit"
         });
@@ -211,6 +213,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Description = proposed.Description,
             FinalQuery = proposed.FinalQuery,
             StepsJson = JsonSerializer.Serialize(snapshots, JsonOptions),
+            DataSourceIds = RecordedDataSourceIds(dataSourceIds),
             CreatedByUserId = userId,
             CreatedByUserName = AuthorName(userId),
             ChangeSource = source,
@@ -362,6 +365,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Description = version.Description,
             FinalQuery = version.FinalQuery,
             StepsJson = version.StepsJson,
+            DataSourceIds = RecordedDataSourceIds(snapshots.Select(x => x.DataSourceId)),
             CreatedByUserId = userId,
             CreatedByUserName = AuthorName(userId),
             ChangeSource = "Restore",
@@ -409,6 +413,16 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
     // pre-edit baseline) holds someone else's earlier SQL, so it stays unattributed.
     private string? AuthorName(string? userId) =>
         userId == null ? null : userContext.DisplayName ?? userContext.UserName;
+
+    // The distinct data sources a version's steps read, recorded with the version so access to it is decided without
+    // parsing StepsJson.
+    internal static int[] RecordedDataSourceIds(IEnumerable<int> dataSourceIds)
+    {
+        return dataSourceIds
+            .Distinct()
+            .Order()
+            .ToArray();
+    }
 
     private static string SerializeSteps(Query query)
     {

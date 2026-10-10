@@ -47,4 +47,10 @@ internal sealed class DeleteDataContractHandler(
     }
 }
 
-public record DeleteDataContractCommand(int DataContractId) : IRequest;
+public record DeleteDataContractCommand(int DataContractId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataContract(DataContractId), ProjectAction.Manage)
+    ];
+}

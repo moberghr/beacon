@@ -58,4 +58,10 @@ internal sealed class SetTaskPriorityHandler(
 }
 
 /// <summary>Sets an open task's priority. Allowed for the task's assignee or an Admin; a resolved task keeps its priority.</summary>
-public record SetTaskPriorityCommand(int TaskId, TaskPriority Priority) : IRequest;
+public record SetTaskPriorityCommand(int TaskId, TaskPriority Priority) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Write)
+    ];
+}

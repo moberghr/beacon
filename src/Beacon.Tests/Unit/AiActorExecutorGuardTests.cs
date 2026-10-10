@@ -111,6 +111,21 @@ public class AiActorExecutorGuardTests
     }
 
     [Test]
+    public async Task CreateSubscription_OnAnOwnedQuery_IsOwnedByTheActorsCreator()
+    {
+        var service = BuildService(queries: [new Query { Id = 1, AiActorId = ActorId }]);
+        var actor = Actor();
+        actor.CreatedByUserId = "ext-creator";
+
+        var action = await service.ExecuteOrProposeAsync(actor, Plan("CREATE_SUBSCRIPTION", ("queryId", 1)), [], CancellationToken.None);
+
+        action.Success.Should().BeTrue();
+        _subscriptionsSet.Verify(
+            x => x.Add(It.Is<Subscription>(y => y.OwnerUserId == "ext-creator" && y.AiActorId == ActorId)),
+            Times.Once);
+    }
+
+    [Test]
     public async Task CreateQuery_OverCap_CreatesNothing()
     {
         var service = BuildService(queries: [new Query { Id = 1, AiActorId = ActorId }]);

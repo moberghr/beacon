@@ -122,6 +122,12 @@ The Subscriptions page shows:
 - Enabled/disabled state
 - Actions (Edit, Execute Now, Disable, Delete)
 
+### Owner and project access
+
+A subscription records its **owner** when it is created: the signed-in creator, or, for a subscription an [AI actor](/features/ai-actors/) creates, the actor's creator — never a value from the request. The subscription page shows the owner by display name, or as "User {id}" without one — never a user name or external id; subscriptions created before owners were recorded show "no owner recorded", and an owner who matches no Beacon user any more shows "unknown user". The detail route returns `hasOwner` and `ownerDisplayName` for this, not the owner's id. While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user) cannot create a subscription (`403`). In this version scheduled runs still run as the system; the owner is the account their access will be checked against.
+
+A subscription belongs to the project that holds its query's data sources: it, its runs and their stored results are visible only through such a project the caller may use ([Project access](/features/authorization/#project-access)). One you may not read answers `404` and shows the not-found state.
+
 ### Execute Manually
 
 Test a subscription without waiting for the schedule:

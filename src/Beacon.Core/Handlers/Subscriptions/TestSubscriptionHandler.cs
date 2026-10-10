@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Worker;
 using MediatR;
@@ -11,12 +12,17 @@ internal sealed class TestSubscriptionHandler(
     IJobService jobService,
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    ProjectRequestAuthorizer authorizer,
     ILogger<TestSubscriptionHandler> logger)
     : IRequestHandler<TestSubscriptionCommand>
 {
     public async Task Handle(TestSubscriptionCommand request, CancellationToken cancellationToken)
     {
         await EnsureMayRunAsync(request.SubscriptionId, cancellationToken);
+
+        // Re-checked right before the run: the subscription's query, as it is now, must be runnable by the caller. The job
+        // itself checks nothing: it runs as the system.
+        await authorizer.DemandAsync(new ProjectCheck(ProjectResource.Subscription(request.SubscriptionId), ProjectAction.Run), cancellationToken);
 
         await jobService.ExecuteQuery(request.SubscriptionId, cancellationToken);
     }
@@ -59,4 +65,10 @@ internal sealed class TestSubscriptionHandler(
 /// Runs a subscription now and delivers its notifications. A subscription managed by an AI actor is run by the actor's
 /// creator or an Admin only.
 /// </summary>
-public record TestSubscriptionCommand(int SubscriptionId) : IRequest;
+public record TestSubscriptionCommand(int SubscriptionId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Write)
+    ];
+}

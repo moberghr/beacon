@@ -71,6 +71,7 @@ internal sealed class ShareDashboardHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record ShareDashboardCommand(
     int DashboardId,
     string UserId,

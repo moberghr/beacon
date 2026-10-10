@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Tasks;
 
@@ -18,7 +19,13 @@ internal sealed class GetTaskCommentsHandler(ITaskService taskService)
     }
 }
 
-public record GetTaskCommentsQuery(int TaskId) : IRequest<TaskCommentsResult>;
+public record GetTaskCommentsQuery(int TaskId) : IRequest<TaskCommentsResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Read)
+    ];
+}
 
 public record TaskCommentsResult(int TaskId, IReadOnlyList<TaskCommentItem> Comments);
 

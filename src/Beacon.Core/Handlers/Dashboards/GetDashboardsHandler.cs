@@ -62,6 +62,7 @@ internal sealed class GetDashboardsHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record GetDashboardsQuery(
     GetDashboardsRequest Request
 ) : IRequest<PagedList<DashboardListData>>;

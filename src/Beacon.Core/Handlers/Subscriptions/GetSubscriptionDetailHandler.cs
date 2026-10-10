@@ -2,6 +2,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -63,16 +64,29 @@ internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscrip
             data.NotificationTrigger,
             parameters,
             recipients,
-            anomaly);
+            anomaly,
+            data.OwnerUserId != null,
+            data.OwnerDisplayName);
 
         return new GetSubscriptionDetailResult(detail);
     }
 }
 
-public record GetSubscriptionDetailQuery(int SubscriptionId) : IRequest<GetSubscriptionDetailResult>;
+public record GetSubscriptionDetailQuery(int SubscriptionId) : IRequest<GetSubscriptionDetailResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Read)
+    ];
+}
 
 public record GetSubscriptionDetailResult(SubscriptionDetail Detail);
 
+/// <summary>
+/// A subscription's detail. <c>HasOwner</c>: an owner is recorded (its scheduled runs are checked against the owner's
+/// access); <c>OwnerDisplayName</c>: the owner's display name, or a neutral "User {id}" label, never an external id or
+/// user name (null when no owner or no matching user).
+/// </summary>
 public record SubscriptionDetail(
     int Id,
     int QueryId,
@@ -94,7 +108,9 @@ public record SubscriptionDetail(
     NotificationTrigger NotificationTrigger,
     List<SubscriptionDetailParameter> Parameters,
     List<SubscriptionDetailRecipient> Recipients,
-    SubscriptionDetailAnomalyConfig? AnomalyConfig);
+    SubscriptionDetailAnomalyConfig? AnomalyConfig,
+    bool HasOwner,
+    string? OwnerDisplayName);
 
 public record SubscriptionDetailParameter(string? QueryPlaceholder, string? Value);
 

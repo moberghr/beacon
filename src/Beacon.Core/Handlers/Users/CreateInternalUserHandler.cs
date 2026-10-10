@@ -1,6 +1,7 @@
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Users;
 
@@ -27,6 +28,7 @@ internal sealed class CreateInternalUserHandler(IUserManagementService userServi
     }
 }
 
+[ProjectScopeExempt("admin-gated user management, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record CreateInternalUserCommand(
     string UserName,
     string? Email,

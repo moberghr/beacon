@@ -1,5 +1,7 @@
 using MediatR;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Core.Handlers.Mcp.RunMcpTool;
 
@@ -23,10 +25,18 @@ internal sealed class RunMcpToolHandler(
 public record RunMcpToolCommand(
     string ToolName,
     int ProjectId,
-    Dictionary<string, object?>? Arguments) : IRequest<RunMcpToolResult>;
+    Dictionary<string, object?>? Arguments) : IRequest<RunMcpToolResult>, IProjectAuthorizedRequest
+{
+    // The SQL-carrying and feedback tools work ad hoc in the project (Query); the catalog tools read it.
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Project(ProjectId), McpToolProjectAction.Of(ToolName))
+    ];
+}
 
 public record RunMcpToolResult(string Text, bool IsError);
 
+[ProjectScopeExempt("tool names only, no project data")]
 public record GetMcpToolsQuery : IRequest<GetMcpToolsResult>;
 public record GetMcpToolsResult(IReadOnlyList<string> ToolNames);
 
