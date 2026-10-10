@@ -7,6 +7,7 @@ using Beacon.Core.DTOs;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Tasks;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
@@ -151,18 +152,32 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var task = await context.QueryTasks
-            .Where(t => t.Id == taskId)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new BeaconException($"Task {taskId} not found");
+        // A resolution is never overwritten: who resolved the task, when and why stays as recorded. The task is written
+        // only while it is still open.
+        var resolvedAt = DateTime.UtcNow;
+        var updated = await context.QueryTasks
+            .Where(x => x.Id == taskId)
+            .Where(x => !x.Resolved)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.Resolved, true)
+                    .SetProperty(y => y.ResolvedAt, resolvedAt)
+                    .SetProperty(y => y.ResolutionNotes, resolutionNotes)
+                    .SetProperty(y => y.ResolvedByUserId, userId),
+                cancellationToken);
 
-        // Update task resolution fields
-        task.Resolved = true;
-        task.ResolvedAt = DateTime.UtcNow;
-        task.ResolutionNotes = resolutionNotes;
-        task.ResolvedByUserId = userId;
+        if (updated > 0)
+        {
+            return;
+        }
 
-        await context.SaveChangesAsync(cancellationToken);
+        var exists = await context.QueryTasks
+            .Where(x => x.Id == taskId)
+            .AnyAsync(cancellationToken);
+
+        throw exists
+            ? new InvalidOperationException($"Task {taskId} is already resolved.")
+            : new BeaconException($"Task {taskId} not found");
     }
 
     public async Task ReopenTask(int taskId, CancellationToken cancellationToken)
@@ -256,13 +271,13 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 LatestResultCount = t.LatestResultCount,
                 LastNotificationAt = t.LastNotificationAt,
                 NotificationCount = t.Notifications.Count,
+                // The notifications' stored result rows are not part of a task's detail.
                 Notifications = t.Notifications
                     .OrderByDescending(n => n.SentAt)
                     .Select(n => new NotificationSummary(
                         n.Id,
                         n.SentAt,
-                        n.QueryExecutionHistory.ResultCount,
-                        n.Results
+                        n.QueryExecutionHistory.ResultCount
                     ))
                     .ToList(),
                 CreatedAt = t.CreatedTime,
@@ -360,7 +375,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         };
     }
 
-    public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, CancellationToken cancellationToken)
+    public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -373,8 +388,10 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (subscriptionId == 0)
             return new List<QueryExecutionSummary>();
 
+        // The runs listed are the stored runs the caller may read (StoredRunAccess).
         var executions = await context.QueryExecutionHistory
             .Where(qeh => qeh.SubscriptionId == subscriptionId)
+            .WhereReadableWithin(context, runScope)
             .OrderByDescending(qeh => qeh.CreatedTime)
             .Take(50) // Limit to last 50 executions
             .Select(qeh => new QueryExecutionSummary(
@@ -420,7 +437,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         return relatedTasks;
     }
 
-    public async Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, CancellationToken cancellationToken)
+    public async Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -433,9 +450,11 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (subscriptionId == 0)
             return new List<ResultCountDataPoint>();
 
-        // Get the most recent 100 result counts, then re-order ascending for the chart
+        // Get the most recent 100 result counts of the stored runs the caller may read (StoredRunAccess), then
+        // re-order ascending for the chart
         var resultHistory = await context.QueryExecutionHistory
             .Where(qeh => qeh.SubscriptionId == subscriptionId)
+            .WhereReadableWithin(context, runScope)
             .OrderByDescending(qeh => qeh.CreatedTime)
             .Take(100)
             .Select(qeh => new ResultCountDataPoint(qeh.CreatedTime, qeh.ResultCount))

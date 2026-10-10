@@ -165,6 +165,20 @@ export function useDeleteContract() {
   );
 }
 
+/** Admin only: makes a Beacon user the contract's owner. */
+export function useSetContractOwner(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (userId) => beaconApi().setDataContractOwner(id, { userId }),
+      invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id)],
+      successMsg: 'Owner updated',
+      errorFallback: 'Changing the owner failed',
+    }),
+  );
+}
+
 export interface CreateContractPayload {
   dataSourceId: number;
   schemaName: string;
@@ -173,7 +187,6 @@ export interface CreateContractPayload {
   description: string | null;
   cronExpression: string;
   isEnabled: boolean;
-  ownerUserId: string | null;
   alertOnFailure: boolean;
   failureThresholdScore: number;
   rules: DataContractRuleData[];

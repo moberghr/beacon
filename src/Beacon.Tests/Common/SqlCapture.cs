@@ -19,18 +19,49 @@ internal sealed class SqlCapturedException() : Exception("The command was captur
 /// </summary>
 internal sealed class SqlCapture
 {
-    private readonly Queue<Func<DbDataReader>> _answers = new();
+    private readonly Queue<(Func<DbDataReader> Reader, int RowsAffected)> _answers = new();
     private readonly List<string> _commands = [];
+    private readonly List<IReadOnlyDictionary<string, object?>> _parameters = [];
     private readonly List<IsolationLevel> _transactions = [];
 
     public IReadOnlyList<string> Commands => _commands;
+
+    /// <summary>The parameters each command in <see cref="Commands"/> was sent with, by name.</summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>> CommandParameters => _parameters;
 
     public IReadOnlyList<IsolationLevel> TransactionIsolationLevels => _transactions;
 
     /// <summary>Answers the next command with no rows.</summary>
     public SqlCapture ThenNoRows()
     {
-        _answers.Enqueue(() => new DataTable().CreateDataReader());
+        _answers.Enqueue((() => new DataTable().CreateDataReader(), 1));
+
+        return this;
+    }
+
+    /// <summary>Answers the next command with one row holding <paramref name="values"/>, in column order.</summary>
+    public SqlCapture ThenRow(params object[] values)
+    {
+        _answers.Enqueue((() =>
+        {
+            var table = new DataTable();
+            for (var i = 0; i < values.Length; i++)
+            {
+                table.Columns.Add($"c{i}", values[i].GetType());
+            }
+
+            table.Rows.Add(values);
+
+            return table.CreateDataReader();
+        }, 1));
+
+        return this;
+    }
+
+    /// <summary>Answers the next command, a write such as <c>ExecuteUpdateAsync</c>, as having changed <paramref name="rows"/> rows.</summary>
+    public SqlCapture ThenRowsAffected(int rows)
+    {
+        _answers.Enqueue((() => new DataTable().CreateDataReader(), rows));
 
         return this;
     }
@@ -38,14 +69,14 @@ internal sealed class SqlCapture
     /// <summary>Answers the next command with one row holding <paramref name="value"/>.</summary>
     public SqlCapture ThenScalar(object value)
     {
-        _answers.Enqueue(() =>
+        _answers.Enqueue((() =>
         {
             var table = new DataTable();
             table.Columns.Add("value", value.GetType());
             table.Rows.Add(value);
 
             return table.CreateDataReader();
-        });
+        }, 1));
 
         return this;
     }
@@ -74,17 +105,22 @@ internal sealed class SqlCapture
         return new NpgsqlTestContext(options);
     }
 
-    private DbDataReader Answer(string sql)
+    private (DbDataReader Reader, int RowsAffected) Answer(string sql, DbParameterCollection parameters)
     {
         lock (_commands)
         {
             _commands.Add(sql);
+            _parameters.Add(parameters
+                .Cast<DbParameter>()
+                .ToDictionary(x => x.ParameterName, x => x.Value == DBNull.Value ? null : x.Value));
             if (_answers.Count == 0)
             {
                 throw new SqlCapturedException();
             }
 
-            return _answers.Dequeue()();
+            var answer = _answers.Dequeue();
+
+            return (answer.Reader(), answer.RowsAffected);
         }
     }
 
@@ -184,13 +220,15 @@ internal sealed class SqlCapture
 
         public override int ExecuteNonQuery()
         {
-            capture.Answer(CommandText);
-            return 1;
+            var (reader, rowsAffected) = capture.Answer(CommandText, Parameters);
+            reader.Dispose();
+
+            return rowsAffected;
         }
 
         public override object? ExecuteScalar()
         {
-            using var reader = capture.Answer(CommandText);
+            using var reader = capture.Answer(CommandText, Parameters).Reader;
 
             return reader.Read() ? reader.GetValue(0) : null;
         }
@@ -201,6 +239,6 @@ internal sealed class SqlCapture
 
         protected override DbParameter CreateDbParameter() => new NpgsqlParameter();
 
-        protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior) => capture.Answer(CommandText);
+        protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior) => capture.Answer(CommandText, Parameters).Reader;
     }
 }

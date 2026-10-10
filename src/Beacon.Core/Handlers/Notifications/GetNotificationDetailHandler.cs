@@ -1,15 +1,21 @@
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Core.Handlers.Notifications;
 
-internal sealed class GetNotificationDetailHandler(INotificationService notificationService)
+internal sealed class GetNotificationDetailHandler(
+    INotificationService notificationService,
+    IHttpContextAccessor httpContextAccessor)
     : IRequestHandler<GetNotificationDetailQuery, GetNotificationDetailResult>
 {
     public async Task<GetNotificationDetailResult> Handle(GetNotificationDetailQuery request, CancellationToken cancellationToken)
     {
-        var data = await notificationService.GetNotificationDetails(request.NotificationId, cancellationToken);
+        // A run outside the caller's projects reads as not found, like a missing one.
+        var scope = StoredRunAccess.ScopeOf(httpContextAccessor.HttpContext?.User);
+        var data = await notificationService.GetNotificationDetails(request.NotificationId, scope, cancellationToken);
 
         if (data == null)
         {

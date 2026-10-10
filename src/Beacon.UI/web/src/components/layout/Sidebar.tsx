@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/cn';
-import { useAuth } from '@/auth/useAuth';
+import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
 import { BuildBadge } from '@/components/beacon';
 
@@ -36,6 +36,8 @@ interface NavItem {
   slug: string;
   count?: number;
   badge?: string;
+  /** Shown to Admins only: the page's data is served to Admins only. */
+  adminOnly?: boolean;
 }
 
 interface NavSection {
@@ -58,7 +60,7 @@ const SECTIONS: NavSection[] = [
       { name: 'Data Sources', Icon: IconDatabase, slug: 'data-sources' },
       { name: 'Projects', Icon: IconFolder, slug: 'projects' },
       { name: 'Data Quality', Icon: IconShield, slug: 'data-quality' },
-      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs' },
+      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', adminOnly: true },
       { name: 'AI Actors', Icon: IconBot, slug: 'ai-actors' },
     ],
   },
@@ -76,7 +78,7 @@ const SECTIONS: NavSection[] = [
     label: 'MCP',
     items: [
       { name: 'API Keys', Icon: IconKey, slug: 'api-keys' },
-      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings' },
+      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', adminOnly: true },
       { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground' },
       { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning' },
     ],
@@ -84,7 +86,7 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Admin',
     items: [
-      { name: 'User Management', Icon: IconUsers, slug: 'users' },
+      { name: 'User Management', Icon: IconUsers, slug: 'users', adminOnly: true },
       { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings' },
     ],
   },
@@ -109,6 +111,10 @@ export function Sidebar() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useAuth();
+  const isAdmin = useIsAdmin() === true;
+  const sections = SECTIONS
+    .map(section => ({ ...section, items: section.items.filter(item => !item.adminOnly || isAdmin) }))
+    .filter(section => section.items.length > 0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -185,7 +191,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-4">
-        {SECTIONS.map(section => (
+        {sections.map(section => (
           <div className="flex flex-col gap-0.5" key={section.label}>
             <div className="px-2.5 mb-1 text-2xs font-semibold uppercase tracking-eyebrow text-text-subtle">
               {section.label}

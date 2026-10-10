@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Authorization;
@@ -14,8 +15,11 @@ using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataQuality.CreateDataContract;
 using Beacon.Core.Handlers.DataQuality.DeleteDataContract;
+using Beacon.Core.Handlers.DataQuality.EvaluateDataContract;
+using Beacon.Core.Handlers.DataQuality.SetDataContractOwner;
 using Beacon.Core.Handlers.DataQuality.UpdateDataContract;
 using Beacon.Core.Mcp;
+using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
@@ -24,9 +28,10 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// Saving a data contract that carries a CustomSql rule (§1.5): only an Admin creates, changes or deletes one; its SQL
-/// must be a single read-only SELECT that Beacon can cap at one row; it never targets a missing, non-database or
-/// host-managed data source. A rejected save writes nothing, purges no rule history and leaves the schedule alone.
+/// Saving a data contract: its owner is the caller that created it, and only the owner or an Admin changes, disables,
+/// retargets or deletes it. A contract that carries a CustomSql rule (§1.5) is an Admin's to create, change or delete;
+/// its SQL must be a single read-only SELECT that Beacon can cap at one row; it never targets a missing, non-database
+/// or host-managed data source. A rejected save writes nothing, purges no rule history and leaves the schedule alone.
 /// </summary>
 [TestFixture]
 public class DataContractCustomSqlSaveTests
@@ -38,12 +43,17 @@ public class DataContractCustomSqlSaveTests
 
     private Store _store = null!;
     private Mock<IBeaconScheduler> _scheduler = null!;
+    private Mock<IDataQualityEvaluationService> _evaluation = null!;
 
     [SetUp]
     public void SetUp()
     {
         _store = new Store();
         _scheduler = new Mock<IBeaconScheduler>();
+        _evaluation = new Mock<IDataQualityEvaluationService>();
+        _evaluation
+            .Setup(x => x.EvaluateContractAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DataQualityEvaluationData { DataContractId = ContractId });
     }
 
     // --- create -------------------------------------------------------------------------------------------------
@@ -52,7 +62,8 @@ public class DataContractCustomSqlSaveTests
     public async Task Create_CustomSqlByANonAdmin_IsForbiddenBeforeAnyLookup()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
-        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(Interactive(RoleService.RoleNames.Editor)), TestSqlGate.Create());
+        var editor = Interactive(RoleService.RoleNames.Editor);
+        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), new BeaconActorAccessor(Accessor(editor), factory.Object));
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
@@ -238,7 +249,9 @@ public class DataContractCustomSqlSaveTests
             ContextFactory(OrdinarySource(), contract, rules: []),
             _scheduler.Object,
             UserContext(Interactive(RoleService.RoleNames.Editor)),
-            TestSqlGate.Create());
+            TestSqlGate.Create(),
+            Actor(Interactive(RoleService.RoleNames.Editor)),
+            NullLogger<UpdateDataContractHandler>.Instance);
 
         var act = () => handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
 
@@ -291,7 +304,9 @@ public class DataContractCustomSqlSaveTests
             ContextFactory(OrdinarySource(), contract, rules: [oldRule], results: [new DataQualityRuleResult { DataContractRuleId = oldRule.Id }]),
             _scheduler.Object,
             UserContext(Admin()),
-            TestSqlGate.Create());
+            TestSqlGate.Create(),
+            Actor(Admin()),
+            NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(CustomSqlRule("SELECT 1 AS passed")), CancellationToken.None);
 
@@ -312,7 +327,9 @@ public class DataContractCustomSqlSaveTests
             ContextFactory(OrdinarySource(), contract, rules: [oldRule]),
             _scheduler.Object,
             UserContext(Admin()),
-            TestSqlGate.Create());
+            TestSqlGate.Create(),
+            Actor(Admin()),
+            NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
 
@@ -361,7 +378,236 @@ public class DataContractCustomSqlSaveTests
         contract.ArchivedTime.Should().NotBeNull();
     }
 
+    // --- ownership ----------------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task Create_TheOwnerIsTheSignedInCaller_NotAValueFromTheBody()
+    {
+        const string body = """
+            {"dataSourceId":7,"schemaName":"sales","tableName":"orders","name":"contract","cronExpression":"0 0 * * *",
+             "isEnabled":false,"ownerUserId":"someone-else","alertOnFailure":false,"failureThresholdScore":80,"rules":[]}
+            """;
+        var command = JsonSerializer.Deserialize<CreateDataContractCommand>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+
+        await handler.Handle(command with { Rules = [VolumeRule()] }, CancellationToken.None);
+
+        _store.Added.OfType<DataContract>().Should().ContainSingle().Which.OwnerUserId.Should().Be("1");
+    }
+
+    [TestCase("someone-else")]
+    [TestCase(null)]
+    public async Task Update_BySomeoneOtherThanTheOwner_IsForbiddenBeforeAnyChange(string? owner)
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        contract.OwnerUserId = owner;
+        contract.IsEnabled = true;
+        var editor = Interactive(RoleService.RoleNames.Editor);
+        var handler = new UpdateDataContractHandler(
+            ContextFactory(OrdinarySource(), contract, contract.Rules),
+            _scheduler.Object,
+            UserContext(editor),
+            TestSqlGate.Create(),
+            Actor(editor),
+            NullLogger<UpdateDataContractHandler>.Instance);
+
+        // Disabling it and pointing it at another data source.
+        var act = () => handler.Handle(UpdateCommand(VolumeRule()) with { DataSourceId = 99, IsEnabled = false }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        contract.IsEnabled.Should().BeTrue();
+        contract.DataSourceId.Should().Be(DataSourceId);
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task Update_ByAnAdminWhoIsNotTheOwner_IsSaved()
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        contract.OwnerUserId = "someone-else";
+        var handler = new UpdateDataContractHandler(
+            ContextFactory(OrdinarySource(), contract, contract.Rules),
+            _scheduler.Object,
+            UserContext(Admin()),
+            TestSqlGate.Create(),
+            Actor(Admin()),
+            NullLogger<UpdateDataContractHandler>.Instance);
+
+        await handler.Handle(UpdateCommand(VolumeRule()) with { Name = "renamed" }, CancellationToken.None);
+
+        contract.Name.Should().Be("renamed");
+        contract.OwnerUserId.Should().Be("someone-else", "an update never changes the owner");
+        _store.Commits.Should().Be(1);
+    }
+
+    [TestCase("someone-else")]
+    [TestCase(null)]
+    public async Task Delete_BySomeoneOtherThanTheOwner_IsForbidden(string? owner)
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        contract.OwnerUserId = owner;
+        var handler = DeleteHandler(Interactive(RoleService.RoleNames.Editor), contract);
+
+        var act = () => handler.Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        contract.ArchivedTime.Should().BeNull();
+        _scheduler.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task Delete_ByAnAdminWhoIsNotTheOwner_ArchivesIt()
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        contract.OwnerUserId = "someone-else";
+        var handler = DeleteHandler(Admin(), contract);
+
+        await handler.Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
+
+        contract.ArchivedTime.Should().NotBeNull();
+    }
+
+    [Test]
+    public async Task Create_ByACallerWithoutAResolvableUser_IsRefused_AndNoContractIsStoredWithoutAnOwner()
+    {
+        var handler = CreateHandler(OrdinarySource(), WithoutId(RoleService.RoleNames.Editor));
+
+        var act = () => handler.Handle(CreateCommand(VolumeRule()), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*no resolvable user*");
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task AMissingContract_IsRefusedToAnEditorLikeAContractThatIsNotTheirs_AndReportedAsMissingToAnAdmin()
+    {
+        // Each handler is built just before it runs: the request's user lives in the ambient HttpContext.
+        var editor = Interactive(RoleService.RoleNames.Editor);
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), Actor(editor), NullLogger<UpdateDataContractHandler>.Instance)
+            .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
+        Func<Task> delete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), Actor(editor), NullLogger<DeleteDataContractHandler>.Instance)
+            .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
+        Func<Task> evaluate = () => EvaluateHandler(editor, contract: null).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
+        Func<Task> adminDelete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(Admin()), Actor(Admin()), NullLogger<DeleteDataContractHandler>.Instance)
+            .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
+
+        await update.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        await delete.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        await evaluate.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+        await adminDelete.Should().ThrowAsync<BeaconException>().WithMessage($"Data contract {ContractId} not found");
+        _evaluation.VerifyNoOtherCalls();
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task AnOwnerlessContract_IsNotTheContractOfACallerWithoutAUser()
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        contract.OwnerUserId = null;
+        var caller = WithoutId(RoleService.RoleNames.Editor);
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), Actor(caller), NullLogger<UpdateDataContractHandler>.Instance)
+            .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
+        Func<Task> delete = () => DeleteHandler(caller, contract).Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
+        Func<Task> evaluate = () => EvaluateHandler(caller, contract).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
+
+        await update.Should().ThrowAsync<UnauthorizedAccessException>();
+        await delete.Should().ThrowAsync<UnauthorizedAccessException>();
+        await evaluate.Should().ThrowAsync<UnauthorizedAccessException>();
+        contract.ArchivedTime.Should().BeNull();
+        _evaluation.VerifyNoOtherCalls();
+        AssertNothingWritten();
+    }
+
+    [TestCase("1", RoleService.RoleNames.Editor, true)]
+    [TestCase("someone-else", RoleService.RoleNames.Admin, true)]
+    [TestCase("someone-else", RoleService.RoleNames.Editor, false)]
+    [TestCase(null, RoleService.RoleNames.Editor, false)]
+    public async Task Evaluate_IsTheOwnersOrAnAdmins(string? owner, string role, bool allowed)
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        contract.OwnerUserId = owner;
+        var handler = EvaluateHandler(Interactive(role), contract);
+
+        var act = () => handler.Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
+
+        if (allowed)
+        {
+            await act.Should().NotThrowAsync();
+            _evaluation.Verify(x => x.EvaluateContractAsync(ContractId, It.IsAny<CancellationToken>()), Times.Once);
+        }
+        else
+        {
+            await act.Should().ThrowAsync<UnauthorizedAccessException>().WithMessage("*owner or an Admin*");
+            _evaluation.VerifyNoOtherCalls();
+        }
+    }
+
+    [Test]
+    public async Task SetOwner_ByAnAdmin_MakesAnActiveUserTheOwner_OfAContractWithoutOne()
+    {
+        var contract = Contract();
+        contract.OwnerUserId = null;
+
+        await SetOwnerHandler(Admin(), ContextFactory(OrdinarySource(), contract, users: Users())).Handle(new SetDataContractOwnerCommand(ContractId, 3), CancellationToken.None);
+
+        contract.OwnerUserId.Should().Be("ext-maria");
+        _store.Saves.Should().Be(0, "the owner is written by one conditional update, not by tracked changes");
+    }
+
+    [Test]
+    public async Task SetOwner_ByTheOwner_IsForbidden()
+    {
+        var contract = Contract();
+
+        var act = () => SetOwnerHandler(Interactive(RoleService.RoleNames.Editor), ContextFactory(OrdinarySource(), contract, users: Users()))
+            .Handle(new SetDataContractOwnerCommand(ContractId, 3), CancellationToken.None);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        contract.OwnerUserId.Should().Be("1");
+    }
+
+    [TestCase(4)]
+    [TestCase(99)]
+    public async Task SetOwner_ToSomeoneWhoIsNotAnActiveUser_IsRejected(int userId)
+    {
+        var contract = Contract();
+
+        var act = () => SetOwnerHandler(Admin(), ContextFactory(OrdinarySource(), contract, users: Users()))
+            .Handle(new SetDataContractOwnerCommand(ContractId, userId), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*existing, enabled user*");
+        contract.OwnerUserId.Should().Be("1");
+    }
+
+    [Test]
+    public async Task SetOwner_OfAMissingContract_IsReportedAsMissing()
+    {
+        var act = () => SetOwnerHandler(Admin(), ContextFactory(OrdinarySource(), users: Users()))
+            .Handle(new SetDataContractOwnerCommand(ContractId, 3), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage($"Data contract {ContractId} not found");
+    }
+
     // --- helpers ------------------------------------------------------------------------------------------------
+
+    private EvaluateDataContractHandler EvaluateHandler(ClaimsPrincipal user, DataContract? contract)
+    {
+        return new EvaluateDataContractHandler(_evaluation.Object, ContextFactory(OrdinarySource(), contract), Actor(user), NullLogger<EvaluateDataContractHandler>.Instance);
+    }
+
+    private SetDataContractOwnerHandler SetOwnerHandler(ClaimsPrincipal user, IDbContextFactory<BeaconContext> factory)
+    {
+        return new SetDataContractOwnerHandler(factory, Actor(user), NullLogger<SetDataContractOwnerHandler>.Instance);
+    }
+
+    private static List<BeaconUser> Users()
+    {
+        return
+        [
+            new BeaconUser { Id = 3, ExternalId = "ext-maria", UserName = "maria", IsEnabled = true },
+            new BeaconUser { Id = 4, ExternalId = "ext-noor", UserName = "noor", IsEnabled = false }
+        ];
+    }
 
     private void AssertNothingWritten()
     {
@@ -374,7 +620,7 @@ public class DataContractCustomSqlSaveTests
 
     private CreateDataContractHandler CreateHandler(DataSource? dataSource, ClaimsPrincipal user)
     {
-        return new CreateDataContractHandler(ContextFactory(dataSource), _scheduler.Object, UserContext(user), TestSqlGate.Create());
+        return new CreateDataContractHandler(ContextFactory(dataSource), _scheduler.Object, UserContext(user), TestSqlGate.Create(), Actor(user));
     }
 
     private UpdateDataContractHandler UpdateHandler(ClaimsPrincipal user, DataSource? dataSource, params DataContractRule[] existingRules)
@@ -383,19 +629,22 @@ public class DataContractCustomSqlSaveTests
             ContextFactory(dataSource, Contract(existingRules), [.. existingRules]),
             _scheduler.Object,
             UserContext(user),
-            TestSqlGate.Create());
+            TestSqlGate.Create(),
+            Actor(user),
+            NullLogger<UpdateDataContractHandler>.Instance);
     }
 
     private DeleteDataContractHandler DeleteHandler(ClaimsPrincipal user, DataContract contract)
     {
-        return new DeleteDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(user));
+        return new DeleteDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(user), Actor(user), NullLogger<DeleteDataContractHandler>.Instance);
     }
 
     private IDbContextFactory<BeaconContext> ContextFactory(
         DataSource? dataSource,
         DataContract? contract = null,
         List<DataContractRule>? rules = null,
-        List<DataQualityRuleResult>? results = null)
+        List<DataQualityRuleResult>? results = null,
+        List<BeaconUser>? users = null)
     {
         var resultRows = results ?? [];
         var sets = new Dictionary<Type, object>
@@ -403,6 +652,7 @@ public class DataContractCustomSqlSaveTests
             [typeof(DataSource)] = MemorySet<DataSource>(dataSource == null ? [] : [dataSource]),
             [typeof(DataContract)] = MemorySet<DataContract>(contract == null ? [] : [contract]),
             [typeof(DataContractRule)] = MemorySet(rules ?? []),
+            [typeof(BeaconUser)] = MemorySet(users ?? []),
             [typeof(DataQualityRuleResult)] = MemorySet(resultRows, deleted =>
             {
                 _store.PurgedResults += deleted.Count;
@@ -470,6 +720,7 @@ public class DataContractCustomSqlSaveTests
             Name = "contract",
             CronExpression = "0 0 * * *",
             IsEnabled = false,
+            OwnerUserId = "1",
             Rules = [.. rules]
         };
     }
@@ -516,7 +767,7 @@ public class DataContractCustomSqlSaveTests
 
     private static CreateDataContractCommand CreateCommand(DataContractRuleData rule)
     {
-        return new CreateDataContractCommand(DataSourceId, "sales", "orders", "contract", null, "0 0 * * *", false, null, false, 80, [rule]);
+        return new CreateDataContractCommand(DataSourceId, "sales", "orders", "contract", null, "0 0 * * *", false, false, 80, [rule]);
     }
 
     private static UpdateDataContractCommand UpdateCommand(DataContractRuleData rule)
@@ -524,14 +775,29 @@ public class DataContractCustomSqlSaveTests
         return new UpdateDataContractCommand(ContractId, DataSourceId, "sales", "orders", "contract", null, "0 0 * * *", false, false, 80, [rule]);
     }
 
+    private BeaconActorAccessor Actor(ClaimsPrincipal user)
+    {
+        return new BeaconActorAccessor(Accessor(user), ContextFactory(dataSource: null));
+    }
+
     private static IBeaconUserContext UserContext(ClaimsPrincipal user)
     {
-        return new HttpContextUserContext(new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = user } });
+        return new HttpContextUserContext(Accessor(user));
+    }
+
+    private static HttpContextAccessor Accessor(ClaimsPrincipal user)
+    {
+        return new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = user } };
     }
 
     private static ClaimsPrincipal Admin()
     {
         return Interactive(RoleService.RoleNames.Admin);
+    }
+
+    private static ClaimsPrincipal WithoutId(string role)
+    {
+        return new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "Cookies"));
     }
 
     private static ClaimsPrincipal Interactive(string role)

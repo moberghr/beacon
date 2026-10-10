@@ -10,9 +10,11 @@ import {
   Users,
 } from 'lucide-react';
 import { Button, Input, PageHeader, Pill, type PillProps } from '@/components/beacon';
-import { useAuth } from '@/auth/useAuth';
+import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { TaskPriority } from '@/lib/enums';
 import {
+  canClaimTask,
+  canWorkTask,
   useAssignTask,
   useSnoozeTask,
   type TaskDetail,
@@ -59,10 +61,11 @@ export function TaskHero({
   const [assignOpen, setAssignOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const assignedToMe =
-    currentUser?.userId != null &&
-    task.assigneeUserId != null &&
-    task.assigneeUserId === currentUser.userId;
+  const isAdmin = useIsAdmin();
+  const assignedToMe = task.assignedToCaller;
+  const canWork = canWorkTask(task, isAdmin);
+  const canClaim = currentUser?.userId != null && canClaimTask(task, isAdmin);
+  const canUnassign = task.assigneeUserId != null && canWork;
 
   const snoozedNow =
     task.snoozedUntil != null && new Date(task.snoozedUntil).getTime() > Date.now();
@@ -109,7 +112,7 @@ export function TaskHero({
       }
       actions={
         <>
-          {!task.resolved && (
+          {!task.resolved && (canClaim || canUnassign) && (
             <Popover
               open={assignOpen}
               onOpenChange={setAssignOpen}
@@ -124,7 +127,7 @@ export function TaskHero({
                 </Button>
               }
             >
-              {currentUser?.userId && !assignedToMe && (
+              {canClaim && currentUser?.userId && (
                 <PopItem
                   onClick={() => {
                     setAssignOpen(false);
@@ -135,7 +138,7 @@ export function TaskHero({
                   label="Assign to me"
                 />
               )}
-              {task.assigneeUserId && (
+              {canUnassign && (
                 <PopItem
                   onClick={() => {
                     setAssignOpen(false);
@@ -149,7 +152,7 @@ export function TaskHero({
             </Popover>
           )}
 
-          {!task.resolved && (
+          {!task.resolved && canWork && (
             <Popover
               open={snoozeOpen}
               onOpenChange={setSnoozeOpen}

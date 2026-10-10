@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useIsAdmin } from '@/auth/useAuth';
 import { toast } from 'sonner';
 import { PageHeader, Button, Card, KPI, KPIGrid, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
@@ -13,8 +14,10 @@ import {
   useDeleteContract,
   useEvaluateContract,
   useEvaluationHistory,
+  useSetContractOwner,
 } from './queries';
 import { CreateDataContractDialog } from './CreateDataContractDialog';
+import { SetOwnerDialog } from '../users/SetOwnerDialog';
 
 const RULE_TYPE_LABEL: Record<number, string> = {
   [DataContractRuleType.Volume]: 'Volume',
@@ -44,6 +47,9 @@ export default function DataContractDetailPage() {
   const historyQ = useEvaluationHistory(Number.isFinite(id) ? id : null);
   const evaluateMutation = useEvaluateContract(id);
   const deleteMutation = useDeleteContract();
+  const setOwnerMutation = useSetContractOwner(id);
+  const isAdmin = useIsAdmin() === true;
+  const [changingOwner, setChangingOwner] = useState(false);
 
   const [tab, setTab] = useState<TabKey>('rules');
   const [editing, setEditing] = useState(false);
@@ -120,10 +126,23 @@ export default function DataContractDetailPage() {
               {evaluateMutation.isPending ? 'Evaluating…' : 'Evaluate now'}
             </Button>
             <Button type="button" onClick={() => setEditing(true)}>Edit</Button>
+            {isAdmin && (
+              <Button type="button" onClick={() => setChangingOwner(true)}>Change owner</Button>
+            )}
             <Button variant="danger" type="button" onClick={() => setConfirmDelete(true)}>Delete</Button>
           </>
         }
       />
+
+      {isAdmin && changingOwner && (
+        <SetOwnerDialog
+          open
+          noun="data contract"
+          busy={setOwnerMutation.isPending}
+          onClose={() => setChangingOwner(false)}
+          onSubmit={userId => setOwnerMutation.mutate(userId, { onSuccess: () => setChangingOwner(false) })}
+        />
+      )}
 
       <div>
         <Link to="/data-quality" className="text-text-muted text-sm">← Back to data quality</Link>

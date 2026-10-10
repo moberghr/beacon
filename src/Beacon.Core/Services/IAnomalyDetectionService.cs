@@ -1,4 +1,5 @@
 using Beacon.Core.Models.Anomaly;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
@@ -60,10 +61,12 @@ public interface IAnomalyDetectionService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets chart data for visualizing anomaly thresholds and detection results
+    /// Gets chart data for visualizing anomaly thresholds and detection results. The data points are the subscription's
+    /// runs readable within <paramref name="runScope"/>.
     /// </summary>
     Task<AnomalyChartData> GetAnomalyChartDataAsync(
         int subscriptionId,
-        int lookbackDays = 30,
+        int lookbackDays,
+        StoredRunScope runScope,
         CancellationToken cancellationToken = default);
 }

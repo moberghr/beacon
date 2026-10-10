@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Anomaly;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
@@ -218,7 +219,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
 
     public async Task<AnomalyChartData> GetAnomalyChartDataAsync(
         int subscriptionId,
-        int lookbackDays = 30,
+        int lookbackDays,
+        StoredRunScope runScope,
         CancellationToken cancellationToken = default)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
@@ -238,9 +240,10 @@ public class AnomalyDetectionService : IAnomalyDetectionService
 
         var cutoffDate = DateTime.UtcNow.AddDays(-lookbackDays);
 
-        // Get query execution history with result counts
+        // Get query execution history with result counts: the stored runs the caller may read (StoredRunAccess)
         var executionHistory = await context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == subscriptionId && x.CreatedTime >= cutoffDate)
+            .WhereReadableWithin(context, runScope)
             .OrderBy(x => x.CreatedTime)
             .Select(x => new
             {

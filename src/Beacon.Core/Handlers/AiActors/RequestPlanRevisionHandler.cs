@@ -7,6 +7,7 @@ using Beacon.Core.Data.Entities;
 
 namespace Beacon.Core.Handlers.AiActors;
 
+/// <summary>Asks the AI actor to revise a pending plan with feedback. Allowed for the actor's creator or an Admin.</summary>
 public record RequestPlanRevisionCommand : IRequest<RequestPlanRevisionResult>
 {
     public required int PlanId { get; init; }

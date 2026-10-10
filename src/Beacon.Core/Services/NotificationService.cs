@@ -74,9 +74,10 @@ internal class NotificationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await context.QueryExecutionHistory
+        var page = await context.QueryExecutionHistory
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
+            .WhereReadableWithin(context, request.Scope)
             .Select(x => new QueryExecutionHistoryData
             {
                 QueryExecutionHistoryId = x.Id,
@@ -99,6 +100,14 @@ internal class NotificationService(
                 AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
             })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime", tiebreaker: "queryExecutionHistoryId");
+
+        // A run's stored comment can hold failure detail recorded by earlier versions: only a recorded reason leaves.
+        foreach (var item in page.Items)
+        {
+            item.Comment = NotificationFailureReasons.Displayable(item.Comment);
+        }
+
+        return page;
     }
 
     public async Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken)
@@ -153,7 +162,10 @@ internal class NotificationService(
         };
     }
 
-    public async Task<NotificationDetailsData?> GetNotificationDetails(int queryExecutionHistoryId, CancellationToken cancellationToken)
+    public async Task<NotificationDetailsData?> GetNotificationDetails(
+        int queryExecutionHistoryId,
+        StoredRunScope scope,
+        CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -167,6 +179,7 @@ internal class NotificationService(
         // for histories that have no notifications yet.
         var details = await context.QueryExecutionHistory
             .Where(x => x.Id == queryExecutionHistoryId)
+            .WhereReadableWithin(context, scope)
             .Select(x =>
                 new NotificationDetailsData
                 {
@@ -212,105 +225,6 @@ internal class NotificationService(
         }
 
         return details;
-    }
-
-    public async Task<QueryExecutionHistoryDetailsData?> GetQueryExecutionHistoryDetails(int queryExecutionHistoryId, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var result = await context.QueryExecutionHistory
-            .Where(x => x.Id == queryExecutionHistoryId)
-            .Select(x => new
-            {
-                Id = x.Id,
-                CreatedTime = x.CreatedTime,
-                NotificationStatus = x.NotificationStatus,
-                ExecutionTimeMs = x.ExecutionTimeMs,
-                ResultCount = x.ResultCount,
-                CompiledSql = x.CompiledSql,
-                Results = x.Results,
-                Comment = x.Comment,
-                QueryName = x.Subscription.Query.Name,
-                QueryId = x.Subscription.QueryId,
-                SubscriptionId = x.SubscriptionId,
-                CreateTasks = x.Subscription.CreateTasks,
-                StoreResults = x.Subscription.StoreResults,
-                NotificationList = x.Notifications.Select(n => new
-                {
-                    n.Id,
-                    RecipientName = n.Recipient.Name,
-                    n.Type,
-                    n.SentAt,
-                    n.Results,
-                    n.TaskId
-                }).ToList(),
-                TaskIds = x.Notifications.Where(n => n.TaskId != null).Select(n => n.TaskId!.Value).Distinct().ToList()
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (result == null)
-            return null;
-
-        var tasks = new List<TaskSummaryData>();
-
-        // If subscription has CreateTasks enabled, look up task by subscriptionId
-        if (result.CreateTasks)
-        {
-            tasks = await context.QueryTasks
-                .Where(t => t.SubscriptionId == result.SubscriptionId)
-                .OrderByDescending(t => t.CreatedTime)
-                .Take(1) // Get the most recent task for this subscription
-                .Select(t => new TaskSummaryData
-                {
-                    Id = t.Id,
-                    LatestResultCount = t.LatestResultCount,
-                    CreatedAt = t.CreatedTime,
-                    Resolved = t.Resolved,
-                    ResolvedAt = t.ResolvedAt
-                })
-                .ToListAsync(cancellationToken);
-        }
-        else if (result.TaskIds.Any())
-        {
-            // Fallback: look up by notification TaskId links (legacy)
-            tasks = await context.QueryTasks
-                .Where(t => result.TaskIds.Contains(t.Id))
-                .Select(t => new TaskSummaryData
-                {
-                    Id = t.Id,
-                    LatestResultCount = t.LatestResultCount,
-                    CreatedAt = t.CreatedTime,
-                    Resolved = t.Resolved,
-                    ResolvedAt = t.ResolvedAt
-                })
-                .ToListAsync(cancellationToken);
-        }
-
-        // Get results from QueryExecutionHistory first, fallback to notification results (legacy)
-        var resultsJson = result.Results ?? result.NotificationList.FirstOrDefault()?.Results;
-
-        return new QueryExecutionHistoryDetailsData
-        {
-            Id = result.Id,
-            CreatedTime = result.CreatedTime,
-            NotificationStatus = result.NotificationStatus,
-            ExecutionTimeMs = result.ExecutionTimeMs,
-            ResultCount = result.ResultCount,
-            CompiledSql = result.CompiledSql,
-            Results = resultsJson,
-            Comment = result.Comment,
-            QueryName = result.QueryName,
-            QueryId = result.QueryId,
-            SubscriptionId = result.SubscriptionId,
-            Notifications = result.NotificationList.Select(n => new NotificationSummaryData
-            {
-                Id = n.Id,
-                RecipientName = n.RecipientName,
-                Type = n.Type,
-                SentAt = n.SentAt
-            }).ToList(),
-            Tasks = tasks
-        };
     }
 
     private RecipientQueryResult ResolveDestination(RecipientQueryResult recipientQueryResult)

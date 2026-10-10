@@ -57,6 +57,15 @@ internal static class AiActorsEndpoints
                 }, ct))
             .WithName("RefineAiActor");
 
+        // Making a user the creator of an actor (for instance one created before creators were recorded) is an Admin's.
+        actors.MapPut("/{id:int}/owner", async (int id, SetAiActorOwnerBody body, IMediator m, CancellationToken ct) =>
+            {
+                await m.Send(new SetAiActorOwnerCommand(id, body.UserId), ct);
+                return TypedResults.NoContent();
+            })
+            .WithName("SetAiActorOwner")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+
         actors.MapGet("/{id:int}/pending-plans", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetPendingPlansQuery { ActorId = id }, ct))
             .WithName("GetPendingPlans");
@@ -102,3 +111,4 @@ internal sealed record RefineAiActorBody(string Feedback);
 internal sealed record AiActorPlanDecisionBody(string? Comment);
 internal sealed record AiActorPlanRejectBody(string Reason);
 internal sealed record AiActorPlanRevisionBody(string Feedback);
+internal sealed record SetAiActorOwnerBody(int UserId);

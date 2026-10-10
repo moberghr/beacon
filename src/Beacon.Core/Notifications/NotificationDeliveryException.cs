@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using Refit;
 using Beacon.Core.Models;
 
@@ -44,6 +45,8 @@ public static class NotificationFailureReasons
 
     public const string DestinationNotEncrypted = "Notification delivery failed: the stored destination is not encrypted.";
 
+    private static readonly Regex RecordedComment = BuildRecordedCommentPattern();
+
     /// <summary>The reason for an HTTP response that was not a success: only the status class is kept.</summary>
     public static string ForStatus(HttpStatusCode statusCode)
     {
@@ -73,6 +76,22 @@ public static class NotificationFailureReasons
         };
     }
 
+    /// <summary>
+    /// What a reader of the run history is shown for a run's stored comment: the comment when it is a reason recorded
+    /// from this set, alone or in the per-recipient form a failed delivery records (<c>Recipient 7: reason</c>, one per
+    /// recipient, separated by spaces); anything else, such as failure detail recorded by earlier versions, as
+    /// <see cref="Generic"/>. Null stays null.
+    /// </summary>
+    public static string? Displayable(string? comment)
+    {
+        if (comment == null)
+        {
+            return null;
+        }
+
+        return RecordedComment.IsMatch(comment) ? comment : Generic;
+    }
+
     /// <summary>The HTTP status a delivery failure carries, if the destination answered with one.</summary>
     public static HttpStatusCode? StatusOf(Exception exception)
     {
@@ -83,6 +102,29 @@ public static class NotificationFailureReasons
             HttpRequestException x => x.StatusCode,
             _ => null,
         };
+    }
+
+    private static Regex BuildRecordedCommentPattern()
+    {
+        var reasons = new[]
+            {
+                Generic,
+                ConnectionBlocked,
+                ConnectionFailed,
+                TimedOut,
+                DestinationNotAllowed,
+                DestinationUnreadable,
+                DestinationNotEncrypted
+            }
+            .Concat(Enumerable.Range(1, 5).Select(x => ForStatus((HttpStatusCode)(x * 100))))
+            .Select(Regex.Escape);
+        var reason = $"(?:{string.Join("|", reasons)})";
+        var perRecipient = $"Recipient [0-9]*: {reason}";
+
+        return new Regex(
+            $"^(?:{reason}|{perRecipient}(?: {perRecipient})*)$",
+            RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(250));
     }
 
     private static bool HasBlockedConnection(Exception exception)

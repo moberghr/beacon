@@ -21,6 +21,12 @@ Every evaluation is stored, so you get a full history per contract plus a per-ta
 Data contracts apply to **database data sources** (PostgreSQL, SQL Server, MySQL). REST API data sources cannot be targeted by a contract.
 :::
 
+A contract's **owner** is the user who created it (an API key's owner, for a key), or the user an Admin made its owner. Only the owner or an Admin can change, disable, retarget, evaluate on demand (**Evaluate now**) or delete it. An Admin can give a contract a new owner with **Change owner** on its page (`PUT /beacon/api/data-quality/contracts/{id}/owner` with `{ "userId": <user id> }`); the new owner must be an existing, enabled user.
+
+:::caution[Upgrading]
+The owner is now always the signed-in caller: an `ownerUserId` in the create request is ignored, and a caller without a resolvable user cannot create a contract. Changing, disabling, evaluating on demand (`POST /data-quality/contracts/{id}/evaluate`) or deleting a contract needs its owner or an Admin. A contract created before this version has no owner unless one was supplied, so only an Admin can change it until an Admin sets its owner. To anyone but an Admin, a contract that does not exist is refused (403) like one that is not theirs.
+:::
+
 ## Rule Types
 
 Each rule has a **type**, an optional **column**, and a **configuration** (JSON). The table below lists all supported types with example configurations.

@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataQuality;
@@ -16,11 +17,28 @@ internal sealed class UpdateDataContractHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconScheduler scheduler,
     IBeaconUserContext userContext,
-    ISqlExecutionGate gate) : IRequestHandler<UpdateDataContractCommand>
+    ISqlExecutionGate gate,
+    IBeaconActorAccessor actorAccessor,
+    ILogger<UpdateDataContractHandler> logger) : IRequestHandler<UpdateDataContractCommand>
 {
     public async Task Handle(UpdateDataContractCommand request, CancellationToken cancellationToken)
     {
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Changing, disabling or retargeting a contract is its owner's or an Admin's; checked before anything else is
+        // read or written.
+        var owner = await context.DataContracts
+            .Where(x => x.Id == request.DataContractId)
+            .Select(x =>
+                new
+                {
+                    x.OwnerUserId
+                })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw DataContractOwnership.Missing(actor, request.DataContractId, logger);
+        DataContractOwnership.EnsureOwnerOrAdmin(actor, request.DataContractId, owner.OwnerUserId, logger);
 
         // Checked before the transaction: a contract that carries a CustomSql rule, now or after this update, is
         // changed by an Admin only, and the new rules' SQL must pass the read-only gate.

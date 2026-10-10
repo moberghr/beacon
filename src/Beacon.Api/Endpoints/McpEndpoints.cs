@@ -16,8 +16,10 @@ internal static class McpEndpoints
     {
         var mcp = group.MapGroup("/mcp").WithTags("Mcp");
 
+        // The settings (limits, PII detection and its custom patterns, prompts) are an Admin's to read and to change.
         mcp.MapGet("/settings", (IMediator m, CancellationToken ct) => m.Send(new GetMcpSettingsQuery(), ct))
-            .WithName("GetMcpSettings");
+            .WithName("GetMcpSettings")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         mcp.MapPut("/settings", async (UpdateMcpSettingsBody body, IMediator m, CancellationToken ct) =>
         {
@@ -27,10 +29,11 @@ internal static class McpEndpoints
         .WithName("UpdateMcpSettings")
         .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
-        // Per-project overrides (spec mcp-project-settings). GET mirrors the global GET (authenticated), PUT is admin.
+        // Per-project overrides (spec mcp-project-settings). GET mirrors the global GET, PUT likewise; both are admin.
         mcp.MapGet("/projects/{projectId:int}/settings", (int projectId, IMediator m, CancellationToken ct) =>
                 m.Send(new GetMcpProjectSettingsQuery(projectId), ct))
-            .WithName("GetMcpProjectSettings");
+            .WithName("GetMcpProjectSettings")
+            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
 
         mcp.MapPut("/projects/{projectId:int}/settings", async (int projectId, UpdateMcpProjectSettingsBody body, IMediator m, CancellationToken ct) =>
         {

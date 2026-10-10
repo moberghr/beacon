@@ -1,5 +1,3 @@
-using System.Security.Claims;
-using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Microsoft.AspNetCore.Http;
@@ -155,32 +153,18 @@ public class DatabaseAuthorizationProvider(
         return _cachedUser;
     }
 
-    // Not IBeaconUserContext.UserId: it prefers BeaconClaims.UserId, which a host's claims transformation may set to
-    // the username, and API keys put the numeric Beacon user id in NameIdentifier — neither matches Users.ExternalId.
-    // API keys therefore resolve by their username claim (a user-less key has none and resolves to nobody); every other
-    // principal resolves by NameIdentifier, where cookie logins put Users.ExternalId and OIDC puts the subject.
+    // Resolved as BeaconUserLookup names the user: an API key by its username claim (a user-less key resolves to
+    // nobody), every other principal by NameIdentifier to Users.ExternalId.
     private Task<BeaconUserData?> FindCurrentUserAsync(CancellationToken cancellationToken)
     {
-        var principal = httpContextAccessor.HttpContext?.User;
-        if (principal == null)
+        var lookup = BeaconUserLookup.Of(httpContextAccessor.HttpContext?.User);
+        if (lookup.UserName != null)
         {
-            return Task.FromResult<BeaconUserData?>(null);
+            return userService.GetUserByUserNameAsync(lookup.UserName, cancellationToken);
         }
 
-        if (principal.Identity?.AuthenticationType == McpCallerClaimTypes.ApiKeyAuthenticationType
-            && principal.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.ApiKeyAuthMethod))
-        {
-            var userName = principal.FindFirst(McpCallerClaimTypes.UserNameClaim)?.Value;
-
-            return string.IsNullOrEmpty(userName)
-                ? Task.FromResult<BeaconUserData?>(null)
-                : userService.GetUserByUserNameAsync(userName, cancellationToken);
-        }
-
-        var externalId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        return string.IsNullOrEmpty(externalId)
-            ? Task.FromResult<BeaconUserData?>(null)
-            : userService.GetUserByExternalIdAsync(externalId, cancellationToken);
+        return lookup.ExternalId != null
+            ? userService.GetUserByExternalIdAsync(lookup.ExternalId, cancellationToken)
+            : Task.FromResult<BeaconUserData?>(null);
     }
 }

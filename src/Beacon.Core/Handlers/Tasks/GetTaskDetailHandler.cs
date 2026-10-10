@@ -7,7 +7,8 @@ namespace Beacon.Core.Handlers.Tasks;
 
 internal sealed class GetTaskDetailHandler(
     ITaskService taskService,
-    IBeaconUserContext userContext)
+    IBeaconUserContext userContext,
+    IBeaconActorAccessor actorAccessor)
     : IRequestHandler<GetTaskDetailQuery, TaskDetailResult?>
 {
     public async Task<TaskDetailResult?> Handle(GetTaskDetailQuery request, CancellationToken cancellationToken)
@@ -20,6 +21,8 @@ internal sealed class GetTaskDetailHandler(
         {
             return null;
         }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         return new TaskDetailResult(
             details.Id,
@@ -43,6 +46,7 @@ internal sealed class GetTaskDetailHandler(
             details.Priority,
             details.AssigneeUserId,
             details.AssigneeUserName,
+            actor.IsAssignee(details.AssigneeUserId),
             details.SnoozedUntil,
             details.SlaHours,
             details.WatcherCount,
@@ -54,6 +58,10 @@ internal sealed class GetTaskDetailHandler(
 
 public record GetTaskDetailQuery(int Id) : IRequest<TaskDetailResult?>;
 
+/// <summary>
+/// A task's detail. <c>AssignedToCaller</c> says whether the caller is the task's assignee, the check resolving,
+/// snoozing, setting the priority and releasing the task are made against (besides the Admin role).
+/// </summary>
 public record TaskDetailResult(
     int Id,
     int QueryId,
@@ -76,6 +84,7 @@ public record TaskDetailResult(
     TaskPriority Priority,
     string? AssigneeUserId,
     string? AssigneeUserName,
+    bool AssignedToCaller,
     DateTime? SnoozedUntil,
     int? SlaHours,
     int WatcherCount,

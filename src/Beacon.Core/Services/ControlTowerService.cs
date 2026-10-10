@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.ControlTower;
 using Beacon.Core.Helpers;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
@@ -201,6 +202,7 @@ internal class ControlTowerService(
     public async Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
         int subscriptionId,
         int timeRangeDays,
+        StoredRunScope runScope,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -227,6 +229,7 @@ internal class ControlTowerService(
 
         var recentExecutions = await context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == subscriptionId)
+            .WhereReadableWithin(context, runScope)
             .OrderByDescending(x => x.CreatedTime)
             .Take(20)
             .Select(x =>
@@ -237,7 +240,7 @@ internal class ControlTowerService(
                     NotificationStatus = x.NotificationStatus,
                     ResultCount = x.ResultCount,
                     ExecutionTimeMs = x.ExecutionTimeMs,
-                    ErrorMessage = x.Comment
+                    ErrorMessage = NotificationFailureReasons.Displayable(x.Comment)
                 })
             .ToListAsync(cancellationToken);
 
@@ -512,8 +515,13 @@ public interface IControlTowerService
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The subscription's health detail; its recent runs are those readable within <paramref name="runScope"/>, each
+    /// with its displayable failure reason.
+    /// </summary>
     Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
         int subscriptionId,
         int timeRangeDays,
+        StoredRunScope runScope,
         CancellationToken cancellationToken);
 }

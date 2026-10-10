@@ -10,10 +10,12 @@ import {
   Pill,
   Select,
 } from '@/components/beacon';
-import { useAuth } from '@/auth/useAuth';
+import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { TaskPriority } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
+  canClaimTask,
+  canWorkTask,
   useAssignTask,
   useSetTaskPriority,
   type TaskDetail,
@@ -28,8 +30,10 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
 
 export function TaskInfoCard({ task }: { task: TaskDetail }) {
   const { data: currentUser } = useAuth();
+  const isAdmin = useIsAdmin();
   const assign = useAssignTask(task.id);
   const setPriority = useSetTaskPriority(task.id);
+  const canWork = canWorkTask(task, isAdmin);
 
   const onClaim = () => {
     if (!currentUser?.userId) return;
@@ -60,7 +64,7 @@ export function TaskInfoCard({ task }: { task: TaskDetail }) {
               <Select
                 className="text-xs py-0.5 px-1.5"
                 value={task.priority}
-                disabled={setPriority.isPending || task.resolved}
+                disabled={setPriority.isPending || task.resolved || !canWork}
                 onChange={e => {
                   const next = Number(e.target.value) as TaskPriority;
                   if (next !== task.priority) setPriority.mutate({ priority: next });
@@ -79,7 +83,7 @@ export function TaskInfoCard({ task }: { task: TaskDetail }) {
               : (
                 <span className="inline-flex items-center gap-2">
                   <span className="text-text-subtle">unassigned</span>
-                  {!task.resolved && currentUser?.userId && (
+                  {!task.resolved && currentUser?.userId && canClaimTask(task, isAdmin) && (
                     <Button
                       variant="ghost"
                       size="sm"

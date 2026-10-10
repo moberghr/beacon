@@ -187,6 +187,12 @@ Click **Save** to create the migration job.
 
 ## Managing Migration Jobs
 
+Data migration is an Admin feature: creating, running and deleting jobs, and reading the job list, a job and its run history, need the Admin role. The **Data Migration** entry is hidden from other users.
+
+:::caution[Upgrading]
+`GET /migrations/jobs`, `GET /migrations/jobs/{id}` and `GET /migrations/executions` now need the Admin role. The Home page's migration summary stays visible to every user.
+:::
+
 ### View Migration Jobs
 
 The Data Migration page shows all configured jobs with:

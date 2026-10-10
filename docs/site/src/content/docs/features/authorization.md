@@ -75,8 +75,9 @@ public class MyClaimsTransformation : IClaimsTransformation
     {
         var identity = (ClaimsIdentity)principal.Identity!;
 
-        // Add Beacon role claim
+        // Add Beacon role claim, and the standard role claim the Admin checks read
         identity.AddClaim(new Claim(BeaconClaims.Role, "Admin"));
+        identity.AddClaim(new Claim(ClaimTypes.Role, "Admin"));
         identity.AddClaim(new Claim(BeaconClaims.UserId, principal.Identity.Name));
         identity.AddClaim(new Claim(BeaconClaims.UserName, principal.Identity.Name));
 
@@ -87,6 +88,10 @@ public class MyClaimsTransformation : IClaimsTransformation
 // Register it
 builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
 ```
+
+### Admin role claim
+
+Admin-only routes (the `BeaconApiAdmin` policy) and the resource rules that let an Admin act on what another user owns (working someone else's alert task, changing another user's data contract or AI actor, setting a repository access token) read the standard `ClaimTypes.Role` claim with the value `Admin`. A host that signs users in itself must emit that claim for its administrators; `beacon:role` alone is not enough. Beacon's own login and OIDC sign-in emit it from the user's roles. When Beacon user management stores the caller, the user must also be enabled and not archived; an API key never carries a role, so it is never an Admin.
 
 ### 3. Test Authorization
 
@@ -537,6 +542,10 @@ public async Task<AuthorizationResult?> AuthorizeAsync(
 }
 ```
 
+### The caller as a resource owner
+
+Alert tasks (assignee, resolver), data contracts (owner) and AI actors (creator) store the caller's `Users.ExternalId`. Handlers get the caller from `IBeaconActorAccessor` (scoped, registered with `TryAddScoped`, so a host can replace it), which returns a `BeaconActor`: its `UserId` and whether it `IsAdmin` (see [Admin role claim](#admin-role-claim)). An API key is its owner, found by the key's owner id; any other session is the user its `NameIdentifier` names. A session with no stored user (a host without Beacon user management) keeps the `NameIdentifier` it presents; a disabled or archived user, an API key whose owner is not found, and an anonymous request have no `UserId` and own nothing. These rules sit beside the authorization provider: a custom `IBeaconAuthorizationProvider` decides read and write permission, not who owns a task, contract or actor.
+
 ### Permission Caching
 
 Cache permissions for better performance:
@@ -720,6 +729,10 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 8. **Principle of least privilege** - Default to the most restrictive permissions
 
 ## Migration from Previous Versions
+
+:::caution[Upgrading]
+The Admin checks on routes and resources read the `ClaimTypes.Role` claim `Admin` (see [Admin role claim](#admin-role-claim)): a host that only emits `beacon:role` must add it. New public types: `BeaconActor` and `IBeaconActorAccessor` (registered by Beacon; replaceable). `IActorUserResolver` now resolves an API key to its owner by the key's owner id.
+:::
 
 If you are upgrading from a version without authorization:
 

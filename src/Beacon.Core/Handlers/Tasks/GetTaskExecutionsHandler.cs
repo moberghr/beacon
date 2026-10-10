@@ -1,14 +1,22 @@
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Core.Handlers.Tasks;
 
-internal sealed class GetTaskExecutionsHandler(ITaskService taskService)
+internal sealed class GetTaskExecutionsHandler(
+    ITaskService taskService,
+    IHttpContextAccessor httpContextAccessor)
     : IRequestHandler<GetTaskExecutionsQuery, TaskExecutionsResult>
 {
     public async Task<TaskExecutionsResult> Handle(GetTaskExecutionsQuery request, CancellationToken cancellationToken)
     {
-        var executions = await taskService.GetTaskExecutionHistory(request.TaskId, cancellationToken);
+        // The executions are the stored runs the caller may read (StoredRunAccess).
+        var executions = await taskService.GetTaskExecutionHistory(
+            request.TaskId,
+            StoredRunAccess.ScopeOf(httpContextAccessor.HttpContext?.User),
+            cancellationToken);
 
         var items = executions
             .Select(x =>

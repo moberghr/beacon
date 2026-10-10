@@ -139,6 +139,7 @@ internal partial class QueryService
         using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>());
         var totalExecutionTime = 0.0;
         var dataSourceExecutionTimes = new Dictionary<string, double>();
+        var dataSourceIdsRead = new List<int>();
 
         logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {DataSourceCount} data sources",
             query.Id, query.Steps.Count, query.DataSourceIds.Count);
@@ -149,6 +150,7 @@ internal partial class QueryService
             logger.LogDebug("Executing step {StepOrder} against data source {DataSourceName} ({DatabaseEngine})",
                 step.StepOrder, step.DataSource.Name, step.DataSource.DatabaseEngineType);
 
+            dataSourceIdsRead.Add(step.DataSourceId);
             var stepResult = await ExecuteStep(step, parameters);
             stepResults.Add(stepResult);
             totalExecutionTime += stepResult.ExecutionTimeMs;
@@ -205,6 +207,10 @@ internal partial class QueryService
             IsCrossDataSource = query.IsCrossDataSource,
             IsCrossDatabase = query.IsCrossDatabase,
             DataSourcesInvolved = stepResults.Select(s => s.DataSourceName).Distinct().ToList(),
+            DataSourceIds = dataSourceIdsRead
+                .Distinct()
+                .Order()
+                .ToList(),
             DatabaseEnginesUsed = stepResults
                 .Select(s => s.DatabaseEngineType)
                 .Distinct()

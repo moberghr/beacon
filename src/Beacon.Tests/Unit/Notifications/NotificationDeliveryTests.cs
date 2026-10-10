@@ -348,6 +348,17 @@ public class NotificationDeliveryTests
     }
 
     [Test]
+    public async Task ExecuteQuery_RecordsTheDataSourcesTheRunRead()
+    {
+        var store = new JobStore();
+
+        await JobService(store, Mock.Of<INotificationService>(), new CapturingLogger<JobService>(), recipientIds: [9], dataSourceIds: [20, 10, 20])
+            .ExecuteQuery(5, CancellationToken.None);
+
+        store.History.Single().DataSourceIds.Should().Equal(10, 20);
+    }
+
+    [Test]
     public async Task ExecuteQuery_AllRecipientsNotified_KeepsEveryNotification()
     {
         var store = new JobStore();
@@ -576,7 +587,8 @@ public class NotificationDeliveryTests
         ILogger<JobService> logger,
         int[] recipientIds,
         IDataQualityEvaluationService? evaluation = null,
-        IAnomalyDetectionService? anomaly = null)
+        IAnomalyDetectionService? anomaly = null,
+        int[]? dataSourceIds = null)
     {
         var queryService = new Mock<IQueryService>();
         queryService
@@ -590,6 +602,7 @@ public class NotificationDeliveryTests
                 SubscriptionName = "daily",
                 SubscriptionId = 5,
                 Recipients = [.. recipientIds.Select(x => new RecipientData { RecipientId = x, Name = $"r{x}", Destination = "enc:stored", NotificationType = NotificationType.Webhook })],
+                DataSourceIds = dataSourceIds ?? [],
             });
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();

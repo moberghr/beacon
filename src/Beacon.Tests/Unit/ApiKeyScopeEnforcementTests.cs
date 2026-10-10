@@ -108,12 +108,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/mcp/documentation-patches",
         "/beacon/api/mcp/learned-patterns",
         "/beacon/api/mcp/learning-stats",
-        "/beacon/api/mcp/projects/{projectId:int}/settings",
-        "/beacon/api/mcp/settings",
         "/beacon/api/mcp/tools",
-        "/beacon/api/migrations/executions",
-        "/beacon/api/migrations/jobs",
-        "/beacon/api/migrations/jobs/{id:int}",
         "/beacon/api/notifications/",
         "/beacon/api/notifications/{id:int}",
         "/beacon/api/projects/",
@@ -140,9 +135,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/tasks/{id:int}/executions",
         "/beacon/api/tasks/{id:int}/related",
         "/beacon/api/tasks/{id:int}/result-history",
-        "/beacon/api/user-settings/",
-        "/beacon/api/users/",
-        "/beacon/api/users/roles"
+        "/beacon/api/user-settings/"
     ];
 
     private Mock<IApiKeyService>? _apiKeys;

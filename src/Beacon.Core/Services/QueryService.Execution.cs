@@ -108,7 +108,8 @@ internal partial class QueryService
             AllRecords = queryResult.AllRecords,
             ExecutionTimeMs = queryResult.ExecutionTimeMs,
             TimedOut = queryResult.TimedOut,
-            SaveResults = subscription.StoreResults
+            SaveResults = subscription.StoreResults,
+            DataSourceIds = executionResult.DataSourceIds
         };
 
 

@@ -89,11 +89,15 @@ By default the table sorts **worst-first**: most open tasks first, then lowest s
 Clicking a row opens a detail panel for that subscription showing:
 
 - The query name, folder path, and cron schedule
-- **Recent executions** — the last 20 runs with outcome, timestamp, row count, execution time in milliseconds, and the error message for failed runs
+- **Recent executions** — the last 20 runs with outcome, timestamp, row count, execution time in milliseconds, and the recorded failure reason for failed runs (other stored text shows as a generic reason). A project-restricted API key or MCP caller sees only the runs its projects may read, by the rule the [notifications](/features/notifications/#who-sees-a-run) follow
 - **Open tasks** — up to 20 unresolved tasks with priority, assignee, and snooze state
 - **Recent anomalies** — up to 20 anomaly events in the window with severity, detected value, explanation, and acknowledged state
 
 From the panel you can jump straight to the underlying query.
+
+:::caution[Upgrading]
+A failed run's error message is now its recorded failure reason, or the generic reason in place of any other stored text. Project-restricted API keys and MCP callers see only the runs their projects may read; runs recorded before this version are hidden from them. `IControlTowerService.GetSubscriptionDetail` takes a `StoredRunScope`.
+:::
 
 ## Filtering
 
