@@ -12,6 +12,11 @@ export interface CreateSimpleMutationParams<TVars, TData> {
   invalidate?: InvalidateInput<TVars, TData>;
   successMsg?: string | ((vars: TVars, data: TData) => string);
   errorFallback: string;
+  /**
+   * Toast a failure (default). False for a mutation whose every caller shows the server's reason on the page itself
+   * (a banner), so a refusal is not reported twice.
+   */
+  errorToast?: boolean;
 }
 
 /**
@@ -27,7 +32,7 @@ export interface CreateSimpleMutationParams<TVars, TData> {
 export function createSimpleMutation<TVars, TData>(
   params: CreateSimpleMutationParams<TVars, TData>,
 ): UseMutationOptions<TData, unknown, TVars> {
-  const { qc, mutationFn, invalidate, successMsg, errorFallback } = params;
+  const { qc, mutationFn, invalidate, successMsg, errorFallback, errorToast = true } = params;
   return {
     mutationFn: (vars) => mutationFn(vars),
     onSuccess: (data, vars) => {
@@ -45,7 +50,9 @@ export function createSimpleMutation<TVars, TData>(
       }
     },
     onError: (err) => {
-      toast.error(describeError(err, errorFallback));
+      if (errorToast) {
+        toast.error(describeError(err, errorFallback));
+      }
     },
   };
 }

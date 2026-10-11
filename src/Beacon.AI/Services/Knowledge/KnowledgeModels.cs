@@ -114,6 +114,12 @@ public record SmartSchemaContext
     public string? HostManagedKey { get; init; }
 
     /// <summary>
+    /// The database the source's connection is configured for (its catalog on Databricks, its project on BigQuery): every
+    /// gate evaluation of the generated SQL refuses a name qualified with any other. Null allows no database qualifier.
+    /// </summary>
+    public string? ConfiguredDatabase { get; init; }
+
+    /// <summary>
     /// Schema catalog for pre-execution validation.
     /// Keys: lowercase table name AND lowercase "schema.table". Values: lowercase column names.
     /// </summary>

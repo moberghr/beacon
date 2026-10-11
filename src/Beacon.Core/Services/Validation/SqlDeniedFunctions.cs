@@ -69,7 +69,7 @@ internal static class SqlDeniedFunctions
     /// <param name="name">The function's last name part, unquoted.</param>
     public static bool IsDenied(string name, Dialect dialect)
     {
-        if (Everywhere.Contains(name) || HasPrefix(name, EverywherePrefixes))
+        if (ReachesBeyondTheSource(name))
         {
             return true;
         }
@@ -84,6 +84,16 @@ internal static class SqlDeniedFunctions
             SQLiteDialect => Sqlite.Contains(name),
             _ => false
         };
+    }
+
+    /// <summary>
+    /// The functions of <see cref="Everywhere"/> and <see cref="EverywherePrefixes"/>: they reach other servers, files or
+    /// storage, so <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// </summary>
+    /// <param name="name">The function's last name part, unquoted.</param>
+    public static bool ReachesBeyondTheSource(string name)
+    {
+        return Everywhere.Contains(name) || HasPrefix(name, EverywherePrefixes);
     }
 
     private static bool HasPrefix(string name, string[] prefixes)

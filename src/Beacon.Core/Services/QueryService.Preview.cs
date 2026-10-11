@@ -265,7 +265,7 @@ internal partial class QueryService : IStoredQueryPreview
     }
 
     /// <summary>
-    /// <see cref="ExecuteStep"/>'s gates (read-only AST validation, host policy, masking) around one page. The
+    /// <see cref="ExecuteStep"/>'s gates (read-only AST validation, the source's own database, host policy, masking) around one page. The
     /// rewritten page and count statements are re-validated too; a rejected rewrite falls back to streaming
     /// the original, already-approved statement.
     /// </summary>
@@ -298,6 +298,14 @@ internal partial class QueryService : IStoredQueryPreview
             throw new InvalidOperationException(hostError);
         }
 
+        var connectionString = connectionResolver.GetConnectionString(step.DataSource);
+        var configuredDatabase = configuredDatabases.Resolve(step.DataSource);
+        var crossDatabaseError = SqlCrossDatabaseRule.Validate(executedSql, dialect, configuredDatabase);
+        if (crossDatabaseError != null)
+        {
+            throw new InvalidOperationException(crossDatabaseError);
+        }
+
         // Ordering by a masked column would leak the order of the values it hides.
         var sort = paging.SortCriteria().FirstOrDefault();
         if (sort != null && hostCheck.MaskedOutputColumns.Contains(sort.SortColumn, StringComparer.OrdinalIgnoreCase))
@@ -306,7 +314,7 @@ internal partial class QueryService : IStoredQueryPreview
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        await using var connection = DbConnectionFactory.CreateConnection(engine, connectionResolver.GetConnectionString(step.DataSource));
+        await using var connection = DbConnectionFactory.CreateConnection(engine, connectionString);
         await connection.OpenAsync(cancellationToken);
 
         SqlResultPage page;
@@ -318,7 +326,9 @@ internal partial class QueryService : IStoredQueryPreview
                 sqlParameters,
                 dialect,
                 paging,
-                x => readOnlyAstValidator.Validate(x, dialect) == null && hostGuard.Check(step.DataSource, x).Allowed,
+                x => readOnlyAstValidator.Validate(x, dialect) == null
+                    && SqlCrossDatabaseRule.Validate(x, dialect, configuredDatabase) == null
+                    && hostGuard.Check(step.DataSource, x).Allowed,
                 null,
                 cancellationToken);
         }

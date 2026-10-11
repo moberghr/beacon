@@ -1144,6 +1144,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.Description).HasMaxLength(1000);
             entity.Property(e => e.CronExpression).HasMaxLength(100).IsRequired();
             entity.Property(e => e.OwnerUserId).HasMaxLength(100);
+            entity.Property(e => e.OwnerNotAuthorizedSince);
 
             entity.HasOne(e => e.DataSource)
                 .WithMany()

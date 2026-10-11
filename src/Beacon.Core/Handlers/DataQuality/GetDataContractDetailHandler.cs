@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Authorization;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.DataQuality.GetDataContractDetail;
 
@@ -27,7 +28,12 @@ internal sealed class GetDataContractDetailHandler(
                 Description = c.Description,
                 CronExpression = c.CronExpression,
                 IsEnabled = c.IsEnabled,
-                OwnerUserId = c.OwnerUserId,
+                HasOwner = c.OwnerUserId != null,
+                OwnerDisplayName = context.Users
+                    .Where(x => x.ExternalId == c.OwnerUserId)
+                    .Select(UserLabel.OfUser)
+                    .FirstOrDefault(),
+                OwnerNotAuthorized = c.OwnerNotAuthorizedSince != null,
                 AlertOnFailure = c.AlertOnFailure,
                 FailureThresholdScore = c.FailureThresholdScore,
                 CreatedTime = c.CreatedTime,

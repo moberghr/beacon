@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -12,6 +13,7 @@ internal sealed class GetProjectDetailHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IProjectMembershipSource membershipSource,
+    IMcpSettingsProvider settingsProvider,
     IOptions<ProjectAuthorizationOptions> options)
     : IRequestHandler<GetProjectDetailQuery, GetProjectDetailResult>
 {
@@ -103,6 +105,9 @@ internal sealed class GetProjectDetailHandler(
         var sharedSourceProjects = scope.IsUnrestricted
             ? await SharedSourceProjects.ReadAsync(context, project.Id, options.Value.RequireProjectMembership, cancellationToken)
             : [];
+        var sharedSourceGuardrails = scope.IsUnrestricted && sharedSourceProjects.Count > 0
+            ? await SharedSourceGuardrails.ReadAsync(context, settingsProvider, project.Id, cancellationToken)
+            : [];
 
         var detail = new ProjectDetailEntry(
             project.Id,
@@ -120,6 +125,7 @@ internal sealed class GetProjectDetailHandler(
             mayManageMembers && ProjectMembershipRules.IsManagedByBeacon(membershipSource),
             openlyReachable,
             sharedSourceProjects,
+            sharedSourceGuardrails,
             ProjectMembershipRules.ManagementOf(membershipSource));
 
         return new GetProjectDetailResult(detail);
@@ -170,6 +176,8 @@ public record GetProjectDetailResult(ProjectDetailEntry? Project);
 /// <c>OpenlyReachableDataSourceIds</c>: for a caller who may manage its members, its data sources another live open
 /// project also links (they stay reachable when this one is restricted); <c>SharedSourceProjects</c>: for an Admin, every
 /// other live project (open or restricted) linking any of its data sources, with their ProjectAdmins (empty for anyone
+/// else); <c>SharedSourceGuardrails</c>: for an Admin, per data source another live project links too, the guardrails
+/// that apply to it — the strictest of the linking projects' settings — and the project that sets each (empty for anyone
 /// else); <c>MembershipManagement</c>: who manages project memberships in this deployment (Beacon, the host, or nobody
 /// because membership is unavailable).
 /// </summary>
@@ -189,6 +197,7 @@ public record ProjectDetailEntry(
     bool CanManageMembers,
     List<int> OpenlyReachableDataSourceIds,
     List<SharedSourceProjectEntry> SharedSourceProjects,
+    List<SharedSourceGuardrailsEntry> SharedSourceGuardrails,
     ProjectMembershipManagement MembershipManagement);
 
 public record ProjectDataSourceEntry(int Id, string Name, string Type, int TableCount, double? QualityScore);

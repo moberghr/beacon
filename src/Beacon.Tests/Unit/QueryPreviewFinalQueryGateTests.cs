@@ -136,7 +136,9 @@ public class QueryPreviewFinalQueryGateTests
             Mock.Of<IBeaconUserContext>(),
             Validator,
             Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors());
+            TestProjectAccess.Actors(),
+            TestProjectAccess.ExecutionAllowed(),
+            TestConfiguredDatabases.None);
     }
 
     private sealed record Paging : ListRequest;

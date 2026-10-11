@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
@@ -14,9 +13,9 @@ namespace Beacon.MCP.Services;
 /// already refuses a scoped caller (API key or mapped MCP JWT caller) without the Execute scope; this call-tool filter
 /// refuses it again on every <c>tools/call</c> — attribute tools, saved-query and host endpoint tools alike — so a host
 /// that maps <c>/beacon/mcp</c> itself with a weaker policy (bare <c>RequireAuthorization()</c>, or none) still fails
-/// closed. <see cref="McpScopeMessageFilter"/> refuses the caller's other requests. A request over HTTP without an
-/// authenticated user is refused too; a request with no user and no HTTP request behind it (a transport without
-/// authentication, such as stdio) passes with a warning. Callers without a scope marker (cookie sessions) pass.
+/// closed. <see cref="McpScopeMessageFilter"/> refuses the caller's other requests. A request without an authenticated
+/// user is refused too, whether it came over HTTP or over a transport without authentication (such as stdio): with no
+/// caller there is nothing to authorize. Callers without a scope marker (cookie sessions) pass.
 /// <para>
 /// A refused call never reaches a tool, but it is a tool invocation all the same and is audited (§1.7/§9.5): one audit
 /// row with the tool name, the caller's identifiers and a permission error. When the deployment requires the audit and
@@ -36,23 +35,16 @@ internal static class McpScopeCallToolFilter
         return next => async (request, cancellationToken) =>
         {
             var user = request.User;
-            var refusal = Refusal(user, request.Services);
+            var refusal = Refusal(user);
+            if (refusal == null)
+            {
+                return await next(request, cancellationToken);
+            }
+
             var logger = request.Services?
                 .GetService<ILoggerFactory>()?
                 .CreateLogger(typeof(McpScopeCallToolFilter));
             var tool = request.Params?.Name;
-
-            if (refusal == null)
-            {
-                if (user == null)
-                {
-                    logger?.LogWarning(
-                        "MCP tool call without a user and without an HTTP request: the scope is not checked. Tool={Tool}",
-                        McpAuditService.BoundedToolName(tool));
-                }
-
-                return await next(request, cancellationToken);
-            }
 
             // Identifiers only (§1.11): the tool name is bounded, the key id is an id.
             logger?.LogWarning(
@@ -76,18 +68,12 @@ internal static class McpScopeCallToolFilter
     }
 
     /// <summary>
-    /// Why <paramref name="user"/> may not use Beacon MCP, or <c>null</c> when it may: a scoped caller needs the Execute
-    /// scope, and over HTTP the caller must be authenticated. <c>null</c> for a request without a user and without an
-    /// HTTP request behind it.
+    /// Why <paramref name="user"/> may not use Beacon MCP, or <c>null</c> when it may: the caller must be authenticated,
+    /// and a scoped caller needs the Execute scope. A request without a user is refused, over HTTP or not.
     /// </summary>
-    internal static string? Refusal(ClaimsPrincipal? user, IServiceProvider? services)
+    internal static string? Refusal(ClaimsPrincipal? user)
     {
-        if (user == null)
-        {
-            return services?.GetService<IHttpContextAccessor>()?.HttpContext != null ? UnauthenticatedMessage : null;
-        }
-
-        if (user.Identity?.IsAuthenticated != true)
+        if (user?.Identity?.IsAuthenticated != true)
         {
             return UnauthenticatedMessage;
         }

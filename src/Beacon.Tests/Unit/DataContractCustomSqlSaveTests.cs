@@ -13,6 +13,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataQuality.CreateDataContract;
 using Beacon.Core.Handlers.DataQuality.DeleteDataContract;
@@ -24,6 +25,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
+using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -32,7 +34,8 @@ namespace Beacon.Tests.Unit;
 /// Saving a data contract: its owner is the caller that created it, and only the owner or an Admin changes, disables,
 /// retargets or deletes it. A contract that carries a CustomSql rule (§1.5) is an Admin's to create, change or delete;
 /// its SQL must be a single read-only SELECT that Beacon can cap at one row; it never targets a missing, non-database
-/// or host-managed data source. A rejected save writes nothing, purges no rule history and leaves the schedule alone.
+/// or host-managed data source. Every rule names only its data source's own tables and columns. A rejected save writes
+/// nothing, purges no rule history and leaves the schedule alone.
 /// </summary>
 [TestFixture]
 public class DataContractCustomSqlSaveTests
@@ -64,7 +67,7 @@ public class DataContractCustomSqlSaveTests
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var editor = Interactive(RoleService.RoleNames.Editor);
-        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration());
+        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration());
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
@@ -206,6 +209,26 @@ public class DataContractCustomSqlSaveTests
         _store.Saves.Should().Be(1);
     }
 
+    // The rule's SQL may name only the database the data source's connection is configured for.
+    [TestCase("SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS passed FROM sales.public.accounts", true)]
+    [TestCase("SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS passed FROM hr.public.salaries", false)]
+    public async Task Create_CustomSql_NamesOnlyTheSourcesConfiguredDatabase(string sql, bool saved)
+    {
+        var handler = CreateHandler(OrdinarySource(), Admin(), TestConfiguredDatabases.Of("sales"));
+
+        var act = () => handler.Handle(CreateCommand(CustomSqlRule(sql)), CancellationToken.None);
+
+        if (saved)
+        {
+            await act.Should().NotThrowAsync();
+            _store.Added.OfType<DataContract>().Should().ContainSingle();
+            return;
+        }
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*another database*");
+        AssertNothingWritten();
+    }
+
     [Test]
     public async Task Create_GeneratedRulesByANonAdmin_AreSaved()
     {
@@ -251,6 +274,7 @@ public class DataContractCustomSqlSaveTests
             _scheduler.Object,
             UserContext(Interactive(RoleService.RoleNames.Editor)),
             TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
             NullLogger<UpdateDataContractHandler>.Instance);
 
@@ -306,6 +330,7 @@ public class DataContractCustomSqlSaveTests
             _scheduler.Object,
             UserContext(Admin()),
             TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             Actor(Admin()),
             NullLogger<UpdateDataContractHandler>.Instance);
 
@@ -329,6 +354,7 @@ public class DataContractCustomSqlSaveTests
             _scheduler.Object,
             UserContext(Admin()),
             TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             Actor(Admin()),
             NullLogger<UpdateDataContractHandler>.Instance);
 
@@ -337,6 +363,179 @@ public class DataContractCustomSqlSaveTests
         contract.Rules.Should().ContainSingle().Which.RuleType.Should().Be(DataContractRuleType.Volume);
         _store.Saves.Should().Be(1);
         _store.Commits.Should().Be(1);
+    }
+
+    // --- confinement to the contract's data source --------------------------------------------------------------
+
+    [TestCase("finance", "ledger")]
+    [TestCase("other_db", "orders")]
+    [TestCase("sales", "ledger")]
+    public async Task Create_ARuleNamingATableOutsideTheContractsSource_IsRefused(string referenceSchema, string referenceTable)
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+
+        var act = () => handler.Handle(CreateCommand(ReferentialRule(referenceSchema, referenceTable, "id")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage($"Rule 'referential': Table {referenceSchema}.{referenceTable} is not in the data source's metadata*");
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task Create_AContractOnATableOutsideItsSource_IsRefused()
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+
+        var act = () => handler.Handle(CreateCommand(VolumeRule()) with { SchemaName = "finance", TableName = "ledger" }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Table finance.ledger is not in the data source's metadata*");
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task Create_ARuleOnAColumnTheTableDoesNotHave_IsRefused()
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+        var rule = new DataContractRuleData
+        {
+            Name = "nulls",
+            RuleType = DataContractRuleType.NullRate,
+            Configuration = "{\"column\":\"salary\",\"maxNullPercent\":5}",
+            IsEnabled = true
+        };
+
+        var act = () => handler.Handle(CreateCommand(rule), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Rule 'nulls': Column salary is not a column of sales.orders*");
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task Create_ARuleNamingTheSourcesOwnTables_IsSaved()
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+
+        await handler.Handle(CreateCommand(ReferentialRule("sales", "customers", "id")), CancellationToken.None);
+
+        _store.Added.OfType<DataContract>().Should().ContainSingle();
+    }
+
+    // A name that differs from the metadata only in case is the metadata's object: it is stored as the metadata spells it.
+    [Test]
+    public async Task Create_NamesDifferingOnlyInCase_AreStoredAsTheMetadataSpellsThem()
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+        var referential = new DataContractRuleData
+        {
+            Name = "referential",
+            RuleType = DataContractRuleType.Referential,
+            ColumnName = "CUSTOMER_ID",
+            Configuration = JsonSerializer.Serialize(new { column = "Customer_Id", referenceSchema = "SALES", referenceTable = "Customers", referenceColumn = "ID", ignored = "Kept As Is" }),
+            IsEnabled = true
+        };
+
+        await handler.Handle(CreateCommand(referential) with { SchemaName = "Sales", TableName = "ORDERS" }, CancellationToken.None);
+
+        var contract = _store.Added.OfType<DataContract>().Should().ContainSingle().Subject;
+        contract.SchemaName.Should().Be("sales");
+        contract.TableName.Should().Be("orders");
+        var rule = contract.Rules.Should().ContainSingle().Subject;
+        rule.ColumnName.Should().Be("customer_id");
+        using var configuration = JsonDocument.Parse(rule.Configuration);
+        configuration.RootElement.GetProperty("column").GetString().Should().Be("customer_id");
+        configuration.RootElement.GetProperty("referenceSchema").GetString().Should().Be("sales");
+        configuration.RootElement.GetProperty("referenceTable").GetString().Should().Be("customers");
+        configuration.RootElement.GetProperty("referenceColumn").GetString().Should().Be("id");
+        configuration.RootElement.GetProperty("ignored").GetString().Should().Be("Kept As Is");
+    }
+
+    // An exact spelling wins; a spelling that only matches several tables differing in case names neither of them.
+    [Test]
+    public async Task Catalog_PrefersAnExactSpelling_AndRefusesOneThatMatchesSeveral()
+    {
+        var saved = new List<object>();
+        List<DatabaseMetadata> metadata =
+        [
+            new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "sales", TableName = "orders" },
+            new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "sales", TableName = "Orders" },
+            new DatabaseMetadata { DataSourceId = DataSourceId + 1, SchemaName = "sales", TableName = "ORDERS" }
+        ];
+        await using var context = new RecordingBeaconContext(
+            new Dictionary<Type, object> { [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(metadata, saved) },
+            saved);
+
+        var catalog = await DataQualityRuleCatalog.LoadAsync(context, DataSourceId, "sales", "ORDERS", [], CancellationToken.None);
+
+        catalog.UnknownTableOf("sales", "orders").Should().BeNull();
+        catalog.UnknownTableOf("sales", "Orders").Should().BeNull();
+        catalog.UnknownTableOf("sales", "ORDERS").Should().Contain("matches several tables");
+        catalog.UnknownTableOf("SALES", "Orders").Should().Contain("matches several tables");
+    }
+
+    // An exact spelling is stored untouched, configuration text included.
+    [Test]
+    public async Task Create_ExactNames_AreStoredUntouched()
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+        var rule = ReferentialRule("sales", "customers", "id");
+
+        await handler.Handle(CreateCommand(rule), CancellationToken.None);
+
+        _store.Added.OfType<DataContract>().Should().ContainSingle().Which.Rules.Should().ContainSingle().Which.Configuration.Should().Be(rule.Configuration);
+    }
+
+    [Test]
+    public async Task Create_AReferenceColumnTheReferenceTableDoesNotHave_IsRefused()
+    {
+        var handler = CreateHandler(OrdinarySource(), Interactive(RoleService.RoleNames.Editor));
+
+        var act = () => handler.Handle(CreateCommand(ReferentialRule("sales", "customers", "salary")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Rule 'referential': Column salary is not a column of sales.customers*");
+        AssertNothingWritten();
+    }
+
+    [Test]
+    public async Task Update_NamesDifferingOnlyInCase_AreStoredAsTheMetadataSpellsThem()
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        var handler = new UpdateDataContractHandler(
+            ContextFactory(OrdinarySource(), contract, contract.Rules),
+            _scheduler.Object,
+            UserContext(Interactive(RoleService.RoleNames.Editor)),
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
+            Actor(Interactive(RoleService.RoleNames.Editor)),
+            NullLogger<UpdateDataContractHandler>.Instance);
+
+        await handler.Handle(UpdateCommand(ReferentialRule("Sales", "CUSTOMERS", "Id")) with { SchemaName = "SALES", TableName = "Orders" }, CancellationToken.None);
+
+        contract.SchemaName.Should().Be("sales");
+        contract.TableName.Should().Be("orders");
+        using var configuration = JsonDocument.Parse(contract.Rules.Should().ContainSingle().Subject.Configuration);
+        configuration.RootElement.GetProperty("referenceSchema").GetString().Should().Be("sales");
+        configuration.RootElement.GetProperty("referenceTable").GetString().Should().Be("customers");
+        configuration.RootElement.GetProperty("referenceColumn").GetString().Should().Be("id");
+    }
+
+    [Test]
+    public async Task Update_RetargetingARuleOntoAnotherSourcesTable_IsRefusedBeforeAnyChange()
+    {
+        var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
+        var handler = new UpdateDataContractHandler(
+            ContextFactory(OrdinarySource(), contract, contract.Rules),
+            _scheduler.Object,
+            UserContext(Interactive(RoleService.RoleNames.Editor)),
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
+            Actor(Interactive(RoleService.RoleNames.Editor)),
+            NullLogger<UpdateDataContractHandler>.Instance);
+
+        var act = () => handler.Handle(UpdateCommand(ReferentialRule("finance", "ledger", "id")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Table finance.ledger is not in the data source's metadata*");
+        contract.Rules.Should().ContainSingle().Which.RuleType.Should().Be(DataContractRuleType.Volume);
+        AssertNothingWritten();
     }
 
     // --- delete -------------------------------------------------------------------------------------------------
@@ -409,6 +608,7 @@ public class DataContractCustomSqlSaveTests
             _scheduler.Object,
             UserContext(editor),
             TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             Actor(editor),
             NullLogger<UpdateDataContractHandler>.Instance);
 
@@ -431,6 +631,7 @@ public class DataContractCustomSqlSaveTests
             _scheduler.Object,
             UserContext(Admin()),
             TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             Actor(Admin()),
             NullLogger<UpdateDataContractHandler>.Instance);
 
@@ -484,7 +685,7 @@ public class DataContractCustomSqlSaveTests
     {
         // Each handler is built just before it runs: the request's user lives in the ambient HttpContext.
         var editor = Interactive(RoleService.RoleNames.Editor);
-        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), Actor(editor), NullLogger<UpdateDataContractHandler>.Instance)
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(editor), NullLogger<UpdateDataContractHandler>.Instance)
             .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
         Func<Task> delete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), Actor(editor), NullLogger<DeleteDataContractHandler>.Instance)
             .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
@@ -506,7 +707,7 @@ public class DataContractCustomSqlSaveTests
         var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
         contract.OwnerUserId = null;
         var caller = WithoutId(RoleService.RoleNames.Editor);
-        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), Actor(caller), NullLogger<UpdateDataContractHandler>.Instance)
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(caller), NullLogger<UpdateDataContractHandler>.Instance)
             .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
         Func<Task> delete = () => DeleteHandler(caller, contract).Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
         Func<Task> evaluate = () => EvaluateHandler(caller, contract).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
@@ -598,7 +799,7 @@ public class DataContractCustomSqlSaveTests
 
     private SetDataContractOwnerHandler SetOwnerHandler(ClaimsPrincipal user, IDbContextFactory<BeaconContext> factory)
     {
-        return new SetDataContractOwnerHandler(factory, Actor(user), NullLogger<SetDataContractOwnerHandler>.Instance);
+        return new SetDataContractOwnerHandler(factory, Actor(user), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(user)), NullLogger<SetDataContractOwnerHandler>.Instance);
     }
 
     private static List<BeaconUser> Users()
@@ -619,9 +820,16 @@ public class DataContractCustomSqlSaveTests
         _scheduler.VerifyNoOtherCalls();
     }
 
-    private CreateDataContractHandler CreateHandler(DataSource? dataSource, ClaimsPrincipal user)
+    private CreateDataContractHandler CreateHandler(DataSource? dataSource, ClaimsPrincipal user, IConfiguredDatabaseResolver? configuredDatabases = null)
     {
-        return new CreateDataContractHandler(ContextFactory(dataSource), _scheduler.Object, UserContext(user), TestSqlGate.Create(), Actor(user), new BeaconConfiguration());
+        return new CreateDataContractHandler(
+            ContextFactory(dataSource),
+            _scheduler.Object,
+            UserContext(user),
+            TestSqlGate.Create(),
+            configuredDatabases ?? TestConfiguredDatabases.None,
+            Actor(user),
+            new BeaconConfiguration());
     }
 
     private UpdateDataContractHandler UpdateHandler(ClaimsPrincipal user, DataSource? dataSource, params DataContractRule[] existingRules)
@@ -631,6 +839,7 @@ public class DataContractCustomSqlSaveTests
             _scheduler.Object,
             UserContext(user),
             TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             Actor(user),
             NullLogger<UpdateDataContractHandler>.Instance);
     }
@@ -654,6 +863,7 @@ public class DataContractCustomSqlSaveTests
             [typeof(DataContract)] = MemorySet<DataContract>(contract == null ? [] : [contract]),
             [typeof(DataContractRule)] = MemorySet(rules ?? []),
             [typeof(BeaconUser)] = MemorySet(users ?? []),
+            [typeof(DatabaseMetadata)] = MemorySet(SourceMetadata()),
             [typeof(DataQualityRuleResult)] = MemorySet(resultRows, deleted =>
             {
                 _store.PurgedResults += deleted.Count;
@@ -695,6 +905,35 @@ public class DataContractCustomSqlSaveTests
             EncryptedConnectionData = "unused",
             DatabaseEngineType = engine
         };
+    }
+
+    // The data source's metadata: the contract's table and one other table of the same source.
+    private static List<DatabaseMetadata> SourceMetadata()
+    {
+        return
+        [
+            new DatabaseMetadata
+            {
+                DataSourceId = DataSourceId,
+                SchemaName = "sales",
+                TableName = "orders",
+                Columns = [new ColumnMetadata { ColumnName = "customer_id", DataType = "int" }, new ColumnMetadata { ColumnName = "status", DataType = "text" }]
+            },
+            new DatabaseMetadata
+            {
+                DataSourceId = DataSourceId,
+                SchemaName = "sales",
+                TableName = "customers",
+                Columns = [new ColumnMetadata { ColumnName = "id", DataType = "int" }]
+            },
+            new DatabaseMetadata
+            {
+                DataSourceId = DataSourceId + 1,
+                SchemaName = "finance",
+                TableName = "ledger",
+                Columns = [new ColumnMetadata { ColumnName = "id", DataType = "int" }]
+            }
+        ];
     }
 
     private static DataSource HostSource()
@@ -752,6 +991,17 @@ public class DataContractCustomSqlSaveTests
             RuleType = DataContractRuleType.CustomSql,
             Configuration = JsonSerializer.Serialize(new { sql }),
             IsEnabled = isEnabled
+        };
+    }
+
+    private static DataContractRuleData ReferentialRule(string referenceSchema, string referenceTable, string referenceColumn)
+    {
+        return new DataContractRuleData
+        {
+            Name = "referential",
+            RuleType = DataContractRuleType.Referential,
+            Configuration = JsonSerializer.Serialize(new { column = "customer_id", referenceSchema, referenceTable, referenceColumn }),
+            IsEnabled = true
         };
     }
 

@@ -32,10 +32,10 @@ export function canWorkTask(task: Pick<TaskDetail, 'assignedToCaller'>, isAdmin:
 
 /** The caller may assign the task to itself: it is unassigned (anyone may claim it), or the caller is an Admin. */
 export function canClaimTask(
-  task: Pick<TaskDetail, 'assignedToCaller' | 'assigneeUserId'>,
+  task: Pick<TaskDetail, 'assignedToCaller' | 'hasAssignee'>,
   isAdmin: boolean | undefined,
 ): boolean {
-  return !task.assignedToCaller && (task.assigneeUserId == null || isAdmin === true);
+  return !task.assignedToCaller && (!task.hasAssignee || isAdmin === true);
 }
 
 export interface TaskDetail {
@@ -58,7 +58,9 @@ export interface TaskDetail {
   lastExecutionAt: string | null;
   cronExpression: string | null;
   priority: TaskPriority;
-  assigneeUserId: string | null;
+  /** The task is assigned to someone (the assignee's id is never sent). */
+  hasAssignee: boolean;
+  /** The assignee's display name or a neutral "User {id}" label; null when the assignee is not a Beacon user. */
   assigneeUserName: string | null;
   /** The signed-in caller is the task's assignee (decided by the server, which also matches older assignments). */
   assignedToCaller: boolean;
@@ -66,8 +68,10 @@ export interface TaskDetail {
   slaHours: number | null;
   watcherCount: number;
   isWatching: boolean;
-  ownerUserId: string | null;
-  ownerUserName: string | null;
+  /** The task's subscription is managed by an AI actor whose creator is recorded. */
+  hasOwner: boolean;
+  /** That creator's display name or a neutral "User {id}" label; never an id. */
+  ownerDisplayName: string | null;
 }
 
 export interface TaskExecutionItem {

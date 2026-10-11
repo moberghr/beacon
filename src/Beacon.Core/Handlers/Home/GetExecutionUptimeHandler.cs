@@ -66,6 +66,8 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
     {
         NotificationStatus.Failed => "crit",
         NotificationStatus.Timeout => "crit",
+        // A skipped run did not run (its owner may no longer run it): worth a look, not a failure.
+        NotificationStatus.Skipped => "warn",
         // Everything else (Sent / Silenced / NoResults / BelowThreshold / Created) is a
         // healthy execution. The beacon ran; whether it alerted is a separate concern.
         _ => "ok",

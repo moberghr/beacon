@@ -59,8 +59,11 @@ public class McpSettingsData
     public int MaxConcurrentQueriesPerKey { get; set; } = 4;
     public bool AllowExplicitFeedbackContent { get; set; } = true;
 
-    /// <summary>Shallow copy with an independent pattern list — the effective-settings resolver mutates the copy, never the cached row.</summary>
-    internal McpSettingsData Clone()
+    /// <summary>
+    /// Shallow copy with an independent pattern list — the effective-settings resolver and grounding mutate the copy, never
+    /// the cached row.
+    /// </summary>
+    public McpSettingsData Clone()
     {
         var copy = (McpSettingsData)MemberwiseClone();
         copy.CustomPiiPatterns = [.. CustomPiiPatterns];

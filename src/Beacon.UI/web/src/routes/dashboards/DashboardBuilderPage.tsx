@@ -1,22 +1,32 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeftRight, LayoutGrid, Plus, X } from 'lucide-react';
+import { ArrowLeftRight, LayoutGrid, Plus, Share2, X } from 'lucide-react';
 import {
   PageHeader,
   Button,
   Card,
+  CardActions,
+  CardHead,
+  CardSub,
+  CardTitle,
   Field,
   Input,
+  Pill,
+  Seg,
   Select,
   Textarea,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
+  canChangeSharing,
   useDashboardQuery,
   useAddWidget,
   useDeleteWidget,
+  useSetDashboardSharing,
+  SHARING_FORBIDDEN_MESSAGE,
   WIDGET_TYPE_LABEL,
+  type DashboardDetail,
   type DashboardWidget,
 } from './queries';
 import { WidgetType } from '@/lib/enums';
@@ -152,6 +162,8 @@ export default function DashboardBuilderPage() {
           </div>
         }
       />
+
+      {data && <SharingCard dashboard={data} />}
 
       {showAddForm && (
         <Card className="p-4">
@@ -299,5 +311,59 @@ export default function DashboardBuilderPage() {
         onCancel={() => setPendingDelete(null)}
       />
     </div>
+  );
+}
+
+/**
+ * Who sees the dashboard and whether it opens by default. Only the dashboard's Admin level (its owner or an admin
+ * grantee) may change either; an Edit grantee sees the current state only.
+ */
+function SharingCard({ dashboard }: { dashboard: DashboardDetail }) {
+  const setSharing = useSetDashboardSharing(dashboard);
+  const allowed = canChangeSharing(dashboard);
+
+  const change = (next: { isShared: boolean; isDefault: boolean }) => {
+    if (!setSharing.isPending) {
+      setSharing.mutate(next);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHead>
+        <Share2 className="size-3.5 text-text-muted" />
+        <CardTitle>Sharing</CardTitle>
+        <CardSub>{allowed ? 'A shared dashboard is visible to every user.' : SHARING_FORBIDDEN_MESSAGE}</CardSub>
+        <CardActions>
+          {allowed ? (
+            <>
+              <Seg<'private' | 'shared'>
+                ariaLabel="Visibility"
+                options={[
+                  { value: 'private', label: 'Private' },
+                  { value: 'shared', label: 'Shared' },
+                ]}
+                value={dashboard.isShared ? 'shared' : 'private'}
+                onChange={x => change({ isShared: x === 'shared', isDefault: dashboard.isDefault })}
+              />
+              <Seg<'no' | 'yes'>
+                ariaLabel="Default dashboard"
+                options={[
+                  { value: 'no', label: 'Not default' },
+                  { value: 'yes', label: 'Default' },
+                ]}
+                value={dashboard.isDefault ? 'yes' : 'no'}
+                onChange={x => change({ isShared: dashboard.isShared, isDefault: x === 'yes' })}
+              />
+            </>
+          ) : (
+            <>
+              <Pill tone={dashboard.isShared ? 'info' : 'neutral'}>{dashboard.isShared ? 'Shared' : 'Private'}</Pill>
+              {dashboard.isDefault && <Pill tone="info">Default</Pill>}
+            </>
+          )}
+        </CardActions>
+      </CardHead>
+    </Card>
   );
 }

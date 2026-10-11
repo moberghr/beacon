@@ -8473,6 +8473,57 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return No Content
+   */
+  setSubscriptionOwner(
+    id: number,
+    body: SetSubscriptionOwnerBody,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/subscriptions/{id}/owner";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSetSubscriptionOwner(_response);
+    });
+  }
+
+  protected processSetSubscriptionOwner(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @param search (optional)
    * @param databaseOnly (optional)
    * @param page (optional)
@@ -16604,6 +16655,7 @@ export enum AiActorExecutionPhase {
   Notifying = 4,
   Completed = 5,
   Failed = 6,
+  Skipped = 7,
 }
 
 export interface AiActorListItem {
@@ -16919,6 +16971,7 @@ export interface ControlTowerStatistics {
   totalAnomalies30Days?: number;
   overallSuccessRate?: number;
   timeRangeDays?: number;
+  ownerNotAuthorizedContracts?: number;
 
   [key: string]: any;
 }
@@ -16950,6 +17003,7 @@ export interface ControlTowerSubscriptionHealthData {
   lastExecutionTime?: Date | null;
   lastExecutionStatus?: NotificationStatus | null;
   lastResultCount?: number | null;
+  ownerNotAuthorized?: boolean;
   unresolvedTaskCount?: number;
   totalTaskCount?: number;
   anomalyCount30Days?: number;
@@ -17155,6 +17209,7 @@ export interface CreateProjectCommand {
 
 export interface CreateProjectResult {
   projectId: number;
+  requiresMembership: boolean;
 
   [key: string]: any;
 }
@@ -17302,7 +17357,6 @@ export interface DashboardDetailsData {
   id?: number;
   name?: string;
   description?: string | null;
-  createdByUserId?: string | null;
   createdByUserName?: string | null;
   isShared?: boolean;
   isDefault?: boolean;
@@ -17423,7 +17477,9 @@ export interface DataContractData {
   description?: string | null;
   cronExpression?: string;
   isEnabled?: boolean;
-  ownerUserId?: string | null;
+  hasOwner?: boolean;
+  ownerDisplayName?: string | null;
+  ownerNotAuthorized?: boolean;
   alertOnFailure?: boolean;
   failureThresholdScore?: number;
   createdTime?: Date;
@@ -17497,6 +17553,7 @@ export interface DataQualityOverviewData {
   healthyTables?: number;
   degradingTables?: number;
   activeContracts?: number;
+  ownerNotAuthorizedContracts?: number;
   tableScores?: DataQualityScoreData[];
 
   [key: string]: any;
@@ -17722,7 +17779,8 @@ export interface GetAiActorDetailsResult {
   maxQueries?: number;
   maxSubscriptionsPerQuery?: number;
   requiresApproval?: boolean;
-  createdByUserId?: string | null;
+  hasOwner?: boolean;
+  ownerDisplayName?: string | null;
   totalTokensUsed?: number;
   totalCost?: number;
   lastThinkTime?: Date | null;
@@ -18420,6 +18478,7 @@ export enum NotificationStatus {
   Timeout = 5,
   BelowThreshold = 6,
   Failed = 7,
+  Skipped = 8,
 }
 
 export enum NotificationTrigger {
@@ -18744,6 +18803,7 @@ export interface ProjectDetailEntry {
   canManageMembers: boolean;
   openlyReachableDataSourceIds: number[];
   sharedSourceProjects: SharedSourceProjectEntry[];
+  sharedSourceGuardrails: SharedSourceGuardrailsEntry[];
   membershipManagement: ProjectMembershipManagement;
 
   [key: string]: any;
@@ -19093,7 +19153,6 @@ export interface QueryVersionDetail {
   description?: string | null;
   finalQuery?: string | null;
   createdTime?: Date;
-  createdByUserId?: string | null;
   createdByUserName?: string | null;
   changeSource?: string | null;
   changeReason?: string | null;
@@ -19127,7 +19186,6 @@ export interface QueryVersionSummary {
   status?: QueryVersionStatus;
   name?: string;
   createdTime?: Date;
-  createdByUserId?: string | null;
   createdByUserName?: string | null;
   changeSource?: string | null;
   changeReason?: string | null;
@@ -19433,6 +19491,12 @@ export interface SetQueryMcpToolResult {
   [key: string]: any;
 }
 
+export interface SetSubscriptionOwnerBody {
+  userId: number;
+
+  [key: string]: any;
+}
+
 export interface SetSubscriptionSlaBody {
   slaHours: number | null;
 
@@ -19448,6 +19512,23 @@ export interface SetTaskPriorityBody {
 export interface ShareDashboardBody {
   userId: string;
   permissionLevel: DashboardPermissionLevel;
+
+  [key: string]: any;
+}
+
+export interface SharedSourceGuardrail {
+  setting: string;
+  value: string;
+  projectId: number;
+  projectName: string;
+
+  [key: string]: any;
+}
+
+export interface SharedSourceGuardrailsEntry {
+  dataSourceId: number;
+  dataSourceName: string;
+  guardrails: SharedSourceGuardrail[];
 
   [key: string]: any;
 }
@@ -19560,6 +19641,7 @@ export interface SubscriptionDetail {
   anomalyConfig: SubscriptionDetailAnomalyConfig | null;
   hasOwner: boolean;
   ownerDisplayName: string | null;
+  ownerNotAuthorized: boolean;
 
   [key: string]: any;
 }
@@ -19664,15 +19746,15 @@ export interface TaskDetailResult {
   lastExecutionAt: Date | null;
   cronExpression: string | null;
   priority: TaskPriority;
-  assigneeUserId: string | null;
+  hasAssignee: boolean;
   assigneeUserName: string | null;
   assignedToCaller: boolean;
   snoozedUntil: Date | null;
   slaHours: number | null;
   watcherCount: number;
   isWatching: boolean;
-  ownerUserId: string | null;
-  ownerUserName: string | null;
+  hasOwner: boolean;
+  ownerDisplayName: string | null;
 
   [key: string]: any;
 }

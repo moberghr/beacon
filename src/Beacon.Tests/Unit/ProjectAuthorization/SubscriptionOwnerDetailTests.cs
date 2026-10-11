@@ -30,7 +30,7 @@ public class SubscriptionOwnerDetailTests
         await act.Should().ThrowAsync<InvalidOperationException>("the fake database returns no row");
         var sql = database.Commands.Should().ContainSingle().Subject.Text;
         sql.Should().Contain("owner_user_id");
-        sql.Should().MatchRegex(@"COALESCE\(u\d*\.display_name, 'User ' \|\| u\d*\.id::text\)", "the owner is named by display name or a neutral label, never the user name");
+        sql.Should().MatchRegex(@"WHEN u\d*\.display_name IS NULL OR btrim\(u\d*\.display_name, E' \\t\\n\\r'\) = '' THEN 'User ' \|\| u\d*\.id::text\s+ELSE u\d*\.display_name", "the owner is named by display name or a neutral label, never the user name");
         sql.Should().NotContain("user_name");
         sql.Should().MatchRegex(@"u\d*\.external_id = s\.owner_user_id");
     }

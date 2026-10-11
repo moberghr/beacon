@@ -58,7 +58,7 @@ internal sealed class ProjectGetDocumentationTool(
             }
         }
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "get_documentation", project_id, out var projectId);
         if (resolveError != null)
         {
             sw.Stop();
@@ -499,12 +499,12 @@ internal sealed class ProjectGetDocumentationTool(
 
     private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, int projectId, bool includeDetailSections, CancellationToken ct)
     {
-        // Code references and documentation are counted in the caller's project only.
+        // Code references and documentation are counted, and the detailed context built, in the caller's project only.
         var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, projectId, ct);
 
         // Concise omits the "Detailed Context" section entirely, so skip the lookup as well.
         var llmContextTask = includeDetailSections
-            ? knowledgeGraph.GetContextForLlmAsync(dataSourceId, ct: ct)
+            ? knowledgeGraph.GetContextForLlmAsync(dataSourceId, projectId, ct: ct)
             : null;
 
         var knowledge = await knowledgeTask;

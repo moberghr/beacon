@@ -10,3 +10,7 @@ SELECT s.id AS "Id", (
     WHERE q1.archived_time IS NULL AND q1.subscription_id = s.id AND NOT (q1.resolved)) AS "UnresolvedTaskCount"
 FROM beacon.subscriptions AS s
 WHERE s.archived_time IS NULL
+;
+SELECT count(*)::int
+FROM beacon.data_contracts AS d
+WHERE d.archived_time IS NULL AND d.is_enabled AND d.owner_not_authorized_since IS NOT NULL

@@ -371,7 +371,7 @@ public class PatternReplayVerifierTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
 
         var sqlGen = new Mock<ISqlGenerationService>();
@@ -420,6 +420,7 @@ public class PatternReplayVerifierTests
             providerFactory.Object,
             guardrail.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestConfiguredDatabases.None,
             settings.Object,
             llm.Object,
             NullLogger<McpEvalService>.Instance);

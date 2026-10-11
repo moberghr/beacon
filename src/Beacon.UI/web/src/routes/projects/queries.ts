@@ -63,8 +63,31 @@ export interface ProjectDetailEntry {
   openlyReachableDataSourceIds: number[];
   /** For an Admin: every other live project linking any of this project's data sources (empty for anyone else). */
   sharedSourceProjects: SharedSourceProjectEntry[];
+  /**
+   * For an Admin: per data source another live project links too, the guardrails that apply to it — the strictest of
+   * the linking projects' settings — and the project that sets each (empty for anyone else).
+   */
+  sharedSourceGuardrails: SharedSourceGuardrailsEntry[];
   /** Who manages project memberships in this deployment: Beacon, the host, or nobody (membership unavailable). */
   membershipManagement: ProjectMembershipManagement;
+}
+
+/** A data source of the project that other live projects link too, and the guardrails that apply to it. */
+export interface SharedSourceGuardrailsEntry {
+  dataSourceId: number;
+  dataSourceName: string;
+  guardrails: SharedSourceGuardrail[];
+}
+
+/**
+ * One guardrail of a shared data source: `setting` is the MCP setting's name (`enforceReadOnly`, `maxRowLimit`, …),
+ * `value` its effective value as text, and the project the one that sets it (this project when it already holds it).
+ */
+export interface SharedSourceGuardrail {
+  setting: string;
+  value: string;
+  projectId: number;
+  projectName: string;
 }
 
 /** Another live project that links some of this project's data sources, and who administers it. */

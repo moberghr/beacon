@@ -50,7 +50,7 @@ internal sealed class ProjectSearchTool(
             return ToolHelper.Error(queryError);
         }
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "search", project_id, out var projectId);
         if (resolveError != null)
         {
             sw.Stop();

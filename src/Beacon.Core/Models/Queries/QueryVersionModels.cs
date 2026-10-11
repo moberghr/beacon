@@ -10,7 +10,8 @@ public class QueryVersionSummary
     public QueryVersionStatus Status { get; set; }
     public string Name { get; set; } = null!;
     public DateTime CreatedTime { get; set; }
-    public string? CreatedByUserId { get; set; }
+
+    /// <summary>The author's display name, or "User {id}" without one; null when the author is not a Beacon user.</summary>
     public string? CreatedByUserName { get; set; }
     public string? ChangeSource { get; set; }
     public string? ChangeReason { get; set; }
@@ -27,7 +28,8 @@ public class QueryVersionDetail
     public string? Description { get; set; }
     public string? FinalQuery { get; set; }
     public DateTime CreatedTime { get; set; }
-    public string? CreatedByUserId { get; set; }
+
+    /// <summary>The author's display name, or "User {id}" without one; null when the author is not a Beacon user.</summary>
     public string? CreatedByUserName { get; set; }
     public string? ChangeSource { get; set; }
     public string? ChangeReason { get; set; }

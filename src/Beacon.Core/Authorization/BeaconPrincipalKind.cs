@@ -10,8 +10,8 @@ internal enum BeaconPrincipalKind
     Anonymous,
 
     /// <summary>
-    /// No request at all (a background job, a startup task): unrestricted. Jobs that act for a user set their owner
-    /// explicitly.
+    /// No request at all, in a scope marked as system work (a background job, a startup task): unrestricted. Jobs that act
+    /// for a user set their owner explicitly. Work without a request in an unmarked scope is <see cref="Anonymous"/>.
     /// </summary>
     System,
 

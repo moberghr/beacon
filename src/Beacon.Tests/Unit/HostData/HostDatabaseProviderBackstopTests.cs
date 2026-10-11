@@ -118,6 +118,7 @@ public class HostDatabaseProviderBackstopTests
             resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new HostDataSourceGuard(registry),
+            new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
             NullLogger<DatabaseProvider>.Instance);
     }
 

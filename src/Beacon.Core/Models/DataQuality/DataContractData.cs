@@ -13,7 +13,23 @@ public record DataContractData
     public string? Description { get; init; }
     public string CronExpression { get; init; } = null!;
     public bool IsEnabled { get; init; }
-    public string? OwnerUserId { get; init; }
+
+    /// <summary>An owner is recorded: the contract's scheduled evaluations run as the owner, checked at every run.</summary>
+    public bool HasOwner { get; init; }
+
+    /// <summary>
+    /// The owner's display name, or a neutral "User {id}" label without one (never the user name or external id); null
+    /// when there is no owner or no matching user.
+    /// </summary>
+    public string? OwnerDisplayName { get; init; }
+
+    /// <summary>
+    /// A scheduled evaluation was skipped because the owner may no longer run the contract's rules, and no evaluation has
+    /// run since: the contract's scheduled checks are not happening until the owner regains access or an Admin changes
+    /// the owner.
+    /// </summary>
+    public bool OwnerNotAuthorized { get; init; }
+
     public bool AlertOnFailure { get; init; }
     public int FailureThresholdScore { get; init; }
     public DateTime CreatedTime { get; init; }

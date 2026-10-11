@@ -443,7 +443,7 @@ public class CrossSourceQueryServiceTests
 
         var knowledgeGraph = new Mock<IKnowledgeGraphService>();
         knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = WarehouseContext,
@@ -451,7 +451,7 @@ public class CrossSourceQueryServiceTests
                 SchemaCatalog = Catalog()
             });
         knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(CrmDataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(CrmDataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = CrmContext,
@@ -467,6 +467,7 @@ public class CrossSourceQueryServiceTests
             providerFactory.Object,
             guardrail,
             _gate,
+            TestConfiguredDatabases.None,
             knowledgeGraph.Object,
             _sqlGen.Object,
             NullLoggerFactory.Instance,

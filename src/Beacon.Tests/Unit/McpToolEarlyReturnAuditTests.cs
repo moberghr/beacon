@@ -33,7 +33,7 @@ public class McpToolEarlyReturnAuditTests
     private const int AllowedProjectId = 5;
     private const int ForbiddenProjectId = 6;
 
-    private const string AccessDenied = "Access denied: your API key does not have access to project 6.";
+    private const string AccessDenied = "Access denied: you do not have access to project 6.";
 
     [Test]
     public async Task GetContext_ResolveFailure_IsAudited()

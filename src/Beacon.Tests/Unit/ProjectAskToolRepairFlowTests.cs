@@ -57,7 +57,7 @@ public class ProjectAskToolRepairFlowTests
         _settings = new McpSettingsData();
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -289,8 +289,9 @@ public class ProjectAskToolRepairFlowTests
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
-            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
@@ -309,6 +310,62 @@ public class ProjectAskToolRepairFlowTests
         handed!.MaxRowLimit.Should().Be(10, "project 42's override, not the global 1000");
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(ProjectId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ask runs its SQL under the strictest guardrails of the live projects that link the routed data sources.
+    [Test]
+    public async Task ExecuteAsync_ARoutedSourceAnotherProjectLinks_RunsUnderTheStricterGuardrails()
+    {
+        var settingsProvider = SettingsProviderMock.Create(
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new() { MaxRowLimit = 1000 } });
+        var sharedSources = TestSharedSources.Linking(DataSourceId, new Dictionary<int, McpSettingsData>
+        {
+            [ProjectId] = new() { MaxRowLimit = 1000 },
+            [ProjectId + 1] = new() { MaxRowLimit = 5, EnforceReadOnly = true }
+        });
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.DataQuery);
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new DataSourceKnowledge { DataSourceId = DataSourceId, Name = "warehouse" }]);
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "warehouse", Reason = "orders" }] });
+        McpSettingsData? handed = null;
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(), It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, int, int, string, McpSettingsData, IAskSqlExecutor, AskSqlPipelineOptions, CancellationToken>((_, _, _, _, settings, _, _, _) => handed = settings)
+            .ThrowsAsync(new InvalidOperationException("stopped after the settings were handed over"));
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        var tool = new ProjectAskTool(
+            knowledgeGraph.Object,
+            settingsProvider.Object,
+            sharedSources,
+            serviceProvider.Object,
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
+            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            pipeline.Object,
+            _executor.Object,
+            intentClassifier.Object,
+            router.Object,
+            Mock.Of<IKnowledgeAnswerService>(),
+            Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<ProjectAskTool>.Instance);
+
+        await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        handed.Should().NotBeNull();
+        handed!.MaxRowLimit.Should().Be(5);
+        handed.EnforceReadOnly.Should().BeTrue();
     }
 
     [Test]
@@ -340,6 +397,44 @@ public class ProjectAskToolRepairFlowTests
         intentClassifier.Verify(
             x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Test]
+    public async Task ARefusedAsk_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var tool = CreateAuditedTool(auditLogs, signals, new Mock<IServiceProvider>(), new Mock<IIntentClassifier>(), userId: 17);
+
+        var result = await tool.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        auditLogs.Should().ContainSingle().Which.UserId.Should().Be(17);
+        signals.Should().ContainSingle().Which.UserId.Should().Be(17);
+    }
+
+    [Test]
+    public async Task AnAnsweredAsk_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.Knowledge);
+        var knowledgeAnswer = new Mock<IKnowledgeAnswerService>();
+        knowledgeAnswer
+            .Setup(x => x.AnswerAsync(It.IsAny<ILlmProvider>(), ProjectId, Question, It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Notifications go out after each run.");
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, userId: 17, knowledgeAnswer: knowledgeAnswer.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        auditLogs.Should().ContainSingle().Which.Should().Match<McpAuditLog>(x => x.UserId == 17 && x.ErrorMessage == null);
+        signals.Should().ContainSingle().Which.UserId.Should().Be(17);
     }
 
     [Test]
@@ -409,6 +504,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             SettingsProviderMock.Create().Object,
+            SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             Mock.Of<IServiceProvider>(),
             Mock.Of<IProjectContext>(),
             null!,
@@ -491,6 +587,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             SettingsProviderMock.Create().Object,
+            SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             Mock.Of<IServiceProvider>(),
             Mock.Of<IProjectContext>(),
             null!,
@@ -644,7 +741,9 @@ public class ProjectAskToolRepairFlowTests
         List<McpQuerySignal> signals,
         Mock<IServiceProvider> serviceProvider,
         Mock<IIntentClassifier> intentClassifier,
-        McpDeploymentOptions? deploymentOptions = null)
+        McpDeploymentOptions? deploymentOptions = null,
+        int? userId = 1,
+        IKnowledgeAnswerService? knowledgeAnswer = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -655,15 +754,16 @@ public class ProjectAskToolRepairFlowTests
         return new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
-            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
+            new McpProjectContext { UserId = userId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
             _executor.Object,
             intentClassifier.Object,
             Mock.Of<IDataSourceRouter>(),
-            Mock.Of<IKnowledgeAnswerService>(),
+            knowledgeAnswer ?? Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(deploymentOptions ?? new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);

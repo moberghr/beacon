@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
@@ -10,8 +11,9 @@ namespace Beacon.Core.Services;
 
 /// <summary>
 /// The read-only rules for data-quality SQL (§1.5). Every rule's SQL, generated or a CustomSql rule's own, passes the
-/// shared <see cref="ISqlExecutionGate"/> in the data source's dialect (regex guardrail, a single read-only SELECT, the
-/// host policy for host-managed sources) and must take the gate's one-row cap; it then runs through the provider's
+/// shared <see cref="ISqlExecutionGate"/> in the data source's dialect (regex guardrail, a single read-only SELECT, names
+/// in the source's own configured database only, the host policy for host-managed sources) and must take the gate's
+/// one-row cap; it then runs through the provider's
 /// read-only path. A CustomSql rule is also checked when its contract is saved: only an Admin may create, change or
 /// delete a contract that carries one, it never targets a host-managed data source (it could project the host's masked
 /// columns), and its SQL must pass the same checks.
@@ -27,7 +29,8 @@ internal static class DataQualityRuleGuard
     // A rule reads only the first row of its result.
     private const int MaxRows = 1;
 
-    public static SqlGateRequest GateRequest(string sql, DatabaseEngineType engineType, string? hostManagedKey)
+    /// <param name="configuredDatabase">The database the source's connection is configured for: the only one the SQL may name.</param>
+    public static SqlGateRequest GateRequest(string sql, DatabaseEngineType engineType, string? hostManagedKey, string? configuredDatabase)
     {
         return new SqlGateRequest(
             sql,
@@ -41,7 +44,8 @@ internal static class DataQualityRuleGuard
             EnableSemanticLint: false,
             MaxRows: MaxRows)
         {
-            HostManagedKey = hostManagedKey
+            HostManagedKey = hostManagedKey,
+            ConfiguredDatabase = configuredDatabase
         };
     }
 
@@ -107,13 +111,42 @@ internal static class DataQualityRuleGuard
                 throw new InvalidOperationException("Custom SQL rules need a database data source.");
             }
 
-            var report = gate.Evaluate(GateRequest(ReadSql(rule), dataSource.DatabaseEngineType.Value, hostManagedKey: null));
+            var report = gate.Evaluate(GateRequest(ReadSql(rule), dataSource.DatabaseEngineType.Value, hostManagedKey: null, dataSource.ConfiguredDatabase));
             var rejection = RejectionOf(report);
             if (rejection != null)
             {
                 throw new InvalidOperationException($"Custom SQL rule '{rule.Name}': {rejection}");
             }
         }
+    }
+
+    /// <summary>
+    /// The contract's table and its <paramref name="rules"/> with every table and column they name spelled as the contract
+    /// data source's metadata spells it (<see cref="DataQualityRuleCatalog"/>), for storing. Throws
+    /// <see cref="InvalidOperationException"/> when one of them is not an object of that data source.
+    /// </summary>
+    public static ConfinedContract EnsureConfined(
+        DataQualityRuleCatalog catalog,
+        string schemaName,
+        string tableName,
+        IReadOnlyList<DataContractRuleData> rules)
+    {
+        var table = catalog.TableOf(schemaName, tableName, out var tableProblem)
+            ?? throw new InvalidOperationException(tableProblem);
+
+        var confined = new List<ConfinedRule>();
+        foreach (var rule in rules)
+        {
+            var confinedRule = catalog.Confine(schemaName, tableName, rule.RuleType, rule.ColumnName, rule.Configuration);
+            if (confinedRule.Problem != null)
+            {
+                throw new InvalidOperationException($"Rule '{rule.Name}': {confinedRule.Problem}");
+            }
+
+            confined.Add(confinedRule);
+        }
+
+        return new ConfinedContract(table.Schema, table.Table, confined);
     }
 
     private static string ReadSql(DataContractRuleData rule)
@@ -147,5 +180,31 @@ internal static class DataQualityRuleGuard
     }
 }
 
-/// <summary>The data source facts a CustomSql rule is checked against when its contract is saved.</summary>
-internal sealed record DataQualityRuleTarget(DataSourceType DataSourceType, DatabaseEngineType? DatabaseEngineType, string? HostManagedKey);
+/// <summary>
+/// A contract's table and rules as <see cref="DataQualityRuleGuard.EnsureConfined"/> resolved them: <see cref="Rules"/>
+/// follows the order of the rules it was given.
+/// </summary>
+internal sealed record ConfinedContract(string SchemaName, string TableName, IReadOnlyList<ConfinedRule> Rules);
+
+/// <summary>
+/// The data source facts a CustomSql rule is checked against when its contract is saved; <paramref name="ConfiguredDatabase"/>
+/// is the database its connection is configured for (null for a host-managed source, whose CustomSql rules are refused).
+/// </summary>
+internal sealed record DataQualityRuleTarget(
+    DataSourceType DataSourceType,
+    DatabaseEngineType? DatabaseEngineType,
+    string? HostManagedKey,
+    string? ConfiguredDatabase)
+{
+    public static DataQualityRuleTarget? Of(DataSource? dataSource, IConfiguredDatabaseResolver configuredDatabases)
+    {
+        if (dataSource == null)
+        {
+            return null;
+        }
+
+        var configuredDatabase = dataSource.HostManagedKey == null ? configuredDatabases.Resolve(dataSource) : null;
+
+        return new DataQualityRuleTarget(dataSource.DataSourceType, dataSource.DatabaseEngineType, dataSource.HostManagedKey, configuredDatabase);
+    }
+}

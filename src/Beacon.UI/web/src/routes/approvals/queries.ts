@@ -28,7 +28,8 @@ export interface QueryVersionDetail {
   description: string | null;
   finalQuery: string | null;
   createdTime: string;
-  createdByUserId: string | null;
+  /** Author's display name or a neutral "User {id}" label; null when not recorded. */
+  createdByUserName: string | null;
   changeSource: string | null;
   changeReason: string | null;
 }

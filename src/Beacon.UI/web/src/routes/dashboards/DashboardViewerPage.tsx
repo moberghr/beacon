@@ -21,6 +21,7 @@ export default function DashboardViewerPage() {
         sub={
           <span className="text-text-muted">
             {data?.description ?? ''} {data?.createdTime && <>· created {formatDateTime(data.createdTime)}</>}
+            {data?.createdByUserName && <> by {data.createdByUserName}</>}
           </span>
         }
         actions={

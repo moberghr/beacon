@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol;
@@ -94,15 +95,24 @@ public static class ServiceConfiguration
             })
             .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly)
             // Scope enforcement (§1.4) first: every request of a refused caller but tools/call, initialize and ping
-            // is refused here; tools/call by the scope call-tool filter, outermost so a refused call reaches no tool.
+            // is refused here; tools/call by the scope call-tool filter, ahead of every tool so a refused call reaches
+            // none. The project-context filters run outermost: they only read the caller's project access, which the
+            // tools, the tool lists and the audit of a refused call need. A call whose project access could not be
+            // determined is answered (and audited) innermost, after the scope check, before any tool.
             .WithMessageFilters(x => x.AddIncomingFilter(McpScopeMessageFilter.Create()))
             .WithRequestFilters(x => x
+                .AddListToolsFilter(McpProjectContextFilter.CreateListToolsFilter())
                 .AddListToolsFilter(McpToolDescriptionOverrides.CreateListToolsFilter())
+                .AddCallToolFilter(McpProjectContextFilter.CreateCallToolFilter())
                 .AddCallToolFilter(McpScopeCallToolFilter.Create())
-                .AddCallToolFilter(McpAuditCallToolFilter.Create()));
+                .AddCallToolFilter(McpAuditCallToolFilter.Create())
+                .AddCallToolFilter(McpProjectContextFilter.CreateUndeterminedAccessCallToolFilter()));
 
         // Playground (public facade for UI)
         services.TryAddTransient<IMcpPlaygroundService, McpPlaygroundService>();
+
+        // Notes at startup that provisioned user callers get the Viewer role (catalog only) by default.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpUserCallerStartupNote>());
 
         return services;
     }

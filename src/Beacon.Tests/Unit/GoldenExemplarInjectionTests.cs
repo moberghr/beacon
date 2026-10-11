@@ -315,7 +315,7 @@ public class GoldenExemplarInjectionTests
         var context = new SmartContextTestContext(dataSource, tables, patterns, cases, embeddings);
         var service = BuildServiceForContext(embedder, context, settings);
 
-        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
         var full = result.FullContext;
 
         var goldenIdx = full.IndexOf("## Verified query examples (authoritative)", StringComparison.Ordinal);
@@ -338,11 +338,11 @@ public class GoldenExemplarInjectionTests
         var embedder = new FakeEmbeddingService();
         var (context, settings) = await BuildOneTableGoldenCaseScenarioAsync(embedder);
         var valueGrounding = Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
-            It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+            It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
             == Task.FromResult(ValueMatchesBlock));
 
         var service = BuildServiceForContext(embedder, context, settings, valueGrounding);
-        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
 
         result.UsedSmartRetrieval.Should().BeFalse("a single table stays on the fast path");
         AssertValueMatchesBeforeGoldenExemplars(result.FullContext);
@@ -369,16 +369,16 @@ public class GoldenExemplarInjectionTests
         var valueGrounding = new Mock<IValueGroundingService>();
         valueGrounding
             .Setup(x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ValueMatchesBlock);
 
         var service = BuildServiceForContext(embedder, context, settings, valueGrounding.Object);
-        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
 
         result.FullContext.Should().NotContain("## Value matches");
         valueGrounding.Verify(
             x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()),
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()),
             Times.Never, "R8 — the gate lives in GetSmartContextForAskAsync, before the service is ever called");
     }
 
@@ -391,12 +391,12 @@ public class GoldenExemplarInjectionTests
         var valueGrounding = new Mock<IValueGroundingService>();
         valueGrounding
             .Setup(x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("probe failed"));
 
         var service = BuildServiceForContext(embedder, context, settings, valueGrounding.Object);
 
-        var act = async () => await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, CancellationToken.None);
+        var act = async () => await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
 
         var result = await act.Should().NotThrowAsync();
         result.Subject.FullContext.Should().NotContain("## Value matches");
@@ -533,12 +533,14 @@ public class GoldenExemplarInjectionTests
         return new KnowledgeGraphService(
             factory.Object,
             settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
             embedder,
             Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
             valueGrounding ?? Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
                 == Task.FromResult("")),
+            TestConfiguredDatabases.None,
             NullLogger<KnowledgeGraphService>.Instance);
     }
 
@@ -598,8 +600,8 @@ public class GoldenExemplarInjectionTests
             Task.FromResult(0);
     }
 
-    /// <summary>Full context for the fast-path ordering test: data source, metadata, patterns, golden cases,
-    /// embeddings. No project links / glossary terms → the glossary block is empty.</summary>
+    /// <summary>Full context for the fast-path ordering test: data source (linked to the caller's project), metadata,
+    /// patterns, golden cases, embeddings. No glossary terms → the glossary block is empty.</summary>
     private sealed class SmartContextTestContext : BeaconContext
     {
         private static readonly DbContextOptions<SmartContextTestContext> Options =
@@ -631,7 +633,7 @@ public class GoldenExemplarInjectionTests
             _patterns = BuildDbSet(patterns).Object;
             _cases = BuildDbSet(cases).Object;
             _embeddings = BuildDbSet(embeddings).Object;
-            _links = BuildDbSet(new List<ProjectDataSource>()).Object;
+            _links = BuildDbSet(new List<ProjectDataSource> { new() { ProjectId = ProjectId, DataSourceId = dataSource.Id } }).Object;
             _terms = BuildDbSet(new List<McpGlossaryTerm>()).Object;
             // Empty — only reached by the smart path's SearchAsync (table/column/doc-section search);
             // no test seeds column-level or documentation search hits.

@@ -12,7 +12,9 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Services;
@@ -42,6 +44,8 @@ internal class DataSourceService(
     IDataSourceProviderFactory providerFactory,
     IManualQueryExecutionLogger queryExecutionLogger,
     IBeaconUserContext userContext,
+    IMemoryCache cache,
+    ISchemaGraphService schemaGraphService,
     ILogger<DataSourceService> logger) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
@@ -187,6 +191,8 @@ internal class DataSourceService(
 
         dataSource.Archive();
         await context.SaveChangesAsync(cancellationToken);
+
+        EvictMetadata(dataSourceId);
     }
 
     public async Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken)
@@ -264,6 +270,9 @@ internal class DataSourceService(
         dataSource.MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // The connection or the metadata options may have changed: the cached metadata described the old ones.
+        EvictMetadata(dataSource.Id);
     }
 
     public async Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken)
@@ -464,6 +473,15 @@ internal class DataSourceService(
             ?? throw new BeaconException($"Data source with ID {dataSourceId} not found");
 
         return encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+    }
+
+    // Cached metadata and the relationship graph are rebuilt on their next read; an archived source's reads are refused.
+    // A changed source may be refreshed at once: its forced-refresh cooldown starts over.
+    private void EvictMetadata(int dataSourceId)
+    {
+        cache.Remove(DatabaseMetadataService.GetCacheKey(dataSourceId));
+        cache.Remove(ForcedMetadataRefreshCooldown.CacheKey(dataSourceId));
+        schemaGraphService.Invalidate(dataSourceId);
     }
 
     // Host-managed data sources belong to the host application (ExposeDbContext): their connection, engine and

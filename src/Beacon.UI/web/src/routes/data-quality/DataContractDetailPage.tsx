@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useIsAdmin } from '@/auth/useAuth';
 import { toast } from 'sonner';
-import { PageHeader, Button, Card, KPI, KPIGrid, Pill } from '@/components/beacon';
+import { UserX } from 'lucide-react';
+import { PageHeader, Banner, Button, Card, KPI, KPIGrid, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { Tabs } from '@/components/Tabs';
@@ -39,6 +40,14 @@ const SEVERITY_LABEL: Record<number, string> = {
 };
 
 type TabKey = 'rules' | 'evaluations' | 'latest';
+
+/** The owner by name, never by id: a neutral label when none is recorded or the user no longer exists. */
+function ownerLabel(contract: { hasOwner: boolean; ownerDisplayName: string | null }): string {
+  if (!contract.hasOwner) {
+    return 'No owner recorded';
+  }
+  return contract.ownerDisplayName ?? 'Unknown user';
+}
 
 export default function DataContractDetailPage() {
   const params = useParams();
@@ -141,6 +150,7 @@ export default function DataContractDetailPage() {
         <SetOwnerDialog
           open
           noun="data contract"
+          description="Scheduled evaluations run as the owner, so the owner must be able to run this contract's rules on its data source. Admins can always change the contract."
           busy={setOwnerMutation.isPending}
           onClose={() => setChangingOwner(false)}
           onSubmit={userId => setOwnerMutation.mutate(userId, { onSuccess: () => setChangingOwner(false) })}
@@ -151,11 +161,37 @@ export default function DataContractDetailPage() {
         <Link to="/data-quality" className="text-text-muted text-sm">← Back to data quality</Link>
       </div>
 
+      {c.ownerNotAuthorized && (
+        <Banner
+          tone="warn"
+          icon={<UserX />}
+          title="Owner not authorized: scheduled evaluations are skipped"
+          sub={
+            isAdmin
+              ? 'The owner this contract runs as may no longer run its rules, so each scheduled evaluation is skipped. Assign an owner who has access to resume it.'
+              : 'The owner this contract runs as may no longer run its rules, so each scheduled evaluation is skipped until an Admin assigns an owner who has access.'
+          }
+          actions={
+            isAdmin ? (
+              <Button size="sm" onClick={() => setChangingOwner(true)}>
+                Change owner
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
+
       <KPIGrid>
         <KPI dot="brand" label="Latest score" value={c.latestScore === null ? 'N/A' : `${c.latestScore.toFixed(0)}%`} />
         <KPI dot="info" label="Rules" value={c.rules.length} />
         <KPI dot="ok" label="Schedule" value={<span className="mono text-base">{c.cronExpression}</span>} />
         <KPI dot="warn" label="Failure threshold" value={`${c.failureThresholdScore}%`} />
+        <KPI
+          dot="info"
+          label="Owner"
+          value={<span className="text-base">{ownerLabel(c)}</span>}
+          sub={c.hasOwner ? 'scheduled evaluations run as the owner' : 'created before owners were recorded'}
+        />
       </KPIGrid>
 
       <Tabs<TabKey>

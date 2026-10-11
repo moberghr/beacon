@@ -42,7 +42,7 @@ internal sealed class ScanAllRepositoriesHandler(
         {
             try
             {
-                await scanner.ScanRepositoryAsync(repoId, cancellationToken);
+                await scanner.ScanRepositoryAsync(request.ProjectId, repoId, cancellationToken);
                 scanned++;
             }
             catch (Exception ex)

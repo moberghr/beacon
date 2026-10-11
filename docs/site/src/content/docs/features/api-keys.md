@@ -1,9 +1,9 @@
 ---
 title: API Keys
-description: Scoped, SHA256-hashed API keys for programmatic access, with Read/Execute scopes, optional project restriction, a mandatory expiry, and revocation tied to the owner's account.
+description: Scoped, SHA256-hashed API keys for programmatic access, with Read/Execute scopes, a project list, a mandatory expiry, and revocation tied to the owner's account.
 ---
 
-API keys give programmatic clients — CI pipelines, monitoring bots, and MCP clients — scoped access to Beacon without an interactive login. Keys are SHA256-hashed at rest, carry explicit scopes, can be restricted to specific projects, always expire, and stop working when their owner's account is disabled or removed.
+API keys give programmatic clients — CI pipelines, monitoring bots, and MCP clients — scoped access to Beacon without an interactive login. Keys are SHA256-hashed at rest, carry explicit scopes, are confined to the projects they name, always expire, and stop working when their owner's account is disabled or removed.
 
 ## Overview
 
@@ -14,7 +14,7 @@ Every API key is:
 - **Bound to a user** — keys are created by a signed-in user and act for that user, never with more than that user may do; when the user is disabled or archived, the key stops working and is revoked
 - **Revocable** — by its owner or by an administrator; revoking takes effect immediately on the next request
 - **Expiring** — every new key has an expiration date: 90 days by default, at most `Beacon:ApiKeys:MaxLifetimeDays` (365 by default)
-- **Optionally project-restricted** — confine a key to specific projects
+- **Project-restricted** — a new key names at least one project and is confined to those projects (keys created before lists were required reach their owner's projects)
 
 The key format is:
 
@@ -56,9 +56,9 @@ The dialog blocks accidental dismissal (backdrop click and Escape are disabled) 
 
 Every new key names the projects it may use: `allowedProjectIds` on the create request (`POST /beacon/api/api-keys`) must list at least one project (`400` otherwise), and each must be a project the creator can read **without the Admin bypass** — an open project, or a restricted one they are a member of (`404` otherwise). An Admin's key cannot name a restricted project the Admin is not a member of. The dialog's project picker lists only these projects (`GET /beacon/api/projects?forApiKey=true`). A key never exceeds its owner: on every request it reaches the projects in its list **where its owner still has access**, at most at the owner's role there, capped by the lower of the key's scope and the owner's global role (a `Read` key reads and runs saved SQL only; a key whose owner may neither read nor write reaches nothing). A key never gets the Admin bypass, even when its owner is an Admin, and never manages project members. See [Project access](/features/authorization/#project-access).
 
-The list is enforced on every REST route and on the [MCP Server](/features/mcp-server/), fail-closed: a missing or malformed restriction claim denies every project rather than falling open.
+The list is enforced on every REST route and on the [MCP Server](/features/mcp-server/), by the same project access rules on both, fail-closed: a malformed restriction claim denies every project rather than falling open.
 
-**Keys created without a list** (before lists were required) act with their owner's project access over REST. On MCP in this version they still reach no project — re-issue them with a project list.
+**Keys created without a list** (before lists were required) act with their owner's project access, over REST and on MCP: they reach every project their owner may use. Re-issue them with a project list to confine them.
 
 ## Scopes
 
@@ -218,8 +218,8 @@ Creating an `Execute` key needs the Editor role or above. Ask an administrator f
 **`400` when creating a key**
 The scope is not `Read` or `Execute` (the `Admin` scope can no longer be issued), no scope was given, or the expiration date is in the past or beyond the configured maximum.
 
-**"No project found" via MCP**
-The key's project restriction resolved to no accessible projects. Check the key's allowed projects, and that its owner can still use them; a key created without a project list reaches no project on MCP — create a key that names its projects.
+**"No projects are available to you" via MCP**
+The key reaches no project: none of the projects in its list is one its owner may still use (for example, a project was restricted and the owner is not a member), or its owner may no longer use any project. Check the key's allowed projects and the owner's access. **"Access denied: you do not have access to project N"** means the same for the one project the call named.
 
 **`404` on a project's resources with a key**
 The project is not in the key's list, or the key's owner may no longer use it (for example, it was restricted and the owner is not a member).
@@ -241,7 +241,8 @@ API keys are now scoped on every route, expire, and follow their owner's account
 - **Replaced `IApiKeyService`.** `GenerateApiKeyAsync(int userId, string name, string[] scopes, int[]? allowedProjectIds = null, DateTime? expiresAt = null, int ownerGeneration = 0, CancellationToken ct = default)`: the user id and scopes are now required (non-nullable); it validates scopes and expiry and throws `InvalidOperationException` otherwise, and stores `ownerGeneration` (the owner's `ApiKeyGeneration` read with the checks that approved the key) as the key's `OwnerGeneration`. `ValidateApiKeyAsync` must refuse a key whose `OwnerGeneration` is not its owner's `ApiKeyGeneration`, and must return the credential with `UserId` set and the `User` navigation loaded, including `User.UserRoles` with their `Role` — `ApiKeyAuthMiddleware` refuses a credential without its user (`401`) and withholds `Execute` from a key whose user's roles are not loaded.
 - **Schema: two new columns.** The `AddApiKeyOwnerGeneration` migration (PostgreSQL `20261010090000`, SQL Server `20261010090001`) adds the user's API-key generation (`beacon.users.api_key_generation`; `[beacon].[Users].[ApiKeyGeneration]` on SQL Server) and the generation each key was issued in (`beacon.api_key_credentials.owner_generation`; `[beacon].[ApiKeyCredentials].[OwnerGeneration]`), both `int NOT NULL DEFAULT 0`. It only adds columns and rewrites no data: every existing key and user start at generation 0, so existing keys keep working.
 - **Key listings.** `GET /beacon/api/api-keys` entries now return the scopes correctly and include `allowedProjectIds`; `isActive` is now false for an expired key, for a key whose owner is disabled or archived, and for a key no longer in its owner's API-key generation, not only for a revoked one. In C#, `ApiKeyEntry` gains `AllowedProjectIds` as its last, optional positional parameter (code that constructs it positionally needs a recompile). New Admin-role routes: `GET /beacon/api/api-keys/admin` and `DELETE /beacon/api/api-keys/admin/{id}` (the typed client gains `getAllApiKeys` and `adminRevokeApiKey`); an administrator's revocation is logged with their user id and the key id. Besides the session's Admin role claim, both check the user store on every request: the caller must be enabled and a super admin or hold the Admin role now. A session signed in before its user was demoted or disabled still carries the Admin claim and gets `403`.
-- **Map MCP with `app.MapBeaconMcp()`.** It maps `/beacon/mcp` behind the Execute-scope policy and replaces `app.MapMcp("/beacon/mcp").RequireAuthorization(...)`. It needs the policies from `builder.Services.AddBeaconApiAuthorization()`. Even on a weaker mapping, the MCP layer now refuses a key or Entra caller without the `Execute` scope, and over HTTP a caller that is not authenticated: tool calls answer a tool error (no tool runs, and the refusal is audited like any tool call), every other request but `initialize` and `ping` a JSON-RPC error.
+- **Map MCP with `app.MapBeaconMcp()`.** It maps `/beacon/mcp` behind the Execute-scope policy and replaces `app.MapMcp("/beacon/mcp").RequireAuthorization(...)`. It needs the policies from `builder.Services.AddBeaconApiAuthorization()`. Even on a weaker mapping, the MCP layer now refuses a key or Entra caller without the `Execute` scope, and a caller that is not authenticated — over HTTP or over a transport without an HTTP request, such as stdio: tool calls answer a tool error (no tool runs, and the refusal is audited like any tool call), every other request but `initialize` and `ping` a JSON-RPC error.
 - **SSO sessions never carry scoped-caller claims.** Sign-in now removes every `auth_method`, `scope`, `allowed_projects`, `api_key_id`, `api_key_name`, `caller_kind` and `caller_hash` claim the identity provider sent, and MCP reads a project restriction and a key id only from an API-key or mapped MCP caller principal.
 - **Keys are confined to their projects on REST, and new keys must name projects.** A key's project list now applies to every `/beacon/api` route, not only to MCP, and a key reaches a listed project only while its owner may use it. Creating a key without a project list answers `400`; listing a project the creator cannot read without the Admin bypass answers `404`, so an Admin lists only open projects and restricted projects they are a member of. A key is capped by the lower of its scope and its owner's global role. Existing keys without a list act with their owner's project access over REST. See [Project restrictions](#project-restrictions).
+- **MCP decides a key's projects like REST.** On `/beacon/mcp` a key reaches the projects of its list its owner may still use, decided on every call: a project restricted after the key was created, or a membership the owner lost, takes effect on the key's next call. **Existing keys without a project list now reach their owner's projects on MCP** — before, they reached no project there. This widens what such keys can do over MCP; re-issue them with a project list if they should stay confined.
 - **Policy name.** The Execute-scope policy name now lives in Core as `Beacon.Core.Authorization.BeaconScopes.ExecuteScopePolicyName`; `BeaconApiEndpoints.ExecuteScopePolicyName` remains and has the same value.

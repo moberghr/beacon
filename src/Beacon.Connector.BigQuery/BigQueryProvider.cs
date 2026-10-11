@@ -161,8 +161,10 @@ public class BigQueryProvider(
             errors.Add("Query cannot be empty");
         }
 
-        // Read-only enforcement (§1.5): reject anything that is not a single SELECT.
-        var readOnlyError = readOnlyValidator.Validate(query, "bigquery");
+        // Read-only enforcement (§1.5): reject anything that is not a single SELECT, or that names another project than
+        // the one the source is configured for.
+        var readOnlyError = readOnlyValidator.Validate(query, "bigquery")
+            ?? SqlCrossDatabaseRule.Validate(query, "bigquery", ConfiguredProjectOf(dataSource));
         if (readOnlyError != null)
         {
             errors.Add(readOnlyError);
@@ -192,6 +194,20 @@ public class BigQueryProvider(
         }
 
         return result;
+    }
+
+    // The project the source is configured for; undetermined (no project may be named) when its settings cannot be read.
+    private string? ConfiguredProjectOf(DataSource dataSource)
+    {
+        try
+        {
+            return ParseConfiguration(dataSource).ProjectId;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("BigQuery settings of data source {DataSourceId} could not be read ({ExceptionType})", dataSource.Id, ex.GetType().Name);
+            return DataSourceConfiguredDatabase.Undetermined;
+        }
     }
 
     private BigQueryConfiguration ParseConfiguration(DataSource dataSource)

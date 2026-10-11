@@ -1,3 +1,5 @@
+using Beacon.Core.Authorization.ProjectAccess;
+using Microsoft.AspNetCore.Http;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -617,7 +619,9 @@ public class NotificationDeliveryTests
             Mock.Of<ITaskService>(),
             anomaly ?? Mock.Of<IAnomalyDetectionService>(),
             evaluation ?? Mock.Of<IDataQualityEvaluationService>(),
-            logger);
+            logger,
+            new RunAsScope(new HttpContextAccessor()),
+            new HttpContextAccessor());
     }
 
     private sealed class RecordingAdapter(NotificationType type) : IAdapter

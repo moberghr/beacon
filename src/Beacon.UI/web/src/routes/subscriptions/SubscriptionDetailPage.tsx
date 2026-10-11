@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, CalendarClock } from 'lucide-react';
+import { AlertTriangle, CalendarClock, UserX } from 'lucide-react';
+import { Banner, Button } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth, useIsAdmin } from '@/auth/useAuth';
+import { SetOwnerDialog } from '../users/SetOwnerDialog';
 import {
   useArchiveSubscription,
   useReactivateSubscription,
+  useSetSubscriptionOwner,
   useSubscriptionDetailQuery,
   useSubscriptionExecutionsQuery,
   useTestSubscription,
@@ -37,9 +40,11 @@ export default function SubscriptionDetailPage() {
   const test = useTestSubscription(validId);
   const archive = useArchiveSubscription(validId);
   const reactivate = useReactivateSubscription(validId);
+  const setOwner = useSetSubscriptionOwner(validId ?? 0);
 
   const [tab, setTab] = useState<SubscriptionTabKey>('recipients');
   const [confirmingArchive, setConfirmingArchive] = useState(false);
+  const [changingOwner, setChangingOwner] = useState(false);
 
   if (!Number.isFinite(id)) {
     return (
@@ -102,7 +107,28 @@ export default function SubscriptionDetailPage() {
         onTest={onTest}
         onArchive={onArchive}
         onReactivate={onReactivate}
+        onChangeOwner={isAdmin ? () => setChangingOwner(true) : undefined}
       />
+
+      {subscription.ownerNotAuthorized && (
+        <Banner
+          tone="warn"
+          icon={<UserX />}
+          title="Owner not authorized: scheduled runs are skipped"
+          sub={
+            isAdmin
+              ? 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped. Assign an owner who has access to resume it.'
+              : 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped until an Admin assigns an owner who has access.'
+          }
+          actions={
+            isAdmin ? (
+              <Button size="sm" onClick={() => setChangingOwner(true)}>
+                Change owner
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       <SubscriptionKpiGrid
         subscription={subscription}
@@ -137,6 +163,17 @@ export default function SubscriptionDetailPage() {
         onArchive={onArchive}
         onReactivate={onReactivate}
       />
+
+      {isAdmin && changingOwner && (
+        <SetOwnerDialog
+          open
+          noun="subscription"
+          description="Scheduled runs run as the owner, so the owner must be able to run this subscription's query. Admins can always change the subscription."
+          busy={setOwner.isPending}
+          onClose={() => setChangingOwner(false)}
+          onSubmit={userId => setOwner.mutate(userId, { onSuccess: () => setChangingOwner(false) })}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmingArchive}

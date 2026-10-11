@@ -6,6 +6,7 @@
  * and import it from '@/lib/enums' in route code.
  */
 export {
+  AiActorExecutionPhase,
   AiActorStatus,
   AiProvider,
   AnomalyDetectionMethod,
@@ -13,6 +14,7 @@ export {
   ApprovalStatus,
   BedrockAuthMode,
   ChangeSource,
+  DashboardPermissionLevel,
   DataContractRuleType,
   DataContractSeverity,
   DatabaseEngineType,

@@ -63,7 +63,7 @@ const GRID_TEMPLATE = '1.4fr 1.2fr 0.8fr 1fr';
 function pillTone(status: number): PillProps['tone'] {
   switch (status) {
     case NotificationStatus.NotificationSent: return 'ok';
-    case NotificationStatus.Timeout: case NotificationStatus.Failed: return 'warn';
+    case NotificationStatus.Timeout: case NotificationStatus.Failed: case NotificationStatus.Skipped: return 'warn';
     case NotificationStatus.NotificationSilenced: return 'neutral';
     default: return 'info';
   }

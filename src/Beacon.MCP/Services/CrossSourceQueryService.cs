@@ -19,6 +19,7 @@ internal sealed class CrossSourceQueryService(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ILoggerFactory loggerFactory,
@@ -41,7 +42,8 @@ internal sealed class CrossSourceQueryService(
         var columnsUsed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var source in sources)
         {
-            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, ct);
+            // ask needs Query in the project, so live probes may run.
+            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, liveValueProbes: true, ct);
 
             var sqlResult = await sqlGenerationService.GenerateAsync(
                 llmProvider, smartContext.FullContext, question, settings, ct);
@@ -53,7 +55,8 @@ internal sealed class CrossSourceQueryService(
             // execution loop below, before anything reaches a provider.
             var schemaReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
             {
-                Catalog = smartContext.SchemaCatalog
+                Catalog = smartContext.SchemaCatalog,
+                ConfiguredDatabase = smartContext.ConfiguredDatabase
             });
             var schemaVerdict = schemaReport.Verdicts.Schema;
             if (schemaVerdict.Status == SqlGateStatus.Fail)
@@ -69,7 +72,8 @@ internal sealed class CrossSourceQueryService(
                 var retryReport = retriedSql != null
                     ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings) with
                     {
-                        Catalog = smartContext.SchemaCatalog
+                        Catalog = smartContext.SchemaCatalog,
+                        ConfiguredDatabase = smartContext.ConfiguredDatabase
                     })
                     : null;
                 var retryValid = retryReport?.Verdicts.Schema.Status is SqlGateStatus.Pass or SqlGateStatus.Skipped;
@@ -131,12 +135,14 @@ internal sealed class CrossSourceQueryService(
                 ?? throw new InvalidOperationException($"Data source {source.DataSourceId} not found");
 
             var dialect = DataSourceSqlDialect.Of(dataSource);
+            var configuredDatabase = configuredDatabases.Resolve(dataSource);
 
             // Read-only gate (regex guardrail + AST, §1.5) BEFORE the provider dry-run — a write statement
             // must never reach EXPLAIN.
             var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
-                HostManagedKey = dataSource.HostManagedKey
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabase
             });
             if (readOnlyReport.Blocked)
             {
@@ -146,14 +152,15 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(llmProvider, dataSource, source, sql, schemaContext, question, settings, signal, ct);
+            sql = await DryRunWithRepairAsync(llmProvider, dataSource, configuredDatabase, source, sql, schemaContext, question, settings, signal, ct);
 
             // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
             var finalReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
                 MaxRows = settings.MaxRowLimit,
-                HostManagedKey = dataSource.HostManagedKey
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabase
             });
             if (finalReport.Blocked)
             {
@@ -251,7 +258,7 @@ internal sealed class CrossSourceQueryService(
         // The join SQL is LLM-generated from the user's question — run the same read-only gate (regex
         // guardrail + AST, §1.5) applied to each per-source query above before it touches the in-memory
         // SQLite store, so the final join is not a gap.
-        var joinReport = gate.Evaluate(SqlGateRequest.FromSettings(translatedSql, "SQLite", settings));
+        var joinReport = gate.Evaluate(SqlGateRequest.ForInMemoryJoin(translatedSql, settings));
         if (joinReport.Blocked)
         {
             text += $"**Validation Error for join query:** {joinReport.BlockReason}\n";
@@ -313,6 +320,7 @@ internal sealed class CrossSourceQueryService(
     private async Task<string> DryRunWithRepairAsync(
         ILlmProvider llmProvider,
         Core.Data.Entities.DataSource dataSource,
+        string? configuredDatabase,
         RoutedSource source,
         string sql,
         string schemaContext,
@@ -362,7 +370,7 @@ internal sealed class CrossSourceQueryService(
         }
 
         // The retry must clear the same read-only gate the original did before it can be adopted.
-        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, DataSourceSqlDialect.Of(dataSource), settings)).Blocked)
+        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, DataSourceSqlDialect.Of(dataSource), settings) with { ConfiguredDatabase = configuredDatabase }).Blocked)
         {
             return sql;
         }

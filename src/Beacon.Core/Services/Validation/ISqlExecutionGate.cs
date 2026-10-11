@@ -4,7 +4,7 @@ namespace Beacon.Core.Services.Validation;
 
 /// <summary>
 /// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: length cap → regex guardrail →
-/// AST read-only validator → schema catalog check → semantic lint → row-limit rewrite. Pure and synchronous
+/// AST read-only validator → cross-database names → host policy → schema catalog check → semantic lint → row-limit rewrite. Pure and synchronous
 /// (no I/O) so it can be evaluated on every candidate, including every repair attempt, at no cost beyond a
 /// parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
 /// </summary>
@@ -19,7 +19,7 @@ public interface ISqlExecutionGate
 /// verdict rather than a pass.
 /// </summary>
 /// <param name="Dialect">The target's dialect name from <see cref="DataSourceSqlDialect.Of(Beacon.Core.Data.Entities.DataSource)"/>, or
-/// <c>"SQLite"</c> for the in-memory join. An unknown or null dialect fails the read-only stage: SQL is never judged under a
+/// <c>"SQLite"</c> for the in-memory join (<see cref="ForInMemoryJoin"/>). An unknown or null dialect fails the read-only stage: SQL is never judged under a
 /// generic grammar.</param>
 /// <param name="BlockOnSchemaFailure">When true a schema-gate failure blocks execution (the <c>query</c> tool);
 /// when false it is advisory and left to the caller's repair loop (<c>ask</c>, <c>dry_run</c>, cross-source).</param>
@@ -42,6 +42,21 @@ public sealed record SqlGateRequest(
     public string? HostManagedKey { get; init; }
 
     /// <summary>
+    /// The database the target is configured for — its catalog on Databricks, its project on BigQuery
+    /// (<see cref="IConfiguredDatabaseResolver"/>). A name the SQL qualifies with any other database BLOCKS, regardless of
+    /// <see cref="EnforceReadOnly"/> and <see cref="BlockOnSchemaFailure"/>; null allows no database qualifier at all
+    /// (<see cref="SqlCrossDatabaseRule"/>), and so does <see cref="DataSourceConfiguredDatabase.Undetermined"/>.
+    /// </summary>
+    public string? ConfiguredDatabase { get; init; }
+
+    /// <summary>
+    /// True only for the statement that joins step results on Beacon's own in-memory SQLite database
+    /// (<see cref="ForInMemoryJoin"/>): it reaches no other database, so <see cref="SqlCrossDatabaseRule"/> does not apply.
+    /// A SQLite data source is checked like any other.
+    /// </summary>
+    public bool InMemoryJoin { get; init; }
+
+    /// <summary>
     /// Read-only / PII / lint flags copied from the effective MCP settings; catalog, lint context and row limit
     /// left unset so a caller adds only the stages it needs via a <c>with</c> expression.
     /// </summary>
@@ -58,6 +73,15 @@ public sealed record SqlGateRequest(
             LintContext: null,
             settings.EnableSemanticLint,
             MaxRows: null);
+    }
+
+    /// <summary>
+    /// <see cref="FromSettings"/> for the statement that joins step results on the in-memory SQLite database: the SQLite
+    /// dialect, and no cross-database check (<see cref="InMemoryJoin"/>).
+    /// </summary>
+    public static SqlGateRequest ForInMemoryJoin(string sql, McpSettingsData settings)
+    {
+        return FromSettings(sql, "SQLite", settings) with { InMemoryJoin = true };
     }
 }
 
@@ -100,6 +124,9 @@ public static class SqlGateCodes
 
     /// <summary>Schema: the SQL reads a table or column the host data source does not expose.</summary>
     public const string HostPolicy = "host_policy";
+
+    /// <summary>Schema: the SQL names another database (catalog, project) than the one the data source is configured for.</summary>
+    public const string CrossDatabase = "cross_database";
 
     /// <summary>Schema: no catalog rows exist for the data source, so nothing could be checked.</summary>
     public const string EmptyCatalog = "empty_catalog";

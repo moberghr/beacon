@@ -11,6 +11,8 @@ public record TaskData
     public required DateTime CreatedAt { get; init; }
     public required bool Resolved { get; init; }
     public DateTime? ResolvedAt { get; init; }
+
+    /// <summary>The resolver's display name, or "User {id}" without one (never the user name or external id).</summary>
     public string? ResolvedByUserName { get; init; }
 
     /// <summary>

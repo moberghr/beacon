@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
@@ -12,6 +15,12 @@ using Beacon.Core.Services;
 
 namespace Beacon.Core.Worker.Services;
 
+/// <summary>
+/// The work Beacon's jobs run. A subscription's scheduled run and a data contract's scheduled evaluation run as the
+/// owner they recorded (<see cref="IRunAsScope"/>), re-authorized at every run right before any SQL: a run the owner may
+/// no longer make is skipped (recorded, not failed) and delivers nothing. A run a request asks for (a subscription's test
+/// delivery) runs as the request's caller. Maintenance work runs as the system in the job host's marked scope.
+/// </summary>
 internal class JobService(
     IDbContextFactory<BeaconContext> contextFactory,
     IQueryService queryService,
@@ -20,6 +29,8 @@ internal class JobService(
     IAnomalyDetectionService anomalyDetectionService,
     IDataQualityEvaluationService dataQualityEvaluationService,
     ILogger<JobService> logger,
+    IRunAsScope runAs,
+    IHttpContextAccessor httpContextAccessor,
     IAiActorService? aiActorService = null,
     IMcpLearningAggregationService? mcpLearningService = null,
     IEmbeddingIndexingService? embeddingIndexingService = null,
@@ -42,7 +53,24 @@ internal class JobService(
             return;
         }
 
-        var queryResult = await queryService.ExecuteQuery(subscriptionId, cancellationToken);
+        // A scheduled run acts as the subscription's owner as they are now; a run a request asks for acts as its caller.
+        var isScheduledRun = httpContextAccessor.HttpContext == null;
+        if (isScheduledRun)
+        {
+            runAs.RunAs(subscription.OwnerUserId);
+        }
+
+        QueryResult queryResult;
+        try
+        {
+            queryResult = await queryService.ExecuteQuery(subscriptionId, cancellationToken);
+        }
+        catch (ExecutionRefusedException ex) when (isScheduledRun)
+        {
+            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, cancellationToken);
+
+            return;
+        }
 
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
@@ -244,6 +272,13 @@ internal class JobService(
 
     public async Task EvaluateDataContract(int contractId, CancellationToken cancellationToken)
     {
+        // A scheduled evaluation acts as the contract's owner as they are now.
+        var isScheduledRun = httpContextAccessor.HttpContext == null;
+        if (isScheduledRun)
+        {
+            await RunAsContractOwnerAsync(contractId, cancellationToken);
+        }
+
         try
         {
             var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId, cancellationToken);
@@ -254,6 +289,12 @@ internal class JobService(
         {
             // Nothing to score: no history, score or alert is written, and the recurring job is not failed for it.
             logger.LogWarning("Data contract {ContractId} has no enabled rules; its scheduled evaluation was skipped", contractId);
+        }
+        catch (ExecutionRefusedException) when (isScheduledRun)
+        {
+            // The owner may no longer run the contract's rules: logged as skipped work and recorded on the contract, so
+            // its readers see it; nothing is scored or alerted, and the recurring job is not failed for it.
+            await RecordSkippedEvaluationAsync(contractId, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -476,6 +517,64 @@ internal class JobService(
             // Log but don't fail the subscription execution
             logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
         }
+    }
+
+    private async Task RunAsContractOwnerAsync(int contractId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var contract = await context.DataContracts
+            .Where(x => x.Id == contractId)
+            .Select(x =>
+                new
+                {
+                    x.OwnerUserId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // A missing contract fails its evaluation as before; there is no owner to run as.
+        if (contract != null)
+        {
+            runAs.RunAs(contract.OwnerUserId);
+        }
+    }
+
+    // A scheduled evaluation its owner may no longer run: the contract records since when (the first skip of a series is
+    // kept), until an evaluation runs again.
+    private async Task RecordSkippedEvaluationAsync(int contractId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        await context.DataContracts
+            .Where(x => x.Id == contractId)
+            .Where(x => x.OwnerNotAuthorizedSince == null)
+            .ExecuteUpdateAsync(x => x.SetProperty(y => y.OwnerNotAuthorizedSince, DateTime.UtcNow), cancellationToken);
+    }
+
+    // A scheduled run its owner may no longer make: recorded as skipped, with the data sources it would have read so the
+    // readers of the subscription see it, and nothing else happens (no task, no baseline, no delivery, no AI actor).
+    private static async Task RecordSkippedRunAsync(
+        BeaconContext context,
+        int subscriptionId,
+        IReadOnlyList<int> dataSourceIds,
+        CancellationToken cancellationToken)
+    {
+        var skipped = new QueryExecutionHistory
+        {
+            SubscriptionId = subscriptionId,
+            ResultCount = 0,
+            CompiledSql = string.Empty,
+            NotificationStatus = NotificationStatus.Skipped,
+            ExecutionTimeMs = 0,
+            Comment = NotificationFailureReasons.OwnerNotAuthorized,
+            DataSourceIds = dataSourceIds
+                .Distinct()
+                .Order()
+                .ToArray()
+        };
+
+        await context.QueryExecutionHistory.AddAsync(skipped, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     // The run failed if any recipient was not notified: those recipients' Notification rows are removed, and the

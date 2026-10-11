@@ -62,6 +62,7 @@ public class ProjectAuthorizationCoverageTests
         ["UpdateUser"] = "Admin: user management",
         ["SetAiActorOwner"] = "Admin: ownership transfer",
         ["SetDataContractOwner"] = "Admin: ownership transfer",
+        ["SetSubscriptionOwner"] = "Admin: ownership transfer",
         ["UpdateRepositoryToken"] = "Admin: repository credential",
         ["SetProjectAccessMode"] = "Admin: restricting or opening a project",
         ["UnlinkProjectDataSource"] = "Admin: unlinking a data source from a project",

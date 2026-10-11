@@ -63,6 +63,10 @@ Server=mysql-server.company.com;Database=myapp;Uid=readonly;Pwd=secretpass
 
 **Other connectors** (Google BigQuery, Snowflake, Databricks, AWS CloudWatch, and the generic REST API) use connector-specific connection details — for example service-account credentials, account/warehouse identifiers, workspace tokens, AWS region/keys, or a base URL with auth headers. The Create New Data Source form shows the fields required for the connector you select.
 
+:::note[Name the database]
+Set the database in the connection — `Database` (or `Initial Catalog`) on SQL Server, Azure Synapse, PostgreSQL and MySQL, `db` on Snowflake, the `Catalog` on Databricks, the `ProjectId` on BigQuery. SQL against the data source may name only that database (catalog, project) in a qualifier such as `database.schema.table`; without one configured, no database qualifier is accepted. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+:::
+
 ### Step 4: Test Connection
 
 1. Click **Test Connection** button
@@ -110,6 +114,8 @@ Deleting a data source will NOT delete associated queries, but queries will be u
 2. Confirm deletion in the dialog
 3. Data source is archived (soft delete)
 
+Archiving evicts the data source's cached metadata and relationship graph, and its metadata is no longer served: reading or refreshing an archived data source's metadata answers `404`. Changing a data source's connection (`IDataSourceService.UpdateDataSource`) evicts both caches as well.
+
 ## Metadata Loading Options
 
 For database-type data sources, Beacon loads schema metadata (tables, columns, relationships) to power features like the ad-hoc query editor with IntelliSense and AI documentation generation. You can control this behavior when creating or editing a data source.
@@ -142,6 +148,24 @@ For database-type data sources, Beacon loads schema metadata (tables, columns, r
 The data source details page shows the metadata loading status in the Overview section:
 - **Enabled** (green) - Metadata is loaded and available for IntelliSense
 - **Disabled** (red) - Metadata loading is turned off
+
+### Refreshing Metadata
+
+**Refresh metadata** on a data source (`POST /beacon/api/data-sources/{id}/refresh-metadata`) re-reads its tables and columns from the database now. It changes what every project that links the data source sees, so it needs Write in each of them, or an Admin (see [Projects and access](#projects-and-access)).
+
+- **Cooldown.** A data source's metadata is force-refreshed at most once per `Beacon:Metadata:ForcedRefreshCooldownMinutes` (default `15`; `0` turns the cooldown off; at most `1440`), whoever asks and from whichever project: the cooldown belongs to the data source, so a refresh asked for in one project linking it also holds back a refresh asked for in another. A second refresh inside the cooldown, or while one is running, answers `429`. The cooldown counts from the last refresh that succeeded, so a failed refresh can be retried at once; it starts over when the data source is changed (for example its connection fixed), and a changed setting applies to the next request. It is kept in memory per Beacon process: on a host running several instances, each instance keeps its own, so the data source can be refreshed once per cooldown on each instance.
+- **Curated descriptions are kept.** A table or column description set by applying a documentation patch stays as it is; every other description is taken from the database catalog again (and is cleared when the catalog has none).
+- **Caches.** The refresh replaces the cached metadata, and the relationship graph is rebuilt on its next read.
+
+```json
+{
+  "Beacon": {
+    "Metadata": {
+      "ForcedRefreshCooldownMinutes": 15
+    }
+  }
+}
+```
 
 ### Example: Large Database with Schema Filtering
 
@@ -178,7 +202,9 @@ A data source is reached through the projects that link it ([Project access](/fe
 - **Shared data sources.** A data source linked to an open project is reachable through it by everyone with a role, even when a restricted project links it too. The project page warns Admins about such sources before they restrict a project, and lists every other project, open or restricted, that links them.
 - **Counts.** A data source's query count includes only the queries you may read; its migration job count is shown to Admins only (zero for anyone else).
 - **Shared state.** Relationships, metadata description edits, a forced metadata refresh and documentation patches that write descriptions change what every linking project sees, so they need Write in every live project that links the data source, or an Admin.
-- **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the login can read: use a login per data source that sees only what its projects should see, rather than one broad login shared by several boundaries.
+- **The configured database matters.** SQL Beacon runs against the data source may name only the database its connection is configured for (the catalog on Databricks, the project on BigQuery); a name such as `otherdb.dbo.orders` is refused, and a data source without a configured database accepts no database qualifier. Changing the connection's database changes what its saved SQL may name. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+- **Shared guardrails.** A data source several live projects link runs MCP SQL, and is grounded and sampled, with the strictest guardrails among those projects (read-only enforcement, PII detection and patterns, row, timeout, size and plan-cost limits, value grounding and its probe budget, sample-value collection); an Admin sees them per source on the project page. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
+- **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the login can read: use a login per data source that sees only what its projects should see, rather than one broad login shared by several boundaries. A login that can read several boundaries defeats project separation — Beacon refuses names in another database, but a view, synonym or function in the source's own database still reads whatever the login may.
 
 ## Connection Best Practices
 
@@ -203,9 +229,10 @@ CREATE USER beacon_readonly FOR LOGIN beacon_readonly;
 ALTER ROLE db_datareader ADD MEMBER beacon_readonly;
 ```
 
-Beacon refuses linked-server (four-part) names, but a three-part `database.schema.table` name reads any database on the
-server the login can see. Don't map the Beacon login on any linked server, don't grant it `ALTER ANY LINKED SERVER`, and
-give it access only to the databases Beacon should read.
+Beacon refuses linked-server (four-part) names, and a three-part `database.schema.table` name only when it names the
+data source's own configured database. A synonym or view can still reach other databases the login can see, so don't map
+the Beacon login on any linked server, don't grant it `ALTER ANY LINKED SERVER`, and give it access only to the
+databases Beacon should read.
 
 **MySQL:**
 ```sql

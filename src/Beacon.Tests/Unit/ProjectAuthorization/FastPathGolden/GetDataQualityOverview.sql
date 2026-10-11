@@ -6,7 +6,7 @@ INNER JOIN (
     WHERE d0.archived_time IS NULL
 ) AS d1 ON d.data_source_id = d1.id
 ;
-SELECT d.data_source_id AS "DataSourceId", count(*)::int AS "Count"
+SELECT d.data_source_id AS "DataSourceId", count(*)::int AS "Count", count(*) FILTER (WHERE d.owner_not_authorized_since IS NOT NULL)::int AS "OwnerNotAuthorized"
 FROM beacon.data_contracts AS d
 WHERE d.archived_time IS NULL AND d.is_enabled
 GROUP BY d.data_source_id

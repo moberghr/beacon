@@ -321,7 +321,8 @@ public class ProjectAuthorizationBehaviorTests
             services,
             configuration,
             Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.ProjectAuthorizationOptions()),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ProjectAccessEvaluator>.Instance);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ProjectAccessEvaluator>.Instance,
+            new OwnerRunsAsSystemLog(TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<OwnerRunsAsSystemLog>.Instance));
         var authorizer = new ProjectRequestAuthorizer(
             evaluator,
             new ProjectResourceResolver(),
@@ -340,15 +341,16 @@ public class ProjectAuthorizationBehaviorTests
     }
 
     [Test]
-    public async Task AJobWithoutARequest_IsNotChecked_AndStillRuns()
+    public async Task AJobInAScopeMarkedAsSystemWork_IsNotChecked_AndStillRuns()
     {
-        // A scheduled subscription run has no HttpContext: it runs as the system, unrestricted, and the project machinery
-        // reads nothing.
+        // A scheduled subscription run has no HttpContext; its job host marks the job's scope as system work, so it runs
+        // as the system, unrestricted, and the project machinery reads nothing.
         var capture = new SqlCapture().AnsweringCountsWithOne();
         var services = CoreServices(withRequest: false);
         services.AddSingleton(capture.Factory());
         await using var provider = services.BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ISystemWorkScope>().MarkAsSystemWork();
 
         var access = await scope.ServiceProvider.GetRequiredService<IProjectAccessEvaluator>().GetScopeAsync(CancellationToken.None);
         await scope.ServiceProvider.GetRequiredService<ProjectRequestAuthorizer>()
@@ -359,6 +361,26 @@ public class ProjectAuthorizationBehaviorTests
         capture.Commands.Should().ContainSingle("the job reads its subscription and, with none there, stops; nothing else ran")
             .Which.Should().Contain("FROM beacon.subscriptions");
         capture.Commands.Should().NotContain(x => x.Contains("UNION ALL"), "no project access snapshot is read for a job");
+    }
+
+    [Test]
+    public async Task WorkWithoutARequest_InAnUnmarkedScope_GetsNoProjectAccess_AndIsRefused()
+    {
+        // No request and nobody marked the scope as system work (a host's own job runner, a stray background task):
+        // there is no caller to authorize, so it reaches nothing.
+        var capture = new SqlCapture().AnsweringCountsWithOne();
+        var services = CoreServices(withRequest: false);
+        services.AddSingleton(capture.Factory());
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+
+        var access = await scope.ServiceProvider.GetRequiredService<IProjectAccessEvaluator>().GetScopeAsync(CancellationToken.None);
+        var act = () => scope.ServiceProvider.GetRequiredService<ProjectRequestAuthorizer>()
+            .DemandAsync(new ProjectCheck(ProjectResource.Subscription(42), ProjectAction.Run), CancellationToken.None);
+
+        access.Should().BeSameAs(ProjectAccessScope.None);
+        await act.Should().ThrowAsync<BeaconNotFoundException>();
+        capture.Commands.Should().NotContain(x => x.Contains("UNION ALL"), "nobody has nothing to read a snapshot for");
     }
 
     private static ProjectRequestAuthorizer Authorizer(

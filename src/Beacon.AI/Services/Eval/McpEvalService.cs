@@ -38,6 +38,7 @@ internal sealed class McpEvalService(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate sqlGate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
     ILogger<McpEvalService> logger) : IMcpEvalService
@@ -46,9 +47,17 @@ internal sealed class McpEvalService(
     // the prompt — the judge only needs a structural sample to spot a cosmetic-only difference.
     private const int MaxJudgeRows = 20;
 
+    internal const string NoProjectNote = "An eval run needs a project: runs without one are refused.";
+
     public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
     {
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId ?? 0, ct);
+        // Golden cases are project-scoped grounding (§1.12): a run without a project is refused before it is created.
+        if (projectId == null)
+        {
+            throw new InvalidOperationException(NoProjectNote);
+        }
+
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId.Value, ct);
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -75,21 +84,28 @@ internal sealed class McpEvalService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Eval run {runId} not found.");
 
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(run.ProjectId ?? 0, ct);
+        // Golden cases are project-scoped grounding (§1.12): a run without a project would evaluate every project's
+        // cases in one run, so it is refused before any case runs.
+        if (run.ProjectId == null)
+        {
+            run.Status = "Failed";
+            run.Notes = NoProjectNote;
+            await context.SaveChangesAsync(ct);
+            logger.LogWarning("Eval run {RunId} refused: it has no project", runId);
+
+            throw new InvalidOperationException(NoProjectNote);
+        }
+
+        var projectId = run.ProjectId.Value;
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         run.JudgeEnabled = JudgeAllowed(settings);
 
         try
         {
-            var casesQuery = context.McpEvalCases
-                .Where(x => x.IsActive);
-
-            if (run.ProjectId.HasValue)
-            {
-                casesQuery = casesQuery.Where(x => x.ProjectId == run.ProjectId.Value);
-            }
-
-            var cases = await casesQuery
+            var cases = await context.McpEvalCases
+                .Where(x => x.IsActive)
+                .Where(x => x.ProjectId == projectId)
                 .OrderBy(x => x.Id)
                 .Select(x =>
                     new EvalCaseData
@@ -288,9 +304,10 @@ internal sealed class McpEvalService(
         decimal? generationTemperature,
         CancellationToken ct)
     {
-        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, ct);
+        // An eval run executes the generated SQL against the source, so live probes may run.
+        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, liveValueProbes: true, ct);
 
-        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, settings);
+        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, settings);
         evalExecutor.UseDataSource(dataSource);
 
         var outcome = await askSqlPipeline.RunAsync(

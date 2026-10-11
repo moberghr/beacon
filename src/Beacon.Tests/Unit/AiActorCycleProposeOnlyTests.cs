@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using System.Text.Json;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
@@ -255,6 +256,8 @@ public class AiActorCycleProposeOnlyTests
             _queryService.Object,
             _subscriptionService.Object,
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
+            Mock.Of<IRunAsScope>(),
+            TestProjectAccess.ExecutionAllowed(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

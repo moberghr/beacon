@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers, Link2, Lock, Unlink, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers, Link2, Lock, Shield, Unlink, Users } from 'lucide-react';
 import {
   Banner,
   Button,
@@ -30,6 +30,7 @@ import {
   useSetProjectAccess,
   useUnlinkProjectDataSource,
   type ProjectDetailEntry,
+  type SharedSourceGuardrail,
   type SharedSourceProjectEntry,
   type ProjectRepositoryEntry,
   type ProjectDataSourceEntry,
@@ -281,6 +282,8 @@ function AccessCard({ project }: { project: ProjectDetailEntry }) {
 
       {project.sharedSourceProjects.length > 0 && <SharedSourceProjects project={project} />}
 
+      {project.sharedSourceGuardrails.length > 0 && <SharedSourceGuardrails project={project} />}
+
       <ConfirmDialog
         open={pending != null}
         title={pending === 'restricted' ? 'Restrict project' : 'Open project'}
@@ -400,6 +403,94 @@ function SharedSourceProjects({ project }: { project: ProjectDetailEntry }) {
         onConfirm={onConfirm}
         onCancel={() => setTarget(null)}
       />
+    </CardBody>
+  );
+}
+
+const GUARDRAIL_LABEL: Record<string, string> = {
+  enforceReadOnly: 'Read-only',
+  enablePiiDetection: 'PII detection',
+  customPiiPatterns: 'Custom PII patterns',
+  maxRowLimit: 'Row limit',
+  statementTimeoutSeconds: 'Statement timeout',
+  maxResultBytes: 'Result size limit',
+  maxExplainCost: 'Plan cost limit',
+  enableValueGrounding: 'Value grounding',
+  valueGroundingMaxProbes: 'Value probes',
+  enableSampleValueCollection: 'Sample value collection',
+};
+
+/** A guardrail's effective value as the server sends it (`true`, a number, `none`), worded for reading. */
+function guardrailValue(guardrail: SharedSourceGuardrail): string {
+  const { setting, value } = guardrail;
+  if (value === 'true' || value === 'false') {
+    return value === 'true' ? 'on' : 'off';
+  }
+  if (setting === 'maxExplainCost' && value === 'none') {
+    return 'no limit';
+  }
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    return value;
+  }
+  const count = amount.toLocaleString();
+  switch (setting) {
+    case 'maxRowLimit':
+      return `${count} rows`;
+    case 'statementTimeoutSeconds':
+      return `${count} s`;
+    case 'maxResultBytes':
+      return `${count} bytes`;
+    case 'customPiiPatterns':
+      return `${count} pattern${amount === 1 ? '' : 's'}`;
+    case 'valueGroundingMaxProbes':
+      return `${count} probe${amount === 1 ? '' : 's'}`;
+    default:
+      return count;
+  }
+}
+
+/**
+ * Admin only: a data source other live projects link too is held to the strictest of the linking projects' MCP
+ * settings, whichever project queries it. Per shared source, each setting's effective value and the project that sets it.
+ */
+function SharedSourceGuardrails({ project }: { project: ProjectDetailEntry }) {
+  return (
+    <CardBody className="flex flex-col gap-3">
+      <div>
+        <h3 className="m-0 text-sm font-semibold text-text">Guardrails of shared data sources</h3>
+        <p className="m-0 text-xs text-text-muted">
+          A data source several projects link is held to the strictest of their settings, whichever project queries it.
+          Each value names the project that sets it.
+        </p>
+      </div>
+      {project.sharedSourceGuardrails.map(source => (
+        <section
+          key={source.dataSourceId}
+          aria-label={`Guardrails of ${source.dataSourceName}`}
+          className="rounded-sm border border-border p-3"
+        >
+          <div className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-text">
+            <Shield size={13} className="text-text-muted" /> {source.dataSourceName}
+          </div>
+          <dl className="m-0 grid grid-cols-[minmax(140px,auto)_1fr] gap-x-3 gap-y-1 text-sm">
+            {source.guardrails.map(guardrail => (
+              <Fragment key={guardrail.setting}>
+                <dt className="text-text-muted">{GUARDRAIL_LABEL[guardrail.setting] ?? guardrail.setting}</dt>
+                <dd className="m-0">
+                  <span className="mono">{guardrailValue(guardrail)}</span>
+                  <span className="text-text-muted"> · set by </span>
+                  {guardrail.projectId === project.id ? (
+                    <span className="text-text-muted">this project</span>
+                  ) : (
+                    <Link to={`/projects/${guardrail.projectId}`}>{guardrail.projectName}</Link>
+                  )}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        </section>
+      ))}
     </CardBody>
   );
 }

@@ -41,6 +41,26 @@ INNER JOIN (
 ) AS q2 ON s0.query_id = q2.id
 ORDER BY q0.created_time DESC
 ;
+SELECT q2.name || ' was skipped', q0.comment, q0.created_time
+FROM (
+    SELECT q.comment, q.created_time, q.subscription_id
+    FROM beacon.query_execution_history AS q
+    WHERE q.created_time >= @since AND q.notification_status = 8
+    ORDER BY q.created_time DESC
+    LIMIT @p
+) AS q0
+INNER JOIN (
+    SELECT s.id, s.query_id
+    FROM beacon.subscriptions AS s
+    WHERE s.archived_time IS NULL
+) AS s0 ON q0.subscription_id = s0.id
+INNER JOIN (
+    SELECT q1.id, q1.name
+    FROM beacon.queries AS q1
+    WHERE q1.archived_time IS NULL
+) AS q2 ON s0.query_id = q2.id
+ORDER BY q0.created_time DESC
+;
 SELECT 'subscription created for ' || q0.name, COALESCE((
     SELECT count(*)::int
     FROM beacon.recipient_subscription AS r

@@ -88,6 +88,7 @@ internal class ControlTowerService(
                     LastExecutionTime = hasLastExecution ? lastExecution.CreatedTime : null,
                     LastExecutionStatus = hasLastExecution ? lastExecution.NotificationStatus : null,
                     LastResultCount = hasLastExecution ? lastExecution.ResultCount : null,
+                    OwnerNotAuthorized = hasLastExecution && lastExecution.NotificationStatus == NotificationStatus.Skipped,
                     UnresolvedTaskCount = item.UnresolvedTaskCount,
                     TotalTaskCount = item.TotalTaskCount,
                     AnomalyCount30Days = anomalyCountsBySubscription.GetValueOrDefault(item.Id, 0),
@@ -185,6 +186,18 @@ internal class ControlTowerService(
             ? (double)totalSuccessful / totalExecutions * 100
             : 100;
 
+        // Scheduled contract evaluations that are not happening: their owner may no longer run them.
+        var skippedContracts = context.DataContracts
+            .WhereSourceAccessible(context, request.Readable, x => x.DataSourceId)
+            .Where(x => x.IsEnabled)
+            .Where(x => x.OwnerNotAuthorizedSince != null);
+        if (request.DataSourceId.HasValue)
+        {
+            skippedContracts = skippedContracts.Where(x => x.DataSourceId == request.DataSourceId.Value);
+        }
+
+        var ownerNotAuthorizedContracts = await skippedContracts.CountAsync(cancellationToken);
+
         var statistics = new ControlTowerStatistics
         {
             TotalSubscriptions = rows.Count,
@@ -195,7 +208,8 @@ internal class ControlTowerService(
             TotalUnresolvedTasks = totalUnresolved,
             TotalAnomalies30Days = anomaliesInWindow,
             OverallSuccessRate = overallSuccessRate,
-            TimeRangeDays = request.TimeRangeDays
+            TimeRangeDays = request.TimeRangeDays,
+            OwnerNotAuthorizedContracts = ownerNotAuthorizedContracts
         };
 
         memoryCache.Set(cacheKey, statistics, CacheDuration);

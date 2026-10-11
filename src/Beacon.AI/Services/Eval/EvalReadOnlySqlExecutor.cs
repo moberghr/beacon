@@ -22,6 +22,7 @@ internal sealed class EvalReadOnlySqlExecutor(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     McpSettingsData settings) : IAskSqlExecutor
 {
     // Per-statement execution ceiling, matching the MCP query executor.
@@ -59,7 +60,8 @@ internal sealed class EvalReadOnlySqlExecutor(
         {
             EnforceReadOnly = true,
             MaxRows = settings.MaxRowLimit,
-            HostManagedKey = dataSource.HostManagedKey
+            HostManagedKey = dataSource.HostManagedKey,
+            ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
         });
 
         if (report.Blocked)

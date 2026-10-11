@@ -8,7 +8,10 @@ SELECT q0.id AS "Id", q2.name AS "SubscriptionName", q0.latest_result_count AS "
     WHERE q0.id = n.task_id) AS "NotificationCount", q0.created_time AS "CreatedAt", q0.resolved AS "Resolved", q0.resolved_at AS "ResolvedAt", CASE
     WHEN q0.resolved_by_user_id IS NULL THEN NULL
     ELSE (
-        SELECT COALESCE(u.display_name, u.user_name)
+        SELECT CASE
+            WHEN u.display_name IS NULL OR btrim(u.display_name, E' \t\n\r') = '' THEN 'User ' || u.id::text
+            ELSE u.display_name
+        END
         FROM beacon.users AS u
         WHERE u.archived_time IS NULL AND u.external_id = q0.resolved_by_user_id
         LIMIT 1)
@@ -27,7 +30,7 @@ FROM (
     FROM beacon.query_tasks AS q
     WHERE q.archived_time IS NULL
     ORDER BY q.created_time DESC, q.id
-    LIMIT @p4 OFFSET @p
+    LIMIT @p5 OFFSET @p
 ) AS q0
 INNER JOIN (
     SELECT s.id, s.ai_actor_id, s.query_id

@@ -57,7 +57,7 @@ internal sealed class ValueGroundingService(
     private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled);
 
     public async Task<string> BuildValueMatchesBlockAsync(
-        int dataSourceId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
+        int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
     {
         if (!settings.EnableValueGrounding || tables.Count == 0)
         {
@@ -73,8 +73,14 @@ internal sealed class ValueGroundingService(
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            // Only through the caller's project: a data source it does not link is not found, so nothing is probed.
+            var projectSourceIds = context.ProjectDataSources
+                .Where(x => x.ProjectId == projectId)
+                .Select(x => x.DataSourceId);
             var dataSource = await context.DataSources
                 .Where(x => x.Id == dataSourceId)
+                .Where(x => projectSourceIds.Contains(x.Id))
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {dataSourceId} not found.");
 

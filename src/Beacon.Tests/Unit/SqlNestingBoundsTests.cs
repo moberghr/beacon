@@ -81,10 +81,12 @@ public class SqlNestingBoundsTests
         SqlRowLimitRewriter.Apply(LimitInsideDeepParentheses, 10, "PostgreSQL").Outcome.Should().Be(SqlRowLimitOutcome.Refused);
     }
 
+    // Both gate cases use the in-memory SQLite join, the one target without a cross-database stage, which would block
+    // such SQL first (see CrossDatabaseQualifierTests).
     [Test]
     public void Gate_ParenthesesBeyondTheParserBudgetWithReadOnlyOff_IsBlocked()
     {
-        var request = SqlGateRequest.FromSettings(LimitInsideDeepParentheses, "PostgreSQL", TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.ForInMemoryJoin(LimitInsideDeepParentheses, TestSqlGate.DefaultSettings()) with
         {
             EnforceReadOnly = false,
             MaxRows = 10
@@ -100,7 +102,7 @@ public class SqlNestingBoundsTests
     public void Gate_ChainDeeperThanTheBoundWithReadOnlyOff_IsBlockedByTheRowLimitStage()
     {
         var sql = "SELECT 'LIMIT 1' AS x" + string.Concat(Enumerable.Repeat(" UNION SELECT 'LIMIT 1'", ChainLength));
-        var request = SqlGateRequest.FromSettings(sql, "PostgreSQL", TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.ForInMemoryJoin(sql, TestSqlGate.DefaultSettings()) with
         {
             EnforceReadOnly = false,
             MaxRows = 10

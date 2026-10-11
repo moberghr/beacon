@@ -45,6 +45,23 @@ public class QueryExecutionServicePiiMaskingTests
         structuredValues.Should().NotContain(RawEmail);
     }
 
+    // PII detection another live project linking the data source turns on applies to this project's callers too.
+    [Test]
+    public async Task ExecuteAsync_AnotherProjectLinkingTheSourceDetectsPii_MasksForThisProjectToo()
+    {
+        var sharedSources = TestSharedSources.Linking(1, new Dictionary<int, McpSettingsData>
+        {
+            [1] = new() { EnablePiiDetection = false },
+            [2] = new() { EnablePiiDetection = true }
+        });
+        var service = BuildService(piiDetectionOn: false, sharedSources: sharedSources);
+
+        var result = await service.ExecuteAsync(1, "SELECT email, name FROM users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail).And.Contain("a***m");
+    }
+
     // BigQuery reads `#` as a comment: the row cap goes on a new line and the alias resolves, so only the PII column is
     // masked. Parsed generically, the cap would land inside the comment and every column would be masked.
     [Test]
@@ -185,7 +202,8 @@ public class QueryExecutionServicePiiMaskingTests
         List<Dictionary<string, object?>>? rows = null,
         DataSourceType dataSourceType = DataSourceType.Database,
         DatabaseEngineType? engine = DatabaseEngineType.PostgreSQL,
-        List<string>? executed = null)
+        List<string>? executed = null,
+        ISharedSourceSettings? sharedSources = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -225,7 +243,7 @@ public class QueryExecutionServicePiiMaskingTests
             factory.Object,
             providerFactory.Object,
             new QueryGuardrailService(),
-            settingsProvider.Object,
+            sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] });
     }
 

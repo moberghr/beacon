@@ -22,7 +22,7 @@ For a given question and data source, Beacon assembles the context in blocks. Se
 | **Verified query examples (authoritative)** | Human-verified question → SQL pairs for this data source | [Golden examples](#golden-examples-and-the-eval-harness) |
 | **Learned Patterns (from usage)** | Known corrections, column clarifications, join patterns, common queries, business-term mappings, documentation gaps | [The learning loop](#the-learning-loop) |
 
-Sample values are what make filters land on real data (`'shipped'` vs `'SHIPPED'`). They are collected per column and can be switched off with the `EnableSampleValueCollection` setting.
+Sample values are what make filters land on real data (`'shipped'` vs `'SHIPPED'`). They are collected per column and can be switched off with the `EnableSampleValueCollection` setting; on a data source several live projects link, any of them switching it off stops the collection and keeps the stored values out of every project's context (see [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources)).
 
 :::tip
 Everything on this page is reachable from the outside: `get_query_context` returns the same assembled context an `ask` call would use, so an agent can write its own SQL against the same grounding, validate it with `dry_run`, and execute it with `query`.
@@ -228,6 +228,14 @@ These live in `McpSettingsData` and round-trip through `GET`/`PUT /beacon/api/mc
 ## Project isolation
 
 Grounding is retrieval, and retrieval is not authorisation — so every retrieval path is explicitly scoped to the project the caller is authorised for, not to the data source. On a data source shared by several projects, the glossary terms, golden examples, learned patterns, and replay cases one project sees are only ever its own.
+
+The same holds for every grounding call that names a data source, and for every host that calls Beacon's AI services directly: each takes the caller's authorized project (`projectId`) and reads the data source only through it.
+
+- **Project material** — DataModel documentation, code references from the project's repositories, glossary terms, golden examples and learned patterns — comes from that project only, never from another project that links the same data source.
+- **A data source the project does not link** is not searched, described or catalogued: the table and column search finds nothing in it, the LLM context, table knowledge, lineage, data source overview and table schemas for it answer "not found", its schema catalog is empty (so every table in SQL against it fails the schema check), and value grounding probes nothing.
+- **Live value probes need Query.** Value grounding probes the live data only for a caller who may query the project; a caller who may only read it (`get_query_context` as a Viewer) is grounded with the stored sample values alone.
+- **Code references** belong to the repository that holds them, and a repository to one project: a scan names its project, and a dbt manifest is imported only into a project that links the data source it describes.
+- An eval run needs a project (`400` without one).
 
 ## See Also
 

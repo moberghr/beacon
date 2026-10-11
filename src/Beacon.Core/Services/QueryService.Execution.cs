@@ -4,6 +4,8 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -36,11 +38,23 @@ internal partial class QueryService
             .Where(x => x.Id == subscriptionId)
             .SingleAsync(cancellationToken);
 
-        // Use the advanced step-based execution with stored final query if available
-        var executionResult = await ExecuteQueryAdvanced(
-            subscription.QueryId,
-            finalQuery: subscription.Query.FinalQuery,
-            parameters: null,
+        // Re-checked on the steps loaded here, which are the ones that run, before any of them does: the run's actor (a
+        // scheduled run's owner, or the caller of a request) may still run stored SQL on every data source they read.
+        var dataSourceIds = subscription.Query.Steps
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .Order()
+            .ToList();
+        if (!await executionAccess.AllowsAsync(ProjectAction.Run, dataSourceIds, "subscription", subscriptionId, cancellationToken))
+        {
+            throw new ExecutionRefusedException(dataSourceIds, "Running this subscription's query is not allowed.");
+        }
+
+        // The step-based execution with the stored final query, on the steps checked above
+        var executionResult = await ExecuteQuerySteps(
+            subscription.Query,
+            subscription.Query.FinalQuery,
+            null,
             cancellationToken);
 
         // Convert QueryExecutionResult to QueryResult for backward compatibility
@@ -139,6 +153,8 @@ internal partial class QueryService
             {
                 QueryValidator.CheckForFlaggedWords(stepData.SqlValue, readOnlyAstValidator.MaxSqlChars);
             }
+
+            await EnsureStepsNameTheirOwnDatabaseAsync(context, queryData.Steps, cancellationToken);
 
             // History must already hold the SQL this edit replaces; the active version normally does.
             await queryVersionService.EnsureBaselineVersionAsync(query.Id, cancellationToken);

@@ -10,7 +10,7 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 /// <see cref="ProjectAuthorizationBehavior{TRequest, TResponse}"/>) and the ones a handler makes on ids it saves.
 /// A resource the caller may not read, or a missing one, is 404 (<see cref="BeaconNotFoundException"/>); an action it may
 /// not take on a readable one is 403 (<see cref="BeaconForbiddenException"/>); both are logged with ids only. An
-/// unrestricted caller (an Admin, work without a request) is
+/// unrestricted caller (an Admin, system work in a marked scope) is
 /// not checked, and its handler answers a missing resource as before; so is a caller whose access reaches every project
 /// for the actions concerned, without a database read.
 /// </summary>
@@ -53,6 +53,42 @@ internal sealed class ProjectRequestAuthorizer(
     public Task DemandAsync(ProjectCheck check, CancellationToken cancellationToken)
     {
         return DemandAsync([check], cancellationToken);
+    }
+
+    /// <summary>
+    /// Refuses (409, <see cref="BeaconConflictException"/> with <paramref name="refusal"/>) making
+    /// <paramref name="ownerUserId"/> (a <c>Users.ExternalId</c>) the owner of scheduled work unless that user, as they
+    /// are now and not the caller, may read the check's resource and take its action: the work runs as its owner and
+    /// would otherwise be skipped at every run. The caller's own access is checked by the request.
+    /// </summary>
+    public async Task DemandOwnerMayAsync(string ownerUserId, ProjectCheck check, string refusal, CancellationToken cancellationToken)
+    {
+        var owner = await actorAccessor.ResolveOwnerAsync(ownerUserId, cancellationToken);
+        var scope = await evaluator.GetScopeAsync(owner, cancellationToken);
+        if (scope.IsUnrestricted || IsDecidedWithoutLookup(scope, check))
+        {
+            return;
+        }
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var resolved = await resolver.ResolveAsync(context, check.Resource, cancellationToken);
+        var holders = new Dictionary<IReadOnlyList<int>, IReadOnlyList<int>>(ReferenceEqualityComparer.Instance);
+        var allowed = !resolved.IsMissing
+            && await AllowsAsync(context, resolved, scope.For(ProjectAction.Read), holders, cancellationToken)
+            && await AllowsAsync(context, resolved, scope.For(check.Action), holders, cancellationToken);
+        if (allowed)
+        {
+            return;
+        }
+
+        logger.LogInformation(
+            "Owner change refused: {Resource} {ResourceId}, the new owner {OwnerId} may not {Action} it",
+            check.Resource.Kind,
+            check.Resource.Id,
+            owner.LogId,
+            check.Action);
+
+        throw new BeaconConflictException(refusal);
     }
 
     // Allowed everywhere for the actions concerned: nothing to read. A signal recorded without a project is an Admin's

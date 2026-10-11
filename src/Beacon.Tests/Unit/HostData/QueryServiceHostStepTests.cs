@@ -102,7 +102,9 @@ public class QueryServiceHostStepTests
             Mock.Of<IBeaconUserContext>(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new HostDataSourceGuard(new SingleHostRegistry(snapshot)),
-            TestProjectAccess.Actors());
+            TestProjectAccess.Actors(),
+            TestProjectAccess.ExecutionAllowed(),
+            new ConfiguredDatabaseResolver(resolver, NullLogger<ConfiguredDatabaseResolver>.Instance));
     }
 
     private sealed class ExecutionReachedException : Exception;

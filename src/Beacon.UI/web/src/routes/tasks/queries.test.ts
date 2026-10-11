@@ -10,9 +10,9 @@ describe('the task actions the page offers', () => {
   });
 
   it('lets anyone claim an unassigned task, and only an Admin take a task assigned to someone else', () => {
-    expect(canClaimTask({ assignedToCaller: false, assigneeUserId: null }, false)).toBe(true);
-    expect(canClaimTask({ assignedToCaller: false, assigneeUserId: 'ext-ana' }, false)).toBe(false);
-    expect(canClaimTask({ assignedToCaller: false, assigneeUserId: 'ext-ana' }, true)).toBe(true);
-    expect(canClaimTask({ assignedToCaller: true, assigneeUserId: 'ana' }, true)).toBe(false);
+    expect(canClaimTask({ assignedToCaller: false, hasAssignee: false }, false)).toBe(true);
+    expect(canClaimTask({ assignedToCaller: false, hasAssignee: true }, false)).toBe(false);
+    expect(canClaimTask({ assignedToCaller: false, hasAssignee: true }, true)).toBe(true);
+    expect(canClaimTask({ assignedToCaller: true, hasAssignee: true }, true)).toBe(false);
   });
 });

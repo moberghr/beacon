@@ -23,7 +23,7 @@ public sealed record ProjectSet(IReadOnlyList<int>? Ids, bool IncludesOpen, IRea
 
     /// <summary>
     /// Every live project and data source, and what only Admins reach (a row recorded without a project): the set of an
-    /// unrestricted caller (an Admin, work without a request).
+    /// unrestricted caller (an Admin, system work in a marked scope).
     /// </summary>
     public static ProjectSet Unrestricted { get; } = new(null, true, []) { IsUnrestricted = true };
 

@@ -56,7 +56,11 @@ internal sealed class GetDashboardsHandler(
                 WidgetCount = d.Widgets.Count,
                 CreatedTime = d.CreatedTime,
                 IsOwner = d.CreatedByUserId == userId,
-                CreatedByUserName = d.CreatedByUserName
+                // Named by display name or "User {id}", never by user name or external id.
+                CreatedByUserName = context.Users
+                    .Where(x => x.ExternalId == d.CreatedByUserId)
+                    .Select(UserLabel.OfUser)
+                    .FirstOrDefault()
             })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-isDefault,sortOrder,-createdTime");
     }

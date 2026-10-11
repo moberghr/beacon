@@ -245,7 +245,6 @@ internal class QueryApprovalService(
             Description = version.Description,
             FinalQuery = version.FinalQuery,
             CreatedTime = version.CreatedTime,
-            CreatedByUserId = version.CreatedByUserId,
             ChangeSource = version.ChangeSource,
             ChangeReason = version.ChangeReason,
             Steps = steps

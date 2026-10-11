@@ -37,7 +37,8 @@ internal sealed class AskSqlPipeline(
         AskSqlPipelineOptions options,
         CancellationToken ct)
     {
-        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, ct);
+        // Every caller runs the generated SQL against the source (ask needs Query in the project), so live probes may run.
+        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, liveValueProbes: true, ct);
 
         // The replay gate injects a candidate learned-pattern block as a suffix on the context string only.
         var fullContext = string.IsNullOrEmpty(options.ExtraContext)
@@ -324,7 +325,7 @@ internal sealed class AskSqlPipeline(
             // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate.
             var tableNames = gate.Evaluate(GateRequest(generatedSql, smartContext, settings)).TablesUsed.ToList();
             var tablesContext = tableNames.Count > 0
-                ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, tableNames, ct)
+                ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, projectId, tableNames, ct)
                 : null;
 
             var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
@@ -603,13 +604,14 @@ internal sealed class AskSqlPipeline(
         return report.Blocked ? report.BlockReason : null;
     }
 
-    // Every gate evaluation targets the ask's data source: for a host-exposed DbContext that includes its host policy
-    // (allow-list, exclusions, masked columns) on the candidate AND on every repair.
+    // Every gate evaluation targets the ask's data source: its own configured database only, and for a host-exposed
+    // DbContext its host policy (allow-list, exclusions, masked columns), on the candidate AND on every repair.
     private static SqlGateRequest GateRequest(string sql, SmartSchemaContext smartContext, McpSettingsData settings)
     {
         return SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
         {
-            HostManagedKey = smartContext.HostManagedKey
+            HostManagedKey = smartContext.HostManagedKey,
+            ConfiguredDatabase = smartContext.ConfiguredDatabase
         };
     }
 

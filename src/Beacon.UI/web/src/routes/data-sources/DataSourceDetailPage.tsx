@@ -15,7 +15,7 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
+import { describeError, httpErrorInfo, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { ProjectChips } from './ProjectChips';
 import { formatNumber } from '@/lib/format';
 import {
@@ -149,7 +149,12 @@ export default function DataSourceDetailPage() {
                   await refreshMetadata.mutateAsync(entry.id);
                   toast.success('Metadata refreshed from source');
                 } catch (err) {
-                                    toast.error(describeError(err, 'Refresh failed'));
+                  // 429: refreshed within the cooldown; the server says how long it is.
+                  if (httpErrorInfo(err)?.status === 429) {
+                    toast.warning(describeError(err, 'Metadata was refreshed recently; try again later.'));
+                  } else {
+                    toast.error(describeError(err, 'Refresh failed'));
+                  }
                 }
               }}
               disabled={refreshMetadata.isPending || metadataQuery.isFetching}

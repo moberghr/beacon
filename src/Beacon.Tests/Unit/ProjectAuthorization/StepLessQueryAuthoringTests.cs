@@ -162,7 +162,8 @@ public class StepLessQueryAuthoringTests
             services.Object,
             configuration,
             Options.Create(new ProjectAuthorizationOptions { RequireProjectMembership = true }),
-            NullLogger<ProjectAccessEvaluator>.Instance);
+            NullLogger<ProjectAccessEvaluator>.Instance,
+            new OwnerRunsAsSystemLog(TimeProvider.System, NullLogger<OwnerRunsAsSystemLog>.Instance));
     }
 
     private static IBeaconActorAccessor Actors(string externalId, int userId)

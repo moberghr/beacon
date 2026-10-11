@@ -95,6 +95,17 @@ internal sealed class DbtIntegrationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
+        // Code references belong to a project and are read through the data sources it links (§1.12): the project must
+        // link the data source the manifest describes.
+        var linked = await context.ProjectDataSources
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.DataSourceId == dataSourceId)
+            .AnyAsync(ct);
+        if (!linked)
+        {
+            throw new InvalidOperationException($"Project {projectId} does not link data source {dataSourceId}.");
+        }
+
         // Find or create a placeholder GitHub repo for dbt references
         var repo = await context.GitHubRepositories
             .FirstOrDefaultAsync(r => r.ProjectId == projectId && r.RepositoryUrl.Contains("dbt://"), ct);

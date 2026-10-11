@@ -166,7 +166,9 @@ public class QueryApprovalSubmissionTests
             UserContext(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors());
+            TestProjectAccess.Actors(),
+            TestProjectAccess.ExecutionAllowed(),
+            TestConfiguredDatabases.None);
 
     private static IBeaconUserContext UserContext() =>
         Mock.Of<IBeaconUserContext>(x => x.UserId == "u1" && x.DisplayName == "Ana Admin");

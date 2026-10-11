@@ -49,7 +49,7 @@ When activated immediately, the actor runs an **initial setup**: the LLM reads t
 
 The REST endpoint is `POST /beacon/api/ai-actors` (one MediatR handler per endpoint, like the rest of the API).
 
-The actor's **creator** is the user who created it (an API key's owner, for a key), or the user an Admin made its creator. Only the creator or an Admin can pause, resume, archive, refine or run it on demand, approve, reject or ask for a revision of one of its plans, or run one of the subscriptions it manages on demand (`POST /subscriptions/{id}/execute`); scheduled think cycles and scheduled runs are not affected. An Admin can give an actor a new creator with **Change owner** on its page (`PUT /beacon/api/ai-actors/{id}/owner` with `{ "userId": <user id> }`); the user must be an existing, enabled user.
+The actor's **creator** is the user who created it (an API key's owner, for a key), or the user an Admin made its creator. Only the creator or an Admin can pause, resume, archive, refine or run it on demand, approve, reject or ask for a revision of one of its plans, or run one of the subscriptions it manages on demand (`POST /subscriptions/{id}/execute`). An Admin can give an actor a new creator with **Change owner** on its page (`PUT /beacon/api/ai-actors/{id}/owner` with `{ "userId": <user id> }`); the user must be an existing, enabled user who may work ad hoc (Editor or above) in a project that links the actor's data source. A user who may not is refused with `409` and a message saying so, because every background think cycle would be skipped. The actor's detail names the creator by display name, or as "User {id}" without one (`hasOwner`, `ownerDisplayName`), never by user name or external id.
 
 An actor belongs to the projects that link its data source: it, its plans and its think cycles are visible only through such a project the caller may use, and refining it or running it on demand needs Query there ([Project access](/features/authorization/#project-access)). While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user) cannot create an actor (`403`). Subscriptions an actor creates are owned by the actor's creator.
 
@@ -76,6 +76,8 @@ A think cycle is one autonomous reasoning pass. It is triggered:
 - **Automatically** — when a subscription owned by an `Active` actor finishes executing, a think cycle is enqueued as a background job so the subscription pipeline never blocks on LLM round-trips. Paused, draft, or failed actors are skipped.
 - **Manually** — via the actor detail page or `POST /beacon/api/ai-actors/{id}/think`.
 
+A background think cycle runs as the actor's creator, as they are now: before any LLM call or SQL, Beacon checks that the creator may still work ad hoc with the actor's data source (Query in a project that links it). When the creator may not — disabled or archived, no longer a member of a restricted project, or only a Viewer — the cycle is recorded with the phase `Skipped` and the message "Skipped: owner not authorized.", nothing else happens, and the actor keeps its status. An actor without a recorded creator runs background cycles only while its data source is openly reachable, and never with `Beacon:Authorization:RequireProjectMembership: true`. A cycle you start with **Think** runs as you.
+
 Each cycle is persisted as an execution record that moves through these phases:
 
 | Phase | What happens |
@@ -86,6 +88,7 @@ Each cycle is persisted as an execution record that moves through these phases:
 | `Notifying` | Records notification intent if the LLM flagged important findings |
 | `Completed` | Cycle finished successfully |
 | `Failed` | Cycle failed — the error is stored and the actor moves to `Failed` status |
+| `Skipped` | A background cycle whose creator may no longer work with the data source: nothing ran, and the actor keeps its status |
 
 The actions an actor can take:
 

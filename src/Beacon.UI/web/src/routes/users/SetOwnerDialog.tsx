@@ -13,6 +13,8 @@ interface SetOwnerDialogProps {
   open: boolean;
   /** What is being given a new owner, e.g. "data contract". */
   noun: string;
+  /** What the owner means for this resource; defaults to who may change, run and delete it. */
+  description?: string;
   busy: boolean;
   onClose: () => void;
   onSubmit: (userId: number) => void;
@@ -22,14 +24,14 @@ interface SetOwnerDialogProps {
  * Admin only: makes a Beacon user the owner of a resource, for instance one created before owners were recorded. The
  * owner (and every Admin) may then change, run and delete it. The server checks the user is enabled.
  */
-export function SetOwnerDialog({ open, noun, busy, onClose, onSubmit }: SetOwnerDialogProps) {
+export function SetOwnerDialog({ open, noun, description, busy, onClose, onSubmit }: SetOwnerDialogProps) {
   const [owner, setOwner] = useState<OwnerCandidate | null>(null);
 
   return (
     <Modal open={open} onClose={onClose} width={480} ariaLabel={`Change the ${noun}'s owner`}>
       <ModalHeader
         emphasis="Change owner"
-        sub={`The owner may change, run and delete this ${noun}. Admins always can.`}
+        sub={description ?? `The owner may change, run and delete this ${noun}. Admins always can.`}
         onClose={onClose}
       />
       <ModalBody>

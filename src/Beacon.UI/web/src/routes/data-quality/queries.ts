@@ -29,6 +29,8 @@ export interface DataQualityOverviewData {
   healthyTables: number;
   degradingTables: number;
   activeContracts: number;
+  /** Enabled contracts on the source whose scheduled evaluations are skipped: their owner may no longer run them. */
+  ownerNotAuthorizedContracts: number;
   tableScores: DataQualityScoreData[];
 }
 
@@ -62,7 +64,15 @@ export interface DataContractData {
   description?: string | null;
   cronExpression: string;
   isEnabled: boolean;
-  ownerUserId?: string | null;
+  /** An owner is recorded: scheduled evaluations run as the owner, checked at every run. */
+  hasOwner: boolean;
+  /** The owner's display name or a neutral "User {id}" label; null when no owner or no matching user. Never an id. */
+  ownerDisplayName: string | null;
+  /**
+   * A scheduled evaluation was skipped because the owner may no longer run the contract's rules, and none has run since:
+   * its scheduled checks are not happening.
+   */
+  ownerNotAuthorized: boolean;
   alertOnFailure: boolean;
   failureThresholdScore: number;
   createdTime: string;
@@ -204,6 +214,8 @@ export function useCreateContract() {
       },
       invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Create contract failed',
+      // The contract dialog shows the server's reason in a banner.
+      errorToast: false,
     }),
   );
 }
@@ -216,6 +228,8 @@ export function useUpdateContract(id: number) {
       mutationFn: (payload) => beaconApi().updateDataContract(id, payload as never),
       invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id), DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Update contract failed',
+      // The contract dialog shows the server's reason in a banner.
+      errorToast: false,
     }),
   );
 }

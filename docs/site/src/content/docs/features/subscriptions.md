@@ -124,9 +124,28 @@ The Subscriptions page shows:
 
 ### Owner and project access
 
-A subscription records its **owner** when it is created: the signed-in creator, or, for a subscription an [AI actor](/features/ai-actors/) creates, the actor's creator — never a value from the request. The subscription page shows the owner by display name, or as "User {id}" without one — never a user name or external id; subscriptions created before owners were recorded show "no owner recorded", and an owner who matches no Beacon user any more shows "unknown user". The detail route returns `hasOwner` and `ownerDisplayName` for this, not the owner's id. While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user) cannot create a subscription (`403`). In this version scheduled runs still run as the system; the owner is the account their access will be checked against.
+A subscription records its **owner** when it is created: the signed-in creator, or, for a subscription an [AI actor](/features/ai-actors/) creates, the actor's creator — never a value from the request. The subscription page shows the owner by display name, or as "User {id}" without one — never a user name or external id; subscriptions created before owners were recorded show "no owner recorded", and an owner who matches no Beacon user any more shows "unknown user". The detail route returns `hasOwner` and `ownerDisplayName` for this, not the owner's id. While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user) cannot create a subscription (`403`).
 
 A subscription belongs to the project that holds its query's data sources: it, its runs and their stored results are visible only through such a project the caller may use ([Project access](/features/authorization/#project-access)). One you may not read answers `404` and shows the not-found state.
+
+### Scheduled runs run as the owner
+
+Every scheduled run runs as the subscription's owner, as they are at that moment: right before any SQL runs, Beacon checks that the owner may still run saved SQL in one project that holds every data source of the query's steps. When the owner may not — the owner was disabled or archived, lost their membership of a restricted project, or lost the role that lets them run saved SQL — the run is **skipped**:
+
+- nothing runs against the data sources, no notification is sent, no task is created or updated, and an AI actor is not triggered;
+- the run history records the run with the status **Skipped** (`notificationStatus` `8`) and the reason "Skipped: owner not authorized.";
+- the job itself does not fail, and a skipped run is not reported as an execution failure (the Home page's failures leave it out; its activity feed lists the run as skipped, and the uptime strip shows it as a warning);
+- the Control Tower counts it as an unsuccessful run and marks the subscription (`ownerNotAuthorized` on its health row), and so does the subscription's detail (`ownerNotAuthorized`).
+
+The subscription page then shows a banner saying that scheduled runs are skipped until an Admin assigns an owner who has access, and marks the owner **not authorized**. Skipped runs carry the **Skipped** label in the execution history, the notifications list, and the Control Tower.
+
+A subscription without an owner (created before owners were recorded) runs only while every data source of its query is openly reachable (linked to an open project, or unlinked and open); otherwise it is skipped, and with `Beacon:Authorization:RequireProjectMembership: true` it is always skipped. On a host without Beacon user management, an owner who has no Beacon user runs as the system, as before.
+
+**Execute Now** runs as you, the caller, not as the owner: it needs your access to run the query, and answers `403` without it.
+
+### Change the owner
+
+An Admin assigns an owner with **Change owner** on the subscription page (in the header, and in the "owner not authorized" banner): pick a user and save. The same change is `PUT /beacon/api/subscriptions/{id}/owner` with `{ "userId": 12 }` (the user's id in the user directory) — for instance for a subscription created before owners were recorded, or one whose owner left. The new owner must be an existing, enabled user who may run the subscription's query: run saved SQL in one project that holds all of its data sources. A user who may not is refused with `409` and a message saying so, because every run would be skipped; the page shows that message and keeps the picker open so you can choose someone else.
 
 ### Execute Manually
 

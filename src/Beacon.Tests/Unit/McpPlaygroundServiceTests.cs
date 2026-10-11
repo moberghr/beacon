@@ -16,8 +16,10 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
@@ -46,22 +48,24 @@ public class McpPlaygroundServiceTests
 
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private Mock<IQueryExecutionService> _queryExecution = null!;
+    private List<object> _recorded = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _recorded = [];
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _queryExecution = new Mock<IQueryExecutionService>();
 
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["customers"] = ["id", "name", "email"]
             });
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "## Relevant Tables (full schema)\n\norders(id, placed_time)\n",
@@ -106,7 +110,7 @@ public class McpPlaygroundServiceTests
         result.IsError.Should().BeFalse(result.Text);
         result.Text.Should().StartWith("# Query Context: warehouse (PostgreSQL)");
         _knowledgeGraph.Verify(
-            x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, It.IsAny<CancellationToken>()), Times.Once,
+            x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once,
             "the dispatch arm must hand question and datasource_id to the real GetQueryContextTool");
     }
 
@@ -212,6 +216,8 @@ public class McpPlaygroundServiceTests
         _queryExecution.Verify(
             x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
             "work with no request is unrestricted, so the playground refuses it outright");
+        _recorded.OfType<McpAuditLog>().Should().ContainSingle("the refusal is a tool invocation and is audited")
+            .Which.Should().Match<McpAuditLog>(x => x.Tool == "dry_run" && x.UserId == null && x.ErrorMessage != null);
     }
 
     [Test]
@@ -226,6 +232,8 @@ public class McpPlaygroundServiceTests
 
         result.IsError.Should().BeTrue();
         result.Text.Should().Be($"Access denied: you do not have access to project {ProjectId}.");
+        _recorded.OfType<McpAuditLog>().Should().ContainSingle("the refusal is a tool invocation and is audited")
+            .Which.Should().Match<McpAuditLog>(x => x.Tool == "get_documentation" && x.UserId == 5 && x.ErrorMessage != null);
     }
 
     [Test]
@@ -246,6 +254,25 @@ public class McpPlaygroundServiceTests
         _queryExecution.Verify(
             x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         documentation.Text.Should().Be("response_format must be 'concise' or 'detailed'.", "the catalog tool ran: a Viewer reads the project");
+    }
+
+    // get_query_context needs Read only; live value probes need Query, so a Viewer gets stored sample values alone.
+    [TestCase(ProjectRole.Viewer, false)]
+    [TestCase(ProjectRole.Editor, true)]
+    public async Task GetQueryContext_ProbesLiveValues_OnlyForACallerWhoMayQueryTheProject(ProjectRole role, bool liveValueProbes)
+    {
+        var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = role }, includesOpen: false, notOpen: []);
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+
+        var result = await service.ExecuteToolAsync(
+            "get_query_context",
+            new Dictionary<string, object?> { ["question"] = Question, ["datasource_id"] = DataSourceId },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse(result.Text);
+        _knowledgeGraph.Verify(
+            x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestCase("ask", true)]
@@ -309,6 +336,68 @@ public class McpPlaygroundServiceTests
     }
 
     [Test]
+    public async Task ASignedInSessionsSignalAndAuditRow_NameItsBeaconUser_NotItsSessionId()
+    {
+        // A cookie session's NameIdentifier is its user's external id; the signal and the audit row record its Users.Id.
+        var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "8d6f0c2e-ext")], "Cookies"));
+        var service = new McpPlaygroundService(BuildServiceProvider(caller: session, actors: TestProjectAccess.Actors(beaconUserId: 12, externalId: "8d6f0c2e-ext")));
+
+        var result = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+
+        result.IsError.Should().BeFalse(result.Text);
+        _recorded.OfType<McpQuerySignal>().Should().ContainSingle().Which.UserId.Should().Be(12);
+        _recorded.OfType<McpAuditLog>().Should().ContainSingle().Which.UserId.Should().Be(12);
+    }
+
+    [Test]
+    public async Task ASignalRecordedForASignedInSession_CanBeRatedByThatUser()
+    {
+        var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "8d6f0c2e-ext")], "Cookies"));
+        var actors = TestProjectAccess.Actors(beaconUserId: 12, externalId: "8d6f0c2e-ext");
+        var service = new McpPlaygroundService(BuildServiceProvider(caller: session, actors: actors));
+        await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            CancellationToken.None);
+        var signal = _recorded.OfType<McpQuerySignal>().Single();
+        signal.Id = 31;
+        signal.ProjectId = ProjectId;
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object>
+                {
+                    [typeof(McpQuerySignal)] = RecordingBeaconContext.MemorySet(new List<McpQuerySignal> { signal }, []),
+                    [typeof(McpEvalCase)] = RecordingBeaconContext.MemorySet(new List<McpEvalCase>(), [])
+                },
+                []));
+        var policy = new Mock<IContentRetentionPolicy>();
+        policy
+            .Setup(x => x.ResolveAsync(It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ContentRetentionDecision(true, true));
+        // An Editor in the project, not its project admin: only the own-caller rule lets it rate the signal.
+        var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
+        var handler = new RecordQueryFeedbackHandler(
+            factory.Object,
+            Mock.Of<MediatR.ISender>(),
+            policy.Object,
+            TestProjectAccess.Evaluator(editor),
+            actors,
+            NullLogger<RecordQueryFeedbackHandler>.Instance);
+
+        var act = () => handler.Handle(new RecordQueryFeedbackCommand(31, McpUserVerdict.Incorrect), CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        signal.UserVerdict.Should().Be(McpUserVerdict.Incorrect);
+    }
+
+    [Test]
     public async Task UnknownTool_ReturnsError()
     {
         var service = new McpPlaygroundService(BuildServiceProvider());
@@ -324,18 +413,20 @@ public class McpPlaygroundServiceTests
         bool auditRequired = false,
         bool auditSaveThrows = false,
         bool withRequest = true,
-        ProjectAccessScope? access = null)
+        ProjectAccessScope? access = null,
+        ClaimsPrincipal? caller = null,
+        IBeaconActorAccessor? actors = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new PlaygroundTestContext());
+            .ReturnsAsync(() => new PlaygroundTestContext(_recorded));
 
         // The audit rows go through their own factory so a failing audit save leaves the tool's reads intact.
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
         auditFactory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new PlaygroundTestContext(auditSaveThrows));
+            .ReturnsAsync(() => new PlaygroundTestContext(_recorded, auditSaveThrows));
         var deploymentOptions = Options.Create(new McpDeploymentOptions { Audit = new McpAuditOptions { Required = auditRequired } });
 
         var settingsProvider = SettingsProviderMock.Create();
@@ -360,10 +451,11 @@ public class McpPlaygroundServiceTests
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
         var request = withRequest
-            ? new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "5")], "Cookies")) }
+            ? new DefaultHttpContext { User = caller ?? new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "5")], "Cookies")) }
             : null;
         services.AddSingleton(Mock.Of<IHttpContextAccessor>(x => x.HttpContext == request));
         services.AddSingleton(TestProjectAccess.Evaluator(access ?? TestProjectAccess.Unrestricted));
+        services.AddSingleton(actors ?? TestProjectAccess.Actors(beaconUserId: 5, externalId: "5"));
         // Same shape as ServiceConfiguration: one scoped McpAuditOutcome per playground scope, shared by the audit
         // service and the playground's withhold decision.
         services.AddSingleton(deploymentOptions);
@@ -373,9 +465,10 @@ public class McpPlaygroundServiceTests
         services.AddScoped(x => new DryRunTool(
             factory.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestConfiguredDatabases.None,
             _knowledgeGraph.Object,
             _queryExecution.Object,
-            settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
             x.GetRequiredService<IProjectContext>(),
             x.GetRequiredService<McpAuditService>(),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
@@ -421,8 +514,8 @@ public class McpPlaygroundServiceTests
             .ToList();
     }
 
-    /// <summary>Serves the data-source resolution queries over async-queryable doubles and accepts
-    /// audit rows — no DB, no UseInMemoryDatabase (§4.7). Mirrors DryRunToolTests.</summary>
+    /// <summary>Serves the data-source resolution queries over async-queryable doubles and records the audit rows and
+    /// signals added — no DB, no UseInMemoryDatabase (§4.7). Mirrors DryRunToolTests.</summary>
     private sealed class PlaygroundTestContext : BeaconContext
     {
         private static readonly DbContextOptions<PlaygroundTestContext> Options =
@@ -435,9 +528,11 @@ public class McpPlaygroundServiceTests
         private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
         private readonly bool _saveThrows;
 
-        public PlaygroundTestContext(bool saveThrows = false) : base(Options, "beacon")
+        public PlaygroundTestContext(List<object> recorded, bool saveThrows = false) : base(Options, "beacon")
         {
             _saveThrows = saveThrows;
+            _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>())).Callback<McpAuditLog>(recorded.Add);
+            _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>())).Callback<McpQuerySignal>(recorded.Add);
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class

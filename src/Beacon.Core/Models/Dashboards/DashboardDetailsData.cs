@@ -7,7 +7,8 @@ public record DashboardDetailsData
     public int Id { get; init; }
     public string Name { get; init; } = null!;
     public string? Description { get; init; }
-    public string? CreatedByUserId { get; init; }
+
+    /// <summary>The owner's display name, or "User {id}" without one; null when the owner is not a Beacon user.</summary>
     public string? CreatedByUserName { get; init; }
     public bool IsShared { get; init; }
     public bool IsDefault { get; init; }

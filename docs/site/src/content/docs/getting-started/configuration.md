@@ -393,6 +393,24 @@ Every new [API key](/features/api-keys/) expires. A key created without an expir
 API-key scopes are enforced on every route, the `Admin` scope is retired, `Execute` follows the owner's current role, new keys must expire, keys are managed from a browser session only, a disabled or archived user's keys are revoked, and `/beacon/mcp` should be mapped with `app.MapBeaconMcp()`. See [API Keys → Upgrading from 4.5](/features/api-keys/#upgrading-from-45) for what to change.
 :::
 
+## Metadata Refresh
+
+A forced [metadata refresh](/features/data-sources/#refreshing-metadata) re-reads a data source's tables and columns from the live database. Each data source is force-refreshed at most once per cooldown; a second request inside it answers `429`.
+
+```json
+{
+  "Beacon": {
+    "Metadata": {
+      "ForcedRefreshCooldownMinutes": 15
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `ForcedRefreshCooldownMinutes` | Minutes after a successful forced refresh of a data source before the next one is accepted (0–1440; `0` turns the cooldown off). A failed refresh does not start it, changing the data source clears it, and a changed value applies to the next request. Kept per Beacon process, so each instance of a multi-instance host keeps its own. A value out of range fails startup. | `15` |
+
 ## AI / LLM Configuration (Optional — Experimental)
 
 :::caution[Experimental]

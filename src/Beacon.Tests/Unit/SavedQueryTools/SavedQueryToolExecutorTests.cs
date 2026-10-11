@@ -1,9 +1,12 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -110,6 +113,24 @@ public class SavedQueryToolExecutorTests
         _executed[0].Sql.Should().Contain("LIMIT 6", "the SQL asks for one row past the cap so truncation is detectable");
     }
 
+    // The strictest guardrails of the live projects that link any of the steps' data sources apply.
+    [Test]
+    public async Task AnotherProjectLinkingAStepsSource_LowersTheRowLimit()
+    {
+        _results.Enqueue(Enumerable.Range(1, 6).Select(x => Row(("n", (object?)x))).ToList());
+        var tool = Tool("numbers", [Step(1, 10, "SELECT n FROM numbers")], [ProjectId]);
+        var sharedSources = TestSharedSources.Linking(10, new Dictionary<int, McpSettingsData>
+        {
+            [ProjectId] = new() { MaxRowLimit = 1000 },
+            [ProjectId + 1] = new() { MaxRowLimit = 5 }
+        });
+
+        var result = await Executor(sharedSources: sharedSources).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.MaxRows.Should().Be(5);
+        result.Rows.Should().HaveCount(5);
+    }
+
     [Test]
     public async Task AWriteStatement_IsBlockedBeforeItReachesTheProvider()
     {
@@ -145,7 +166,7 @@ public class SavedQueryToolExecutorTests
     [TestCase(true, "SELECT c.\"Name\" FROM public.\"Customer\" c WHERE c.\"Id\" = {id} AND c.\"Name\" <> {name}")]
     public async Task AHostManagedSource_WithParameters_PassesTheRealHostPolicy(bool npgsql, string sql)
     {
-        _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: HostTestModelFactory.EngineOf(npgsql));
+        _data.Link(ProjectId, _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: HostTestModelFactory.EngineOf(npgsql)));
         _results.Enqueue([Row(("Name", "Anna"))]);
         var tool = Tool("customer_by_id", [Step(1, 20, sql, Parameter("id", ParameterType.Number), Parameter("name", ParameterType.String))], [ProjectId]);
 
@@ -162,7 +183,7 @@ public class SavedQueryToolExecutorTests
     [TestCase(true, "SELECT c.\"Name\" FROM public.\"Customer\" c WHERE c.\"SSN\" = {ssn}")]
     public async Task AHostManagedSource_MaskedColumnPredicate_IsRejectedByTheRealHostPolicy(bool npgsql, string sql)
     {
-        _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: HostTestModelFactory.EngineOf(npgsql));
+        _data.Link(ProjectId, _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: HostTestModelFactory.EngineOf(npgsql)));
         var tool = Tool("customer_by_ssn", [Step(1, 20, sql, Parameter("ssn", ParameterType.String))], [ProjectId]);
 
         var result = await Executor(hostGuard: RealHostGuard(npgsql)).ExecuteAsync(tool, ProjectId, Args(("ssn", "0101302989")), CancellationToken.None);
@@ -367,6 +388,57 @@ public class SavedQueryToolExecutorTests
 
     private const string HostKey = "efcore:Netgiro";
 
+    [Test]
+    public async Task ASourceUnlinkedBetweenListingAndRunning_IsRefused_AndNoSqlRuns()
+    {
+        // The tool was listed while project 1 linked both of its sources; one link is removed before it runs.
+        _data.Query(1, "orders_by_customer", [Step(1, 10, "SELECT id FROM orders"), Step(2, 11, "SELECT id FROM customers")], finalQuery: "SELECT * FROM result1");
+        var listed = await new SavedQueryToolSource(_data.Store.Factory().Object).GetToolsAsync([ProjectId], CancellationToken.None);
+        var tool = listed.Should().ContainSingle().Subject;
+        _data.Store.ListFor<ProjectDataSource>().RemoveAll(x => x.ProjectId == ProjectId && x.DataSourceId == 11);
+
+        var result = await Executor().ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Be($"not available in project {ProjectId} for your credentials.");
+        _executed.Should().BeEmpty("the re-check runs before any step's SQL");
+        _gate.Dialects.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task AProjectTheCallerMayNoLongerRunStoredSqlIn_IsRefused_AndNoSqlRuns()
+    {
+        var tool = Tool("orders", [Step(1, 10, "SELECT id FROM orders")], [ProjectId]);
+        var readOnly = new ProjectAccessScope(
+            false,
+            new Dictionary<ProjectAction, ProjectSet> { [ProjectAction.Read] = new([ProjectId], false, []) },
+            new Dictionary<int, ProjectGrant> { [ProjectId] = new(ProjectRole.Viewer, new HashSet<ProjectAction> { ProjectAction.Read }) });
+
+        var refusedForReadOnly = await Executor(access: readOnly).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+        var refusedElsewhere = await Executor(access: TestProjectAccess.ReadableIn(2)).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        refusedForReadOnly.Success.Should().BeFalse();
+        refusedElsewhere.Success.Should().BeFalse();
+        _executed.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task TheReCheck_ReadsTheStepsThatRun_NotTheListedSources()
+    {
+        // A definition whose listed sources leave out a step's source: the step's own source is what is checked.
+        var tool = Tool("orders", [Step(1, 10, "SELECT id FROM orders"), Step(2, 30, "SELECT id FROM elsewhere")], [ProjectId], finalQuery: "SELECT * FROM result1") with
+        {
+            DataSourceIds = [10]
+        };
+        _data.DataSource(30, "unlinked");
+
+        var result = await Executor().ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("not available");
+        _executed.Should().BeEmpty();
+    }
+
     private static HostDataSourceGuard RealHostGuard(bool npgsql)
     {
         var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql);
@@ -381,7 +453,11 @@ public class SavedQueryToolExecutorTests
         public HostExposureSnapshot? GetSnapshot(string hostManagedKey) => hostManagedKey == HostKey ? snapshot : null;
     }
 
-    private SavedQueryToolExecutor Executor(McpSettingsData? settings = null, IHostDataSourceGuard? hostGuard = null)
+    private SavedQueryToolExecutor Executor(
+        McpSettingsData? settings = null,
+        IHostDataSourceGuard? hostGuard = null,
+        ProjectAccessScope? access = null,
+        ISharedSourceSettings? sharedSources = null)
     {
         var factory = new Mock<IDataSourceProviderFactory>();
         factory
@@ -394,8 +470,10 @@ public class SavedQueryToolExecutorTests
             _data.Store.Factory().Object,
             factory.Object,
             _gate,
+            TestConfiguredDatabases.None,
             new QueryGuardrailService(),
-            SettingsProviderMock.Create(settings ?? new McpSettingsData()).Object,
+            sharedSources ?? SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData()).Object),
+            TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn(ProjectId)),
             NullLoggerFactory.Instance);
     }
 

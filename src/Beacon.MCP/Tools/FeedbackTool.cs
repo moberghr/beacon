@@ -99,8 +99,8 @@ internal sealed class FeedbackTool(
             return false;
         }
 
-        // A null list is a caller with no project list (no request); an empty list allows nothing.
-        if (projectContext.AllowedProjectIds != null && !projectContext.AllowedProjectIds.Contains(signalProjectId.Value))
+        // Only a project the caller's list holds; a missing list (no caller resolved) or an empty one allows nothing.
+        if (projectContext.AllowedProjectIds?.Contains(signalProjectId.Value) != true)
         {
             return false;
         }

@@ -20,8 +20,8 @@ public sealed record BeaconActor(string? UserId, bool IsAdmin)
     public static BeaconActor Nobody { get; } = new(null, false);
 
     /// <summary>
-    /// Work with no request (a background job, a startup task): owns nothing and is no Admin, like <see cref="Nobody"/>,
-    /// but the project access evaluator reads it as the system.
+    /// Work with no request in a scope marked as system work (a background job, a startup task): owns nothing and is no
+    /// Admin, like <see cref="Nobody"/>, but the project access evaluator reads it as the system.
     /// </summary>
     internal static BeaconActor OffRequest { get; } = new(null, false) { Kind = BeaconPrincipalKind.System };
 
@@ -39,7 +39,7 @@ public sealed record BeaconActor(string? UserId, bool IsAdmin)
     internal BeaconPrincipalKind Kind { get; init; } = BeaconPrincipalKind.Anonymous;
 
     /// <summary>The <c>Users.Id</c> of the caller's stored, active user (an API key's owner); null without one.</summary>
-    internal int? BeaconUserId { get; init; }
+    public int? BeaconUserId { get; internal init; }
 
     /// <summary>True when <see cref="BeaconUserId"/> names a stored user that is enabled and not archived.</summary>
     internal bool IsActiveUser { get; init; }

@@ -214,6 +214,7 @@ public class ProjectSourceSharingTests
             capture.Factory(),
             TestProjectAccess.Evaluator(scope),
             new DatabaseProjectMembershipSource(configuration, capture.Factory()),
+            SettingsProviderMock.Create().Object,
             Options.Create(new ProjectAuthorizationOptions()));
     }
 

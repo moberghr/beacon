@@ -14,13 +14,16 @@ namespace Beacon.Core.Authorization;
 /// user: an API key by its owner's <c>Users.Id</c>, a mapped MCP caller by its provisioned <c>Users.Id</c>, every other
 /// principal by <c>NameIdentifier</c> to <c>Users.ExternalId</c>. The one user lookup also reads the user's live Admin
 /// standing and role level, which the project access evaluator decides by. Resolved once per scope. Work without a
-/// request is the system (<see cref="BeaconActor.OffRequest"/>); in a scope nobody marked as system work
-/// (<see cref="ISystemWorkScope"/>) that is reported as a warning.
+/// request is the owner it runs as in a scope set to run as the owner of scheduled work (<see cref="IRunAsScope"/>),
+/// otherwise the system (<see cref="BeaconActor.OffRequest"/>) only in a scope marked as system work
+/// (<see cref="ISystemWorkScope"/>); in a scope nobody marked it is nobody (no project access, fail closed), which is
+/// reported as a warning.
 /// </summary>
 internal sealed class BeaconActorAccessor(
     IHttpContextAccessor httpContextAccessor,
     IDbContextFactory<BeaconContext> contextFactory,
     ISystemWorkScope systemWork,
+    IRunAsScope runAs,
     ProjectAccess.UnmarkedSystemWorkLog unmarkedSystemWork) : IBeaconActorAccessor
 {
     private BeaconActor? _current;
@@ -35,12 +38,24 @@ internal sealed class BeaconActorAccessor(
         var httpContext = httpContextAccessor.HttpContext;
         if (httpContext == null)
         {
-            if (!systemWork.IsSystemWork)
+            // Who the scope acts as is decided now: from here on the owner it runs as can no longer be set.
+            (runAs as ProjectAccess.RunAsScope)?.MarkCallerResolved();
+            if (runAs.IsSet)
             {
-                unmarkedSystemWork.Report();
+                _current = await ResolveOwnerAsync(runAs.OwnerUserId, cancellationToken);
+
+                return _current;
             }
 
-            _current = BeaconActor.OffRequest;
+            if (systemWork.IsSystemWork)
+            {
+                _current = BeaconActor.OffRequest;
+
+                return _current;
+            }
+
+            unmarkedSystemWork.Report();
+            _current = BeaconActor.Nobody;
 
             return _current;
         }

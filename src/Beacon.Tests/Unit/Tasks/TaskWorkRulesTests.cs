@@ -641,7 +641,18 @@ public class TaskWorkRulesTests
         var result = await handler.Handle(new GetTaskDetailQuery(TaskId), CancellationToken.None);
 
         result!.AssignedToCaller.Should().Be(assignedToCaller);
-        result.AssigneeUserId.Should().Be(assignee);
+        result.HasAssignee.Should().Be(assignee != null, "the detail says whether the task is assigned, not to which external id");
+    }
+
+    [Test]
+    public async Task Detail_NamesPeopleByDisplayNameOrUserId_NeverByUserName()
+    {
+        var capture = new SqlCapture().ThenNoRows();
+
+        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance).GetTaskDetails(TaskId, null, CancellationToken.None);
+
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        sql.Should().Contain("'User '").And.NotContain("user_name", "a resolver or assignee is never named by their user name");
     }
 
     [Test]

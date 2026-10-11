@@ -374,8 +374,12 @@ internal class SubscriptionService(
                 OwnerUserId = x.OwnerUserId,
                 OwnerDisplayName = context.Users
                     .Where(y => y.ExternalId == x.OwnerUserId)
-                    .Select(y => y.DisplayName ?? "User " + y.Id.ToString())
+                    .Select(UserLabel.OfUser)
                     .FirstOrDefault(),
+                OwnerNotAuthorized = x.QueryExecutionHistory!
+                    .OrderByDescending(y => y.CreatedTime)
+                    .Take(1)
+                    .Any(y => y.NotificationStatus == NotificationStatus.Skipped),
                 Parameters = x.Parameters.Select(y => new SubscriptionParameterData()
                 {
                     QueryPlaceholder = y.QueryPlaceholder,

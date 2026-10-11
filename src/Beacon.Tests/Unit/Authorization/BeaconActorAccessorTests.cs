@@ -341,13 +341,14 @@ public class BeaconActorAccessorTests
     }
 
     [Test]
-    public async Task WorkWithoutARequest_IsTheSystem_AndOwnsNothing()
+    public async Task WorkWithoutARequest_InAnUnmarkedScope_IsNobody_AndOwnsNothing()
     {
         var accessor = TestProjectAccess.ActorAccessor(new HttpContextAccessor(), Factory());
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
-        actor.Kind.Should().Be(BeaconPrincipalKind.System);
+        actor.Should().BeSameAs(BeaconActor.Nobody, "work without a request is the system only in a scope marked as system work");
+        actor.Kind.Should().Be(BeaconPrincipalKind.Anonymous);
         actor.UserId.Should().BeNull();
         actor.IsAdmin.Should().BeFalse();
     }
@@ -420,6 +421,7 @@ public class BeaconActorAccessorTests
             new HttpContextAccessor(),
             Factory(),
             systemWork,
+            new RunAsScope(new HttpContextAccessor()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()));
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
@@ -429,22 +431,42 @@ public class BeaconActorAccessorTests
     }
 
     [Test]
-    public async Task WorkWithoutARequest_InAnUnmarkedScope_IsStillTheSystem_AndWarnsAtMostOncePerInterval()
+    public async Task WorkWithoutARequest_InAnUnmarkedScope_GetsNoAccess_AndWarnsAtMostOncePerInterval()
     {
         var logs = new LogRecorder();
         var time = new FakeTimeProvider();
         var unmarked = new UnmarkedSystemWorkLog(time, logs.For<UnmarkedSystemWorkLog>());
 
-        var first = await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), unmarked).GetCurrentAsync(CancellationToken.None);
-        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), unmarked).GetCurrentAsync(CancellationToken.None);
+        var first = await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked).GetCurrentAsync(CancellationToken.None);
         var afterBurst = logs.Entries.Count;
         time.Advance(UnmarkedSystemWorkLog.Interval);
-        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), unmarked).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked).GetCurrentAsync(CancellationToken.None);
 
-        first.Kind.Should().Be(BeaconPrincipalKind.System);
+        first.Kind.Should().Be(BeaconPrincipalKind.Anonymous, "an unmarked scope without a request is nobody");
         afterBurst.Should().Be(1, "a second unmarked scope within the interval is not reported again");
         logs.Entries.Should().HaveCount(2);
         logs.Entries.Should().OnlyContain(x => x.Level == LogLevel.Warning && x.Message.Contains("not marked as system work"));
+    }
+
+    [Test]
+    public void AnOwnerRunningAsTheSystem_IsWarnedAboutAtMostOncePerIntervalForEachOwner()
+    {
+        var logs = new LogRecorder();
+        var time = new FakeTimeProvider();
+        var log = new OwnerRunsAsSystemLog(time, logs.For<OwnerRunsAsSystemLog>());
+
+        log.Report("host-principal");
+        log.Report("host-principal");
+        log.Report("other-principal");
+        var afterBurst = logs.Entries.Count;
+        time.Advance(OwnerRunsAsSystemLog.Interval);
+        log.Report("host-principal");
+
+        afterBurst.Should().Be(2, "one warning per owner within the interval");
+        logs.Entries.Should().HaveCount(3);
+        logs.Entries.Should().OnlyContain(x => x.Level == LogLevel.Warning && x.Message.Contains("runs as the system"));
+        logs.Entries.Select(x => x.Message).Should().Contain(x => x.Contains("owner other-principal"));
     }
 
     [Test]
@@ -456,6 +478,7 @@ public class BeaconActorAccessorTests
             Accessor(Interactive("ext-ana")),
             Factory(),
             systemWork,
+            new RunAsScope(new HttpContextAccessor()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()));
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);

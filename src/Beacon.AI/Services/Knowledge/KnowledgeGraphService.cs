@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Embeddings;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
@@ -16,9 +17,11 @@ namespace Beacon.AI.Services.Knowledge;
 internal sealed class KnowledgeGraphService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IBeaconEmbeddingService embeddingService,
     ISchemaGraphService schemaGraphService,
     IValueGroundingService valueGroundingService,
+    IConfiguredDatabaseResolver configuredDatabases,
     ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
 {
     // Detailed-table budget for the smart-retrieval path. Kept as a named constant because the coverage
@@ -55,16 +58,13 @@ internal sealed class KnowledgeGraphService(
         return BuildTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
     }
 
-    // Documentation and code references belong to a project: they come from projectId alone, never from another project
-    // that links the same data source, and without a project there are none.
-    private async Task<TableKnowledge> BuildTableKnowledgeAsync(int dataSourceId, int? projectId, string schemaName, string tableName, CancellationToken ct)
+    // Only through the caller's project: a data source it does not link is not found. Documentation and code references
+    // belong to a project: they come from projectId alone, never from another project that links the same data source.
+    private async Task<TableKnowledge> BuildTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        var dataSource = await context.DataSources
-            .Where(ds => ds.Id == dataSourceId)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
 
         // Get schema metadata
         var metadata = await context.DatabaseMetadata
@@ -74,28 +74,24 @@ internal sealed class KnowledgeGraphService(
             .FirstOrDefaultAsync(ct);
 
         // Get documentation from the project's documentation (DataModel section)
-        var docContent = projectId == null
-            ? null
-            : await context.ProjectDocumentationSections
-                .Where(x => x.Documentation.ProjectId == projectId.Value)
-                .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
-                .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
-                .OrderByDescending(x => x.Documentation.GeneratedAt)
-                .Select(x => x.Content)
-                .FirstOrDefaultAsync(ct);
+        var docContent = await context.ProjectDocumentationSections
+            .Where(x => x.Documentation.ProjectId == projectId)
+            .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
+            .OrderByDescending(x => x.Documentation.GeneratedAt)
+            .Select(x => x.Content)
+            .FirstOrDefaultAsync(ct);
 
         // Get code references (from the project's repositories, GitHub scanner)
-        var codeReferences = projectId == null
-            ? []
-            : await context.CodeReferences
-                .Where(x => x.GitHubRepository.ProjectId == projectId.Value)
-                .Where(x => x.GitHubRepository.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
-                .Where(x => x.TableName != null)
-                .Where(x => x.TableName!.ToLower() == tableName.ToLower())
-                .Take(50)
-                .Select(x =>
-                    new CodeReferenceInfo(x.FilePath, x.LineNumber, x.ReferenceType, x.ClassName, x.MethodName, x.CodeSnippet))
-                .ToListAsync(ct);
+        var codeReferences = await context.CodeReferences
+            .Where(x => x.GitHubRepository.ProjectId == projectId)
+            .Where(x => x.GitHubRepository.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.TableName != null)
+            .Where(x => x.TableName!.ToLower() == tableName.ToLower())
+            .Take(50)
+            .Select(x =>
+                new CodeReferenceInfo(x.FilePath, x.LineNumber, x.ReferenceType, x.ClassName, x.MethodName, x.CodeSnippet))
+            .ToListAsync(ct);
 
         // Get data quality score - property is Score, not OverallScore
         var qualityScore = await context.DataQualityScores
@@ -180,9 +176,18 @@ internal sealed class KnowledgeGraphService(
         return DataSourceKnowledgeAsync(dataSourceId, projectId, ct);
     }
 
-    public async Task<List<SearchResult>> SearchAsync(string query, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default)
+    public async Task<List<SearchResult>> SearchAsync(string query, int projectId, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        // Only the data sources the caller's project links are searched (§1.12), on both arms: a named data source the
+        // project does not link yields nothing.
+        var projectSourceIds = ProjectSourceIds(context, projectId);
+        if (dataSourceId.HasValue && !await projectSourceIds.ContainsAsync(dataSourceId.Value, ct))
+        {
+            return [];
+        }
+
         var results = new List<SearchResult>();
         var queryLower = query.ToLower();
 
@@ -195,7 +200,8 @@ internal sealed class KnowledgeGraphService(
             terms = [queryLower];
 
         // Search tables by name or description — match ANY term.
-        var tablesQuery = context.DatabaseMetadata.AsQueryable();
+        var tablesQuery = context.DatabaseMetadata
+            .Where(m => projectSourceIds.Contains(m.DataSourceId));
         if (dataSourceId.HasValue)
             tablesQuery = tablesQuery.Where(m => m.DataSourceId == dataSourceId.Value);
 
@@ -225,7 +231,8 @@ internal sealed class KnowledgeGraphService(
         }
 
         // Search columns by name or description — match ANY term.
-        var columnsQuery = context.ColumnMetadata.AsQueryable();
+        var columnsQuery = context.ColumnMetadata
+            .Where(c => projectSourceIds.Contains(c.DatabaseMetadata.DataSourceId));
         if (dataSourceId.HasValue)
             columnsQuery = columnsQuery.Where(c => c.DatabaseMetadata.DataSourceId == dataSourceId.Value);
 
@@ -571,6 +578,12 @@ internal sealed class KnowledgeGraphService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
+        // Only through the caller's project: a data source it does not link is not found.
+        if (!await ProjectSourceIds(context, projectId).ContainsAsync(dataSourceId, ct))
+        {
+            throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        }
+
         // Get code references that touch this table, from the project's repositories only (never another project's
         // that links the same data source)
         var codeRefs = await context.CodeReferences
@@ -624,19 +637,18 @@ internal sealed class KnowledgeGraphService(
         };
     }
 
-    public async Task<string> GetContextForLlmAsync(int dataSourceId, string? schemaName = null, string? tableName = null, CancellationToken ct = default)
+    public async Task<string> GetContextForLlmAsync(int dataSourceId, int projectId, string? schemaName = null, string? tableName = null, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
         var sb = new StringBuilder();
 
         if (tableName != null && schemaName != null)
         {
-            // No project here: the table's columns and quality, without any project's documentation.
-            var knowledge = await BuildTableKnowledgeAsync(dataSourceId, null, schemaName, tableName, ct);
+            // The table's columns and quality, with the caller's project's documentation only.
+            var knowledge = await BuildTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
 
             if (isApi)
             {
@@ -673,6 +685,7 @@ internal sealed class KnowledgeGraphService(
         }
         else
         {
+            // The LLM context shows neither code references nor documentation, so neither is read.
             var dsKnowledge = await DataSourceKnowledgeAsync(dataSourceId, null, ct);
 
             if (isApi)
@@ -1184,7 +1197,7 @@ internal sealed class KnowledgeGraphService(
                 sb.AppendLine($"Quality: {ds.OverallQualityScore:F0}%");
 
             // Get the full LLM context for this data source
-            var dsContext = await GetContextForLlmAsync(ds.DataSourceId, ct: ct);
+            var dsContext = await GetContextForLlmAsync(ds.DataSourceId, projectId, ct: ct);
             sb.AppendLine(dsContext);
             sb.AppendLine();
         }
@@ -1207,13 +1220,17 @@ internal sealed class KnowledgeGraphService(
         return results;
     }
 
-    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, CancellationToken ct = default)
+    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, bool liveValueProbes, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
+
+        // Grounding reads the data source under the strictest guardrails of the live projects that link it: value
+        // grounding and its probe budget, stored sample values, and the custom patterns of the grounding PII screen.
+        var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
+        var valueGroundingSettings = ValueGroundingSettings(mcpSettings, liveValueProbes);
 
         // Load all tables + columns in one query
         var allTables = await context.DatabaseMetadata
@@ -1232,11 +1249,14 @@ internal sealed class KnowledgeGraphService(
             })
             .ToListAsync(ct);
 
+        allTables = allTables
+            .Select(x => x with { Columns = WithStoredSamples(x.Columns, mcpSettings) })
+            .ToList();
+
         var totalColumns = allTables.Sum(t => t.Columns.Count);
         var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
         var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
         var dialect = DataSourceSqlDialect.Of(dataSource);
-        var mcpSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
         // Small schema fast path: send everything
         if (allTables.Count <= 40 && totalColumns <= 300)
@@ -1264,7 +1284,7 @@ internal sealed class KnowledgeGraphService(
                 var valueGroundingTables = allTables
                     .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                     .ToList();
-                sb.Append(await BuildValueMatchesBlockAsync(dataSourceId, question, valueGroundingTables, mcpSettings, ct));
+                sb.Append(await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct));
             }
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
@@ -1293,6 +1313,7 @@ internal sealed class KnowledgeGraphService(
                 TotalTableCount = allTables.Count,
                 DatabaseDialect = dialect,
                 HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
                 SchemaCatalog = catalog,
                 PrimaryKeyCatalog = primaryKeyCatalog,
                 JoinPaths = allPaths
@@ -1300,7 +1321,7 @@ internal sealed class KnowledgeGraphService(
         }
 
         // Smart path: search for relevant tables
-        var searchResults = await SearchAsync(question, dataSourceId, maxResults: 15, ct);
+        var searchResults = await SearchAsync(question, projectId, dataSourceId, maxResults: 15, ct);
 
         var matchedTableNames = searchResults
             .Where(r => r.Type is "table" or "column")
@@ -1353,7 +1374,7 @@ internal sealed class KnowledgeGraphService(
                 .Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}"))
                 .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                 .ToList();
-            smartSb.Append(await BuildValueMatchesBlockAsync(dataSourceId, question, valueGroundingTables, mcpSettings, ct));
+            smartSb.Append(await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct));
         }
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
@@ -1381,6 +1402,7 @@ internal sealed class KnowledgeGraphService(
             TotalTableCount = allTables.Count,
             DatabaseDialect = dialect,
             HostManagedKey = dataSource.HostManagedKey,
+            ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
             SchemaCatalog = catalog,
             PrimaryKeyCatalog = primaryKeyCatalog,
             Capped = expansion.Capped,
@@ -1389,13 +1411,16 @@ internal sealed class KnowledgeGraphService(
         };
     }
 
-    public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, CancellationToken ct = default)
+    public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, int projectId, CancellationToken ct = default)
     {
         // Same catalog GetSmartContextForAskAsync computes (shared BuildSchemaCatalog), but loading
         // only table/column names — none of the LLM-context assembly (search, join paths, exemplars).
+        // Empty when the caller's project does not link the data source (§1.12).
         await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var projectSourceIds = ProjectSourceIds(context, projectId);
         var tables = await context.DatabaseMetadata
             .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => projectSourceIds.Contains(x.DataSourceId))
             .Select(x =>
                 new
                 {
@@ -1503,11 +1528,11 @@ internal sealed class KnowledgeGraphService(
     /// can be unit-tested directly.
     /// </summary>
     internal async Task<string> BuildValueMatchesBlockAsync(
-        int dataSourceId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
+        int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
     {
         try
         {
-            return await valueGroundingService.BuildValueMatchesBlockAsync(dataSourceId, question, tables, settings, ct);
+            return await valueGroundingService.BuildValueMatchesBlockAsync(dataSourceId, projectId, question, tables, settings, ct);
         }
         catch (OperationCanceledException)
         {
@@ -1739,11 +1764,11 @@ internal sealed class KnowledgeGraphService(
         }
     }
 
-    public async Task<string> GetTablesContextAsync(int dataSourceId, IEnumerable<string> tableNames, CancellationToken ct = default)
+    public async Task<string> GetTablesContextAsync(int dataSourceId, int projectId, IEnumerable<string> tableNames, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
+        var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
         var nameList = tableNames
@@ -1773,9 +1798,35 @@ internal sealed class KnowledgeGraphService(
         var sb = new StringBuilder();
         sb.AppendLine("# Table Schemas\n");
         foreach (var t in matched)
-            SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+            SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, WithStoredSamples(t.Columns, mcpSettings), isApi);
 
         return sb.ToString();
+    }
+
+    // A caller without Query in the project gets the stored sample values only: live probes would let it read column
+    // contents it may not query (no probe budget means none run).
+    private static McpSettingsData ValueGroundingSettings(McpSettingsData settings, bool liveValueProbes)
+    {
+        if (liveValueProbes)
+        {
+            return settings;
+        }
+
+        var sampleOnly = settings.Clone();
+        sampleOnly.ValueGroundingMaxProbes = 0;
+
+        return sampleOnly;
+    }
+
+    // Stored sample values are served only while sample-value collection is on for every live project that links the
+    // data source.
+    private static List<SchemaColumn> WithStoredSamples(List<SchemaColumn> columns, McpSettingsData settings)
+    {
+        return settings.EnableSampleValueCollection
+            ? columns
+            : columns
+                .Select(x => x with { SampleValuesJson = null, SampleValuesComplete = false })
+                .ToList();
     }
 
     private static string? TruncateContent(string? content, int maxLength)
@@ -2365,15 +2416,40 @@ internal sealed class KnowledgeGraphService(
         return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
     }
 
-    // A data source's overview; code references and documentation of projectId only (none without one).
+    // The data sources projectId links. Grounding reads a data source only through the caller's authorized project
+    // (§1.12): a source the project does not link is never searched and is reported as not found.
+    private static IQueryable<int> ProjectSourceIds(BeaconContext context, int projectId)
+    {
+        return context.ProjectDataSources
+            .Where(x => x.ProjectId == projectId)
+            .Select(x => x.DataSourceId);
+    }
+
+    private static async Task<DataSource> LinkedDataSourceAsync(
+        BeaconContext context, int dataSourceId, int projectId, CancellationToken ct)
+    {
+        var projectSourceIds = ProjectSourceIds(context, projectId);
+
+        return await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Where(x => projectSourceIds.Contains(x.Id))
+            .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+    }
+
+    // A data source's overview; code references and documentation of projectId only (none read without one). With a
+    // project, only through it: a data source it does not link is not found. Without one, the caller has already checked
+    // the link (the LLM context).
     private async Task<DataSourceKnowledge> DataSourceKnowledgeAsync(int dataSourceId, int? projectId, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        var dataSource = await context.DataSources
-            .Where(ds => ds.Id == dataSourceId)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = projectId == null
+            ? await context.DataSources
+                .Where(x => x.Id == dataSourceId)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found")
+            : await LinkedDataSourceAsync(context, dataSourceId, projectId.Value, ct);
 
         // Aggregate server-side — materializing every metadata/quality row here made each
         // `ask` pay for full-catalog loads per data source.

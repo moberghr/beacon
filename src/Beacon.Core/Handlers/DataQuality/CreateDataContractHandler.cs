@@ -16,6 +16,7 @@ internal sealed class CreateDataContractHandler(
     IBeaconScheduler scheduler,
     IBeaconUserContext userContext,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IBeaconActorAccessor actorAccessor,
     BeaconConfiguration configuration) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
 {
@@ -35,20 +36,29 @@ internal sealed class CreateDataContractHandler(
 
         if (hasCustomSql)
         {
+            // The whole row: the rule's SQL may name only the database its connection is configured for.
             var dataSource = await context.DataSources
                 .Where(x => x.Id == request.DataSourceId)
-                .Select(x =>
-                    new DataQualityRuleTarget(x.DataSourceType, x.DatabaseEngineType, x.HostManagedKey))
                 .FirstOrDefaultAsync(cancellationToken);
 
-            DataQualityRuleGuard.EnsureCustomSqlRunnable(request.Rules, dataSource, gate);
+            DataQualityRuleGuard.EnsureCustomSqlRunnable(request.Rules, DataQualityRuleTarget.Of(dataSource, configuredDatabases), gate);
         }
+
+        // The rules name only the data source's own tables and columns, stored as its metadata spells them.
+        var catalog = await DataQualityRuleCatalog.LoadAsync(
+            context,
+            request.DataSourceId,
+            request.SchemaName,
+            request.TableName,
+            request.Rules.Select(x => x.Configuration),
+            cancellationToken);
+        var confined = DataQualityRuleGuard.EnsureConfined(catalog, request.SchemaName, request.TableName, request.Rules);
 
         var contract = new DataContract
         {
             DataSourceId = request.DataSourceId,
-            SchemaName = request.SchemaName,
-            TableName = request.TableName,
+            SchemaName = confined.SchemaName,
+            TableName = confined.TableName,
             Name = request.Name,
             Description = request.Description,
             CronExpression = request.CronExpression,
@@ -56,17 +66,20 @@ internal sealed class CreateDataContractHandler(
             OwnerUserId = ownerUserId,
             AlertOnFailure = request.AlertOnFailure,
             FailureThresholdScore = request.FailureThresholdScore,
-            Rules = request.Rules.Select(r => new DataContractRule
-            {
-                Name = r.Name,
-                Description = r.Description,
-                RuleType = r.RuleType,
-                ColumnName = r.ColumnName,
-                Configuration = r.Configuration,
-                Severity = r.Severity,
-                Weight = r.Weight,
-                IsEnabled = r.IsEnabled
-            }).ToList()
+            Rules = request.Rules
+                .Select((x, i) =>
+                    new DataContractRule
+                    {
+                        Name = x.Name,
+                        Description = x.Description,
+                        RuleType = x.RuleType,
+                        ColumnName = confined.Rules[i].ColumnName,
+                        Configuration = confined.Rules[i].Configuration ?? x.Configuration,
+                        Severity = x.Severity,
+                        Weight = x.Weight,
+                        IsEnabled = x.IsEnabled
+                    })
+                .ToList()
         };
 
         if (request.RecipientIds is { Count: > 0 })

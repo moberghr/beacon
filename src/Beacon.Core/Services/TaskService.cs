@@ -233,11 +233,12 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 CreatedAt = t.CreatedTime,
                 Resolved = t.Resolved,
                 ResolvedAt = t.ResolvedAt,
+                // Named by display name or "User {id}", never by user name.
                 ResolvedByUserName = t.ResolvedByUserId == null
                     ? null
                     : context.Users
                         .Where(u => u.ExternalId == t.ResolvedByUserId)
-                        .Select(u => u.DisplayName ?? u.UserName)
+                        .Select(UserLabel.OfUser)
                         .FirstOrDefault(),
                 AiActorId = t.Subscription.AiActorId,
                 AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
@@ -287,11 +288,12 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                 Resolved = t.Resolved,
                 ResolvedAt = t.ResolvedAt,
                 ResolvedByUserId = t.ResolvedByUserId,
+                // Named by display name or "User {id}", never by user name.
                 ResolvedByUserName = t.ResolvedByUserId == null
                     ? null
                     : context.Users
                         .Where(u => u.ExternalId == t.ResolvedByUserId)
-                        .Select(u => u.DisplayName ?? u.UserName)
+                        .Select(UserLabel.OfUser)
                         .FirstOrDefault(),
                 ResolutionNotes = t.ResolutionNotes,
                 QueryId = t.Subscription.QueryId,
@@ -310,17 +312,17 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
                     ? null
                     : context.Users
                         .Where(u => u.ExternalId == t.AssigneeUserId)
-                        .Select(u => u.DisplayName ?? u.UserName)
+                        .Select(UserLabel.OfUser)
                         .FirstOrDefault(),
                 SnoozedUntil = t.SnoozedUntil,
                 SlaHours = t.Subscription.SlaHours,
                 WatcherCount = t.Watchers.Count,
                 IsWatching = currentUserId != null && t.Watchers.Any(w => w.UserId == currentUserId),
-                OwnerUserId = t.Subscription.AiActor != null ? t.Subscription.AiActor.CreatedByUserId : null,
-                OwnerUserName = t.Subscription.AiActor != null && t.Subscription.AiActor.CreatedByUserId != null
+                HasOwner = t.Subscription.AiActor != null && t.Subscription.AiActor.CreatedByUserId != null,
+                OwnerDisplayName = t.Subscription.AiActor != null && t.Subscription.AiActor.CreatedByUserId != null
                     ? context.Users
                         .Where(u => u.ExternalId == t.Subscription.AiActor!.CreatedByUserId)
-                        .Select(u => u.DisplayName ?? u.UserName)
+                        .Select(UserLabel.OfUser)
                         .FirstOrDefault()
                     : null
             })

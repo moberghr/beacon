@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
-import { unwrap } from '@/lib/api';
+import { describeError, httpErrorInfo, unwrap } from '@/lib/api';
 import { createSimpleMutation } from '@/lib/mutations';
-import { WidgetType } from '@/lib/enums';
+import { DashboardPermissionLevel, WidgetType } from '@/lib/enums';
 
 // Local strict mirrors of the loose generated DTOs (see `unwrap` in
 // '@/lib/api'). Dates are strings on the wire.
@@ -42,8 +43,20 @@ export interface DashboardDetail {
   isDefault: boolean;
   refreshIntervalSeconds: number | null;
   createdTime: string;
+  /** The owner's display name or a neutral "User {id}" label; null when the owner is not a Beacon user. */
+  createdByUserName: string | null;
+  /** The caller's level on this dashboard: Admin (owner or admin grantee) may share it and make it the default. */
+  userPermissionLevel: DashboardPermissionLevel | null;
   widgets: DashboardWidget[];
 }
+
+/** Sharing a dashboard with everyone, or making it the default, needs the dashboard's Admin level. */
+export function canChangeSharing(dashboard: Pick<DashboardDetail, 'userPermissionLevel'>): boolean {
+  return dashboard.userPermissionLevel === DashboardPermissionLevel.Admin;
+}
+
+export const SHARING_FORBIDDEN_MESSAGE =
+  "Only the dashboard's owner or an admin grantee can share it or make it the default.";
 
 export interface AddWidgetPayload {
   title: string;
@@ -108,6 +121,34 @@ export function useCreateDashboard() {
       errorFallback: 'Failed to create dashboard',
     }),
   );
+}
+
+/**
+ * Shares the dashboard with everyone, or makes it its owner's default (or undoes either). The update carries the
+ * dashboard's other settings unchanged; the server refuses (403) a caller without the dashboard's Admin level.
+ */
+export function useSetDashboardSharing(dashboard: DashboardDetail) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (change: { isShared: boolean; isDefault: boolean }) =>
+      beaconApi().updateDashboard(dashboard.id, {
+        name: dashboard.name,
+        description: dashboard.description,
+        isShared: change.isShared,
+        isDefault: change.isDefault,
+        refreshIntervalSeconds: dashboard.refreshIntervalSeconds,
+        layoutConfiguration: null,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: dashboardKey(dashboard.id) });
+      qc.invalidateQueries({ queryKey: DASHBOARDS_KEY });
+      toast.success('Sharing updated');
+    },
+    onError: (err) => {
+      // A 403 carries no reason; say which level the change needs.
+      toast.error(httpErrorInfo(err)?.status === 403 ? SHARING_FORBIDDEN_MESSAGE : describeError(err, 'Updating sharing failed'));
+    },
+  });
 }
 
 export const WIDGET_TYPE_LABEL: Record<number, string> = {

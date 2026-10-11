@@ -255,8 +255,11 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
                 Status = v.Status,
                 Name = v.Name,
                 CreatedTime = v.CreatedTime,
-                CreatedByUserId = v.CreatedByUserId,
-                CreatedByUserName = v.CreatedByUserName,
+                // Named to other users by display name or "User {id}", never by user name or external id.
+                CreatedByUserName = context.Users
+                    .Where(u => u.ExternalId == v.CreatedByUserId)
+                    .Select(UserLabel.OfUser)
+                    .FirstOrDefault(),
                 ChangeSource = v.ChangeSource,
                 ChangeReason = v.ChangeReason,
                 StepsJson = v.StepsJson
@@ -271,7 +274,6 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Status = v.Status,
             Name = v.Name,
             CreatedTime = v.CreatedTime,
-            CreatedByUserId = v.CreatedByUserId,
             CreatedByUserName = v.CreatedByUserName,
             ChangeSource = v.ChangeSource,
             ChangeReason = v.ChangeReason,
@@ -289,7 +291,9 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
 
         if (version == null) return null;
 
-        return ToDetail(version);
+        var authors = await AuthorLabelsAsync(context, [version.CreatedByUserId], cancellationToken);
+
+        return ToDetail(version, authors);
     }
 
     public async Task<int> RestoreVersionAsync(int versionId, string? userId, CancellationToken cancellationToken = default)
@@ -407,8 +411,9 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         var versionB = versions.FirstOrDefault(v => v.Id == versionIdB)
             ?? throw new InvalidOperationException($"Query version {versionIdB} not found.");
 
-        var detailA = ToDetail(versionA);
-        var detailB = ToDetail(versionB);
+        var authors = await AuthorLabelsAsync(context, [versionA.CreatedByUserId, versionB.CreatedByUserId], cancellationToken);
+        var detailA = ToDetail(versionA, authors);
+        var detailB = ToDetail(versionB, authors);
 
         var stepDiffs = ComputeStepDiffs(detailA.Steps, detailB.Steps);
 
@@ -467,7 +472,36 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         return JsonSerializer.Serialize(snapshots, JsonOptions);
     }
 
-    private static QueryVersionDetail ToDetail(QueryVersion version)
+    // The authors' labels by external id: display name, or "User {id}" without one (never the user name or external id).
+    private static async Task<Dictionary<string, string>> AuthorLabelsAsync(
+        BeaconContext context,
+        IReadOnlyCollection<string?> externalIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = externalIds
+            .OfType<string>()
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var authors = await context.Users
+            .Where(x => ids.Contains(x.ExternalId))
+            .Select(x =>
+                new
+                {
+                    x.ExternalId,
+                    x.Id,
+                    x.DisplayName
+                })
+            .ToListAsync(cancellationToken);
+
+        return authors.ToDictionary(x => x.ExternalId, x => UserLabel.Of(x.Id, x.DisplayName));
+    }
+
+    private static QueryVersionDetail ToDetail(QueryVersion version, IReadOnlyDictionary<string, string> authors)
     {
         var steps = JsonSerializer.Deserialize<List<QueryStepSnapshot>>(version.StepsJson, JsonOptions) ?? [];
 
@@ -481,8 +515,7 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
             Description = version.Description,
             FinalQuery = version.FinalQuery,
             CreatedTime = version.CreatedTime,
-            CreatedByUserId = version.CreatedByUserId,
-            CreatedByUserName = version.CreatedByUserName,
+            CreatedByUserName = version.CreatedByUserId == null ? null : authors.GetValueOrDefault(version.CreatedByUserId),
             ChangeSource = version.ChangeSource,
             ChangeReason = version.ChangeReason,
             Steps = steps
@@ -597,8 +630,6 @@ internal class QueryVersionService(IDbContextFactory<BeaconContext> contextFacto
         public string Name { get; init; } = string.Empty;
 
         public DateTime CreatedTime { get; init; }
-
-        public string? CreatedByUserId { get; init; }
 
         public string? CreatedByUserName { get; init; }
 

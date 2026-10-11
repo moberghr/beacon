@@ -197,7 +197,9 @@ public class QueryVersionLifecycleTests
                 UserContext(),
                 new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
                 Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-                TestProjectAccess.Actors());
+                TestProjectAccess.Actors(),
+                TestProjectAccess.ExecutionAllowed(),
+                TestConfiguredDatabases.None);
 
         /// <summary>A save as it happens now: the stored state becomes the Active version, which history then holds.</summary>
         public async Task ActivateCurrentState()
@@ -212,6 +214,7 @@ public class QueryVersionLifecycleTests
             var sets = new Dictionary<Type, object>
             {
                 [typeof(Query)] = RecordingBeaconContext.MemorySet<Query>([Query], Saved),
+                [typeof(DataSource)] = RecordingBeaconContext.MemorySet<DataSource>([Query.Steps[0].DataSource], Saved),
                 [typeof(QueryVersion)] = RecordingBeaconContext.MemorySet(Versions, Saved),
                 [typeof(QueryApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, Saved),
             };

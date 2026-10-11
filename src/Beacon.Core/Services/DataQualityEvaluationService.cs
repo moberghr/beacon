@@ -3,6 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
@@ -22,16 +24,20 @@ public interface IDataQualityEvaluationService
 }
 
 /// <summary>
-/// Evaluates a data contract's rules. Every rule's SQL passes the read-only gate (<see cref="DataQualityRuleGuard"/>) and
-/// runs through <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>, which owns the host policy, host column
-/// masking, the generic host error and the READ ONLY transaction (§1.5). A failed rule never stores or returns the
-/// server's error text: a server or conversion error can quote row values (§1.11).
+/// Evaluates a data contract's rules. Before any rule runs, the evaluation's actor (the caller of a request, or a
+/// scheduled evaluation's owner) must still be allowed to run stored SQL on the contract's data source
+/// (<see cref="IExecutionAccessCheck"/>); otherwise nothing runs or is recorded. Every rule's SQL passes the read-only
+/// gate (<see cref="DataQualityRuleGuard"/>) and runs through <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>,
+/// which owns the host policy, host column masking, the generic host error and the READ ONLY transaction (§1.5). A failed
+/// rule never stores or returns the server's error text: a server or conversion error can quote row values (§1.11).
 /// </summary>
 internal class DataQualityEvaluationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataQualitySqlGenerator sqlGenerator,
     IDataSourceProviderFactory providerFactory,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
+    IExecutionAccessCheck executionAccess,
     ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
 {
     /// <summary>What a rule result says when its query fails on an ordinary data source.</summary>
@@ -57,6 +63,11 @@ internal class DataQualityEvaluationService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new Models.BeaconException($"Data contract {dataContractId} not found");
 
+        if (!await executionAccess.AllowsAsync(ProjectAction.Run, [contract.DataSourceId], "data contract", dataContractId, cancellationToken))
+        {
+            throw new ExecutionRefusedException([contract.DataSourceId], "Evaluating this data contract is not allowed.");
+        }
+
         if (contract.DataSource.DataSourceType != DataSourceType.Database || contract.DataSource.DatabaseEngineType == null)
         {
             throw new Models.BeaconException("Data contract's data source must be a database type");
@@ -72,12 +83,24 @@ internal class DataQualityEvaluationService(
             throw new DataContractHasNoEnabledRulesException(contract.Id);
         }
 
+        // Re-checked on every run, so a rule saved before rules were confined to their data source cannot name another.
+        var catalog = await DataQualityRuleCatalog.LoadAsync(
+            context,
+            contract.DataSourceId,
+            contract.SchemaName,
+            contract.TableName,
+            enabledRules.Select(x => x.Configuration),
+            cancellationToken);
+
+        // Rule SQL may name the source's own database only (the one its connection is configured for).
+        var configuredDatabase = configuredDatabases.Resolve(contract.DataSource);
+
         var totalStopwatch = Stopwatch.StartNew();
         var ruleResults = new List<DataQualityRuleResult>();
 
         foreach (var rule in enabledRules)
         {
-            var result = await EvaluateRuleAsync(rule, contract, provider, engineType, cancellationToken);
+            var result = await EvaluateRuleAsync(rule, contract, catalog, provider, engineType, configuredDatabase, cancellationToken);
             ruleResults.Add(result);
         }
 
@@ -98,6 +121,8 @@ internal class DataQualityEvaluationService(
             RuleResults = ruleResults
         };
 
+        // An evaluation ran: a skipped scheduled evaluation recorded earlier no longer describes the contract.
+        contract.OwnerNotAuthorizedSince = null;
         context.DataQualityEvaluations.Add(evaluation);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -171,8 +196,10 @@ internal class DataQualityEvaluationService(
     private async Task<DataQualityRuleResult> EvaluateRuleAsync(
         DataContractRule rule,
         DataContract contract,
+        DataQualityRuleCatalog catalog,
         IDataSourceProvider provider,
         DatabaseEngineType engineType,
+        string? configuredDatabase,
         CancellationToken cancellationToken)
     {
         var ruleStopwatch = Stopwatch.StartNew();
@@ -181,7 +208,7 @@ internal class DataQualityEvaluationService(
         // A caller's cancellation propagates (nothing is stored); every other failure becomes a failed rule result.
         try
         {
-            if (!TryPrepareQuery(rule, contract, engineType, out var query, out var rejection))
+            if (!TryPrepareQuery(rule, contract, catalog, engineType, configuredDatabase, out var query, out var rejection))
             {
                 ruleStopwatch.Stop();
 
@@ -239,7 +266,9 @@ internal class DataQualityEvaluationService(
     private bool TryPrepareQuery(
         DataContractRule rule,
         DataContract contract,
+        DataQualityRuleCatalog catalog,
         DatabaseEngineType engineType,
+        string? configuredDatabase,
         [NotNullWhen(true)] out DataQualityQuery? query,
         [NotNullWhen(false)] out string? rejection)
     {
@@ -253,17 +282,27 @@ internal class DataQualityEvaluationService(
             return false;
         }
 
+        // The SQL is generated only for the data source's own tables and columns (the CustomSql rule's own SQL excepted),
+        // spelled as its metadata spells them, also for a rule stored before names were resolved.
+        var confined = catalog.Confine(contract.SchemaName, contract.TableName, rule.RuleType, rule.ColumnName, rule.Configuration);
+        if (confined.Problem != null)
+        {
+            rejection = confined.Problem;
+            LogRejection(rule, contract, "names an object outside the data source's metadata");
+            return false;
+        }
+
         DataQualityQuery generated;
         try
         {
             // Enrich config with schema/table from the contract
-            var enrichedConfig = EnrichConfig(rule.Configuration, contract.SchemaName, contract.TableName);
+            var enrichedConfig = EnrichConfig(confined.Configuration ?? rule.Configuration, confined.SchemaName, confined.TableName);
             var enrichedRule = new DataContractRule
             {
                 Id = rule.Id,
                 Name = rule.Name,
                 RuleType = rule.RuleType,
-                ColumnName = rule.ColumnName,
+                ColumnName = confined.ColumnName,
                 Configuration = enrichedConfig,
                 Severity = rule.Severity,
                 Weight = rule.Weight,
@@ -288,7 +327,7 @@ internal class DataQualityEvaluationService(
         }
 
         // Re-checked on every run, so a rule saved before the gate existed (or edited in the database) cannot write.
-        var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(generated.Sql, engineType, contract.DataSource.HostManagedKey));
+        var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(generated.Sql, engineType, contract.DataSource.HostManagedKey, configuredDatabase));
         var gateRejection = DataQualityRuleGuard.RejectionOf(report);
         if (gateRejection != null)
         {

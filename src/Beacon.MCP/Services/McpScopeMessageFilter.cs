@@ -11,7 +11,7 @@ namespace Beacon.MCP.Services;
 /// Scope enforcement for every MCP request (§1.4), as an incoming message filter so it covers all of them —
 /// <c>tools/list</c>, resources, prompts, completions and whatever a host or a later SDK adds. A caller
 /// <see cref="McpScopeCallToolFilter.Refusal"/> refuses (a scoped caller without the Execute scope, or an
-/// unauthenticated caller over HTTP) gets a JSON-RPC error for every request except three: <c>initialize</c> and
+/// unauthenticated caller) gets a JSON-RPC error for every request except three: <c>initialize</c> and
 /// <c>ping</c>, which carry no Beacon data, and <c>tools/call</c>, which <see cref="McpScopeCallToolFilter"/> refuses
 /// and audits with a tool error. Notifications and responses pass; without a request a refused caller gets nothing.
 /// </summary>
@@ -34,7 +34,7 @@ internal static class McpScopeMessageFilter
                 return;
             }
 
-            var refusal = McpScopeCallToolFilter.Refusal(context.User, context.Services);
+            var refusal = McpScopeCallToolFilter.Refusal(context.User);
             if (refusal == null)
             {
                 await next(context, cancellationToken);

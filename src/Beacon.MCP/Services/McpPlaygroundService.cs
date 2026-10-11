@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,27 +27,32 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         var httpUser = sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User;
         if (httpUser == null)
         {
+            await AuditRefusalAsync(sp, toolName, null, NoRequestMessage, ct);
             return new McpPlaygroundResult(NoRequestMessage, true);
         }
 
         // The caller's project access, as on every other path: the catalog tools read the project, the SQL-carrying
         // tools and feedback work ad hoc in it (Query). A restricted project the caller is not a member of, and a
-        // project outside an API key's list, are refused before any tool runs.
+        // project outside an API key's list, are refused before any tool runs — audited all the same (§1.7).
         var access = await sp.GetRequiredService<IProjectAccessEvaluator>().GetScopeAsync(ct);
         if (!access.Allows(projectId, McpToolProjectAction.Of(toolName)))
         {
-            return new McpPlaygroundResult($"Access denied: you do not have access to project {projectId}.", true);
+            var refusal = $"Access denied: you do not have access to project {projectId}.";
+            var refusedCaller = await sp.GetRequiredService<IBeaconActorAccessor>().GetCurrentAsync(ct);
+            await AuditRefusalAsync(sp, toolName, refusedCaller.BeaconUserId, refusal, ct);
+            return new McpPlaygroundResult(refusal, true);
         }
 
-        // Set up project context directly (bypasses the MCP transport's context factory since this
-        // is a UI request). UserId is still attributed from the authenticated HttpContext so audit /
-        // signal entries are not recorded against a null user (§1.7, §9.5).
+        // Set up project context directly (bypasses the MCP transport's context filter since this
+        // is a UI request). The caller is recorded by its Beacon user (Users.Id), as on the transport, so
+        // audit and signal entries name it (§1.7, §9.5) and the caller may rate its own signals.
         var context = sp.GetRequiredService<McpProjectContext>();
         context.ActiveProjectId = projectId;
         context.AllowedProjectIds = [projectId];
+        context.QueryProjectIds = access.Allows(projectId, ProjectAction.Query) ? [projectId] : [];
 
-        var userIdClaim = httpUser.FindFirst(ClaimTypes.NameIdentifier);
-        context.UserId = userIdClaim != null && int.TryParse(userIdClaim.Value, out var uid) ? uid : null;
+        var actor = await sp.GetRequiredService<IBeaconActorAccessor>().GetCurrentAsync(ct);
+        context.UserId = actor.BeaconUserId;
 
         var apiKeyIdClaim = httpUser.FindFirst("api_key_id");
         context.ApiKeyId = apiKeyIdClaim != null && int.TryParse(apiKeyIdClaim.Value, out var akid) ? akid : null;
@@ -134,6 +138,29 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
             // §1.11 — same caller-safe mapping as the MCP transport path; raw ex.Message may quote user input.
             return new McpPlaygroundResult(ToolHelper.CallerSafeMessage(ex, toolName), true);
         }
+    }
+
+    // A playground call refused before any tool ran is a tool invocation all the same: one audit row with the tool name,
+    // the caller's Beacon user and the refusal, as the transport's scope filter records one.
+    private static async Task AuditRefusalAsync(IServiceProvider sp, string toolName, int? userId, string refusal, CancellationToken ct)
+    {
+        var audit = sp.GetService<McpAuditService>();
+        if (audit == null)
+        {
+            return;
+        }
+
+        await audit.LogToolCallAsync(
+            sessionId: null,
+            userId: userId,
+            tool: toolName,
+            parameters: null,
+            dataSourceId: null,
+            projectId: null,
+            executionTimeMs: 0,
+            resultRowCount: null,
+            errorMessage: refusal,
+            ct: ct);
     }
 
     // HTTP playground callers arrive via System.Text.Json, so argument values are JsonElement,

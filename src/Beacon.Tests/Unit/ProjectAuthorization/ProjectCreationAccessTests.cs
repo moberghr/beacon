@@ -1,12 +1,15 @@
 using System.Data;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -24,8 +27,8 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit.ProjectAuthorization;
 
 /// <summary>
-/// Creating projects and data sources under project access: a new project is open and its creator, when a Beacon
-/// user, is its ProjectAdmin; the data sources it links pass the link rules in a serializable transaction; a new data
+/// Creating projects and data sources under project access: a new project is restricted and its creator is its
+/// ProjectAdmin when the creator is an active Beacon user and Beacon keeps the memberships, and open otherwise; the data sources it links pass the link rules in a serializable transaction; a new data
 /// source is reachable by Admins only until linked, and <c>projectIds</c> links it into projects the caller manages.
 /// </summary>
 [TestFixture]
@@ -35,20 +38,85 @@ public class ProjectCreationAccessTests
     private const int RestrictedProject = 2;
 
     [Test]
-    public async Task ANewProject_IsOpen_AndItsCreatorIsItsProjectAdmin()
+    public async Task ANewProject_IsRestricted_AndItsCreatorIsItsProjectAdmin()
     {
         var saved = new List<object>();
+        var logs = new LogRecorder();
 
-        await CreateProject(saved, TestProjectAccess.Unrestricted).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
+        var result = await CreateProject(saved, Editor(), logs: logs).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
 
         var project = saved.OfType<Project>().Should().ContainSingle().Subject;
-        project.RequiresMembership.Should().BeFalse();
+        project.RequiresMembership.Should().BeTrue();
         project.Members.Should().ContainSingle().Which.Should().BeEquivalentTo(new
         {
             UserId = 3,
             Role = ProjectRole.ProjectAdmin,
             AddedByUserId = (int?)3
         });
+        result.Should().Be(new CreateProjectResult(project.Id, true));
+        logs.Entries.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ANewProject_ByAnAdmin_IsRestricted_AndTheAdminIsItsProjectAdmin()
+    {
+        var saved = new List<object>();
+        var admin = new BeaconActor("ext-admin", true) { Kind = BeaconPrincipalKind.User, BeaconUserId = 7, IsActiveUser = true, RoleLevel = 3 };
+
+        await CreateProject(saved, TestProjectAccess.Unrestricted, actor: admin).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
+
+        var project = saved.OfType<Project>().Should().ContainSingle().Subject;
+        project.RequiresMembership.Should().BeTrue();
+        project.Members.Should().ContainSingle().Which.Should().BeEquivalentTo(new { UserId = 7, Role = ProjectRole.ProjectAdmin }, x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task ANewProject_ByACallerWithoutABeaconUser_IsOpen_AndLogged()
+    {
+        var saved = new List<object>();
+        var logs = new LogRecorder();
+        var hostPrincipal = new BeaconActor("ext-host", false) { Kind = BeaconPrincipalKind.User, RoleLevel = 2 };
+
+        var result = await CreateProject(saved, Editor(), actor: hostPrincipal, logs: logs).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
+
+        var project = saved.OfType<Project>().Should().ContainSingle().Subject;
+        project.RequiresMembership.Should().BeFalse("nobody could be the member of a restricted project it creates");
+        project.Members.Should().BeEmpty();
+        result.RequiresMembership.Should().BeFalse();
+        var entry = logs.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(LogLevel.Information);
+        entry.Message.Should().Contain("Project created open").And.Contain("ext-host");
+    }
+
+    [Test]
+    public async Task ANewProject_ByAnInactiveUser_IsOpen_WithoutMembers()
+    {
+        var saved = new List<object>();
+        var disabled = new BeaconActor("ext-off", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 9, IsActiveUser = false, RoleLevel = 2 };
+
+        await CreateProject(saved, Editor(), actor: disabled).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
+
+        var project = saved.OfType<Project>().Should().ContainSingle().Subject;
+        project.RequiresMembership.Should().BeFalse();
+        project.Members.Should().BeEmpty();
+    }
+
+    [TestCase(true, TestName = "ANewProject_WhileTheHostManagesMembership_IsOpen_WithoutMembers")]
+    [TestCase(false, TestName = "ANewProject_WhileMembershipIsUnavailable_IsOpen_WithoutMembers")]
+    public async Task ANewProject_WhenBeaconDoesNotKeepTheMemberships_IsOpen(bool hostSource)
+    {
+        var saved = new List<object>();
+        var logs = new LogRecorder();
+        var membership = hostSource
+            ? Mock.Of<IProjectMembershipSource>(x => x.IsAvailable == true)
+            : new DatabaseProjectMembershipSource(new BeaconConfiguration(), Factory(saved));
+
+        await CreateProject(saved, Editor(), membership: membership, logs: logs).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
+
+        var project = saved.OfType<Project>().Should().ContainSingle().Subject;
+        project.RequiresMembership.Should().BeFalse("a member row Beacon keeps would grant nothing");
+        project.Members.Should().BeEmpty();
+        logs.Entries.Should().ContainSingle().Which.Message.Should().Contain(hostSource ? "Host" : "Unavailable");
     }
 
     [Test]
@@ -92,6 +160,7 @@ public class ProjectCreationAccessTests
             encryption.Object,
             TestProjectAccess.Actors(),
             TestProjectAccess.Evaluator(Editor()),
+            BeaconMembership(capture.Factory()),
             Options.Create(new ProjectAuthorizationOptions()),
             NullLogger<CreateProjectHandler>.Instance);
 
@@ -144,6 +213,8 @@ public class ProjectCreationAccessTests
             Mock.Of<IDataSourceProviderFactory>(),
             Mock.Of<IManualQueryExecutionLogger>(),
             Mock.Of<IBeaconUserContext>(),
+            new MemoryCache(new MemoryCacheOptions()),
+            Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             NullLogger<DataSourceService>.Instance);
 
         await service.CreateDataSource(
@@ -192,15 +263,20 @@ public class ProjectCreationAccessTests
             NullLogger<CreateDataSourceHandler>.Instance);
     }
 
-    private static CreateProjectHandler CreateProject(List<object> saved, ProjectAccessScope scope, SqlCapture? transactions = null)
+    private static CreateProjectHandler CreateProject(
+        List<object> saved,
+        ProjectAccessScope scope,
+        SqlCapture? transactions = null,
+        BeaconActor? actor = null,
+        IProjectMembershipSource? membership = null,
+        LogRecorder? logs = null)
     {
         var restricted = new Project { Id = RestrictedProject, Name = "restricted", RequiresMembership = true };
         var open = new Project { Id = OpenProject, Name = "open" };
         var encryption = new Mock<IEncryptionService>();
         encryption.Setup(x => x.Encrypt(It.IsAny<string>())).Returns("enc");
 
-        return new CreateProjectHandler(
-            Factory(
+        var factory = Factory(
                 saved,
                 dataSources:
                 [
@@ -213,12 +289,25 @@ public class ProjectCreationAccessTests
                     new ProjectDataSource { ProjectId = OpenProject, DataSourceId = 10, Project = open },
                     new ProjectDataSource { ProjectId = RestrictedProject, DataSourceId = 20, Project = restricted }
                 ],
-                offline: transactions),
+                offline: transactions);
+
+        return new CreateProjectHandler(
+            factory,
             encryption.Object,
-            TestProjectAccess.Actors(),
+            actor == null ? TestProjectAccess.Actors() : Mock.Of<IBeaconActorAccessor>(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()) == Task.FromResult(actor)),
             TestProjectAccess.Evaluator(scope),
+            membership ?? BeaconMembership(factory),
             Options.Create(new ProjectAuthorizationOptions()),
-            NullLogger<CreateProjectHandler>.Instance);
+            logs?.For<CreateProjectHandler>() ?? NullLogger<CreateProjectHandler>.Instance);
+    }
+
+    // Beacon keeps the memberships: user management on, the default membership source.
+    private static IProjectMembershipSource BeaconMembership(IDbContextFactory<BeaconContext> factory)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+
+        return new DatabaseProjectMembershipSource(configuration, factory);
     }
 
     private static IDbContextFactory<BeaconContext> Factory(

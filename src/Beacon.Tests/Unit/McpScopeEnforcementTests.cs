@@ -100,15 +100,31 @@ public class McpScopeEnforcementTests
     }
 
     [Test]
-    public async Task NoUserAndNoHttpRequest_ReachesTheTool()
+    public async Task NoUserAndNoHttpRequest_IsRefused_AndAudited()
     {
-        // A transport without authentication (stdio): there is no caller to check.
+        // A transport without authentication (stdio): there is no caller to authorize, so nothing is served.
+        var auditLogs = new List<McpAuditLog>();
+        using var provider = AuditingServices(auditLogs, required: false);
+        using var scope = provider.CreateScope();
         var toolRan = false;
 
-        var result = await InvokeAsync(null, () => toolRan = true);
+        var result = await InvokeAsync(null, () => toolRan = true, scope.ServiceProvider);
 
-        toolRan.Should().BeTrue();
-        result.IsError.Should().NotBe(true);
+        toolRan.Should().BeFalse();
+        HostEndpointDispatchTests.Text(result).Should().Be(McpScopeCallToolFilter.UnauthenticatedMessage);
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(McpScopeCallToolFilter.UnauthenticatedMessage);
+    }
+
+    [Test]
+    public async Task MessageFilter_RefusesARequestWithoutAUser_EvenWithoutAnHttpRequest()
+    {
+        var nextRan = false;
+
+        var act = () => InvokeMessageFilterAsync(new JsonRpcRequest { Method = "tools/list" }, null, () => nextRan = true);
+
+        (await act.Should().ThrowAsync<McpProtocolException>())
+            .Which.Message.Should().Be(McpScopeCallToolFilter.UnauthenticatedMessage);
+        nextRan.Should().BeFalse();
     }
 
     [Test]
@@ -277,7 +293,7 @@ public class McpScopeEnforcementTests
     }
 
     [Test]
-    public async Task AddBeaconMcp_RunsTheScopeFilterOutermost_SoARefusedCallReachesNoHandler_AndIsAudited()
+    public async Task AddBeaconMcp_RunsTheScopeFilterBeforeTheHandler_SoARefusedCallReachesNoHandler_AndIsAudited()
     {
         var auditLogs = new List<McpAuditLog>();
         var registration = AuditingRegistration(auditLogs, required: false);

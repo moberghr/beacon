@@ -605,7 +605,8 @@ public class ProjectAccessEvaluatorTests
             Mock.Of<IServiceProvider>(),
             new BeaconConfiguration(),
             Options.Create(new ProjectAuthorizationOptions()),
-            NullLogger<ProjectAccessEvaluator>.Instance);
+            NullLogger<ProjectAccessEvaluator>.Instance,
+            new OwnerRunsAsSystemLog(TimeProvider.System, NullLogger<OwnerRunsAsSystemLog>.Instance));
 
         await evaluator.GetScopeAsync(CancellationToken.None);
         await evaluator.GetScopeAsync(CancellationToken.None);
@@ -701,7 +702,8 @@ public class ProjectAccessEvaluatorTests
             services.Object,
             configuration,
             Options.Create(new ProjectAuthorizationOptions { RequireProjectMembership = requireMembership }),
-            NullLogger<ProjectAccessEvaluator>.Instance);
+            NullLogger<ProjectAccessEvaluator>.Instance,
+            new OwnerRunsAsSystemLog(TimeProvider.System, NullLogger<OwnerRunsAsSystemLog>.Instance));
     }
 
     private static BeaconActor User(bool isLiveAdmin = false, bool holdsAdminClaim = false)

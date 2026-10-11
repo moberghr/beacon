@@ -175,6 +175,7 @@ public static class ServiceConfiguration
 
         // MCP settings provider (cached reads for MCP tool configuration)
         services.TryAddTransient<IMcpSettingsProvider, McpSettingsProvider>();
+        services.TryAddTransient<ISharedSourceSettings, SharedSourceSettings>();
 
         // Content-retention policy (the lock) plus the EF belt that enforces it on every Mcp* write.
         // The interceptor holds no state; it resolves the settings provider lazily per SaveChanges.
@@ -211,6 +212,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<HostData.IHostDataSourceGuard, HostData.HostDataSourceGuard>();
         services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x =>
             new HostData.DataSourceConnectionResolver(x.GetRequiredService<IEncryptionService>(), configuration));
+        services.TryAddTransient<IConfiguredDatabaseResolver, ConfiguredDatabaseResolver>();
         services.TryAddTransient<HostData.IHostProjectResolver, HostData.HostProjectResolver>();
         services.TryAddTransient<HostData.IHostSyncLock, HostData.DatabaseHostSyncLock>();
         services.TryAddTransient(x => ActivatorUtilities.CreateInstance<HostData.HostDataSourceSynchronizer>(x, configuration));
@@ -233,6 +235,14 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.ApiKeyOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.ApiKeyOptions>, Configuration.ApiKeyOptionsValidator>();
+
+        // Forced metadata refreshes (Beacon:Metadata): a per-source cooldown. ValidateOnStart so a cooldown out of range
+        // fails the host at boot.
+        services.AddOptions<Configuration.MetadataRefreshOptions>()
+            .Bind(configuration.GetSection(Configuration.MetadataRefreshOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MetadataRefreshOptions>, Configuration.MetadataRefreshOptionsValidator>());
+        services.TryAddSingleton<Services.Metadata.ForcedMetadataRefreshCooldown>();
 
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
@@ -324,7 +334,9 @@ public static class ServiceConfiguration
         // request; reads IHttpContextAccessor, which the API registration adds). TryAdd so a host can supply its own.
         services.TryAddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
         services.TryAddScoped<ISystemWorkScope, Authorization.ProjectAccess.SystemWorkScope>();
+        services.TryAddScoped<IRunAsScope, Authorization.ProjectAccess.RunAsScope>();
         services.TryAddSingleton<Authorization.ProjectAccess.UnmarkedSystemWorkLog>();
+        services.TryAddSingleton<Authorization.ProjectAccess.OwnerRunsAsSystemLog>();
 
         // Project access (Beacon:Authorization): the evaluator is scoped and memoized per scope; the membership and
         // ceiling sources are host seams. TryAdd so a host can supply any of them. ValidateOnStart so restricting every
@@ -338,6 +350,7 @@ public static class ServiceConfiguration
         services.TryAddScoped<IProjectAccessEvaluator, Authorization.ProjectAccess.ProjectAccessEvaluator>();
         services.TryAddScoped<Authorization.ProjectAccess.IProjectResourceResolver, Authorization.ProjectAccess.ProjectResourceResolver>();
         services.TryAddScoped<Authorization.ProjectAccess.ProjectRequestAuthorizer>();
+        services.TryAddScoped<IExecutionAccessCheck, Authorization.ProjectAccess.ExecutionAccessCheck>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

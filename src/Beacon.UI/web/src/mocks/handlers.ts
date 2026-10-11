@@ -44,6 +44,7 @@
  */
 import { http, HttpResponse } from 'msw';
 import {
+  AiActorExecutionPhase,
   AiActorStatus,
   AnomalyDetectionMethod,
   AnomalySensitivity,
@@ -225,9 +226,11 @@ const projectsHandlers = [
         // Sample CRM is also linked to the open Demo Analytics project.
         openlyReachableDataSourceIds: Number(params.id) === 2 ? [2] : [],
         sharedSourceProjects: sharedSourceProjects(Number(params.id)),
+        sharedSourceGuardrails: sharedSourceGuardrails(Number(params.id)),
         membershipManagement: ProjectMembershipManagement.Beacon,
       },
     })),
+  http.post('/beacon/api/projects', () => HttpResponse.json({ projectId: 2, requiresMembership: true }, { status: 201 })),
   http.get('/beacon/api/projects/:id/documentation', () =>
     HttpResponse.json({ latest: null, history: [] })),
   http.get('/beacon/api/projects/:id/members', () =>
@@ -269,6 +272,27 @@ const projectsHandlers = [
   http.delete('/beacon/api/projects/:id/data-sources/:dataSourceId', ({ params }) =>
     HttpResponse.json({ projectId: Number(params.id), dataSourceId: Number(params.dataSourceId), leftUnlinked: false })),
 ];
+
+/** Sample CRM's guardrails: the stricter of the two mock projects' settings, and which project sets each. */
+function sharedSourceGuardrails(projectId: number) {
+  const other = projectId === 2 ? { projectId: 1, projectName: 'Demo Analytics' } : { projectId: 2, projectName: 'Sample Warehouse' };
+  const own = projectId === 2 ? { projectId: 2, projectName: 'Sample Warehouse' } : { projectId: 1, projectName: 'Demo Analytics' };
+  return [
+    {
+      dataSourceId: 2,
+      dataSourceName: 'Sample CRM (SQL Server)',
+      guardrails: [
+        { setting: 'enforceReadOnly', value: 'true', ...own },
+        { setting: 'enablePiiDetection', value: 'true', ...other },
+        { setting: 'maxRowLimit', value: '500', ...other },
+        { setting: 'statementTimeoutSeconds', value: '30', ...own },
+        { setting: 'maxResultBytes', value: '10485760', ...own },
+        { setting: 'maxExplainCost', value: 'none', ...own },
+        { setting: 'customPiiPatterns', value: '0', ...own },
+      ],
+    },
+  ];
+}
 
 /** The two mock projects share Sample CRM (data source 2); Sample Warehouse is the restricted one. */
 function sharedSourceProjects(projectId: number) {
@@ -446,7 +470,6 @@ const queriesHandlers = [
         label: 'Mock v2',
         name: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
         createdTime: iso(3),
-        createdByUserId: 'mock-admin',
         createdByUserName: 'Mock Admin',
         changeSource: 'User',
         changeReason: 'Mock change — widened date window',
@@ -458,7 +481,6 @@ const queriesHandlers = [
         label: null,
         name: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
         createdTime: iso(20),
-        createdByUserId: 'mock-admin',
         createdByUserName: 'Mock Admin',
         changeSource: 'User',
         changeReason: null,
@@ -475,7 +497,6 @@ const queriesHandlers = [
       description: 'Mock query against Sample Warehouse',
       finalQuery: null,
       createdTime: iso(Number(params.id) === 101 ? 20 : 3),
-      createdByUserId: 'mock-admin',
       createdByUserName: 'Mock Admin',
       changeSource: 'User',
       changeReason: Number(params.id) === 101 ? null : 'Mock change — widened date window',
@@ -711,15 +732,15 @@ const listHandlers = [
       lastExecutionAt: iso(0, 2),
       cronExpression: '0 7 * * *',
       priority: TaskPriority.Normal,
-      assigneeUserId: null,
+      hasAssignee: false,
       assigneeUserName: null,
       assignedToCaller: false,
       snoozedUntil: null,
       slaHours: 24,
       watcherCount: 1,
       isWatching: false,
-      ownerUserId: 'mock-admin',
-      ownerUserName: 'Mock Admin',
+      hasOwner: false,
+      ownerDisplayName: null,
     })),
   http.get('/beacon/api/tasks/:id/executions', ({ params }) =>
     HttpResponse.json({
@@ -782,7 +803,7 @@ const listHandlers = [
       description: 'Mock query — widened revenue window',
       finalQuery: 'SELECT a.name, r.revenue FROM step1 r JOIN step2 a ON a.id = r.account_id WHERE r.revenue > 0',
       createdTime: iso(0, 5),
-      createdByUserId: 'mock-analyst',
+      createdByUserName: 'Mock Analyst',
       changeSource: 'User',
       changeReason: 'Mock change — widened revenue window',
     };
@@ -795,7 +816,7 @@ const listHandlers = [
       description: null,
       finalQuery: 'SELECT a.name, r.revenue FROM step1 r JOIN step2 a ON a.id = r.account_id',
       createdTime: iso(14),
-      createdByUserId: 'mock-admin',
+      createdByUserName: 'Mock Admin',
       changeSource: 'User',
       changeReason: null,
     };
@@ -867,7 +888,8 @@ const listHandlers = [
         aiActorId: null,
         aiActorName: null,
         hasOwner: true,
-        ownerDisplayName: 'Mock Admin',
+        ownerDisplayName: crossSource ? 'Mock Analyst' : 'Mock Admin',
+        ownerNotAuthorized: crossSource,
         maxRows: 100,
         minimumRowCount: null,
         includeAttachment: !crossSource,
@@ -913,6 +935,7 @@ const listHandlers = [
       },
     });
   }),
+  http.put('/beacon/api/subscriptions/:id/owner', () => new HttpResponse(null, { status: 204 })),
   // Anomaly tab (AnomalyChartResult, unwrapped).
   http.get('/beacon/api/subscriptions/:id/anomaly-chart', ({ params }) => {
     const hasAnomalyDetection = Number(params.id) !== 2;
@@ -999,6 +1022,34 @@ const aiActorsHandlers = [
       lastError: null,
       createdTime: iso(15),
       pendingPlanCount: 0,
+      hasOwner: true,
+      ownerDisplayName: 'Mock Admin',
+      recentExecutions: [
+        {
+          executionId: 41,
+          phase: AiActorExecutionPhase.Skipped,
+          startedAt: iso(0, 3),
+          completedAt: iso(0, 3),
+          queriesCreated: 0,
+          subscriptionsCreated: 0,
+          tokensUsed: 0,
+          estimatedCost: 0,
+          decisionSummary: null,
+          errorMessage: 'Skipped: owner not authorized.',
+        },
+        {
+          executionId: 40,
+          phase: AiActorExecutionPhase.Completed,
+          startedAt: iso(1),
+          completedAt: iso(1),
+          queriesCreated: 1,
+          subscriptionsCreated: 1,
+          tokensUsed: 4_600,
+          estimatedCost: 0.11,
+          decisionSummary: 'Mock cycle: added a revenue drop watch.',
+          errorMessage: null,
+        },
+      ],
     })),
 ];
 
@@ -1097,6 +1148,7 @@ const controlTowerHandlers = [
         totalAnomalies30Days: 3,
         overallSuccessRate: 96.4,
         timeRangeDays: 30,
+        ownerNotAuthorizedContracts: 0,
       },
     })),
   http.get('/beacon/api/control-tower/health', () =>
@@ -1115,6 +1167,7 @@ const controlTowerHandlers = [
           lastExecutionTime: iso(0, 2),
           lastExecutionStatus: NotificationStatus.NotificationSent,
           lastResultCount: 42,
+          ownerNotAuthorized: false,
           unresolvedTaskCount: 0,
           totalTaskCount: 3,
           anomalyCount30Days: 1,
@@ -1137,8 +1190,9 @@ const controlTowerHandlers = [
           failedExecutions: 4,
           successRate: 90.0,
           lastExecutionTime: iso(1),
-          lastExecutionStatus: NotificationStatus.NoResults,
+          lastExecutionStatus: NotificationStatus.Skipped,
           lastResultCount: 0,
+          ownerNotAuthorized: true,
           unresolvedTaskCount: 1,
           totalTaskCount: 2,
           anomalyCount30Days: 2,
@@ -1167,6 +1221,14 @@ const controlTowerHandlers = [
         cronExpression: '0 7 * * *',
         timeRangeDays: 30,
         recentExecutions: [
+          {
+            executionId: 902,
+            createdTime: iso(0, 1),
+            notificationStatus: NotificationStatus.Skipped,
+            resultCount: 0,
+            executionTimeMs: 0,
+            errorMessage: 'Skipped: owner not authorized.',
+          },
           {
             executionId: 901,
             createdTime: iso(0, 2),

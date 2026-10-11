@@ -40,8 +40,8 @@ export function TaskInfoCard({ task }: { task: TaskDetail }) {
     assign.mutate({ assigneeUserId: currentUser.userId });
   };
 
-  const assigneeText =
-    task.assigneeUserName ?? task.assigneeUserId ?? null;
+  // Never the assignee's id: a name, or a neutral label for an assignee who is not a Beacon user.
+  const assigneeText = task.hasAssignee ? task.assigneeUserName ?? 'unknown user' : null;
 
   return (
     <Card>

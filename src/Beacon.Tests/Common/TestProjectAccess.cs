@@ -137,7 +137,19 @@ internal static class TestProjectAccess
             httpContextAccessor,
             factory,
             new SystemWorkScope(),
+            new RunAsScope(httpContextAccessor),
             new UnmarkedSystemWorkLog(TimeProvider.System, NullLogger<UnmarkedSystemWorkLog>.Instance));
+    }
+
+    /// <summary>An execute-time check that allows every run: for tests of what a run does, not who may make it.</summary>
+    public static IExecutionAccessCheck ExecutionAllowed()
+    {
+        var check = new Mock<IExecutionAccessCheck>();
+        check
+            .Setup(x => x.AllowsAsync(It.IsAny<ProjectAction>(), It.IsAny<IReadOnlyCollection<int>>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        return check.Object;
     }
 
     /// <summary>Resolves every request to a stored, active, non-Admin user.</summary>

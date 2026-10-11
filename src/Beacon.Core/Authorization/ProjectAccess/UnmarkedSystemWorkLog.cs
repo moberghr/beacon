@@ -3,8 +3,9 @@ using Microsoft.Extensions.Logging;
 namespace Beacon.Core.Authorization.ProjectAccess;
 
 /// <summary>
-/// Reports work without a request that ran in a scope nobody marked as system work (<see cref="ISystemWorkScope"/>), at
-/// most once per <see cref="Interval"/> for the process, so a busy job cannot flood the log.
+/// Reports work without a request that ran in a scope nobody marked as system work (<see cref="ISystemWorkScope"/>) and
+/// so got no project access, at most once per <see cref="Interval"/> for the process, so a busy job cannot flood the
+/// log.
 /// </summary>
 internal sealed class UnmarkedSystemWorkLog(TimeProvider timeProvider, ILogger<UnmarkedSystemWorkLog> logger)
 {
@@ -27,7 +28,7 @@ internal sealed class UnmarkedSystemWorkLog(TimeProvider timeProvider, ILogger<U
         }
 
         logger.LogWarning(
-            "Work without a request ran in a scope not marked as system work; it is treated as the system for now. "
-            + "Job hosts and startup tasks should mark their scope with ISystemWorkScope.");
+            "Work without a request ran in a scope not marked as system work; it gets no project access. "
+            + "Job hosts and startup tasks must mark their scope with ISystemWorkScope.");
     }
 }

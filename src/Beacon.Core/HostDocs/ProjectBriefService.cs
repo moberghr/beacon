@@ -1,4 +1,5 @@
 using System.Text;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
@@ -11,7 +12,8 @@ namespace Beacon.Core.HostDocs;
 /// <summary>
 /// Builds a deterministic markdown <b>project brief</b> — the text an agent workspace drops into its
 /// <c>AGENTS.md</c>: what the project is, which data sources and tables matter, the glossary, the imported documents
-/// and how to use Beacon's tools safely. Built from stored metadata only; no LLM call.
+/// and how to use Beacon's tools safely. Built from stored metadata only; no LLM call. Saved-query tools are listed only
+/// when the caller may run stored SQL in the project, as on the MCP tool list.
 /// </summary>
 public interface IProjectBriefService
 {
@@ -49,7 +51,8 @@ internal sealed class ProjectBriefService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null,
     ISavedQueryToolSource? savedQueryToolSource = null,
-    BeaconConfiguration? configuration = null) : IProjectBriefService
+    BeaconConfiguration? configuration = null,
+    IProjectAccessEvaluator? projectAccess = null) : IProjectBriefService
 {
     public const int MaxTables = 30;
     public const int MaxGlossaryTerms = 30;
@@ -189,7 +192,14 @@ internal sealed class ProjectBriefService(
 
     private async Task<SavedQueryToolListing?> GetSavedQueryToolsAsync(int projectId, CancellationToken cancellationToken)
     {
-        if (savedQueryToolSource == null)
+        if (savedQueryToolSource == null || projectAccess == null)
+        {
+            return null;
+        }
+
+        // A saved query is stored SQL: listed only where the caller may run stored SQL, as on the tool list itself.
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        if (!scope.Allows(projectId, ProjectAction.Run))
         {
             return null;
         }

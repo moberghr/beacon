@@ -125,7 +125,7 @@ export function RightRail({ subscription, executions, onSelectTab }: RightRailPr
               return (
                 <>
                   <CheckRow
-                    tone={latest.status === NotificationStatus.NotificationSent ? 'ok' : latest.status === NotificationStatus.Timeout || latest.status === NotificationStatus.Failed ? 'warn' : 'pending'}
+                    tone={latest.status === NotificationStatus.NotificationSent ? 'ok' : latest.status === NotificationStatus.Timeout || latest.status === NotificationStatus.Failed || latest.status === NotificationStatus.Skipped ? 'warn' : 'pending'}
                     title={NOTIFICATION_STATUS_LABEL[latest.status] ?? 'unknown'}
                     detail={`${latest.resultCount.toLocaleString()} result${latest.resultCount === 1 ? '' : 's'} · ${Math.round(latest.executionTimeMs)} ms`}
                   />

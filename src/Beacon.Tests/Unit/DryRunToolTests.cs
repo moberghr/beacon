@@ -61,7 +61,7 @@ public class DryRunToolTests
         _warehouseEngine = DatabaseEngineType.PostgreSQL;
 
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["customers"] = ["id", "name", "email"],
@@ -247,7 +247,7 @@ public class DryRunToolTests
     public async Task EmptyCatalog_AddsSchemaSkipAdvisory_InvalidatesVerdict_ButProviderDryRunStillRuns()
     {
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
 
         var result = await CreateTool().ExecuteAsync(
@@ -381,7 +381,7 @@ public class DryRunToolTests
     public async Task SchemaCatalogThrows_CatchPathAudits_WithResolvedProjectId()
     {
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("catalog offline"));
 
         var result = await CreateTool().ExecuteAsync(
@@ -414,6 +414,22 @@ public class DryRunToolTests
             .Should().Equal("email");
     }
 
+    // The strictest guardrails of the live projects that link the data source apply, whichever of them asks.
+    [Test]
+    public async Task AnotherProjectLinkingTheSource_LowersTheRowLimit()
+    {
+        var sharedSources = TestSharedSources.Linking(DataSourceId, new Dictionary<int, McpSettingsData>
+        {
+            [ProjectId] = new() { MaxRowLimit = 1000 },
+            [ProjectId + 1] = new() { MaxRowLimit = 5 }
+        });
+
+        var result = await CreateTool(sharedSources: sharedSources).ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 5");
+    }
+
     private void SetupGuardrailValidation(bool isValid, string? error, List<string>? piiColumns)
     {
         _guardrail
@@ -421,7 +437,7 @@ public class DryRunToolTests
             .Returns(new QueryValidationResult(isValid, error, isValid, piiColumns));
     }
 
-    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null)
+    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
@@ -432,7 +448,7 @@ public class DryRunToolTests
 
         settingsProvider ??= SettingsProviderMock.Create();
 
-        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
+        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
 
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
@@ -442,9 +458,10 @@ public class DryRunToolTests
         return new DryRunTool(
             factory.Object,
             _gate,
+            TestConfiguredDatabases.None,
             _knowledgeGraph.Object,
             _queryExecution.Object,
-            settingsProvider.Object,
+            sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
             auditService,
             signalService,

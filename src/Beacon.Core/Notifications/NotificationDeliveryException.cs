@@ -28,7 +28,7 @@ public sealed class NotificationDeliveryException : BeaconException
     }
 }
 
-/// <summary>The closed set of failure reasons a notification delivery can record.</summary>
+/// <summary>The closed set of reasons a run's history records: why a notification delivery failed, or why a scheduled run was skipped.</summary>
 public static class NotificationFailureReasons
 {
     public const string Generic = "Notification delivery failed.";
@@ -44,6 +44,12 @@ public static class NotificationFailureReasons
     public const string DestinationUnreadable = "Notification delivery failed: the stored destination could not be read.";
 
     public const string DestinationNotEncrypted = "Notification delivery failed: the stored destination is not encrypted.";
+
+    /// <summary>
+    /// Not a delivery failure: the comment of a scheduled run skipped before anything ran because its owner may no longer
+    /// run the subscription's query (<see cref="Data.Enums.NotificationStatus.Skipped"/>).
+    /// </summary>
+    public const string OwnerNotAuthorized = "Skipped: owner not authorized.";
 
     private static readonly Regex RecordedComment = BuildRecordedCommentPattern();
 
@@ -114,7 +120,8 @@ public static class NotificationFailureReasons
                 TimedOut,
                 DestinationNotAllowed,
                 DestinationUnreadable,
-                DestinationNotEncrypted
+                DestinationNotEncrypted,
+                OwnerNotAuthorized
             }
             .Concat(Enumerable.Range(1, 5).Select(x => ForStatus((HttpStatusCode)(x * 100))))
             .Select(Regex.Escape);

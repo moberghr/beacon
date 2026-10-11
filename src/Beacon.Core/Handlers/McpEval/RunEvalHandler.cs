@@ -14,8 +14,17 @@ namespace Beacon.Core.Handlers.McpEval;
 internal sealed class RunEvalHandler(IMcpEvalService evalService, IBeaconScheduler scheduler)
     : IRequestHandler<RunEvalCommand, RunEvalResult>
 {
+    /// <summary>The 400 for a run without a project: golden cases are project-scoped, so a run covers one project.</summary>
+    public const string ProjectRequiredMessage = "An eval run needs a project.";
+
     public async Task<RunEvalResult> Handle(RunEvalCommand request, CancellationToken cancellationToken)
     {
+        // Refused before a run is created: a run without a project would never evaluate a case.
+        if (request.ProjectId == null)
+        {
+            throw new InvalidOperationException(ProjectRequiredMessage);
+        }
+
         var runId = await evalService.StartRunAsync(request.ProjectId, request.TriggeredByUserId, cancellationToken);
         await scheduler.EnqueueMcpEval(runId);
 
@@ -23,6 +32,7 @@ internal sealed class RunEvalHandler(IMcpEvalService evalService, IBeaconSchedul
     }
 }
 
+/// <summary>Starts an eval run over one project's golden cases; <c>ProjectId</c> is required (400 without one).</summary>
 [ProjectScopeExempt("admin-gated curation (the eval harness)", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record RunEvalCommand(int? ProjectId, int? TriggeredByUserId) : IRequest<RunEvalResult>;
 

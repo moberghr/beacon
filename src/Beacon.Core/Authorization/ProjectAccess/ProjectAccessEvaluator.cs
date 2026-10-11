@@ -26,7 +26,8 @@ internal sealed class ProjectAccessEvaluator(
     IServiceProvider services,
     BeaconConfiguration configuration,
     IOptions<ProjectAuthorizationOptions> options,
-    ILogger<ProjectAccessEvaluator> logger) : IProjectAccessEvaluator
+    ILogger<ProjectAccessEvaluator> logger,
+    OwnerRunsAsSystemLog ownerRunsAsSystemLog) : IProjectAccessEvaluator
 {
     private static readonly IReadOnlySet<ProjectAction> AllActions = Enum.GetValues<ProjectAction>().ToHashSet();
 
@@ -229,7 +230,8 @@ internal sealed class ProjectAccessEvaluator(
         switch (actor.Kind)
         {
             case BeaconPrincipalKind.System:
-                // Work without a request (jobs, startup) is unrestricted; work done for a user resolves its owner instead.
+                // Work without a request in a scope marked as system work (jobs, startup) is unrestricted; work done for a
+                // user resolves its owner instead.
                 return AccessProfile.Unrestricted;
 
             case BeaconPrincipalKind.User when actor.IsActiveUser && actor.BeaconUserId != null:
@@ -369,7 +371,7 @@ internal sealed class ProjectAccessEvaluator(
     }
 
     // The owner of scheduled work: an ownerless row reaches only the openly reachable data sources; an owner without a
-    // stored user is the system on a host without user management and nobody otherwise.
+    // stored user is the system on a host without user management (logged, ids only) and nobody otherwise.
     private async Task<AccessProfile> OwnerAsync(BeaconActor actor, CancellationToken cancellationToken)
     {
         if (actor.UserId == null)
@@ -387,7 +389,14 @@ internal sealed class ProjectAccessEvaluator(
 
         if (actor.BeaconUserId == null)
         {
-            return configuration.UserManagement.Enabled ? AccessProfile.None : AccessProfile.Unrestricted;
+            if (configuration.UserManagement.Enabled)
+            {
+                return AccessProfile.None;
+            }
+
+            ownerRunsAsSystemLog.Report(actor.UserId);
+
+            return AccessProfile.Unrestricted;
         }
 
         if (!actor.IsActiveUser)

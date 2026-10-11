@@ -11,10 +11,19 @@ import { cn } from '@/lib/cn';
  * All animation lives in src/index.css @layer components + the keyframes in
  * tailwind.config (.beacon-beam, .beacon-rings, .beacon-underline).
  */
+export type BeaconHeroTick = 'ok' | 'warn' | 'crit' | 'muted';
+
 export interface BeaconHeroProps {
   user?: string;
   /** "ok" | "warn" | "crit" | "muted" for each of the last N hours (left → right). "muted" = no executions in that bucket. */
-  ticks?: Array<'ok' | 'warn' | 'crit' | 'muted'>;
+  ticks?: BeaconHeroTick[];
+  /**
+   * What a tick of each colour means, in its tooltip ("3h ago: failures"). Defaults: ok, warnings, failures, no
+   * executions; the page says what "warn" stands for.
+   */
+  tickTitles?: Partial<Record<BeaconHeroTick, string>>;
+  /** A legend under the strip, one entry per colour the page explains; none by default. */
+  legend?: Array<{ tick: Exclude<BeaconHeroTick, 'muted'>; label: string }>;
   meta: {
     executions30d: number;
     anomalies: number;
@@ -25,6 +34,19 @@ export interface BeaconHeroProps {
 }
 
 const defaultTicks: NonNullable<BeaconHeroProps['ticks']> = Array.from({ length: 24 }, () => 'muted');
+
+const defaultTickTitles: Record<BeaconHeroTick, string> = {
+  ok: 'ok',
+  warn: 'warnings',
+  crit: 'failures',
+  muted: 'no executions',
+};
+
+const tickColour: Record<Exclude<BeaconHeroTick, 'muted'>, string> = {
+  ok: 'bg-ok',
+  warn: 'bg-warn',
+  crit: 'bg-crit',
+};
 
 /** 1 Hz clock, scoped to leaf components so the hero doesn't re-render every second. */
 function useNow(): Date {
@@ -76,10 +98,13 @@ function HeroSeconds() {
 export function BeaconHero({
   user = 'there',
   ticks = defaultTicks,
+  tickTitles,
+  legend,
   meta,
   actions,
   className,
 }: BeaconHeroProps) {
+  const titles = { ...defaultTickTitles, ...tickTitles };
   const gridId = React.useId();
   const radialId = React.useId();
   const attention = ticks.includes('crit') || meta.anomalies > 0;
@@ -208,12 +233,19 @@ export function BeaconHero({
                     t === 'crit' && 'bg-crit h-[100%]',
                     t === 'muted' && 'bg-border h-[40%] opacity-60',
                   )}
-                  title={tickTitle(t, i, ticks.length)}
+                  title={tickTitle(titles[t], i, ticks.length)}
                 />
               ))}
             </div>
             <div className="flex justify-between text-[9.5px] mt-1 mono text-text-subtle">
               <span>−24h</span>
+              {legend && legend.length > 0 && (
+                <span className="inline-flex items-center gap-2">
+                  {legend.map(x => (
+                    <LegendDot key={x.tick} className={tickColour[x.tick]} label={x.label} />
+                  ))}
+                </span>
+              )}
               <span>now</span>
             </div>
           </div>
@@ -224,11 +256,17 @@ export function BeaconHero({
   );
 }
 
-function tickTitle(t: 'ok' | 'warn' | 'crit' | 'muted', index: number, length: number): string {
+function tickTitle(meaning: string, index: number, length: number): string {
   const hoursAgo = length - 1 - index;
   const when = hoursAgo === 0 ? 'this hour' : `${hoursAgo}h ago`;
-  if (t === 'muted') return `${when}: no executions`;
-  if (t === 'crit') return `${when}: failures`;
-  if (t === 'warn') return `${when}: warnings`;
-  return `${when}: ok`;
+  return `${when}: ${meaning}`;
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={cn('inline-block size-1.5 rounded-full', className)} aria-hidden />
+      {label}
+    </span>
+  );
 }

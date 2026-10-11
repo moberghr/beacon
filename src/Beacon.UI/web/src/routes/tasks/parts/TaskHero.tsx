@@ -65,7 +65,7 @@ export function TaskHero({
   const assignedToMe = task.assignedToCaller;
   const canWork = canWorkTask(task, isAdmin);
   const canClaim = currentUser?.userId != null && canClaimTask(task, isAdmin);
-  const canUnassign = task.assigneeUserId != null && canWork;
+  const canUnassign = task.hasAssignee && canWork;
 
   const snoozedNow =
     task.snoozedUntil != null && new Date(task.snoozedUntil).getTime() > Date.now();
@@ -123,7 +123,7 @@ export function TaskHero({
                   aria-expanded={assignOpen}
                   onClick={() => setAssignOpen(o => !o)}
                 >
-                  {assignedToMe ? 'Unassign me' : task.assigneeUserName ? 'Reassign' : 'Assign'}
+                  {assignedToMe ? 'Unassign me' : task.hasAssignee ? 'Reassign' : 'Assign'}
                 </Button>
               }
             >
@@ -146,7 +146,7 @@ export function TaskHero({
                   }}
                   disabled={assign.isPending}
                   icon={<AlertTriangle className="size-3" />}
-                  label={assignedToMe ? 'Unassign me' : `Unassign ${task.assigneeUserName ?? task.assigneeUserId}`}
+                  label={assignedToMe ? 'Unassign me' : task.assigneeUserName ? `Unassign ${task.assigneeUserName}` : 'Unassign'}
                 />
               )}
             </Popover>

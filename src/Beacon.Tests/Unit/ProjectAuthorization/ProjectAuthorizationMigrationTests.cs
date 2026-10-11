@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.Configuration;
@@ -18,7 +19,8 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// The project authorization migration, checked offline on both providers (nothing connects, nothing is migrated): the
 /// model has no pending changes against its snapshot, existing data sources stay reachable while unlinked
 /// (<c>open_when_unlinked</c> defaults to true for existing rows), existing projects stay open, and the recorded owner,
-/// linking user and change-history source are nullable columns that existing rows leave empty.
+/// linking user and change-history source are nullable columns that existing rows leave empty. The later contract-owner
+/// migration adds one nullable timestamp that existing contracts leave empty, and its target model is the snapshot.
 /// </summary>
 [TestFixture]
 public class ProjectAuthorizationMigrationTests
@@ -39,7 +41,35 @@ public class ProjectAuthorizationMigrationTests
         added[requiresMembership].DefaultValue.Should().Be(false);
         migration.UpOperations.OfType<CreateTableOperation>().Should().ContainSingle()
             .Which.PrimaryKey!.Name.Should().Be("pk_project_members");
-        migrations.Migrations.Keys.Order(StringComparer.Ordinal).Last().Should().Be(migrations.Migrations.Keys.Single(x => x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal)), "it sorts after every earlier migration");
+        Ordered(migrations)
+            .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
+            .Skip(1)
+            .Should().ContainSingle("it sorts after every earlier migration, and only the contract-owner migration follows it")
+            .Which.Should().EndWith("_AddContractOwnerNotAuthorized");
+    }
+
+    [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
+    [TestCase(true, "DataContracts", "OwnerNotAuthorizedSince", "datetime2")]
+    public void TheContractOwnerMigration_AddsOneNullableTimestamp_AndItsTargetModelIsTheSnapshot(bool sqlServer, string table, string column, string type)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+
+        var migration = MigrationNamed(context, migrations, "_AddContractOwnerNotAuthorized");
+
+        migration.UpOperations.Should().ContainSingle()
+            .Which.Should().BeOfType<AddColumnOperation>()
+            .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column, ColumnType = type, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null }, x => x.ExcludingMissingMembers());
+        migration.DownOperations.Should().ContainSingle()
+            .Which.Should().BeOfType<DropColumnOperation>()
+            .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column }, x => x.ExcludingMissingMembers());
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
+            .Should().BeEmpty("the migration's target model is the snapshot");
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        Ordered(migrations).Last().Should().EndWith("_AddContractOwnerNotAuthorized", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]
@@ -69,9 +99,30 @@ public class ProjectAuthorizationMigrationTests
 
     private static Migration ProjectAuthorizationMigration(BeaconContext context, IMigrationsAssembly migrations)
     {
-        var id = migrations.Migrations.Keys.Single(x => x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal));
+        return MigrationNamed(context, migrations, "_AddProjectAuthorization");
+    }
+
+    private static Migration MigrationNamed(BeaconContext context, IMigrationsAssembly migrations, string suffix)
+    {
+        var id = migrations.Migrations.Keys.Single(x => x.EndsWith(suffix, StringComparison.Ordinal));
 
         return migrations.CreateMigration(migrations.Migrations[id], context.Database.ProviderName!);
+    }
+
+    private static List<string> Ordered(IMigrationsAssembly migrations)
+    {
+        return migrations.Migrations.Keys
+            .Order(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    // A model built by a migration or a snapshot, made ready for the differ as the migrator makes it (before anything
+    // else has initialized it).
+    private static IModel Initialized(IModel model, IModelRuntimeInitializer initializer)
+    {
+        var finalized = model is IMutableModel mutable ? mutable.FinalizeModel() : model;
+
+        return initializer.Initialize(finalized, designTime: true, validationLogger: null);
     }
 
     private static string TableOf(string column)

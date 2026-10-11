@@ -77,6 +77,9 @@ public class SubscriptionDetailsData
     /// </summary>
     public string? OwnerDisplayName { get; set; }
 
+    /// <summary>The last scheduled run was skipped because the owner may no longer run the subscription's query.</summary>
+    public bool OwnerNotAuthorized { get; set; }
+
     /// <summary>
     /// Anomaly detection configuration for this subscription
     /// </summary>

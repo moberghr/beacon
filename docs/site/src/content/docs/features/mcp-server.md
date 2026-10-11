@@ -11,6 +11,17 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 
 Project resolution is **stateless** — it is computed per call, with no session memory. If the key is restricted to a single project, that project is used automatically; if it can reach several, pass `project_id` on every call (the error lists the candidates when you don't).
 
+**Which projects a caller reaches** is decided on every call by the same [project access](/features/authorization/#project-access) rules as the REST API and the playground — the projects the caller may read:
+
+- an **API key** reaches the projects of its list its owner may still use; a key without a list (created before lists were required) reaches every project its owner may use;
+- a mapped **Entra system caller** reaches its configured projects, restricted or not;
+- a mapped **Entra user caller** reaches its configured projects within its Beacon user's access — a restricted project only while the user is a member; without a Beacon user, its configured open projects only;
+- a **browser session** (cookie or SSO) reaches no project on `/beacon/mcp` — browsers use the [MCP Playground](#mcp-playground) — and neither does a call without an HTTP request behind it (a host-wired stdio transport).
+
+**What a caller may do in a project** follows its project role there, as in the playground: the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) need Read, while the SQL-carrying tools (`ask`, `query`, `dry_run`) and `feedback` work ad hoc in the project and need Query — an Editor or above in it. A Viewer (a Viewer member of a restricted project, or a caller whose global role is Viewer) reads the catalog but runs no SQL there: such a call answers "Access denied: you may read project N but not run ad-hoc queries in it." and is audited, and an `ask` or `query` refused this way records its signal like any other failed call.
+
+A membership revoked, a project restricted or a user disabled takes effect on the caller's next call, in the same session. Saved-query tools are visible only in the caller's projects where it may run saved SQL (`Run`), and host endpoint tools only when the caller may read the host's project. A tool call that names a project the caller does not reach answers "Access denied: you do not have access to project N."; one that names none when the caller reaches no project answers "No projects are available to you." Both are audited.
+
 **What you can do through MCP:**
 - Ask natural language questions and get SQL + results back
 - Pull the exact grounding context Beacon uses for SQL generation — schemas with real sample values, verified join paths, human-verified examples — and write your own SQL (`get_query_context` → `dry_run` → `query`)
@@ -26,7 +37,7 @@ Project resolution is **stateless** — it is computed per call, with no session
 
 Go to **API Keys** in the React UI (`/api-keys`) and create a new key:
 - Choose a **scope**: `Read` or `Execute` — the MCP endpoint requires `Execute`, because its tools can run SQL; `Read` keys are limited to the read-only REST API. Creating an `Execute` key needs the Editor role or above
-- Optionally restrict to specific **projects**
+- Pick the **projects** the key may use — at least one is required. The key reaches them only while you, its owner, still have access to them (see [Project restrictions](/features/api-keys/#project-restrictions))
 - Copy the key — it's shown only once (the key is SHA256-hashed before storage and never persisted in plaintext)
 
 The key format is: `sk-sem_...`
@@ -95,7 +106,7 @@ Once connected, your AI assistant can use the tools described below. Try asking:
 | **Transport** | Streamable HTTP + JSON-RPC 2.0 (via `ModelContextProtocol.AspNetCore`) |
 | **Authentication** | Required — `Authorization: Bearer sk-sem_...` header with the `Execute` scope |
 
-Map the server with `app.MapBeaconMcp()`, which mounts `/beacon/mcp` behind the Execute-scope policy (registered by `AddBeaconApiAuthorization()`): an API key or mapped Entra caller without the `Execute` scope gets `403`. Do not map it with `app.MapMcp("/beacon/mcp").RequireAuthorization()` — the default policy admits any authenticated caller. The MCP layer also refuses a caller that lacks the `Execute` scope — and, over HTTP, a caller that is not authenticated — so a host that maps the route with a weaker policy still fails closed, but it loses the `403` at the door: a tool call answers a tool error (no tool runs, and the refusal is audited like any tool call), and every other request except `initialize` and `ping` — `tools/list`, resources, prompts, completions — a JSON-RPC error. Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
+Map the server with `app.MapBeaconMcp()`, which mounts `/beacon/mcp` behind the Execute-scope policy (registered by `AddBeaconApiAuthorization()`): an API key or mapped Entra caller without the `Execute` scope gets `403`. Do not map it with `app.MapMcp("/beacon/mcp").RequireAuthorization()` — the default policy admits any authenticated caller. The MCP layer also refuses a caller that lacks the `Execute` scope — and a caller that is not authenticated, over HTTP or over a transport without an HTTP request (such as stdio) — so a host that maps the route with a weaker policy still fails closed, but it loses the `403` at the door: a tool call answers a tool error (no tool runs, and the refusal is audited like any tool call), and every other request except `initialize` and `ping` — `tools/list`, resources, prompts, completions — a JSON-RPC error. Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
 
 **Protocol niceties the server publishes:**
 
@@ -230,6 +241,8 @@ Get the grounding context Beacon assembles internally for the `ask` tool, scoped
 
 *If the project has exactly one data source it is auto-selected; with several, pass `datasource_name` or `datasource_id` (the error lists the candidates as `id: name` pairs).
 
+`get_query_context` needs Read in the project. Its value matches come from live probes of the data source only for a caller who may also query the project (Editor and above); a Viewer gets the matches the stored sample values already hold, and no probe runs for it.
+
 The response opens with a header naming the data source and SQL dialect, followed by the grounding context. Sections marked **(authoritative)** are human-verified. When the context exceeds `max_chars` it is cut at the last complete section and ends with an explicit truncation note. `structuredContent` carries `data_source_id`, `data_source`, `dialect`, and `truncated`.
 
 **Intended workflow:** `get_query_context` → write your own SQL → `dry_run` to validate → `query` to execute. Use this instead of `ask` when your agent wants full control over the SQL it runs.
@@ -316,6 +329,9 @@ The MCP server enforces several safety measures:
 | Feature | Description | Default |
 |---------|-------------|---------|
 | **Read-only enforcement** | Only `SELECT` queries are allowed | Enabled |
+| **Database names** | SQL may name only its data source's configured database (catalog, project); other qualifiers are refused | Always on |
+| **Database boundary** | Functions and procedures that reach other servers, files or storage, Databricks file paths and four-part names are refused | Always on |
+| **Shared data sources** | A source several live projects link runs, and is grounded, with the strictest guardrails among them | Always on |
 | **Row limits** | Maximum rows returned per query | 100 (single), 500 (cross-source), max 1000 |
 | **PII detection** | Automatically detects and flags sensitive data patterns | Enabled |
 | **Query timeout** | Queries are cancelled after 30 seconds | Always on |
@@ -323,7 +339,18 @@ The MCP server enforces several safety measures:
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 | **Content retention** | Whether questions, SQL, and error text are persisted at all — per project, lockable deployment-wide | Retained |
 
-`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. A tool call refused for a missing `Execute` scope (or an unauthenticated caller) is audited too, with the tool name, the caller's identifiers and a permission error; when `Beacon:Mcp:Audit:Required` is set and that row cannot be written, the refusal answers with the withheld-result message instead. `McpSignalService` records the three SQL-carrying tools (`ask`, `query`, `dry_run`); the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design.
+**Database names.** `ask`, `query`, `dry_run` and the saved-query tools refuse SQL that names another database than the data source's own — `database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery — with the gate code `cross_database`, also when read-only enforcement is off. The allowed database is the one the data source's connection configures; a source without one — or whose connection settings cannot be read — accepts no database qualifier. Unqualified and schema-qualified names always pass. The same always-on stage refuses `dblink…`, `lo_…`, `xp_…`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `EXTERNAL_QUERY` and the other functions that reach other servers, files or storage, Databricks file paths and SQL Server four-part names, so turning read-only enforcement off never opens them. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+
+**Shared data sources.** The guardrails a tool applies are the data source's: when several live projects link it, read-only enforcement and PII detection are on if any of them turns them on, value grounding and sample values are off if any of them turns them off, all their custom PII patterns apply, and the lowest row limit, statement timeout, result size, plan-cost limit and value-grounding probe budget win — whichever project the caller works in. `ask` applies them over every data source it routes to, and grounding (`ask`, `get_query_context`) applies the value-grounding, sample-value and PII settings. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
+
+| Setting | Strictest among the linking projects |
+|---------|--------------------------------------|
+| `enforceReadOnly`, `enablePiiDetection` | on when any project turns it on |
+| `enableValueGrounding`, `enableSampleValueCollection` | off when any project turns it off |
+| `customPiiPatterns` | every project's patterns |
+| `maxRowLimit`, `statementTimeoutSeconds`, `maxResultBytes`, `maxExplainCost`, `valueGroundingMaxProbes` | the lowest (`maxExplainCost`: any limit over none) |
+
+`McpAuditService` fires on every tool invocation, including the failure path — it is never short-circuited. Audit rows and usage signals record the caller by its Beacon user (`Users.Id`): an API key's owner, a mapped caller's provisioned user, or the signed-in user in the playground — never the session's own identifier — so a caller can rate the signals of its own `ask` calls. A tool call refused for a missing `Execute` scope (or an unauthenticated caller) is audited too, with the tool name, the caller's identifiers and a permission error; when `Beacon:Mcp:Audit:Required` is set and that row cannot be written, the refusal answers with the withheld-result message instead. `McpSignalService` records the three SQL-carrying tools (`ask`, `query`, `dry_run`); the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) are audit-only by design.
 
 ## Content retention
 
@@ -451,7 +478,7 @@ Changes take effect without a restart. These settings are part of [Admin Setting
 
 You don't need to wire up an external MCP client to try the server. The React UI ships an **MCP Playground** (`/mcp-playground`) where you select a project and ask questions interactively — the same tools, routing, guardrails, and audit trail as a real MCP session. Use it to validate documentation quality and tune the system prompt before pointing Claude or Cursor at your data.
 
-The playground runs as the signed-in user and checks their [project access](/features/authorization/#project-access) on every call: the catalog tools (`get_context`, `get_documentation`, `search`, `get_query_context`) need Read in the selected project, and `ask`, `query`, `dry_run` and `feedback` need Query. A restricted project the user is not a member of, or a project outside an API key's list, is refused before any tool runs; a call without a signed-in request is refused outright. In this version, tool calls over `/beacon/mcp` keep their previous rule — the API key's or mapped caller's project list.
+The playground runs as the signed-in user and checks their [project access](/features/authorization/#project-access) on every call: the catalog tools (`get_context`, `get_documentation`, `search`, `get_query_context`) need Read in the selected project, and `ask`, `query`, `dry_run` and `feedback` need Query. A restricted project the user is not a member of, or a project outside an API key's list, is refused before any tool runs; a call without a signed-in request is refused outright. Tool calls over `/beacon/mcp` decide the caller's projects by the same rules (see [Overview](#overview)).
 
 The companion **MCP Learning** page (`/mcp-learning`) shows the learning loop at work: usage signals, success rate, learned schema patterns awaiting approval, and proposed documentation patches you can apply or reject.
 
@@ -506,7 +533,11 @@ The server streams the JSON-RPC response back on the same connection.
 
 ## Troubleshooting
 
-**"No project found" error** — Your API key must be associated with at least one project. Check API key settings.
+**"No projects are available to you" error** — the caller reaches no project: none of the API key's projects is one its owner may still use, a mapped Entra user is not a member of the restricted projects it is configured for, or the call came from a browser session (use the [MCP Playground](#mcp-playground)). Check the key's projects and the owner's or user's project memberships.
+
+**"Access denied: you do not have access to project N"** — the project named in `project_id` is not one the caller reaches (see [Overview](#overview)).
+
+**"Access denied: you may read project N but not run ad-hoc queries in it"** — the caller is a Viewer in the project: it reads the catalog, but `ask`, `query` and `dry_run` need an Editor role there (and, in a restricted project, an Editor membership). Saved-query tools stay available to Viewers.
 
 **"Multiple projects available" error** — Your API key has access to multiple projects. Pass `project_id` in your tool calls, or restrict the API key to a single project.
 
@@ -519,6 +550,22 @@ The server streams the JSON-RPC response back on the same connection.
 **"Permission denied: this credential does not have the Execute scope"** — the key (or Entra caller) has only `Read`, or it has `Execute` but its owner no longer has the Editor role or above. Use an `Execute` key of a user with write permission.
 
 **Answers miss obvious joins or misread a business term** — the model can only use what it was given. Check the [Knowledge Base guide](/features/knowledge-base/): register the join path, add the glossary term, or promote a correct answer to a golden example.
+
+## Upgrading from 4.5: project access
+
+MCP now uses the same [project access](/features/authorization/#project-access) as the REST API and the playground, decided on every call (see [Overview](#overview) and the full [upgrade notes](/features/authorization/#upgrading-from-45-project-access)):
+
+- **API keys without a project list** now reach their owner's projects on MCP; before, they reached no project there. This widens what such keys can do over MCP — re-issue them with a project list to confine them. Keys with a list reach only the listed projects their owner may still use.
+- **Mapped Entra user callers** reach a restricted project only while their Beacon user is a member of it, and nothing while their user is disabled or archived; a user caller without a Beacon user reaches its configured open projects only. System callers keep their configured projects. See [Entra ID callers on MCP](/features/mcp-entra-callers/).
+- **Saved-query tools** are listed only in projects where the caller may run saved SQL, and each run is re-checked right before its SQL: when a data source the version reads is no longer linked to the project, or the caller may no longer run saved SQL there, the call fails without running anything. **Host endpoint tools** need the caller to read the host's project.
+- **A call without an authenticated caller is refused**, over HTTP or over a transport without an HTTP request (such as a host-wired stdio transport), and such a call reaches no project. Browser sessions reach no project on `/beacon/mcp`, as before.
+- **The SQL-carrying tools need Query in the project**, as in the playground: `ask`, `query` and `dry_run` (and `feedback`) answer "Access denied: you may read project N but not run ad-hoc queries in it." to a caller that is only a Viewer there, while the catalog tools still answer it. Mapped or provisioned Entra users keep the default `Viewer` role (`Beacon:Mcp:Callers:Users:DefaultRoleName`) and so read the catalog only: give them the Editor role — and, in a restricted project, an Editor membership — to run SQL tools. API keys are already capped by their owner's role.
+- **Error messages** no longer mention API keys: "Access denied: you do not have access to project N." and "No projects are available to you."
+- **Audit rows and signals** record the caller's Beacon user id. API keys and mapped callers were already recorded so; a signed-in session (the playground) was recorded by its external id — with no user when that id is not a number — so it could not rate the signals of its own `ask` calls. Now it can.
+- **Eval runs without a project** are refused: the run is marked `Failed` before any case runs.
+- **Database names must be the data source's own.** SQL naming another database, catalog or project than the one the data source's connection configures is refused (`cross_database`), and a data source without a configured database accepts no database qualifier. SQL the gate cannot parse is refused even with read-only enforcement off.
+- **Shared data sources take the strictest guardrails** of the live projects that link them: a project with a looser row limit, PII, read-only, value-grounding or sample-value setting gets the stricter one on a data source it shares.
+- **`get_query_context` runs live value probes only for callers who may query the project**; a Viewer's context resolves values from the stored samples alone.
 
 ## See Also
 

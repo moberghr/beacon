@@ -43,6 +43,28 @@ public static class AccessRefusal
     }
 
     /// <summary>
+    /// Logs scheduled work skipped before any SQL or LLM call because <paramref name="owner"/>, the owner it runs as, may
+    /// not take <paramref name="action"/> on its data sources now (an inactive owner, a lost membership, an ownerless row
+    /// on data that is not openly reachable). A warning, not an error: the run is recorded as skipped, not failed.
+    /// </summary>
+    public static void Skipped(
+        ILogger logger,
+        BeaconActor owner,
+        string work,
+        int workId,
+        ProjectAction action)
+    {
+        logger.LogWarning(
+            ProjectAccessEvents.ScheduledWorkSkipped,
+            "Scheduled work skipped: {Work} {WorkId}, action {Action}, owner {ActorId}, principal {PrincipalKind}",
+            work,
+            workId,
+            action,
+            owner.LogId,
+            owner.Kind);
+    }
+
+    /// <summary>
     /// Logs a resource answered as not found for <paramref name="action"/>: at Warning when it exists but the caller may
     /// not read it, at Information when it is missing. The caller throws the 404.
     /// </summary>

@@ -31,6 +31,8 @@ export interface ControlTowerSubscriptionHealthData {
   lastExecutionTime: string | null;
   lastExecutionStatus: NotificationStatus | null;
   lastResultCount: number | null;
+  /** The subscription's owner may no longer run its query, so its scheduled runs are skipped until an Admin assigns another. */
+  ownerNotAuthorized: boolean;
   unresolvedTaskCount: number;
   totalTaskCount: number;
   anomalyCount30Days: number;
@@ -53,6 +55,8 @@ export interface ControlTowerStatistics {
   totalAnomalies30Days: number;
   overallSuccessRate: number;
   timeRangeDays: number;
+  /** Enabled data contracts the caller reads whose scheduled evaluations are skipped: their owner may no longer run them. */
+  ownerNotAuthorizedContracts: number;
 }
 
 export interface ControlTowerExecutionItem {

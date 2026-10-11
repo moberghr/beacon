@@ -172,11 +172,12 @@ public class FeedbackToolTests
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
     }
 
-    [TestCase(7, false, false, TestName = "Feedback_PinnedToAnotherProject_WithoutAProjectList_IsRefused")]
-    [TestCase(7, true, false, TestName = "Feedback_PinnedToAnotherProject_WithAnEmptyProjectList_IsRefused")]
-    [TestCase(SignalProjectId, true, false, TestName = "Feedback_InTheSignalsProject_WithAnEmptyProjectList_IsRefused")]
-    [TestCase(SignalProjectId, false, true, TestName = "Feedback_InTheSignalsProject_WithoutAProjectList_IsRecorded")]
-    public async Task Feedback_FollowsThePinnedProjectAndTheProjectList(int activeProjectId, bool emptyList, bool recorded)
+    [TestCase(7, "none", false, TestName = "Feedback_PinnedToAnotherProject_WithoutAProjectList_IsRefused")]
+    [TestCase(7, "empty", false, TestName = "Feedback_PinnedToAnotherProject_WithAnEmptyProjectList_IsRefused")]
+    [TestCase(SignalProjectId, "empty", false, TestName = "Feedback_InTheSignalsProject_WithAnEmptyProjectList_IsRefused")]
+    [TestCase(SignalProjectId, "none", false, TestName = "Feedback_InTheSignalsProject_WithoutAProjectList_IsRefused")]
+    [TestCase(SignalProjectId, "signal", true, TestName = "Feedback_InTheSignalsProject_ListedForTheCaller_IsRecorded")]
+    public async Task Feedback_FollowsThePinnedProjectAndTheProjectList(int activeProjectId, string projectList, bool recorded)
     {
         var mediator = new Mock<IMediator>();
         mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
@@ -185,7 +186,12 @@ public class FeedbackToolTests
             new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor, [7] = ProjectRole.Editor },
             includesOpen: false,
             notOpen: []);
-        var (tool, audit) = BuildTool(mediator, access: editor, activeProjectId: activeProjectId, allowedProjectIds: emptyList ? [] : null);
+        var (tool, audit) = BuildTool(
+            mediator,
+            access: editor,
+            activeProjectId: activeProjectId,
+            allowedProjectIds: projectList == "empty" ? [] : [SignalProjectId],
+            withoutProjectList: projectList == "none");
 
         var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
 
@@ -228,7 +234,8 @@ public class FeedbackToolTests
         Mock<IMediator> mediator,
         ProjectAccessScope? access = null,
         int? activeProjectId = null,
-        List<int>? allowedProjectIds = null)
+        List<int>? allowedProjectIds = null,
+        bool withoutProjectList = false)
     {
         // One factory serves both the tool (signal → project lookup) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured log list (§4.7 —
@@ -243,7 +250,8 @@ public class FeedbackToolTests
         var projectContext = new Mock<IProjectContext>();
         projectContext.SetupGet(x => x.UserId).Returns(1);
         projectContext.SetupGet(x => x.ActiveProjectId).Returns(activeProjectId);
-        projectContext.SetupGet(x => x.AllowedProjectIds).Returns(allowedProjectIds);
+        // The caller's projects default to the signal's; without a list (no caller resolved) nothing is reachable.
+        projectContext.SetupGet(x => x.AllowedProjectIds).Returns(withoutProjectList ? null : allowedProjectIds ?? [SignalProjectId]);
         projectContext.SetupGet(x => x.ApiKeyId).Returns((int?)null);
 
         var tool = new FeedbackTool(

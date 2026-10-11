@@ -412,19 +412,6 @@ public class QueryTranslationTests : QueryTranslationTestBase
             .Where(x => x.RuleType == DataContractRuleType.CustomSql));
     }
 
-    /// <summary>
-    /// Mirrors the data-source lookup a CustomSql rule is validated against in <c>CreateDataContractHandler</c> and
-    /// <c>UpdateDataContractHandler</c> (positional record projection).
-    /// </summary>
-    [Test]
-    public void DataContract_CustomSqlTargetProjection_Translates()
-    {
-        AssertQueryTranslates(ctx => ctx.DataSources
-            .Where(x => x.Id == 1)
-            .Select(x =>
-                new DataQualityRuleTarget(x.DataSourceType, x.DatabaseEngineType, x.HostManagedKey)));
-    }
-
     // ─── Project search (KnowledgeGraphService.SearchProjectAsync) ───
 
     /// <summary>

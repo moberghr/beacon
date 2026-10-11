@@ -5,9 +5,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Database, Folder, GitBranch } from 'lucide-react';
+import { Database, Folder, GitBranch, Lock } from 'lucide-react';
 import { beaconApi } from '@/api/client';
-import { Button, Card, CardBody, Field, Input, PageHeader, Textarea } from '@/components/beacon';
+import { Banner, Button, Card, CardBody, Field, Input, PageHeader, Textarea } from '@/components/beacon';
 import { describeError, unwrap } from '@/lib/api';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import type { DataSourceEntry } from '@/routes/data-sources/queries';
@@ -23,6 +23,11 @@ interface CreateProjectPayload {
 
 interface CreateProjectResult {
   projectId: number;
+  /**
+   * Restricted to its members, with the creator as its project admin. False when the creator is not a Beacon user or
+   * Beacon does not keep project memberships here: nobody could be a member, so the project is created open.
+   */
+  requiresMembership: boolean;
 }
 
 const SCHEMA = z.object({
@@ -78,10 +83,16 @@ export default function NewProjectPage() {
         repositoryUrls: splitLines(v.repositoryUrls),
         accessToken: v.accessToken.trim() || null,
       });
-      toast.success('Project created');
+      if (result.requiresMembership) {
+        toast.success('Project created', { description: 'It is restricted to its members, and you are its project admin.' });
+      } else {
+        toast.success('Project created', {
+          description: 'It is open to everyone with a Beacon role: project membership is not kept in Beacon for this account.',
+        });
+      }
       navigate(`/projects/${result.projectId}`);
     } catch (err) {
-            toast.error(describeError(err, 'Create failed'));
+      toast.error(describeError(err, 'Create failed'));
     }
   });
 
@@ -104,6 +115,13 @@ export default function NewProjectPage() {
             <Button type="button">Cancel</Button>
           </Link>
         }
+      />
+
+      <Banner
+        tone="info"
+        icon={<Lock />}
+        title="New projects are restricted; you will be the project admin"
+        sub="Only the project's members and Admins can use it; add members from the project's Members tab. Where project membership is not kept in Beacon, the project is created open instead."
       />
 
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">

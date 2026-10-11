@@ -27,12 +27,13 @@ namespace Beacon.Tests.Unit;
 public class WarehouseDialectCallSiteTests
 {
     private const int WarehouseId = 5;
+    private const int ProjectId = 2;
 
     [TestCase(DataSourceType.BigQuery)]
     [TestCase(DataSourceType.Databricks)]
     public async Task SemanticSearch_WarehouseSource_ValidatesInItsOwnDialect(DataSourceType type)
     {
-        var result = await SemanticSearch(type, "SELECT id FROM orders").AskAsync(WarehouseId, "ids?", execute: false);
+        var result = await SemanticSearch(type, "SELECT id FROM orders").AskAsync(WarehouseId, ProjectId, "ids?", execute: false);
 
         result.Error.Should().BeNull();
         result.GeneratedSql.Should().Be("SELECT id FROM orders");
@@ -41,17 +42,17 @@ public class WarehouseDialectCallSiteTests
     [Test]
     public async Task SemanticSearch_BackslashBeforeQuote_IsRejected()
     {
-        var result = await SemanticSearch(DataSourceType.BigQuery, "SELECT 'x\\', 1 AS y").AskAsync(WarehouseId, "x?", execute: false);
+        var result = await SemanticSearch(DataSourceType.BigQuery, "SELECT 'x\\', 1 AS y").AskAsync(WarehouseId, ProjectId, "x?", execute: false);
 
         result.Error.Should().Contain("A backslash before a quote is not allowed");
     }
 
     [Test]
-    public async Task SemanticSearch_MissingDataSource_ReportsIt()
+    public async Task SemanticSearch_MissingDataSource_IsRefused()
     {
-        var result = await SemanticSearch(DataSourceType.BigQuery, "SELECT id FROM orders").AskAsync(99, "ids?", execute: false);
+        var act = () => SemanticSearch(DataSourceType.BigQuery, "SELECT id FROM orders").AskAsync(99, ProjectId, "ids?", execute: false);
 
-        result.Error.Should().Be("Data source 99 not found");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Data source 99 not found");
     }
 
     [TestCase(DataSourceType.BigQuery, "SELECT id FROM orders", true)]
@@ -81,7 +82,10 @@ public class WarehouseDialectCallSiteTests
             llm.Object,
             new QueryGuardrailService(),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestConfiguredDatabases.None,
             Mock.Of<IDataSourceProviderFactory>(),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            TestProjectAccess.Actors(),
             NullLogger<SemanticSearchService>.Instance);
     }
 

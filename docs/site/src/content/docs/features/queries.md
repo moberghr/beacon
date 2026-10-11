@@ -323,6 +323,22 @@ Test queries without scheduling:
 - ✗ Include passwords or secrets in queries
 - ✗ Allow SQL injection via parameters
 - ✗ Query sensitive data unnecessarily
+- ✗ Name another database than the step's data source
+
+### Database names
+
+A step's SQL may name objects of its own data source's database only. Unqualified and schema-qualified names always work; a name qualified with a database must use the one the data source's connection is configured for, and is refused otherwise — when the query or step is saved, and again before every preview, run and subscription execution:
+
+| Engine | Full name | Must equal |
+|---|---|---|
+| SQL Server, Azure Synapse | `database.schema.table` (four-part linked-server names are refused) | `Initial Catalog` / `Database` |
+| PostgreSQL | `database.schema.table` | `Database` / `DB` (unquoted names fold to lower case) |
+| MySQL | `database.table` | `Database` / `Initial Catalog` |
+| Snowflake | `database.schema.table` | `db` (unquoted names fold to upper case) |
+| Databricks | `catalog.schema.table` | the configured `Catalog` |
+| BigQuery | `project.dataset.table` (also inside one backtick-quoted name) | the configured `ProjectId` |
+
+Function and type names follow the same rule. A data source without a configured database accepts no database qualifier, and names resolved only at run time (`IDENTIFIER(...)`, Snowflake `TABLE('...')`) are refused. The final query of a multi-step query runs on the in-memory step results and is not affected. See [Database names in SQL](/features/authorization/#database-names-in-sql).
 
 ### Reliability
 
@@ -477,6 +493,10 @@ If queries time out:
 2. Add indexes to improve performance
 3. Increase timeout in subscription settings
 4. Simplify query or reduce result set
+
+### Names another database
+
+"The SQL names an object in another database" (catalog, project) means a name is qualified with a database other than the one the step's data source is configured for; "has no database configured" means the data source's connection names none. Write the name as `schema.table` (MySQL: `table`), or configure the database on the data source. See [Database names](#database-names).
 
 ### Permission Errors
 

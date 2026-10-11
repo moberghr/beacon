@@ -27,7 +27,7 @@ const DETAIL = {
     description: null,
     finalQuery: 'SELECT * FROM invoices WHERE open = true',
     createdTime: '2026-06-01T10:00:00Z',
-    createdByUserId: 'u1',
+    createdByUserName: 'Ana Analyst',
     changeSource: null,
     changeReason: null,
   },

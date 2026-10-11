@@ -34,7 +34,7 @@ internal sealed class GetContextTool(
         CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "get_context", project_id, out var projectId);
         if (resolveError != null)
         {
             sw.Stop();

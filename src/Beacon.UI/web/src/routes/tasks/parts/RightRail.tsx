@@ -53,7 +53,7 @@ export function RightRail({ task, relatedResolvedCount }: RightRailProps) {
               sub={`Notifications have not been delivered — no recipients on subscription ${task.subscriptionName}.`}
             />
           )}
-          {!task.resolved && !task.assigneeUserId && (
+          {!task.resolved && !task.hasAssignee && (
             <NextStep
               tone="info"
               icon={<Users className="size-3.5" />}
@@ -88,15 +88,15 @@ export function RightRail({ task, relatedResolvedCount }: RightRailProps) {
         <CardBody className="flex flex-col gap-2.5">
           <PersonRow
             role="Assignee"
-            name={task.assigneeUserName ?? task.assigneeUserId ?? 'Unassigned'}
-            sub={task.assigneeUserId ? 'investigating' : 'no one assigned'}
-            muted={!task.assigneeUserId}
+            name={task.hasAssignee ? task.assigneeUserName ?? 'Unknown user' : 'Unassigned'}
+            sub={task.hasAssignee ? 'investigating' : 'no one assigned'}
+            muted={!task.hasAssignee}
           />
           <PersonRow
             role="Owner"
-            name={task.ownerUserName ?? task.ownerUserId ?? '—'}
-            sub={task.ownerUserId ? 'created the source' : 'unknown'}
-            muted={!task.ownerUserId}
+            name={task.hasOwner ? task.ownerDisplayName ?? 'Unknown user' : '—'}
+            sub={task.hasOwner ? 'created the AI actor' : 'no owner recorded'}
+            muted={!task.hasOwner}
           />
           <PersonRow
             role="Resolved by"

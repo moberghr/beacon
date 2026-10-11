@@ -1724,6 +1724,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<DateTime?>("OwnerNotAuthorizedSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("owner_not_authorized_since");
+
                     b.Property<string>("OwnerUserId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")

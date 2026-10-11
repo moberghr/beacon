@@ -189,8 +189,10 @@ public class DatabricksProvider(
             errors.Add("Query cannot be empty");
         }
 
-        // Read-only enforcement (§1.5): reject anything that is not a single SELECT.
-        var readOnlyError = readOnlyValidator.Validate(query, "databricks");
+        // Read-only enforcement (§1.5): reject anything that is not a single SELECT, or that names another catalog than
+        // the one the source is configured for.
+        var readOnlyError = readOnlyValidator.Validate(query, "databricks")
+            ?? SqlCrossDatabaseRule.Validate(query, "databricks", ConfiguredCatalogOf(dataSource));
         if (readOnlyError != null)
         {
             errors.Add(readOnlyError);
@@ -201,6 +203,20 @@ public class DatabricksProvider(
             IsValid = errors.Count == 0,
             Errors = errors
         });
+    }
+
+    // The catalog the source is configured for; null (no catalog may be named) when none is set, undetermined (no catalog either) when its settings cannot be read.
+    private string? ConfiguredCatalogOf(DataSource dataSource)
+    {
+        try
+        {
+            return ParseConfiguration(dataSource).Catalog;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Databricks settings of data source {DataSourceId} could not be read ({ExceptionType})", dataSource.Id, ex.GetType().Name);
+            return DataSourceConfiguredDatabase.Undetermined;
+        }
     }
 
     private DatabricksConfiguration ParseConfiguration(DataSource dataSource)

@@ -30,6 +30,7 @@ function project(overrides: Record<string, unknown> = {}) {
       canManageMembers: false,
       openlyReachableDataSourceIds: [],
       sharedSourceProjects: [],
+      sharedSourceGuardrails: [],
       membershipManagement: ProjectMembershipManagement.Beacon,
       ...overrides,
     },
@@ -347,5 +348,98 @@ describe('ProjectDetailPage access', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('retry')));
     await waitFor(() => expect(detailReads).toBeGreaterThan(readsBefore));
     expect(screen.getByRole('button', { name: /^unlink$/i })).toBeInTheDocument();
+  });
+
+  it("shows an Admin each shared source's effective guardrails and the project that sets each", async () => {
+    mswServer.use(
+      signedIn(['Admin']),
+      http.get('*/beacon/api/projects/5', () =>
+        HttpResponse.json(project({
+          myRole: ProjectRole.ProjectAdmin,
+          canManageMembers: true,
+          sharedSourceProjects: sharing,
+          sharedSourceGuardrails: [
+            {
+              dataSourceId: 11,
+              dataSourceName: 'ledger-db',
+              guardrails: [
+                { setting: 'enforceReadOnly', value: 'true', projectId: 5, projectName: 'Ledger' },
+                { setting: 'enablePiiDetection', value: 'true', projectId: 7, projectName: 'Audit' },
+                { setting: 'maxRowLimit', value: '500', projectId: 7, projectName: 'Audit' },
+                { setting: 'statementTimeoutSeconds', value: '30', projectId: 5, projectName: 'Ledger' },
+                { setting: 'maxExplainCost', value: 'none', projectId: 5, projectName: 'Ledger' },
+                { setting: 'customPiiPatterns', value: '2', projectId: 8, projectName: 'Sandbox' },
+              ],
+            },
+          ],
+        })),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Guardrails of shared data sources')).toBeInTheDocument();
+    const source = screen.getByRole('region', { name: 'Guardrails of ledger-db' });
+    const row = (label: string) => within(source).getByText(label).nextElementSibling as HTMLElement;
+
+    expect(row('Read-only')).toHaveTextContent('on · set by this project');
+    expect(row('PII detection')).toHaveTextContent('on · set by Audit');
+    expect(within(row('PII detection')).getByRole('link', { name: 'Audit' })).toHaveAttribute('href', '/projects/7');
+    expect(row('Row limit')).toHaveTextContent('500 rows · set by Audit');
+    expect(row('Statement timeout')).toHaveTextContent('30 s · set by this project');
+    expect(row('Plan cost limit')).toHaveTextContent('no limit');
+    expect(row('Custom PII patterns')).toHaveTextContent('2 patterns · set by Sandbox');
+  });
+
+  it('labels every guardrail the server describes, and words one pattern and one probe in the singular', async () => {
+    mswServer.use(
+      signedIn(['Admin']),
+      http.get('*/beacon/api/projects/5', () =>
+        HttpResponse.json(project({
+          myRole: ProjectRole.ProjectAdmin,
+          canManageMembers: true,
+          sharedSourceProjects: sharing,
+          sharedSourceGuardrails: [
+            {
+              dataSourceId: 11,
+              dataSourceName: 'ledger-db',
+              guardrails: [
+                { setting: 'maxResultBytes', value: '1048576', projectId: 7, projectName: 'Audit' },
+                { setting: 'customPiiPatterns', value: '1', projectId: 8, projectName: 'Sandbox' },
+                { setting: 'enableValueGrounding', value: 'false', projectId: 7, projectName: 'Audit' },
+                { setting: 'valueGroundingMaxProbes', value: '1', projectId: 5, projectName: 'Ledger' },
+                { setting: 'enableSampleValueCollection', value: 'false', projectId: 8, projectName: 'Sandbox' },
+              ],
+            },
+          ],
+        })),
+      ),
+    );
+
+    renderPage();
+
+    const source = await screen.findByRole('region', { name: 'Guardrails of ledger-db' });
+    const row = (label: string) => within(source).getByText(label).nextElementSibling as HTMLElement;
+
+    expect(row('Result size limit')).toHaveTextContent(`${(1048576).toLocaleString()} bytes · set by Audit`);
+    expect(row('Custom PII patterns')).toHaveTextContent('1 pattern · set by Sandbox');
+    expect(row('Value grounding')).toHaveTextContent('off · set by Audit');
+    expect(row('Value probes')).toHaveTextContent('1 probe · set by this project');
+    expect(row('Sample value collection')).toHaveTextContent('off · set by Sandbox');
+    expect(within(source).queryByText(/^(enableValueGrounding|valueGroundingMaxProbes|enableSampleValueCollection)$/)).not.toBeInTheDocument();
+  });
+
+  it('shows no guardrails section when no other project shares its sources', async () => {
+    mswServer.use(
+      signedIn(['Admin']),
+      http.get('*/beacon/api/projects/5', () =>
+        HttpResponse.json(project({ myRole: ProjectRole.ProjectAdmin, canManageMembers: true })),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('radiogroup', { name: /project access/i })).toBeInTheDocument();
+    expect(screen.queryByText('Guardrails of shared data sources')).not.toBeInTheDocument();
   });
 });

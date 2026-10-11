@@ -24,10 +24,10 @@ public sealed class ProjectAccessScope
     /// <summary>No project and no data source, for any action.</summary>
     public static ProjectAccessScope None { get; } = new(false, new Dictionary<ProjectAction, ProjectSet>(), new Dictionary<int, ProjectGrant>());
 
-    /// <summary>Every project and data source, for every action: an Admin, or work with no request.</summary>
+    /// <summary>Every project and data source, for every action: an Admin, or system work (no request, a marked scope).</summary>
     internal static ProjectAccessScope Unrestricted { get; } = new(true, new Dictionary<ProjectAction, ProjectSet>(), new Dictionary<int, ProjectGrant>());
 
-    /// <summary>True for an Admin, and for work with no request: every project and data source, for every action.</summary>
+    /// <summary>True for an Admin, and for system work (no request, a marked scope): every project and data source, for every action.</summary>
     public bool IsUnrestricted { get; }
 
     /// <summary>Where <paramref name="action"/> is allowed (<see cref="ProjectSet.Unrestricted"/> for an unrestricted caller).</summary>

@@ -77,6 +77,7 @@ public class DatabaseProviderFailureLoggingTests
             resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new HostDataSourceGuard(new NoHostSources()),
+            new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
             logger);
     }
 

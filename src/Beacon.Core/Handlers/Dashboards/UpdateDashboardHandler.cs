@@ -39,6 +39,15 @@ internal sealed class UpdateDashboardHandler(
             throw new InvalidOperationException($"Dashboard {request.DashboardId} not found");
         }
 
+        // Sharing a dashboard with everyone, or making it its owner's default, is the dashboard Admin's (its owner or an
+        // Admin grantee): an Edit grantee changes the content only.
+        var changesSharing = request.IsShared != dashboard.IsShared || request.IsDefault != dashboard.IsDefault;
+        if (changesSharing
+            && !await dashboardService.UserHasPermissionAsync(request.DashboardId, userId, DashboardPermissionLevel.Admin, cancellationToken))
+        {
+            throw new BeaconForbiddenException("Only the dashboard's owner or an admin grantee can share it or make it the default.");
+        }
+
         dashboard.Name = request.Name;
         dashboard.Description = request.Description;
         dashboard.IsShared = request.IsShared;
@@ -71,6 +80,10 @@ internal sealed class UpdateDashboardHandler(
     }
 }
 
+/// <summary>
+/// Updates a dashboard: its content needs the dashboard's Edit level, changing <c>IsShared</c> or <c>IsDefault</c> its
+/// Admin level (403 otherwise).
+/// </summary>
 [ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record UpdateDashboardCommand(
     int DashboardId,

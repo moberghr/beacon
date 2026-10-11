@@ -1,13 +1,27 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeftRight } from 'lucide-react';
-import { Button, Card, CardBody, KPI, KPIGrid, PageHeader } from '@/components/beacon';
+import { Button, Card, CardBody, KPI, KPIGrid, PageHeader, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useIsAdmin } from '@/auth/useAuth';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
-import { useAiActorDetailsQuery, useSetAiActorOwner, ACTOR_STATUS_LABEL } from './queries';
+import {
+  useAiActorDetailsQuery,
+  useSetAiActorOwner,
+  ACTOR_PHASE_LABEL,
+  ACTOR_STATUS_LABEL,
+  type AiActorDetails,
+} from './queries';
+
+/** The creator by name, never by id: a neutral label when none is recorded or the user no longer exists. */
+function ownerLabel(actor: Pick<AiActorDetails, 'hasOwner' | 'ownerDisplayName'>): string {
+  if (!actor.hasOwner) {
+    return 'No owner recorded';
+  }
+  return actor.ownerDisplayName ?? 'Unknown user';
+}
 
 export default function AiActorDetailPage() {
   const params = useParams<{ id: string }>();
@@ -102,7 +116,39 @@ export default function AiActorDetailPage() {
                 <dt className="text-text-muted">Max subscriptions/query</dt><dd>{data.maxSubscriptionsPerQuery}</dd>
                 <dt className="text-text-muted">Requires approval</dt><dd>{data.requiresApproval ? 'Yes' : 'No'}</dd>
                 <dt className="text-text-muted">Status</dt><dd>{ACTOR_STATUS_LABEL[data.status ?? 0]}</dd>
+                <dt className="text-text-muted">Owner</dt><dd>{ownerLabel(data)}</dd>
               </dl>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <h2 className="m-0 mb-2 text-base font-semibold text-text">Recent think cycles</h2>
+              {(data.recentExecutions ?? []).length === 0 ? (
+                <p className="m-0 text-sm text-text-muted">No think cycles yet.</p>
+              ) : (
+                <ul className="m-0 p-0 list-none flex flex-col">
+                  {data.recentExecutions.map(x => {
+                    const phase = ACTOR_PHASE_LABEL[x.phase] ?? { label: String(x.phase), tone: 'neutral' as const };
+                    return (
+                      <li
+                        key={x.executionId}
+                        className="flex flex-col gap-0.5 py-2 border-b border-border last:border-b-0 text-sm"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Pill tone={phase.tone}>{phase.label}</Pill>
+                          <span className="text-text-muted text-xs">{formatDateTime(x.startedAt)}</span>
+                        </span>
+                        {(x.errorMessage ?? x.decisionSummary) && (
+                          <span className={x.errorMessage ? 'text-xs text-text-muted' : 'text-xs'}>
+                            {x.errorMessage ?? x.decisionSummary}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </CardBody>
           </Card>
         </>

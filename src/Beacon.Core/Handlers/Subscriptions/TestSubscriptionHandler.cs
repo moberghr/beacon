@@ -20,8 +20,8 @@ internal sealed class TestSubscriptionHandler(
     {
         await EnsureMayRunAsync(request.SubscriptionId, cancellationToken);
 
-        // Re-checked right before the run: the subscription's query, as it is now, must be runnable by the caller. The job
-        // itself checks nothing: it runs as the system.
+        // Re-checked right before the run: the subscription's query, as it is now, must be runnable by the caller. The run
+        // itself, made as the caller (not the subscription's owner), re-checks the steps it runs before any SQL.
         await authorizer.DemandAsync(new ProjectCheck(ProjectResource.Subscription(request.SubscriptionId), ProjectAction.Run), cancellationToken);
 
         await jobService.ExecuteQuery(request.SubscriptionId, cancellationToken);

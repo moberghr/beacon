@@ -67,6 +67,23 @@ internal sealed class GetHomeActivityHandler(
                     x.CreatedTime))
             .ToListAsync(cancellationToken);
 
+        // Skipped scheduled runs: the owner may no longer run the query, so nothing ran or was delivered (warn tone).
+        var skippedExecs = await context.QueryExecutionHistory
+            .WhereReadableWithin(context, runScope)
+            .Where(x => x.CreatedTime >= since)
+            .Where(x => x.NotificationStatus == NotificationStatus.Skipped)
+            .OrderByDescending(x => x.CreatedTime)
+            .Take(limit)
+            .Select(x =>
+                new HomeActivityItem(
+                    "warn",
+                    "Alert",
+                    x.Subscription.Query.Name + " was skipped",
+                    // Only a recorded reason leaves, never other stored detail.
+                    NotificationFailureReasons.Displayable(x.Comment) ?? "scheduled run skipped",
+                    x.CreatedTime))
+            .ToListAsync(cancellationToken);
+
         // New subscriptions (info tone). Global query filter excludes archived rows.
         var newSubs = await subscriptions
             .Where(x => x.CreatedTime >= since)
@@ -128,6 +145,7 @@ internal sealed class GetHomeActivityHandler(
         // Merge all streams, sort by timestamp desc, take top N
         var items = successExecs
             .Concat(failedExecs)
+            .Concat(skippedExecs)
             .Concat(newSubs)
             .Concat(resolvedTasks)
             .Concat(openTasks)

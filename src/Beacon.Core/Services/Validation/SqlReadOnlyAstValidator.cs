@@ -287,8 +287,9 @@ public sealed class SqlReadOnlyAstValidator(
     }
 
     // Databricks reads files directly through format.`path` or a backtick-quoted URI. A quoted schema that is merely
-    // named like a format (`text`.`orders`) is an ordinary table.
-    private static bool IsPathReference(ObjectName name)
+    // named like a format (`text`.`orders`) is an ordinary table. SqlCrossDatabaseRule refuses these too, with read-only
+    // enforcement off.
+    internal static bool IsPathReference(ObjectName name)
     {
         var parts = name.Values;
         if (parts.Any(x => x.QuoteStyle == '`' && (x.Value.Contains('/') || x.Value.Contains(':'))))

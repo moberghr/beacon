@@ -18,6 +18,7 @@ namespace Beacon.MCP.Tools;
 internal sealed class ProjectAskTool(
     IKnowledgeGraphService knowledgeGraph,
     IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IServiceProvider serviceProvider,
     IProjectContext projectContext,
     McpAuditService auditService,
@@ -52,7 +53,7 @@ internal sealed class ProjectAskTool(
         if (string.IsNullOrEmpty(question))
             return await FailAsync(signal, sw, null, question ?? "", "Missing required parameter: question", cancellationToken);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "ask", project_id, out var projectId);
         if (resolveError != null)
             return await FailAsync(signal, sw, null, question, resolveError, cancellationToken);
 
@@ -113,6 +114,15 @@ internal sealed class ProjectAskTool(
                     "Could not determine which data source to query for this question.", cancellationToken);
             }
 
+            // SQL runs with the strictest guardrails of the live projects that link the routed data sources.
+            var sourceSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(
+                projectId,
+                routing.Sources
+                    .Select(x => x.DataSourceId)
+                    .Distinct()
+                    .ToList(),
+                cancellationToken);
+
             var askSucceeded = true;
             JsonNode? resultPayload = null;
             string? generatedSql = null;
@@ -126,7 +136,7 @@ internal sealed class ProjectAskTool(
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
                 var outcome = await GenerateAndExecuteSqlAsync(
-                    llmProvider, source.DataSourceId, projectId, question, settings, execute, signal, cancellationToken);
+                    llmProvider, source.DataSourceId, projectId, question, sourceSettings, execute, signal, cancellationToken);
                 text += outcome.Text;
                 askSucceeded = outcome.Succeeded;
                 resultPayload = outcome.ResultPayload;
@@ -141,7 +151,7 @@ internal sealed class ProjectAskTool(
                 text += "\n";
 
                 var (crossText, crossSucceeded) = await crossSourceQueryService.ExecuteAsync(
-                    llmProvider, routing.Sources, projectId, question, settings, execute, signal, cancellationToken);
+                    llmProvider, routing.Sources, projectId, question, sourceSettings, execute, signal, cancellationToken);
                 text += crossText;
                 askSucceeded = crossSucceeded;
                 // Cross-source flow builds its markdown internally; structured content for this path

@@ -102,11 +102,14 @@ export function SubscriptionInfoCard({ subscription }: SubscriptionInfoCardProps
                     no owner recorded
                   </span>
                 ) : (
-                  subscription.ownerDisplayName ?? (
-                    <span className="text-text-subtle" title="The recorded owner no longer matches a Beacon user">
-                      unknown user
-                    </span>
-                  )
+                  <span className="inline-flex items-center gap-1.5">
+                    {subscription.ownerDisplayName ?? (
+                      <span className="text-text-subtle" title="The recorded owner no longer matches a Beacon user">
+                        unknown user
+                      </span>
+                    )}
+                    {subscription.ownerNotAuthorized && <Pill tone="warn">not authorized</Pill>}
+                  </span>
                 )
               }
             />

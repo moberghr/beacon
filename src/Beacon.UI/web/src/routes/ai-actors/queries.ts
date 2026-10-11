@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
-import { AiActorStatus } from '@/lib/enums';
+import { AiActorExecutionPhase, AiActorStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export const ACTOR_STATUS_LABEL: Record<number, string> = {
@@ -11,6 +11,17 @@ export const ACTOR_STATUS_LABEL: Record<number, string> = {
   [AiActorStatus.Paused]: 'Paused',
   [AiActorStatus.Failed]: 'Failed',
   [AiActorStatus.Archived]: 'Archived',
+};
+
+/** A think cycle's phase; Skipped: the cycle did not run because the actor's owner may no longer run its work. */
+export const ACTOR_PHASE_LABEL: Record<number, { label: string; tone: 'neutral' | 'ok' | 'warn' | 'crit' | 'info' }> = {
+  [AiActorExecutionPhase.Analyzing]: { label: 'Analyzing', tone: 'info' },
+  [AiActorExecutionPhase.Planning]: { label: 'Planning', tone: 'info' },
+  [AiActorExecutionPhase.Executing]: { label: 'Executing', tone: 'info' },
+  [AiActorExecutionPhase.Notifying]: { label: 'Notifying', tone: 'info' },
+  [AiActorExecutionPhase.Completed]: { label: 'Completed', tone: 'ok' },
+  [AiActorExecutionPhase.Failed]: { label: 'Failed', tone: 'crit' },
+  [AiActorExecutionPhase.Skipped]: { label: 'Skipped', tone: 'warn' },
 };
 
 // Local strict interfaces bridged via unwrap<T>() — the generated DTOs are
@@ -47,6 +58,24 @@ export interface AiActorDetails {
   lastError: string | null;
   createdTime: string;
   pendingPlanCount: number;
+  /** A creator is recorded: background cycles run as the creator, checked at every run. */
+  hasOwner: boolean;
+  /** The creator's display name or a neutral "User {id}" label; null when no owner or no matching user. Never an id. */
+  ownerDisplayName: string | null;
+  recentExecutions: AiActorExecutionInfo[];
+}
+
+export interface AiActorExecutionInfo {
+  executionId: number;
+  phase: AiActorExecutionPhase;
+  startedAt: string;
+  completedAt: string | null;
+  queriesCreated: number;
+  subscriptionsCreated: number;
+  tokensUsed: number;
+  estimatedCost: number;
+  decisionSummary: string | null;
+  errorMessage: string | null;
 }
 
 export interface CreateAiActorPayload {

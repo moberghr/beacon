@@ -66,7 +66,8 @@ internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscrip
             recipients,
             anomaly,
             data.OwnerUserId != null,
-            data.OwnerDisplayName);
+            data.OwnerDisplayName,
+            data.OwnerNotAuthorized);
 
         return new GetSubscriptionDetailResult(detail);
     }
@@ -83,9 +84,10 @@ public record GetSubscriptionDetailQuery(int SubscriptionId) : IRequest<GetSubsc
 public record GetSubscriptionDetailResult(SubscriptionDetail Detail);
 
 /// <summary>
-/// A subscription's detail. <c>HasOwner</c>: an owner is recorded (its scheduled runs are checked against the owner's
-/// access); <c>OwnerDisplayName</c>: the owner's display name, or a neutral "User {id}" label, never an external id or
-/// user name (null when no owner or no matching user).
+/// A subscription's detail. <c>HasOwner</c>: an owner is recorded (its scheduled runs run as the owner, checked against
+/// the owner's access at every run); <c>OwnerDisplayName</c>: the owner's display name, or a neutral "User {id}" label,
+/// never an external id or user name (null when no owner or no matching user); <c>OwnerNotAuthorized</c>: the last
+/// scheduled run was skipped because the owner may no longer run the query.
 /// </summary>
 public record SubscriptionDetail(
     int Id,
@@ -110,7 +112,8 @@ public record SubscriptionDetail(
     List<SubscriptionDetailRecipient> Recipients,
     SubscriptionDetailAnomalyConfig? AnomalyConfig,
     bool HasOwner,
-    string? OwnerDisplayName);
+    string? OwnerDisplayName,
+    bool OwnerNotAuthorized);
 
 public record SubscriptionDetailParameter(string? QueryPlaceholder, string? Value);
 

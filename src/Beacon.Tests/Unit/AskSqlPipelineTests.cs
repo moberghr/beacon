@@ -46,7 +46,7 @@ public class AskSqlPipelineTests
         _settings = new McpSettingsData();
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -346,7 +346,7 @@ public class AskSqlPipelineTests
     public async Task RunAsync_HostManagedSource_EveryGateEvaluationAppliesTheHostPolicy()
     {
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",

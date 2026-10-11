@@ -18,6 +18,7 @@ internal class DatabaseProvider(
     IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
     IHostDataSourceGuard hostGuard,
+    IConfiguredDatabaseResolver configuredDatabases,
     ILogger<DatabaseProvider> logger) : IDataSourceProvider
 {
     /// <summary>What a caller sees when a query against a host data source fails on the server.</summary>
@@ -133,7 +134,8 @@ internal class DatabaseProvider(
 
             // Read-only enforcement (§1.5): reject anything that is not a single SELECT before the
             // engine-specific syntax dry-run below.
-            var readOnlyError = readOnlyValidator.Validate(query, DataSourceSqlDialect.Of(dataSource));
+            var dialect = DataSourceSqlDialect.Of(dataSource);
+            var readOnlyError = readOnlyValidator.Validate(query, dialect);
             if (readOnlyError != null)
             {
                 return new QueryValidationResult
@@ -154,6 +156,17 @@ internal class DatabaseProvider(
                 };
             }
 
+            // Names in the database the source's connection is configured for only.
+            var crossDatabaseError = SqlCrossDatabaseRule.Validate(query, dialect, configuredDatabases.Resolve(dataSource));
+            if (crossDatabaseError != null)
+            {
+                return new QueryValidationResult
+                {
+                    IsValid = false,
+                    Errors = new List<string> { crossDatabaseError }
+                };
+            }
+
             // Engines without a dry-run strategy must NOT fall through as valid — nothing would have
             // been checked. Return an explicit skipped result the caller can distinguish (and must not
             // repair against). Checked BEFORE opening a connection: there is nothing to connect for.
@@ -171,10 +184,9 @@ internal class DatabaseProvider(
             }
 
             // Basic validation: try to prepare the query without executing
-            var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 dataSource.DatabaseEngineType.Value,
-                connectionString);
+                connectionResolver.GetConnectionString(dataSource));
 
             await connection.OpenAsync(cancellationToken);
 

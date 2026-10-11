@@ -6,6 +6,7 @@ using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -26,6 +27,7 @@ namespace Beacon.Tests.Unit;
 public class ValueGroundingServiceTests
 {
     private const int DataSourceId = 1;
+    private const int ProjectId = 3;
 
     // ---------- ExtractLiterals ----------
 
@@ -253,7 +255,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Contain("sales.orders.status = 'REFUNDED'");
         provider.Verify(
@@ -283,7 +285,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         // Reaching the provider at all proves the constructed SELECT passed the REAL AST read-only gate.
         block.Should().Contain("sales.orders.status = 'REFUNDED'");
@@ -316,7 +318,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
     }
@@ -347,7 +349,7 @@ public class ValueGroundingServiceTests
 
         // Two literals, neither resolvable from a sample, each needing its own column probe.
         await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded' in Germany", tables, settings, CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded' in Germany", tables, settings, CancellationToken.None);
 
         provider.Verify(
             x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
@@ -364,7 +366,7 @@ public class ValueGroundingServiceTests
         var settings = NewSettings();
         settings.EnableValueGrounding = false;
 
-        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, "orders that were 'refunded'", tables, settings, CancellationToken.None);
+        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "orders that were 'refunded'", tables, settings, CancellationToken.None);
 
         block.Should().Be("");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -377,7 +379,7 @@ public class ValueGroundingServiceTests
         var provider = new Mock<IDataSourceProvider>();
         var (service, _) = BuildService(provider, dataSourceType: DataSourceType.Api);
 
-        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
         provider.Verify(
@@ -392,7 +394,7 @@ public class ValueGroundingServiceTests
         var provider = new Mock<IDataSourceProvider>();
         var (service, factory) = BuildService(provider);
 
-        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, "how many orders exist", tables, NewSettings(), CancellationToken.None);
+        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "how many orders exist", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -409,7 +411,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var act = async () => await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         var block = await act.Should().NotThrowAsync();
         block.Subject.Should().Be("");
@@ -428,9 +430,25 @@ public class ValueGroundingServiceTests
         // The literal loop's own ThrowIfCancellationRequested() fires before any probe is attempted —
         // the outer catch must rethrow it rather than swallowing it as a probe-level failure (R11).
         var act = async () => await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), cts.Token);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_DataSourceTheProjectDoesNotLink_ProbesNothing()
+    {
+        var tables = new[] { new ValueGroundingTable("sales", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, "[\"REFUNDED\"]") }) };
+        var provider = new Mock<IDataSourceProvider>();
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId + 1, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty("another project's caller gets no values from a data source its project does not link");
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Test]
@@ -440,7 +458,7 @@ public class ValueGroundingServiceTests
         var (service, factory) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", [], NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", [], NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -469,7 +487,9 @@ public class ValueGroundingServiceTests
             DatabaseEngineType = dataSourceType == DataSourceType.Api ? null : DatabaseEngineType.PostgreSQL
         };
 
-        var context = new ValueGroundingTestContext(BuildDbSet(new[] { dataSource }).Object);
+        var context = new ValueGroundingTestContext(
+            BuildDbSet(new[] { dataSource }).Object,
+            BuildDbSet(new[] { new ProjectDataSource { ProjectId = ProjectId, DataSourceId = DataSourceId } }).Object);
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -513,10 +533,12 @@ public class ValueGroundingServiceTests
                 .Options;
 
         private readonly DbSet<DataSource> _dataSources;
+        private readonly DbSet<ProjectDataSource> _links;
 
-        public ValueGroundingTestContext(DbSet<DataSource> dataSources) : base(Options, "beacon")
+        public ValueGroundingTestContext(DbSet<DataSource> dataSources, DbSet<ProjectDataSource> links) : base(Options, "beacon")
         {
             _dataSources = dataSources;
+            _links = links;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -524,6 +546,11 @@ public class ValueGroundingServiceTests
             if (typeof(TEntity) == typeof(DataSource))
             {
                 return (DbSet<TEntity>)(object)_dataSources;
+            }
+
+            if (typeof(TEntity) == typeof(ProjectDataSource))
+            {
+                return (DbSet<TEntity>)(object)_links;
             }
 
             return base.Set<TEntity>();

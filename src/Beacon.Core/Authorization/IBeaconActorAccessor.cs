@@ -2,7 +2,8 @@ namespace Beacon.Core.Authorization;
 
 /// <summary>
 /// The <see cref="BeaconActor"/> of the current request: who owns, creates and works resources, and whether the caller
-/// is an Admin. Scoped; the caller is resolved once per request.
+/// is an Admin. Scoped; the caller is resolved once per request. In a scope that runs as the owner of scheduled work
+/// (<see cref="IRunAsScope"/>), the caller is that owner.
 /// </summary>
 public interface IBeaconActorAccessor
 {

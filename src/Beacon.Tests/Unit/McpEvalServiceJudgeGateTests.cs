@@ -175,6 +175,39 @@ public class McpEvalServiceJudgeGateTests
         captured[0].GeneratedSql.Should().Be(fixedSql);
     }
 
+    [Test]
+    public async Task RunAsync_ARunWithoutAProject_IsRefused_BeforeAnyCaseRuns()
+    {
+        // Golden cases are project-scoped: a run without a project would evaluate every project's cases together.
+        var llm = new Mock<ILlmProvider>();
+        var captured = new List<McpEvalResult>();
+        var (service, run, provider) = BuildService(llm, judgeEnabled: true, capturedResults: captured);
+        run.ProjectId = null;
+
+        var act = () => service.RunAsync(RunId, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        run.Status.Should().Be("Failed");
+        run.Notes.Should().Be(McpEvalService.NoProjectNote);
+        captured.Should().BeEmpty();
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        llm.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task StartRunAsync_WithoutAProject_IsRefusedBeforeARunIsCreated()
+    {
+        var llm = new Mock<ILlmProvider>();
+        var (service, _, _) = BuildService(llm, judgeEnabled: false, capturedResults: []);
+
+        var act = () => service.StartRunAsync(null, 3, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(McpEvalService.NoProjectNote);
+        llm.VerifyNoOtherCalls();
+    }
+
     private static (McpEvalService Service, McpEvalRun Run, Mock<IDataSourceProvider> Provider) BuildService(
         Mock<ILlmProvider> llm, bool judgeEnabled, List<McpEvalResult> capturedResults, string goldSql = "SELECT 1 AS n",
         Mock<ISqlGenerationService>? sqlGenOverride = null, (string Sql, string Error)? failingExecution = null,
@@ -212,11 +245,11 @@ public class McpEvalServiceJudgeGateTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
         // Only reached by the pipeline's execution-repair path (TEST-1); harmless default otherwise.
         knowledge
-            .Setup(x => x.GetTablesContextAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetTablesContextAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("");
 
         // Generation is mocked so the ONLY path that can reach ILlmProvider is the judge — unless the
@@ -302,6 +335,7 @@ public class McpEvalServiceJudgeGateTests
             providerFactory.Object,
             guardrail.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestConfiguredDatabases.None,
             settings.Object,
             llm.Object,
             NullLogger<McpEvalService>.Instance);

@@ -11,7 +11,8 @@ namespace Beacon.Core.Services.Validation;
 /// fail-closed rules are load-bearing: the length cap runs first (so no regex or parser ever sees an
 /// over-long input), the regex guardrail second, the AST validator third, and a read-only failure
 /// short-circuits every later stage so no schema, lint or row-limit work is ever done on a statement that
-/// may not run. Stateless — the validators keep their own identifier-only logging.
+/// may not run. A name in another database than the target's configured one, and a host policy violation, then block
+/// whatever the read-only and schema settings. Stateless — the validators keep their own identifier-only logging.
 /// </summary>
 public sealed class SqlExecutionGate(
     IQueryGuardrailService guardrail,
@@ -62,6 +63,30 @@ public sealed class SqlExecutionGate(
         // The schema walk always runs so TablesUsed / ColumnsUsed are available even when no catalog check
         // was requested; the verdict alone reflects whether a catalog was supplied.
         var schemaResult = schemaValidator.Validate(request.Sql, ToCatalog(request.Catalog), request.Dialect);
+
+        // A name in another database, or a function or path that reaches another server, file or storage, leaves the data
+        // source's boundary: authorization, not advice — it always blocks, also with read-only enforcement off (SQL that
+        // cannot be parsed cannot be checked, so it blocks too). Only the in-memory join, which reaches nothing else, is
+        // not checked.
+        var crossDatabaseError = request.InMemoryJoin
+            ? null
+            : SqlCrossDatabaseRule.Validate(request.Sql, request.Dialect, request.ConfiguredDatabase);
+        if (crossDatabaseError != null)
+        {
+            return new SqlGateReport(
+                true,
+                crossDatabaseError,
+                request.Sql,
+                schemaResult.TablesUsed,
+                schemaResult.ColumnsUsed,
+                piiColumns,
+                [],
+                new SqlGateVerdicts(
+                    readOnly,
+                    SqlGateVerdict.Fail(SqlGateCodes.CrossDatabase, crossDatabaseError),
+                    SqlGateVerdict.Skipped(NotEvaluated),
+                    SqlGateVerdict.Skipped(NotEvaluated)));
+        }
 
         // Host-exposed DbContext: the allow-list is authorization, not advice — a violation always blocks.
         var hostCheck = EvaluateHostPolicy(request);

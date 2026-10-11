@@ -15,8 +15,7 @@ export interface QueryVersionSummary {
   label: string | null;
   name: string;
   createdTime: string;
-  createdByUserId: string | null;
-  /** Author's display name; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
+  /** Author's display name or a neutral "User {id}" label; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
   createdByUserName: string | null;
   changeSource: string | null;
   changeReason: string | null;
@@ -40,8 +39,7 @@ export interface QueryVersionDetail {
   description: string | null;
   finalQuery: string | null;
   createdTime: string;
-  createdByUserId: string | null;
-  /** Author's display name; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
+  /** Author's display name or a neutral "User {id}" label; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
   createdByUserName: string | null;
   changeSource: string | null;
   changeReason: string | null;
@@ -368,6 +366,8 @@ export function useUpdateQueryMutation() {
       // approval" instead of a misleading "Query saved" while the editor reverts to the stored SQL.
       successMsg: (_, data) => data.message || 'Query saved',
       errorFallback: 'Save failed',
+      // The query editors show the server's reason in a banner.
+      errorToast: false,
     }),
   );
 }
@@ -541,6 +541,8 @@ export function useCreateQuery() {
       },
       invalidate: [['queries']],
       errorFallback: 'Failed to create query',
+      // The new-query page shows the server's reason in a banner.
+      errorToast: false,
     }),
   );
 }

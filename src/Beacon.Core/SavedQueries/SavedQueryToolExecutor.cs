@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -30,11 +31,14 @@ public sealed record SavedQueryToolExecution(
 /// <summary>
 /// Runs an approved saved-query version for an MCP caller through the read-only path (§1.5): every step's SQL — with
 /// its arguments bound as database parameters (§1.10) — passes the shared <see cref="ISqlExecutionGate"/> (regex
-/// guardrail → AST read-only → host allow-list policy for host-managed sources → row limit) and executes through
+/// guardrail → AST read-only → names in the source's own configured database → host allow-list policy for host-managed
+/// sources → row limit) and executes through
 /// <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>; a final query joins the step results in in-memory
 /// SQLite behind the same gate. Unlike the UI's <c>QueryService</c> preview it never runs unbounded: the result is
 /// capped at the project's MCP row limit, and an intermediate step that exceeds <see cref="IntermediateRowCap"/> fails
-/// the call rather than feeding a silently incomplete join.
+/// the call rather than feeding a silently incomplete join. Right before any SQL runs it re-checks the steps that run:
+/// the caller may still run stored SQL in the project, and the project still links every data source they read;
+/// otherwise the call fails without running anything.
 /// </summary>
 public interface ISavedQueryToolExecutor
 {
@@ -49,8 +53,10 @@ internal sealed class SavedQueryToolExecutor(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IQueryGuardrailService guardrailService,
-    IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
+    IProjectAccessEvaluator projectAccess,
     ILoggerFactory loggerFactory) : ISavedQueryToolExecutor
 {
     /// <summary>The most rows one intermediate step of a multi-step query may return before the call fails.</summary>
@@ -67,12 +73,19 @@ internal sealed class SavedQueryToolExecutor(
         IReadOnlyDictionary<string, object?> arguments,
         CancellationToken cancellationToken)
     {
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
+        // The strictest guardrails of the live projects that link any of the steps' data sources apply.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, tool.DataSourceIds.ToList(), cancellationToken);
         var maxRows = Math.Max(1, settings.MaxRowLimit);
         var firstDataSourceId = tool.Steps.Count > 0 ? tool.Steps[0].DataSourceId : (int?)null;
         var tablesUsed = new List<string>();
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var refusal = await RefusalAsync(context, tool, projectId, cancellationToken);
+        if (refusal != null)
+        {
+            return SavedQueryToolExecution.Failed(refusal, tablesUsed, firstDataSourceId);
+        }
+
         var dataSourceIds = tool.DataSourceIds.ToList();
         var dataSources = await context.DataSources
             .Where(x => dataSourceIds.Contains(x.Id))
@@ -111,7 +124,8 @@ internal sealed class SavedQueryToolExecutor(
             {
                 EnforceReadOnly = true,
                 MaxRows = stepCap + 1,
-                HostManagedKey = dataSource.HostManagedKey
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
             });
             tablesUsed.AddRange(report.TablesUsed);
 
@@ -202,7 +216,7 @@ internal sealed class SavedQueryToolExecutor(
         }
 
         var translated = memDb.TranslateFinalQuery(tool.FinalQuery!);
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(translated, SqliteDialect, settings) with
+        var report = gate.Evaluate(SqlGateRequest.ForInMemoryJoin(translated, settings) with
         {
             EnforceReadOnly = true,
             MaxRows = maxRows + 1
@@ -233,6 +247,34 @@ internal sealed class SavedQueryToolExecutor(
             SqliteDialect);
 
         return Complete(finalRows, maxRows, tablesUsed, firstDataSourceId);
+    }
+
+    // The tool was listed for the caller earlier in the call; what runs is decided now, on the steps that run: the caller
+    // may still run stored SQL in the project, and the project still links every (live) data source those steps read.
+    private async Task<string?> RefusalAsync(BeaconContext context, SavedQueryToolDefinition tool, int projectId, CancellationToken cancellationToken)
+    {
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        var sources = tool.Steps
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+        var holdsEverySource = false;
+        if (scope.Allows(projectId, ProjectAction.Run) && sources.Count > 0)
+        {
+            var linked = await SavedQueryToolSource.BuildMembershipQuery(context, [projectId], sources)
+                .Select(x => x.DataSourceId)
+                .ToListAsync(cancellationToken);
+            holdsEverySource = sources.All(linked.Contains);
+        }
+
+        if (holdsEverySource)
+        {
+            return null;
+        }
+
+        _logger.LogWarning("Saved-query tool for query {QueryId} refused in project {ProjectId}: no longer runnable there for the caller", tool.QueryId, projectId);
+
+        return $"not available in project {projectId} for your credentials.";
     }
 
     private SavedQueryToolExecution Complete(List<Dictionary<string, object?>> rows, int maxRows, List<string> tablesUsed, int? firstDataSourceId)

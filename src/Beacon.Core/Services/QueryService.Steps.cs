@@ -27,13 +27,8 @@ internal partial class QueryService
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5).
-        var dialect = await ResolveDataSourceDialect(context, stepData.DataSourceId, cancellationToken);
-        var rejection = readOnlyAstValidator.Validate(stepData.SqlValue, dialect);
-        if (rejection != null)
-        {
-            throw new InvalidOperationException(rejection);
-        }
+        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5) naming their own database only.
+        await ValidateStepSqlAsync(context, stepData.DataSourceId, stepData.SqlValue, cancellationToken);
 
         // Stage parameters on the navigation collection so the step and its
         // parameters commit together in a single SaveChanges (§5.7).
@@ -62,13 +57,8 @@ internal partial class QueryService
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5).
-        var dialect = await ResolveDataSourceDialect(context, stepData.DataSourceId, cancellationToken);
-        var rejection = readOnlyAstValidator.Validate(stepData.SqlValue, dialect);
-        if (rejection != null)
-        {
-            throw new InvalidOperationException(rejection);
-        }
+        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5) naming their own database only.
+        await ValidateStepSqlAsync(context, stepData.DataSourceId, stepData.SqlValue, cancellationToken);
 
         var queryStep = await context.QuerySteps
             .Include(s => s.Parameters)
@@ -255,7 +245,8 @@ internal partial class QueryService
 
         // Defense-in-depth: reject non-read-only SQL even for steps persisted before the
         // AddQueryStep/UpdateQueryStep gate shipped (§1.5). Runs before any DB round-trip.
-        var rejection = readOnlyAstValidator.Validate(executedSql, DataSourceSqlDialect.Of(step.DataSource));
+        var dialect = DataSourceSqlDialect.Of(step.DataSource);
+        var rejection = readOnlyAstValidator.Validate(executedSql, dialect);
         if (rejection != null)
         {
             throw new InvalidOperationException(rejection);
@@ -270,10 +261,18 @@ internal partial class QueryService
             throw new InvalidOperationException(hostError);
         }
 
+        // Names in the database the step's source is configured for only.
+        var connectionString = connectionResolver.GetConnectionString(step.DataSource);
+        var crossDatabaseError = SqlCrossDatabaseRule.Validate(executedSql, dialect, configuredDatabases.Resolve(step.DataSource));
+        if (crossDatabaseError != null)
+        {
+            throw new InvalidOperationException(crossDatabaseError);
+        }
+
         // Each step executes against its own data source/database
         var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
             step.DataSource.DatabaseEngineType.Value,   // Each step can be different engine type!
-            connectionResolver.GetConnectionString(step.DataSource),     // Each step connects to different database
+            connectionString,     // Each step connects to different database
             parameterizedSql,
             sqlParameters,
             null // Use default timeout
@@ -374,19 +373,61 @@ internal partial class QueryService
         }).ToList();
     }
 
-    private async Task<string?> ResolveDataSourceDialect(BeaconContext context, int dataSourceId, CancellationToken cancellationToken)
+    // A missing data source has no dialect, which the read-only gate refuses.
+    private async Task ValidateStepSqlAsync(BeaconContext context, int dataSourceId, string sql, CancellationToken cancellationToken)
     {
         var dataSource = await context.DataSources
             .Where(x => x.Id == dataSourceId)
-            .Select(x =>
-                new
-                {
-                    x.DataSourceType,
-                    x.DatabaseEngineType
-                })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return dataSource == null ? null : DataSourceSqlDialect.Of(dataSource.DataSourceType, dataSource.DatabaseEngineType);
+        var dialect = dataSource == null ? null : DataSourceSqlDialect.Of(dataSource);
+        var rejection = readOnlyAstValidator.Validate(sql, dialect)
+            ?? (dataSource == null ? null : SqlCrossDatabaseRule.Validate(sql, dialect, configuredDatabases.Resolve(dataSource)));
+        if (rejection != null)
+        {
+            throw new InvalidOperationException(rejection);
+        }
     }
 
+    // A step may name only its own data source's configured database (catalog, project). Checked when a query is saved, on
+    // the SQL as it will run (placeholders bound); SQL the parser cannot read is left to the execution gates, which refuse it.
+    private async Task EnsureStepsNameTheirOwnDatabaseAsync(
+        BeaconContext context,
+        IReadOnlyCollection<QueryStepData> steps,
+        CancellationToken cancellationToken)
+    {
+        var dataSourceIds = steps
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+        var dataSources = await context.DataSources
+            .Where(x => dataSourceIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+
+        foreach (var step in steps)
+        {
+            // A missing data source is refused by the project checks, and its step never runs.
+            var dataSource = dataSources
+                .Where(x => x.Id == step.DataSourceId)
+                .FirstOrDefault();
+            if (dataSource == null || string.IsNullOrWhiteSpace(step.SqlValue))
+            {
+                continue;
+            }
+
+            var placeholders = step.Parameters
+                .Select(x =>
+                    new SubscriptionParameterData
+                    {
+                        QueryPlaceholder = x.Placeholder
+                    })
+                .ToList();
+            var (boundSql, _) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, placeholders);
+            var rejection = SqlCrossDatabaseRule.ValidateIfParsed(FlattenSql(boundSql), DataSourceSqlDialect.Of(dataSource), configuredDatabases.Resolve(dataSource));
+            if (rejection != null)
+            {
+                throw new InvalidOperationException(rejection);
+            }
+        }
+    }
 }

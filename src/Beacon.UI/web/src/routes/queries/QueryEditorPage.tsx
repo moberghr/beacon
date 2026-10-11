@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  Banner,
   Card,
   CardHead,
   CardTitle,
@@ -27,6 +28,7 @@ import {
   Select,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { describeError } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
 import { useDataSourceLookup, useDefaultDataSource } from '@/routes/data-sources/queries';
@@ -175,6 +177,10 @@ export default function QueryEditorPage() {
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [previewResult, setPreviewResult] = useState<QueryPreviewResult | null>(null);
   const [previewSort, setPreviewSort] = useState<SortState | null>(null);
+  // The server's reasons stay on the page (the toasts fade): e.g. SQL naming another database than the step's data
+  // source is configured for.
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (detail.data && state == null) {
@@ -332,6 +338,7 @@ export default function QueryEditorPage() {
 
   const runPreview = async (target: PreviewTarget, page: number, sort: SortState | null) => {
     const paging = { page, sort: sortToParam(sort) };
+    setPreviewError(null);
     try {
       const result =
         target.kind === 'query'
@@ -343,8 +350,9 @@ export default function QueryEditorPage() {
             paging,
           });
       setPreviewResult(result);
-    } catch {
-      // Error toasts already raised by the mutation hooks.
+    } catch (err) {
+      // The mutation hooks toast too; the run panel keeps the reason next to the SQL.
+      setPreviewError(describeError(err, 'Query preview failed'));
     }
   };
 
@@ -363,10 +371,12 @@ export default function QueryEditorPage() {
   const previewRunning = previewQuery.isPending || previewStep.isPending;
 
   const onSave = async () => {
+    setSaveError(null);
     try {
       await save();
-    } catch {
-      // Error toast already raised by the update mutation hook.
+    } catch (err) {
+      // The banner is where the server's reason is shown (the update mutation does not toast it).
+      setSaveError(describeError(err, 'Save failed'));
     }
   };
 
@@ -423,6 +433,10 @@ export default function QueryEditorPage() {
           </div>
         </CardBody>
       </Card>
+
+      {saveError && (
+        <Banner tone="crit" icon={<AlertTriangle />} role="alert" title="The query was not saved" sub={saveError} />
+      )}
 
       <Card>
         <CardHead>
@@ -588,7 +602,7 @@ export default function QueryEditorPage() {
           label={previewTarget.kind === 'query' ? 'Query preview' : `Step ${previewTarget.stepOrder} preview`}
           running={previewRunning}
           result={previewResult}
-          requestError={null}
+          requestError={previewError}
           sort={previewSort}
           onPageChange={page => void runPreview(previewTarget, page, previewSort)}
           onSortChange={column => {

@@ -22,8 +22,9 @@ internal sealed class ProjectQueryTool(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IKnowledgeGraphService knowledgeGraph,
-    IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
     McpAuditService auditService,
     McpSignalService signalService,
@@ -53,7 +54,7 @@ internal sealed class ProjectQueryTool(
             .SetQuestion(sql ?? api_query ?? "")
             .SetUserId(projectContext.UserId);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "query", project_id, out var projectId);
         if (resolveError != null)
             return await FailAsync(signal, sw, null, null, sql ?? api_query, resolveError, cancellationToken);
 
@@ -77,7 +78,8 @@ internal sealed class ProjectQueryTool(
         if (projectError != null)
             return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, projectError, cancellationToken);
 
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
+        // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
         var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
 
         try
@@ -110,13 +112,14 @@ internal sealed class ProjectQueryTool(
                 // One shared gate (§1.5): regex guardrail → AST read-only → schema catalog (blocking here — a
                 // hallucinated column is refused before it reaches the warehouse) → row limit. Tables come
                 // from the AST walk (aliases resolved, CTEs excluded), not from a regex over the text.
-                var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
+                var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
                 report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings) with
                 {
                     Catalog = catalog,
                     BlockOnSchemaFailure = true,
                     MaxRows = maxRows,
-                    HostManagedKey = dataSource.HostManagedKey
+                    HostManagedKey = dataSource.HostManagedKey,
+                    ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
                 });
                 signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
 

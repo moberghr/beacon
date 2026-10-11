@@ -93,7 +93,7 @@ public class ProjectCheckManifestTests
         ["ResolveTaskCommand"] = ["Task(Id):Write"],
         ["RestoreQueryVersionCommand"] = ["QueryVersion(VersionId):Write"],
         ["ResumeAiActorCommand"] = ["AiActor(ActorId):Write"],
-        ["RunMcpToolCommand"] = ["Project(ProjectId):Read"],
+        ["RunMcpToolCommand"] = ["Project(ProjectId):Query"],
         ["ScanAllRepositoriesCommand"] = ["Project(ProjectId):Write"],
         ["SearchProjectMemberCandidatesQuery"] = ["Project(ProjectId):ManageMembers"],
         ["SetProjectMemberCommand"] = ["Project(ProjectId):ManageMembers"],

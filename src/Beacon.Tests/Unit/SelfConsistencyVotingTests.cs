@@ -310,7 +310,7 @@ public class SelfConsistencyVotingTests
         _settings = new McpSettingsData { EnableSelfConsistency = true };
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",

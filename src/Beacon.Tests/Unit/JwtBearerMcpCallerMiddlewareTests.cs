@@ -21,6 +21,7 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.MCP.Services;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -76,7 +77,7 @@ public class JwtBearerMcpCallerMiddlewareTests
         context.Items[typeof(McpCaller)].Should().BeOfType<McpCaller>()
             .Which.HostClaims.Should().BeEmpty();
 
-        var projectContext = CreateProjectContext(context);
+        var projectContext = await CreateProjectContextAsync(context);
         projectContext.AllowedProjectIds.Should().Equal(7);
         projectContext.UserId.Should().BeNull();
         projectContext.ApiKeyId.Should().BeNull("a token cannot pose as an API key");
@@ -116,7 +117,7 @@ public class JwtBearerMcpCallerMiddlewareTests
         user.FindFirst("caller_kind")!.Value.Should().Be("User");
         (await AuthorizeExecuteAsync(user)).Should().BeTrue();
 
-        var projectContext = CreateProjectContext(context);
+        var projectContext = await CreateProjectContextAsync(context);
         projectContext.UserId.Should().Be(17, "audit rows get the Beacon user");
         projectContext.AllowedProjectIds.Should().Equal(3);
     }
@@ -131,7 +132,7 @@ public class JwtBearerMcpCallerMiddlewareTests
         user.FindFirst("allowed_projects").Should().BeNull();
         context.Items.ContainsKey(typeof(McpCaller)).Should().BeFalse();
         (await AuthorizeExecuteAsync(user)).Should().BeFalse("an unknown JWT caller gets 403 on /beacon/mcp");
-        CreateProjectContext(context).AllowedProjectIds.Should().BeEmpty();
+        (await CreateProjectContextAsync(context)).AllowedProjectIds.Should().BeEmpty();
     }
 
     [Test]
@@ -270,13 +271,21 @@ public class JwtBearerMcpCallerMiddlewareTests
         ];
     }
 
-    private static IProjectContext CreateProjectContext(HttpContext context)
+    // The MCP context the request gets from its project access: projects 3 and 7 are open, user 17 is an Editor.
+    private static async Task<IProjectContext> CreateProjectContextAsync(HttpContext context)
     {
+        var world = new ProjectAccessWorld();
+        world.Project(3);
+        world.Project(7);
+        world.User(17, UserOid);
         var services = new ServiceCollection();
+        world.Register(services);
         services.AddScoped<McpProjectContext>();
         services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = context });
-        using var provider = services.BuildServiceProvider();
-        using var scope = provider.CreateScope();
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+
+        await ProjectContextFactory.PopulateAsync(scope.ServiceProvider, CancellationToken.None);
 
         return ProjectContextFactory.Create(scope.ServiceProvider);
     }

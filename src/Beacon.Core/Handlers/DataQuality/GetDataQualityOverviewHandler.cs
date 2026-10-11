@@ -43,7 +43,13 @@ internal sealed class GetDataQualityOverviewHandler(
             .WhereSourceAccessible(context, readable, x => x.DataSourceId)
             .Where(c => c.IsEnabled)
             .GroupBy(c => c.DataSourceId)
-            .Select(g => new { DataSourceId = g.Key, Count = g.Count() })
+            .Select(g =>
+                new
+                {
+                    DataSourceId = g.Key,
+                    Count = g.Count(),
+                    OwnerNotAuthorized = g.Count(x => x.OwnerNotAuthorizedSince != null)
+                })
             .ToListAsync(cancellationToken);
 
         var grouped = scores
@@ -71,6 +77,10 @@ internal sealed class GetDataQualityOverviewHandler(
                     HealthyTables = tableScores.Count(t => t.Score >= 80),
                     DegradingTables = tableScores.Count(t => t.TrendDirection == DataQualityTrendDirection.Degrading),
                     ActiveContracts = contractCounts.FirstOrDefault(c => c.DataSourceId == g.Key.DataSourceId)?.Count ?? 0,
+                    OwnerNotAuthorizedContracts = contractCounts
+                        .Where(x => x.DataSourceId == g.Key.DataSourceId)
+                        .Select(x => x.OwnerNotAuthorized)
+                        .FirstOrDefault(),
                     TableScores = tableScores
                 };
             })

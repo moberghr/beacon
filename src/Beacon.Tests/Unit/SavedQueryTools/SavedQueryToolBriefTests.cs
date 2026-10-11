@@ -1,7 +1,9 @@
 using Beacon.Core;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostDocs;
 using Beacon.Core.SavedQueries;
+using Beacon.Tests.Common;
 using FluentAssertions;
 using Moq;
 using NUnit.Framework;
@@ -9,7 +11,10 @@ using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
 
 namespace Beacon.Tests.Unit.SavedQueryTools;
 
-/// <summary>The project brief (<c>get_context format=agents_md</c>) lists the project's saved-query tools.</summary>
+/// <summary>
+/// The project brief (<c>get_context format=agents_md</c>) lists the project's saved-query tools, where the caller may run
+/// stored SQL, as the tool list does.
+/// </summary>
 [TestFixture]
 public class SavedQueryToolBriefTests
 {
@@ -25,7 +30,7 @@ public class SavedQueryToolBriefTests
             [Step(1, 10, "SELECT * FROM loans WHERE issued >= {from} AND issued < {to}", Parameter("from", ParameterType.DateTime, "First day, inclusive"), Parameter("to", ParameterType.DateTime))],
             [ProjectId]));
 
-        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, source.Object).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
+        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, source.Object, null, RunnableHere()).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
 
         brief.Should().Contain("## Saved query tools");
         brief.Should().Contain("- `q_loan_book_by_month(from: date-time, to: date-time)` — Description of loan_book_by_month");
@@ -44,7 +49,7 @@ public class SavedQueryToolBriefTests
             Tool("arrears", [Step(1, 10, "SELECT 1")], [ProjectId], queryId: 2));
         var configuration = new BeaconConfiguration { SavedQueryTools = new SavedQueryToolOptions { NamedToolLimit = 1 } };
 
-        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, source.Object, configuration).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
+        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, source.Object, configuration, RunnableHere()).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
 
         brief.Should().Contain("`search_saved_queries`").And.Contain("`run_saved_query`");
         brief.Should().Contain("- `loan_book()`");
@@ -56,9 +61,44 @@ public class SavedQueryToolBriefTests
         var data = new SavedQueryTestData();
         data.Project(ProjectId, "Netgiro", data.DataSource(10, "warehouse"));
 
-        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, Source().Object).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
+        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, Source().Object, null, RunnableHere()).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
 
         brief.Should().NotContain("Saved query tools");
+    }
+
+    [Test]
+    public async Task ACallerWhoMayNotRunStoredSqlInTheProject_IsNotShownItsTools()
+    {
+        var data = new SavedQueryTestData();
+        data.Project(ProjectId, "Netgiro", data.DataSource(10, "warehouse"));
+        var source = Source(Tool("loan_book", [Step(1, 10, "SELECT 1")], [ProjectId]));
+        var readOnly = new ProjectAccessScope(
+            false,
+            new Dictionary<ProjectAction, ProjectSet> { [ProjectAction.Read] = new([ProjectId], false, []) },
+            new Dictionary<int, ProjectGrant> { [ProjectId] = new(ProjectRole.Viewer, new HashSet<ProjectAction> { ProjectAction.Read }) });
+
+        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, source.Object, null, TestProjectAccess.Evaluator(readOnly))
+            .BuildAgentsMdAsync(ProjectId, CancellationToken.None);
+
+        brief.Should().NotContain("Saved query tools").And.NotContain("loan_book");
+        source.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task WithoutAnEvaluator_TheBriefListsNoTools()
+    {
+        var data = new SavedQueryTestData();
+        data.Project(ProjectId, "Netgiro", data.DataSource(10, "warehouse"));
+        var source = Source(Tool("loan_book", [Step(1, 10, "SELECT 1")], [ProjectId]));
+
+        var brief = await new ProjectBriefService(data.Store.Factory().Object, null, source.Object).BuildAgentsMdAsync(ProjectId, CancellationToken.None);
+
+        brief.Should().NotContain("Saved query tools", "without project access the tools are not listed (fail closed)");
+    }
+
+    private static IProjectAccessEvaluator RunnableHere()
+    {
+        return TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(ProjectId));
     }
 
     private static Mock<ISavedQueryToolSource> Source(params SavedQueryToolDefinition[] tools)

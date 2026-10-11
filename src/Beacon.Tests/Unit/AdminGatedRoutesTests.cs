@@ -151,6 +151,7 @@ public class AdminGatedRoutesTests
             encryption.Object,
             TestProjectAccess.ActorAccessor(accessor, factory.Object),
             TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            Mock.Of<IProjectMembershipSource>(x => x.IsAvailable == false),
             Options.Create(new ProjectAuthorizationOptions()),
             (logs ?? new LogRecorder()).For<CreateProjectHandler>());
     }

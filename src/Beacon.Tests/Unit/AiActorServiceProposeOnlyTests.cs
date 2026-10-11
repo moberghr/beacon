@@ -1,10 +1,12 @@
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -35,6 +37,8 @@ public class AiActorServiceProposeOnlyTests
             _queryService.Object,
             _subscriptionService.Object,
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
+            Mock.Of<IRunAsScope>(),
+            TestProjectAccess.ExecutionAllowed(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

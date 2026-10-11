@@ -173,13 +173,15 @@ public class SqlExecutionGateTests
         report.LintFindings.Should().BeEmpty();
     }
 
-    // Read-only enforcement off lets unparseable SQL reach the lint stage, which then has no opinion rather than a pass.
+    // Read-only enforcement off lets unparseable SQL reach the lint stage, which then has no opinion rather than a pass. The
+    // in-memory SQLite join reaches no other database, so its SQL skips the cross-database stage, which would block it.
     [Test]
     public void Evaluate_UnparseableSqlWithReadOnlyOff_LintIsSkippedNotPassed()
     {
-        var report = _gate.Evaluate(Request("SELECT FROM WHERE") with
+        var report = _gate.Evaluate(Request("SELECT FROM WHERE", "SQLite") with
         {
             EnforceReadOnly = false,
+            InMemoryJoin = true,
             LintContext = LintContext()
         });
 
@@ -307,7 +309,8 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("SELECT ??? FROM", "PostgreSQL", settings) with { MaxRows = 100 });
+        // The in-memory SQLite join skips the cross-database stage, which would block SQL it cannot parse.
+        var report = _gate.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT ??? FROM", settings) with { MaxRows = 100 });
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.RowLimit.Status.Should().Be(SqlGateStatus.Pass);

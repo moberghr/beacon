@@ -459,6 +459,7 @@ public class ReadOnlyExecutionRoutingTests
             resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             hostGuard.Object,
+            new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
             NullLogger<DatabaseProvider>.Instance);
     }
 
@@ -520,7 +521,7 @@ public class ReadOnlyExecutionRoutingTests
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData());
 
-        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
+        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
 
         // McpAuditService and McpSignalService swallow sink failures by design (§1.7/§9.5), so bare
         // factory mocks suffice here — the audit/signal paths run without a database (§4.7); the
@@ -539,7 +540,7 @@ public class ReadOnlyExecutionRoutingTests
         // Empty catalog → the schema gate reports Skipped, so routing is exercised without a catalog.
         var knowledgeGraph = new Mock<IKnowledgeGraphService>();
         knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(It.IsAny<int>(), ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
 
         return new ProjectQueryTool(
@@ -547,8 +548,9 @@ public class ReadOnlyExecutionRoutingTests
             providerFactory.Object,
             guardrail.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestConfiguredDatabases.None,
             knowledgeGraph.Object,
-            settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
             auditService,
             signalService,

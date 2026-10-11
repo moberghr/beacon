@@ -136,6 +136,7 @@ public class ProjectAccessDtoAndEventTests
             capture.Factory(),
             TestProjectAccess.Evaluator(scope),
             membership ?? new DatabaseProjectMembershipSource(configuration, capture.Factory()),
+            SettingsProviderMock.Create().Object,
             Options.Create(new ProjectAuthorizationOptions()));
     }
 }

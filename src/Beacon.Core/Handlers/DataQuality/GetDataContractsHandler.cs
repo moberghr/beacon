@@ -35,7 +35,12 @@ internal sealed class GetDataContractsHandler(
                 Description = c.Description,
                 CronExpression = c.CronExpression,
                 IsEnabled = c.IsEnabled,
-                OwnerUserId = c.OwnerUserId,
+                HasOwner = c.OwnerUserId != null,
+                OwnerDisplayName = context.Users
+                    .Where(x => x.ExternalId == c.OwnerUserId)
+                    .Select(UserLabel.OfUser)
+                    .FirstOrDefault(),
+                OwnerNotAuthorized = c.OwnerNotAuthorizedSince != null,
                 AlertOnFailure = c.AlertOnFailure,
                 FailureThresholdScore = c.FailureThresholdScore,
                 CreatedTime = c.CreatedTime,

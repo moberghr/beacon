@@ -65,7 +65,9 @@ public class QueryServiceReadOnlyGateTests
             Mock.Of<IBeaconUserContext>(),
             validator,
             Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors());
+            TestProjectAccess.Actors(),
+            TestProjectAccess.ExecutionAllowed(),
+            TestConfiguredDatabases.None);
     }
 
     [Test]

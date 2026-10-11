@@ -12,7 +12,7 @@ internal sealed class QueryExecutionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
-    IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
@@ -38,7 +38,8 @@ internal sealed class QueryExecutionService(
             // already enforced upstream, so here we only need PII detection. Mirrors SemanticSearchService.
             // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId);
             // 0 falls back to the global effective settings.
-            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, ct);
+            // With the strictest guardrails of the live projects that link the data source.
+            var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
             var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
             var sqlPiiColumns = settings.EnablePiiDetection
                 ? guardrailService.ValidateQuery(sql, new QueryGuardrailOptions

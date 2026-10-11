@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Setup;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
@@ -103,6 +104,10 @@ public static class SetupEndpoints
         try
         {
             await using var scope = services.CreateAsyncScope();
+
+            // A startup task Beacon runs for itself, with no request behind it.
+            scope.ServiceProvider.GetService<ISystemWorkScope>()?.MarkAsSystemWork();
+
             var userService = scope.ServiceProvider.GetService<IUserManagementService>();
             if (userService == null)
             {

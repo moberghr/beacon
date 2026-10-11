@@ -453,6 +453,10 @@ AI providers receive:
 4. Review provider data retention policies
 5. Consider self-hosted LLM for sensitive data
 
+### Project-scoped grounding
+
+Everything Beacon sends to an LLM about a data source is read through the caller's authorized project: the schema context, documentation, code references, glossary, golden examples, learned patterns and value matches. The AI services take that project as a parameter (`projectId` on `IKnowledgeGraphService`, `IValueGroundingService` and `ISemanticSearchService.AskAsync`), read a data source only through a project that links it, and never mix in another project's material from a shared data source. `ISemanticSearchService.AskAsync` also checks that the caller may query in the project (`404` for a project it may not read, `403` without the Query action) before any LLM call. See [Project isolation](/features/knowledge-base/#project-isolation).
+
 ### Configuration Example with Filtering
 
 ```csharp

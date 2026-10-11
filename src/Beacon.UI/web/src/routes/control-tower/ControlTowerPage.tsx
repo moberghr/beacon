@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -6,10 +7,12 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  UserX,
 } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import {
+  Banner,
   Button,
   Pill,
   KPI,
@@ -42,6 +45,8 @@ const LAST_STATUS_PILL: Record<NotificationStatus, { label: string; tone: 'ok' |
   [NotificationStatus.Timeout]: { label: 'Timeout', tone: 'crit' },
   [NotificationStatus.BelowThreshold]: { label: 'Below', tone: 'neutral' },
   [NotificationStatus.Failed]: { label: 'Failed', tone: 'crit' },
+  // Not run: the owner it runs as may not run its query.
+  [NotificationStatus.Skipped]: { label: 'Skipped', tone: 'warn' },
 };
 
 const HEALTH_OPTIONS: SegOption<string>[] = [
@@ -112,6 +117,7 @@ export default function ControlTowerPage() {
   const { data: folders } = useQueryFolders();
 
   const stats = statistics.data;
+  const skippedContracts = stats?.ownerNotAuthorizedContracts ?? 0;
   const entries = list.items;
 
   const selectedRow =
@@ -158,6 +164,11 @@ export default function ControlTowerPage() {
             {r.folderPath && <span className="truncate">{r.folderPath}</span>}
             {r.aiActorName && <Pill tone="info">AI · {r.aiActorName}</Pill>}
             {r.hasAnomalyDetection && <Pill tone="info">Anomaly</Pill>}
+            {r.ownerNotAuthorized && (
+              <Pill tone="warn" title="Scheduled runs are skipped until an Admin assigns an owner who has access">
+                Owner not authorized
+              </Pill>
+            )}
           </div>
         </div>
       ),
@@ -299,6 +310,16 @@ export default function ControlTowerPage() {
               sub={`${formatNumber(stats?.totalAnomalies30Days ?? 0)} anomalies`}
             />
           </KPIGrid>
+
+          {skippedContracts > 0 && (
+            <Banner
+              tone="warn"
+              icon={<UserX />}
+              title={`${formatNumber(skippedContracts)} data contract${skippedContracts === 1 ? ' is' : 's are'} not being evaluated`}
+              sub="Their owners may no longer run them, so each scheduled evaluation is skipped until the owner regains access or an Admin assigns another owner."
+              actions={<Link to="/data-quality">Data quality</Link>}
+            />
+          )}
 
           <Card>
             <div className="p-3 border-b border-border flex flex-wrap items-center gap-2">

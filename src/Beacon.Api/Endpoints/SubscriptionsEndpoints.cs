@@ -65,9 +65,18 @@ internal static class SubscriptionsEndpoints
                 m.Send(new GetSubscriptionAnomalyChartQuery(id, days ?? 30), ct))
             .WithName("GetSubscriptionAnomalyChart");
 
+        // Making a user the owner a subscription's scheduled runs run as (for instance one created before owners were
+        // recorded) is an Admin's; the new owner must be able to run the subscription's query (409 otherwise).
+        subs.MapPut("/{id:int}/owner", async (int id, SetSubscriptionOwnerBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new SetSubscriptionOwnerCommand(id, body.UserId), ct);
+            return TypedResults.NoContent();
+        }).WithName("SetSubscriptionOwner").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+
         return group;
     }
 }
 
 internal sealed record SetSubscriptionSlaBody(int? SlaHours);
 internal sealed record AddSubscriptionRecipientsBody(List<int> RecipientIds);
+internal sealed record SetSubscriptionOwnerBody(int UserId);

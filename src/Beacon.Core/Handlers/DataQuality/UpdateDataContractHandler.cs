@@ -18,6 +18,7 @@ internal sealed class UpdateDataContractHandler(
     IBeaconScheduler scheduler,
     IBeaconUserContext userContext,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IBeaconActorAccessor actorAccessor,
     ILogger<UpdateDataContractHandler> logger) : IRequestHandler<UpdateDataContractCommand>
 {
@@ -54,14 +55,23 @@ internal sealed class UpdateDataContractHandler(
 
         if (addsCustomSql)
         {
+            // The whole row: the rule's SQL may name only the database its connection is configured for.
             var dataSource = await context.DataSources
                 .Where(x => x.Id == request.DataSourceId)
-                .Select(x =>
-                    new DataQualityRuleTarget(x.DataSourceType, x.DatabaseEngineType, x.HostManagedKey))
                 .FirstOrDefaultAsync(cancellationToken);
 
-            DataQualityRuleGuard.EnsureCustomSqlRunnable(request.Rules, dataSource, gate);
+            DataQualityRuleGuard.EnsureCustomSqlRunnable(request.Rules, DataQualityRuleTarget.Of(dataSource, configuredDatabases), gate);
         }
+
+        // The rules name only the (new) data source's own tables and columns, stored as its metadata spells them.
+        var catalog = await DataQualityRuleCatalog.LoadAsync(
+            context,
+            request.DataSourceId,
+            request.SchemaName,
+            request.TableName,
+            request.Rules.Select(x => x.Configuration),
+            cancellationToken);
+        var confined = DataQualityRuleGuard.EnsureConfined(catalog, request.SchemaName, request.TableName, request.Rules);
 
         // The rule-result purge below runs as raw SQL (ExecuteDeleteAsync) outside the change
         // tracker, so it would commit immediately and wipe history even if the subsequent save
@@ -84,8 +94,8 @@ internal sealed class UpdateDataContractHandler(
         contract.DataSourceId = request.DataSourceId;
         contract.Name = request.Name;
         contract.Description = request.Description;
-        contract.SchemaName = request.SchemaName;
-        contract.TableName = request.TableName;
+        contract.SchemaName = confined.SchemaName;
+        contract.TableName = confined.TableName;
         contract.CronExpression = request.CronExpression;
         contract.IsEnabled = request.IsEnabled;
         // OwnerUserId is intentionally NOT updated through the generic update command;
@@ -106,17 +116,20 @@ internal sealed class UpdateDataContractHandler(
         // Replace rules: remove existing, add new
         context.DataContractRules.RemoveRange(contract.Rules);
 
-        contract.Rules = request.Rules.Select(r => new DataContractRule
-        {
-            Name = r.Name,
-            Description = r.Description,
-            RuleType = r.RuleType,
-            ColumnName = r.ColumnName,
-            Configuration = r.Configuration,
-            Severity = r.Severity,
-            Weight = r.Weight,
-            IsEnabled = r.IsEnabled
-        }).ToList();
+        contract.Rules = request.Rules
+            .Select((x, i) =>
+                new DataContractRule
+                {
+                    Name = x.Name,
+                    Description = x.Description,
+                    RuleType = x.RuleType,
+                    ColumnName = confined.Rules[i].ColumnName,
+                    Configuration = confined.Rules[i].Configuration ?? x.Configuration,
+                    Severity = x.Severity,
+                    Weight = x.Weight,
+                    IsEnabled = x.IsEnabled
+                })
+            .ToList();
 
         // Replace recipients
         contract.Recipients.Clear();

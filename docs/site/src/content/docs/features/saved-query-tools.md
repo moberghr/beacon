@@ -139,12 +139,17 @@ When the approved SQL changes, the routine picks up the new version on its next 
 ## Security model
 
 - **Authorization is the caller's projects.** A tool is visible in a project only when that project contains
-  **every** data source the approved version reads. Listing and calling hard-filter on the caller's authorized
-  projects (the API key's `allowed_projects` or the mapped caller's projects): a query over a data source shared by
-  projects A and B shows in both only if each contains all of its sources, and a caller of A never sees a query that
-  needs a B-only source. A tool outside your projects answers exactly like one that does not exist. A caller with no
-  project access sees no tools (fail closed). When your credentials reach the same tool through several projects,
-  the schema offers `project_id` and the call requires it.
+  **every** data source the approved version reads, and only in the caller's projects where its
+  [project access](/features/authorization/#project-access) lets it run saved SQL (`Run`; the projects an API key or
+  mapped caller reaches are described in the [MCP Server guide](/features/mcp-server/#overview)): a query over a
+  data source shared by projects A and B shows in both only if each contains all of its sources, and a caller of A
+  never sees a query that needs a B-only source. A tool outside your projects answers exactly like one that does not
+  exist. A caller with no project access sees no tools (fail closed). When your credentials reach the same tool
+  through several projects, the schema offers `project_id` and the call requires it.
+- **Re-checked before it runs.** Right before any SQL runs, the call checks the steps it is about to run again: the
+  caller may still run saved SQL in the project, and the project still links every data source those steps read.
+  Otherwise the call fails ("not available in project N for your credentials") without running anything, and is
+  audited.
 - **Execute scope.** `/beacon/mcp` requires the Execute scope, so a Read-scoped API key cannot call saved-query
   tools; project-restricted API keys work and are held to their project list.
 - **Read-only execution (§1.5).** Every step's SQL, with its arguments bound, goes through the shared execution

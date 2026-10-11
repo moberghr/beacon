@@ -21,6 +21,12 @@ public record ControlTowerSubscriptionHealthData
     public NotificationStatus? LastExecutionStatus { get; init; }
     public int? LastResultCount { get; init; }
 
+    /// <summary>
+    /// The last scheduled run was skipped because the subscription's owner may no longer run its query (an inactive
+    /// owner, a lost membership, or no owner on data that is not openly reachable): assign an owner who may.
+    /// </summary>
+    public bool OwnerNotAuthorized { get; init; }
+
     // Task Metrics
     public int UnresolvedTaskCount { get; init; }
     public int TotalTaskCount { get; init; }

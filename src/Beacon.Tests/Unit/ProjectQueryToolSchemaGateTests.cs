@@ -34,13 +34,16 @@ public class ProjectQueryToolSchemaGateTests
 {
     private const int ProjectId = 42;
     private const int DataSourceId = 7;
+    private const int CallerUserId = 17;
 
     private Mock<IDataSourceProvider> _provider = null!;
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpQuerySignal> _signals = null!;
+    private List<McpAuditLog> _auditLogs = null!;
     private RecordingSqlGate _gate = null!;
     private DataSourceType _warehouseType;
     private DatabaseEngineType? _warehouseEngine;
+    private Beacon.Core.Services.Validation.IConfiguredDatabaseResolver _configuredDatabases = null!;
 
     [SetUp]
     public void SetUp()
@@ -60,8 +63,49 @@ public class ProjectQueryToolSchemaGateTests
 
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _signals = [];
+        _auditLogs = [];
         _warehouseType = DataSourceType.Database;
         _warehouseEngine = DatabaseEngineType.PostgreSQL;
+        _configuredDatabases = TestConfiguredDatabases.None;
+    }
+
+    // The settings that apply are the data source's: the strictest guardrails of the live projects that link it.
+    [Test]
+    public async Task TheDataSourcesGuardrails_Apply_NotOnlyTheProjects()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { MaxRowLimit = 1000 });
+        var sharedSources = new Mock<ISharedSourceSettings>();
+        sharedSources
+            .Setup(x => x.GetEffectiveSettingsAsync(ProjectId, It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { DataSourceId })), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpSettingsData { MaxRowLimit = 5 });
+
+        var result = await CreateTool(settingsProvider, sharedSources.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), "SELECT id FROM orders LIMIT 5", It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // The gate gets the database the source's connection is configured for: a name in it runs, a name in another is refused.
+    [TestCase("SELECT id FROM sales.public.orders", false)]
+    [TestCase("SELECT id FROM hr.public.orders", true)]
+    public async Task NameInAnotherDatabase_IsRefusedBeforeTheProvider_TheConfiguredOneRuns(string sql, bool refused)
+    {
+        _configuredDatabases = TestConfiguredDatabases.Of("sales");
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+
+        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().Be(refused);
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            refused ? Times.Never() : Times.Once());
+        if (refused)
+        {
+            result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("another database");
+        }
     }
 
     [TestCase(DataSourceType.BigQuery, "bigquery")]
@@ -224,19 +268,45 @@ public class ProjectQueryToolSchemaGateTests
         text.Should().Contain("a***m");
     }
 
+    [Test]
+    public async Task ASuccessfulQuery_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+
+        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        _signals.Should().ContainSingle().Which.UserId.Should().Be(CallerUserId);
+        _auditLogs.Should().ContainSingle().Which.Should().Match<McpAuditLog>(x => x.UserId == CallerUserId && x.ErrorMessage == null);
+    }
+
+    [Test]
+    public async Task ARefusedQuery_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase) { ["orders"] = ["id"] });
+
+        var blocked = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", cancellationToken: CancellationToken.None);
+        var failedEarly = await CreateTool().ExecuteAsync(cancellationToken: CancellationToken.None);
+
+        (blocked.IsError ?? false).Should().BeTrue();
+        (failedEarly.IsError ?? false).Should().BeTrue();
+        _signals.Should().HaveCount(2).And.OnlyContain(x => x.UserId == CallerUserId);
+        _auditLogs.Should().HaveCount(2).And.OnlyContain(x => x.UserId == CallerUserId && x.ErrorMessage != null);
+    }
+
     private void WithCatalog(Dictionary<string, HashSet<string>> catalog)
     {
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(catalog);
     }
 
-    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null)
+    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _warehouseType, _warehouseEngine));
+            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _auditLogs, _warehouseType, _warehouseEngine));
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -245,12 +315,11 @@ public class ProjectQueryToolSchemaGateTests
 
         settingsProvider ??= SettingsProviderMock.Create();
 
-        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
+        var projectContext = new McpProjectContext { UserId = CallerUserId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
         var guardrail = new QueryGuardrailService();
         _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail));
 
-        // Audit rows are asserted elsewhere (DryRunToolTests); a bare factory mock keeps §1.7 paths runnable.
-        var auditService = new McpAuditService(new Mock<IDbContextFactory<BeaconContext>>().Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
         return new ProjectQueryTool(
@@ -258,8 +327,9 @@ public class ProjectQueryToolSchemaGateTests
             providerFactory.Object,
             guardrail,
             _gate,
+            _configuredDatabases,
             _knowledgeGraph.Object,
-            settingsProvider.Object,
+            sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
             auditService,
             signalService,
@@ -276,16 +346,19 @@ public class ProjectQueryToolSchemaGateTests
                 .Options;
 
         private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
+        private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
         private readonly DataSourceType _warehouseType;
         private readonly DatabaseEngineType? _warehouseEngine;
 
-        public SchemaGateTestContext(List<McpQuerySignal> signals, DataSourceType warehouseType, DatabaseEngineType? warehouseEngine)
+        public SchemaGateTestContext(List<McpQuerySignal> signals, List<McpAuditLog> auditLogs, DataSourceType warehouseType, DatabaseEngineType? warehouseEngine)
             : base(Options, "beacon")
         {
             _warehouseType = warehouseType;
             _warehouseEngine = warehouseEngine;
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
                 .Callback<McpQuerySignal>(signals.Add);
+            _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))
+                .Callback<McpAuditLog>(auditLogs.Add);
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -293,6 +366,11 @@ public class ProjectQueryToolSchemaGateTests
             if (typeof(TEntity) == typeof(McpQuerySignal))
             {
                 return (DbSet<TEntity>)(object)_signalSet.Object;
+            }
+
+            if (typeof(TEntity) == typeof(McpAuditLog))
+            {
+                return (DbSet<TEntity>)(object)_auditSet.Object;
             }
 
             if (typeof(TEntity) == typeof(DataSource))

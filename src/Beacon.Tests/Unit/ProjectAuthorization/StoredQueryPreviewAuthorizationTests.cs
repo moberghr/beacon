@@ -170,7 +170,9 @@ public class StoredQueryPreviewAuthorizationTests
                 Mock.Of<IBeaconUserContext>(),
                 new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
                 guard,
-                TestProjectAccess.Actors());
+                TestProjectAccess.Actors(),
+                TestProjectAccess.ExecutionAllowed(),
+                new ConfiguredDatabaseResolver(connections, NullLogger<ConfiguredDatabaseResolver>.Instance));
             var resolver = new MovingResolver(this, moveAfter, () => _query.Steps = [Step(moveTo)]);
 
             return new QueryExecutionPreviewService(

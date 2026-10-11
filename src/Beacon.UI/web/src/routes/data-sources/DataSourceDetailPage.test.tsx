@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import DataSourceDetailPage from './DataSourceDetailPage';
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}));
 
 function entry(overrides: Record<string, unknown>) {
   return {
@@ -22,8 +27,9 @@ function entry(overrides: Record<string, unknown>) {
   };
 }
 
-function renderWith(payload: Record<string, unknown>) {
+function renderWith(payload: Record<string, unknown>, ...extra: Parameters<typeof mswServer.use>) {
   mswServer.use(
+    ...extra,
     http.get('*/beacon/api/data-sources/42', () => HttpResponse.json(payload)),
     http.get('*/beacon/api/data-sources/42/metadata', () => HttpResponse.json({ tables: [] })),
     http.get('*/beacon/api/*', () => HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404 })),
@@ -50,5 +56,40 @@ describe('DataSourceDetailPage projects', () => {
 
     expect(await screen.findByText('Admins only')).toBeInTheDocument();
     expect(screen.queryByText('Not linked')).not.toBeInTheDocument();
+  });
+});
+
+describe('DataSourceDetailPage metadata refresh', () => {
+  beforeEach(() => {
+    vi.mocked(toast.warning).mockClear();
+    vi.mocked(toast.error).mockClear();
+  });
+
+  it('says when the metadata was refreshed too recently (429), as a warning rather than a failure', async () => {
+    const cooldown = "This data source's metadata was refreshed less than 15 minutes ago; try again later.";
+    renderWith(
+      entry({}),
+      http.post('*/beacon/api/data-sources/42/refresh-metadata', () =>
+        HttpResponse.json({ title: cooldown, status: 429 }, { status: 429 }),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(cooldown));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("reports any other refusal as a failure with the server's reason", async () => {
+    renderWith(
+      entry({}),
+      http.post('*/beacon/api/data-sources/42/refresh-metadata', () =>
+        HttpResponse.json({ title: 'Metadata loading is disabled for this data source.', status: 400 }, { status: 400 }),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Metadata loading is disabled for this data source.'));
   });
 });

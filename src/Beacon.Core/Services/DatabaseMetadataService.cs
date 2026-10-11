@@ -20,8 +20,9 @@ public class DatabaseMetadataService(
     IEncryptionService encryptionService,
     IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
     IColumnValueSampler columnValueSampler,
-    IMcpSettingsProvider mcpSettingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IMemoryCache cache,
+    ISchemaGraphService schemaGraphService,
     ILogger<DatabaseMetadataService> logger)
     : IDatabaseMetadataService
 {
@@ -52,9 +53,10 @@ public class DatabaseMetadataService(
 
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+            // An archived data source is not found (the soft-delete filter), so it is never scanned.
             var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
             if (dataSource == null)
-                throw new BeaconException($"Data source {dataSourceId} not found");
+                throw new BeaconNotFoundException($"Data source {dataSourceId} not found");
 
             // Only database type data sources have metadata
             if (!dataSource.DatabaseEngineType.HasValue)
@@ -77,8 +79,9 @@ public class DatabaseMetadataService(
             // Apply per-datasource filters
             tables = ApplyMetadataFilters(tables, dataSource);
 
-            // Enrich with representative sample values for LLM grounding (failure-tolerant)
-            var mcpSettings = await mcpSettingsProvider.GetSettingsAsync(cancellationToken);
+            // Enrich with representative sample values for LLM grounding (failure-tolerant): only while every live project
+            // that links the source allows it, screened with every such project's custom PII patterns.
+            var mcpSettings = await sharedSourceSettings.GetDataSourceSettingsAsync(dataSourceId, cancellationToken);
             if (mcpSettings.EnableSampleValueCollection)
             {
                 tables = await columnValueSampler.EnrichWithSampleValuesAsync(
@@ -90,11 +93,12 @@ public class DatabaseMetadataService(
             }
 
             // Store in database
-            await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
+            var stored = await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
-            // Update cache
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, tables, DateTime.UtcNow);
+            // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, stored, DateTime.UtcNow);
             cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            schemaGraphService.Invalidate(dataSourceId);
 
             logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
 
@@ -116,10 +120,11 @@ public class DatabaseMetadataService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Get the data source to know the database type and metadata loading options
+        // Get the data source to know the database type and metadata loading options. An archived data source is not
+        // found (the soft-delete filter); archiving evicts its cached snapshot.
         var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
         if (dataSource == null)
-            throw new BeaconException($"Data source {dataSourceId} not found");
+            throw new BeaconNotFoundException($"Data source {dataSourceId} not found");
 
         // For API data sources, load stored endpoint metadata directly
         if (dataSource.DataSourceType == Data.Enums.DataSourceType.Api)
@@ -257,14 +262,20 @@ public class DatabaseMetadataService(
         return table?.Columns ?? Enumerable.Empty<ColumnMetadataDto>();
     }
 
-    private async Task StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
+    // Replaces the data source's stored metadata with the extracted tables, keeping the curated descriptions (those a person
+    // set by applying a documentation patch) over the extracted ones. Returns the tables as stored.
+    private async Task<IReadOnlyList<TableMetadataDto>> StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Remove existing metadata for this data source
         var existingMetadata = await context.DatabaseMetadata
+            .Include(m => m.Columns)
             .Where(m => m.DataSourceId == dataSourceId)
             .ToListAsync(cancellationToken);
+
+        var curated = await CuratedDescriptions.LoadAsync(context, dataSourceId, existingMetadata, cancellationToken);
+        var merged = curated.ApplyTo(tables);
 
         context.DatabaseMetadata.RemoveRange(existingMetadata);
 
@@ -273,7 +284,7 @@ public class DatabaseMetadataService(
         await context.SaveChangesAsync(cancellationToken);
 
         // Add new metadata
-        foreach (var table in tables)
+        foreach (var table in merged)
         {
             var metadata = new DatabaseMetadata
             {
@@ -321,6 +332,13 @@ public class DatabaseMetadataService(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+
+        if (curated.Count > 0)
+        {
+            logger.LogInformation("Kept {CuratedCount} curated descriptions for data source {DataSourceId} on refresh", curated.Count, dataSourceId);
+        }
+
+        return merged;
     }
 
     /// <summary>

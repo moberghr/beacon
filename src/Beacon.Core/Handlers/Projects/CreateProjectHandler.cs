@@ -18,6 +18,7 @@ internal sealed class CreateProjectHandler(
     IEncryptionService encryptionService,
     IBeaconActorAccessor actorAccessor,
     IProjectAccessEvaluator projectAccess,
+    IProjectMembershipSource membershipSource,
     IOptions<ProjectAuthorizationOptions> options,
     ILogger<CreateProjectHandler> logger)
     : IRequestHandler<CreateProjectCommand, CreateProjectResult>
@@ -42,9 +43,20 @@ internal sealed class CreateProjectHandler(
 
         try
         {
-            var projectId = await CreateAsync(request, actor, scope, dataSourceIds, hasAccessToken, cancellationToken);
+            var project = await CreateAsync(request, actor, scope, dataSourceIds, hasAccessToken, cancellationToken);
+            if (!project.RequiresMembership)
+            {
+                // Created open because its creator cannot be its member: no active Beacon user, or memberships kept elsewhere.
+                logger.LogInformation(
+                    ProjectAccessEvents.ProjectCreatedOpen,
+                    "Project created open: project {ProjectId}, by {PrincipalKind} {ActorId}, membership managed by {MembershipManagement}",
+                    project.Id,
+                    actor.Kind,
+                    actor.LogId,
+                    ProjectMembershipRules.ManagementOf(membershipSource));
+            }
 
-            return new CreateProjectResult(projectId);
+            return new CreateProjectResult(project.Id, project.RequiresMembership);
         }
         catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
         {
@@ -52,7 +64,7 @@ internal sealed class CreateProjectHandler(
         }
     }
 
-    private async Task<int> CreateAsync(
+    private async Task<Project> CreateAsync(
         CreateProjectCommand request,
         BeaconActor actor,
         ProjectAccessScope scope,
@@ -84,13 +96,16 @@ internal sealed class CreateProjectHandler(
             ? encryptionService.Encrypt(request.AccessToken!)
             : null;
 
-        // Created open. Its creator, when an active Beacon user, is its ProjectAdmin, so they can add members before an
-        // Admin restricts it. Each link records who made it.
+        // Restricted, with its creator as its ProjectAdmin, when the creator is an active Beacon user and Beacon keeps the
+        // memberships; otherwise open, since nobody could be its member. Each link records who made it.
+        var creatorIsMember = actor.BeaconUserId != null
+            && actor.IsActiveUser
+            && ProjectMembershipRules.IsManagedByBeacon(membershipSource);
         var project = new Project
         {
             Name = request.Name,
             Description = request.Description,
-            RequiresMembership = false,
+            RequiresMembership = creatorIsMember,
             DataSources = dataSourceIds
                 .Select(x => new ProjectDataSource { DataSourceId = x, LinkedByUserId = actor.BeaconUserId })
                 .ToList(),
@@ -102,8 +117,8 @@ internal sealed class CreateProjectHandler(
                     EncryptedAccessToken = encryptedToken
                 })
                 .ToList(),
-            Members = actor.BeaconUserId != null && actor.IsActiveUser
-                ? [new ProjectMember { UserId = actor.BeaconUserId.Value, Role = ProjectRole.ProjectAdmin, AddedByUserId = actor.BeaconUserId }]
+            Members = creatorIsMember
+                ? [new ProjectMember { UserId = actor.BeaconUserId!.Value, Role = ProjectRole.ProjectAdmin, AddedByUserId = actor.BeaconUserId }]
                 : []
         };
 
@@ -114,12 +129,13 @@ internal sealed class CreateProjectHandler(
             await transaction.CommitAsync(cancellationToken);
         }
 
-        return project.Id;
+        return project;
     }
 }
 
 /// <summary>
-/// Creates an open project; its creator, when a Beacon user, becomes its ProjectAdmin. A non-Admin links only data
+/// Creates a project restricted to its members, with its creator as its ProjectAdmin, when the creator is an active Beacon
+/// user and Beacon manages project membership; otherwise the project is created open. A non-Admin links only data
 /// sources a live open project already holds; a host's data source cannot be linked. An <c>AccessToken</c> for its
 /// repositories may be given by an Admin only. <c>DataSourceIds</c> and <c>RepositoryUrls</c> may be left out (none).
 /// 409 when the data sources' links change concurrently (retry).
@@ -134,4 +150,5 @@ public record CreateProjectCommand(
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks => [];
 }
 
-public record CreateProjectResult(int ProjectId);
+/// <summary><paramref name="RequiresMembership"/>: whether the new project is restricted to its members.</summary>
+public record CreateProjectResult(int ProjectId, bool RequiresMembership);

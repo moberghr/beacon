@@ -51,7 +51,7 @@ internal sealed class GetQueryContextTool(
             return await FailAsync(sw, null, datasource_id, question, "Missing required parameter: question", cancellationToken);
         }
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "get_query_context", project_id, out var projectId);
         if (resolveError != null)
         {
             return await FailAsync(sw, null, datasource_id, question, resolveError, cancellationToken);
@@ -108,7 +108,10 @@ internal sealed class GetQueryContextTool(
                 .FirstOrDefaultAsync(cancellationToken)
                 ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
-            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, cancellationToken);
+            // A caller that may read the project but not query it gets no live value probes: they would read column
+            // contents it may not query. Stored sample values still ground it.
+            var liveValueProbes = projectContext.QueryProjectIds?.Contains(projectId) == true;
+            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, liveValueProbes, cancellationToken);
 
             // The max_chars budget applies to the grounding context itself; the fixed header and the
             // truncation note ride outside it, so raising max_chars is a pure context gain.

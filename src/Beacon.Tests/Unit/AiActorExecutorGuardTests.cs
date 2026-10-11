@@ -1,6 +1,7 @@
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Services;
@@ -186,6 +187,8 @@ public class AiActorExecutorGuardTests
             _queryService.Object,
             _subscriptionService.Object,
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
+            Mock.Of<IRunAsScope>(),
+            TestProjectAccess.ExecutionAllowed(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

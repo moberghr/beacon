@@ -209,7 +209,7 @@ public record GetQueriesRequest : ListRequest
     public string? SearchTerm { get; init; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard, IBeaconActorAccessor actorAccessor) : IQueryService
+internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard, IBeaconActorAccessor actorAccessor, IExecutionAccessCheck executionAccess, IConfiguredDatabaseResolver configuredDatabases) : IQueryService
 {
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
@@ -255,6 +255,8 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        await EnsureStepsNameTheirOwnDatabaseAsync(context, queryData.Steps, cancellationToken);
 
         // Build the full object graph (query + steps + parameters via navigation
         // collections) so EF assigns the generated keys in a single SaveChanges.

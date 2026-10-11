@@ -164,6 +164,8 @@ export interface SubscriptionDetail {
   hasOwner: boolean;
   /** The owner's display name, or a neutral "User {id}" label; null when no owner or no matching user exists. Never an id. */
   ownerDisplayName: string | null;
+  /** The owner may no longer run the query, so scheduled runs are skipped until an Admin assigns another owner. */
+  ownerNotAuthorized: boolean;
 }
 
 interface GetSubscriptionDetailResult {
@@ -307,6 +309,23 @@ export function useReactivateSubscription(id: number | undefined) {
   );
 }
 
+/**
+ * Admin only: makes a Beacon user the subscription's owner, the user its scheduled runs run as. The server answers 409
+ * with the reason when that user may not run the subscription's query; the hook toasts it.
+ */
+export function useSetSubscriptionOwner(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (userId) => beaconApi().setSubscriptionOwner(id, { userId }),
+      invalidate: [...subscriptionMutationKeys(id), ['control-tower']],
+      successMsg: 'Owner updated',
+      errorFallback: 'Changing the owner failed',
+    }),
+  );
+}
+
 export function useAddSubscriptionRecipients(id: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
@@ -351,6 +370,7 @@ export const NOTIFICATION_STATUS_LABEL: Record<number, string> = {
   [NotificationStatus.Timeout]: 'Timeout',
   [NotificationStatus.BelowThreshold]: 'Below threshold',
   [NotificationStatus.Failed]: 'Failed',
+  [NotificationStatus.Skipped]: 'Skipped',
 };
 
 export const FILE_TYPE_LABEL: Record<number, string> = {

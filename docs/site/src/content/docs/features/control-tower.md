@@ -41,7 +41,9 @@ The success rate is `successful executions / total executions × 100`, where an 
 - `NoResults` — the query ran and returned nothing to alert on
 - `NotificationSilenced` — the query ran but the notification was deliberately silenced
 
-Every other outcome (`Failed`, `Timeout`, `Created`, `BelowThreshold`) counts against the subscription. The **failed** count shown in the UI is simply `total − successful`.
+Every other outcome (`Failed`, `Timeout`, `Created`, `BelowThreshold`, `Skipped`) counts against the subscription. The **failed** count shown in the UI is simply `total − successful`.
+
+A `Skipped` run is a scheduled run that did not execute because the subscription's owner, the user its scheduled runs run as, may no longer run its query. Skipped runs count as unsuccessful, so a subscription whose runs keep being skipped turns Amber and then Red instead of looking healthy.
 
 :::note
 Both the health list and the KPI statistics use the same status calculation, so the summary cards always agree with the rows below them.
@@ -60,6 +62,8 @@ The top of the page shows six KPI cards, all scoped to the current filters and t
 | **Stalled** | Subscriptions with no runs in the window |
 | **Open tasks** | Total unresolved tasks across matching subscriptions, with the total anomaly count in the window as the subtitle |
 
+When data contracts you can read are not being evaluated because their owner may no longer run them, a warning under the cards says how many (`ownerNotAuthorizedContracts` in the statistics, narrowed by the data-source filter) and links to the Data Quality page.
+
 :::note
 Statistics are cached server-side for **30 seconds** per unique filter combination, matching the UI's refresh interval. When there are no executions at all, the overall success rate reports 100% rather than 0% — an empty system is not a failing system.
 :::
@@ -71,12 +75,12 @@ Below the KPIs, every matching subscription appears as a row:
 | Column | Content |
 |--------|---------|
 | **Status pill** | Green / Amber / Red / Stalled |
-| **Subscription** | Query name, folder path, plus badges for an assigned AI actor and enabled anomaly detection |
+| **Subscription** | Query name, folder path, plus badges for an assigned AI actor, enabled anomaly detection, and **Owner not authorized** when the owner may no longer run the query (its scheduled runs are skipped until an Admin assigns another owner) |
 | **Success** | Success rate in the window (— when there are no runs) |
 | **Runs** | Total executions, with the failed count highlighted when > 0 |
 | **Tasks** | Open (unresolved) task count as a warning pill, or the total task count when nothing is open |
 | **Anomalies** | Sparkline of anomaly events per day across the window, with the window total next to it |
-| **Last run** | Outcome pill (Sent, Failed, Timeout, No results, …) and relative time of the most recent execution — `never` if it has not run |
+| **Last run** | Outcome pill (Sent, Failed, Timeout, No results, Skipped, …) and relative time of the most recent execution — `never` if it has not run |
 
 The table is paginated at **50 rows per page**.
 
@@ -89,6 +93,7 @@ By default the table sorts **worst-first**: most open tasks first, then lowest s
 Clicking a row opens a detail panel for that subscription showing:
 
 - The query name, folder path, and cron schedule
+- When the owner is not authorized, a notice that scheduled runs are skipped, pointing to the subscription page, where an Admin can **change the owner** (see [Subscriptions](/features/subscriptions/))
 - **Recent executions** — the last 20 runs with outcome, timestamp, row count, execution time in milliseconds, and the recorded failure reason for failed runs (other stored text shows as a generic reason). A project-restricted API key or MCP caller sees only the runs its projects may read, by the rule the [notifications](/features/notifications/#who-sees-a-run) follow
 - **Open tasks** — up to 20 unresolved tasks with priority, assignee, and snooze state
 - **Recent anomalies** — up to 20 anomaly events in the window with severity, detected value, explanation, and acknowledged state
@@ -176,7 +181,7 @@ curl "https://your-beacon-host/beacon/api/control-tower/statistics?timeRangeDays
 ## Recommended Workflow
 
 1. **Keep the default sort.** Worst-first puts subscriptions with open tasks and low success rates at the top — start there.
-2. **Triage Red and Stalled first.** Red means runs are failing; Stalled means nothing is running at all. Click the row and read the last error message in the recent executions list.
+2. **Triage Red and Stalled first.** Red means runs are failing; Stalled means nothing is running at all. Click the row and read the last error message in the recent executions list. A row flagged **Owner not authorized** needs an Admin to assign an owner who has access; its runs are skipped until then.
 3. **Use "open tasks only" for follow-up.** After an incident, filter to subscriptions with unresolved tasks and work the list down.
 4. **Watch the sparklines.** A rising anomaly sparkline on a Green subscription means the runs succeed but the data is drifting — see [Anomaly Detection](/features/anomaly-detection/).
 5. **Widen the window for reviews.** Switch to 90d during a periodic health review to catch slow degradation that a 30d window smooths over.

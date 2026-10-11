@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Data;
@@ -23,6 +24,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
@@ -104,7 +106,7 @@ public class DataQualityCustomSqlReadOnlyTests
     [TestCaseSource(nameof(NonReadOnlyStatements))]
     public void RejectionOf_NonReadOnlySql_IsARejection(string sql, DatabaseEngineType engine)
     {
-        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null));
+        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null, configuredDatabase: null));
 
         DataQualityRuleGuard.RejectionOf(report).Should().StartWith("Rule SQL was rejected:", $"'{sql}' is not a single read-only SELECT on {engine}");
     }
@@ -115,7 +117,7 @@ public class DataQualityCustomSqlReadOnlyTests
     [TestCase(DatabaseEngineType.MSSQL, "SELECT 1 AS passed FROM accounts ORDER BY id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY")]
     public void RejectionOf_SqlWithItsOwnRowLimit_IsARejection(DatabaseEngineType engine, string sql)
     {
-        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null));
+        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null, configuredDatabase: null));
 
         DataQualityRuleGuard.RejectionOf(report).Should().Be(DataQualityRuleGuard.OwnRowLimitMessage, "the provider buffers the whole result");
     }
@@ -128,7 +130,7 @@ public class DataQualityCustomSqlReadOnlyTests
         var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(
             "SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS passed FROM accounts",
             engine,
-            hostManagedKey: null));
+            hostManagedKey: null, configuredDatabase: null));
 
         DataQualityRuleGuard.RejectionOf(report).Should().BeNull();
         report.FinalSql.Should().Be(capped);
@@ -151,6 +153,21 @@ public class DataQualityCustomSqlReadOnlyTests
         ruleResult.ActualValue.Should().Be("Error");
         ruleResult.Message.Should().Be("Rule SQL was rejected: Write operations are not allowed. Only SELECT queries are permitted.");
         StoredRuleResult(saved).Message.Should().Be(ruleResult.Message);
+    }
+
+    // The source is configured for the database "sales" (CreateService): a stored rule naming another one never runs.
+    [Test]
+    public async Task EvaluateContractAsync_CustomSqlNamingAnotherDatabase_IsNotRun()
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 1 AS passed FROM hr.public.salaries")), []);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        server.Commands.Should().BeEmpty();
+        var ruleResult = result.RuleResults.Should().ContainSingle().Subject;
+        ruleResult.Passed.Should().BeFalse();
+        ruleResult.Message.Should().Contain("another database");
     }
 
     [Test]
@@ -186,6 +203,21 @@ public class DataQualityCustomSqlReadOnlyTests
             .Which.ActualValue.Should().Be(RowValue, "an Admin's read-only custom check still reports its value");
     }
 
+    [Test]
+    public async Task EvaluateContractAsync_ThatRuns_ClearsASkippedScheduledEvaluationRecordedOnTheContract()
+    {
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var contract = Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 1 AS passed, MAX(iban) AS actual_value FROM accounts"));
+        contract.OwnerNotAuthorizedSince = PriorEvaluatedAt;
+        var saved = new List<object>();
+        var service = CreateService(contract, saved);
+
+        await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        saved.OfType<DataQualityEvaluation>().Should().ContainSingle();
+        contract.OwnerNotAuthorizedSince.Should().BeNull("an evaluation ran, so the contract's checks are happening again");
+    }
+
     [TestCase(DatabaseEngineType.PostgreSQL, "SELECT COUNT(*) AS non_matching FROM \"sales\".\"orders\" WHERE \"code\" !~ @p0 LIMIT 1")]
     [TestCase(DatabaseEngineType.MySQL, "SELECT COUNT(*) AS non_matching FROM `sales`.`orders` WHERE `code` NOT REGEXP @p0 LIMIT 1")]
     [TestCase(DatabaseEngineType.MSSQL, "SELECT TOP 1 COUNT(*) AS non_matching FROM [sales].[orders] WHERE [code] NOT LIKE @p0")]
@@ -203,6 +235,99 @@ public class DataQualityCustomSqlReadOnlyTests
         command.Sql.Should().Be(expectedSql);
         command.Parameters.Should().Equal(new Dictionary<string, object?> { ["p0"] = pattern });
         result.RuleResults.Should().ContainSingle().Which.Passed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task EvaluateContractAsync_StoredRuleNamingAnotherDatabasesTable_IsRejectedWithoutConnecting()
+    {
+        // On MySQL a schema is a database: a reference to another one would read a database the contract's source is not.
+        var server = Register(DatabaseEngineType.MySQL, new FakeServer { Result = SingleValueRow("orphaned", 0L) });
+        var rule = Rule(DataContractRuleType.Referential, JsonSerializer.Serialize(new { column = "customer_id", referenceSchema = "billing", referenceTable = "customers", referenceColumn = "id" }));
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.MySQL), rule), []);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        server.Commands.Should().BeEmpty();
+        result.RuleResults.Should().ContainSingle()
+            .Which.Message.Should().StartWith("Table billing.customers is not in the data source's metadata");
+    }
+
+    [Test]
+    public async Task EvaluateContractAsync_ReferentialRule_GeneratesSqlNamingOnlyTheSourcesOwnTables()
+    {
+        var server = Register(DatabaseEngineType.MySQL, new FakeServer { Result = SingleValueRow("orphaned", 0L) });
+        var rule = Rule(DataContractRuleType.Referential, JsonSerializer.Serialize(new { column = "customer_id", referenceTable = "customers", referenceColumn = "id" }));
+        var contract = Contract(OrdinarySource(DatabaseEngineType.MySQL), rule);
+        List<DatabaseMetadata> metadata =
+        [
+            ContractTable(contract),
+            new DatabaseMetadata { DataSourceId = contract.DataSourceId, SchemaName = "sales", TableName = "customers" }
+        ];
+        var service = CreateService(contract, [], metadata: metadata);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        var command = server.Commands.Single(x => x.Sql.StartsWith("SELECT", StringComparison.Ordinal));
+        command.Sql.Should().Contain("FROM `sales`.`orders` t LEFT JOIN `sales`.`customers` r ON t.`customer_id` = r.`id`");
+        result.RuleResults.Should().ContainSingle().Which.Passed.Should().BeTrue();
+    }
+
+    // A rule stored before names were resolved, or by hand, runs on the metadata's spelling of each name it gives.
+    [Test]
+    public async Task EvaluateContractAsync_NamesDifferingOnlyInCase_RunAsTheMetadataSpellsThem()
+    {
+        var server = Register(DatabaseEngineType.MySQL, new FakeServer { Result = SingleValueRow("orphaned", 0L) });
+        var rule = Rule(DataContractRuleType.Referential, JsonSerializer.Serialize(new { column = "Customer_ID", referenceSchema = "Sales", referenceTable = "CUSTOMERS", referenceColumn = "ID" }));
+        var contract = Contract(OrdinarySource(DatabaseEngineType.MySQL), rule, schemaName: "SALES", tableName: "Orders");
+        List<DatabaseMetadata> metadata =
+        [
+            new DatabaseMetadata { DataSourceId = contract.DataSourceId, SchemaName = "sales", TableName = "orders", Columns = [new ColumnMetadata { ColumnName = "customer_id", DataType = "int" }] },
+            new DatabaseMetadata { DataSourceId = contract.DataSourceId, SchemaName = "sales", TableName = "customers", Columns = [new ColumnMetadata { ColumnName = "id", DataType = "int" }] }
+        ];
+        var service = CreateService(contract, [], metadata: metadata);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        var command = server.Commands.Single(x => x.Sql.StartsWith("SELECT", StringComparison.Ordinal));
+        command.Sql.Should().Contain("FROM `sales`.`orders` t LEFT JOIN `sales`.`customers` r ON t.`customer_id` = r.`id`");
+        result.RuleResults.Should().ContainSingle().Which.Passed.Should().BeTrue();
+    }
+
+    // Two columns that differ only in case are two objects on a case-sensitive server: a third spelling picks neither.
+    [Test]
+    public async Task EvaluateContractAsync_AColumnMatchingSeveralSpellings_RunsNoRule()
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = SingleValueRow("null_percent", 0L) });
+        var rule = Rule(DataContractRuleType.NullRate, JsonSerializer.Serialize(new { column = "STATUS", maxNullPercent = 5 }));
+        var contract = Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), rule);
+        List<DatabaseMetadata> metadata =
+        [
+            new DatabaseMetadata
+            {
+                DataSourceId = contract.DataSourceId,
+                SchemaName = "sales",
+                TableName = "orders",
+                Columns = [new ColumnMetadata { ColumnName = "status", DataType = "text" }, new ColumnMetadata { ColumnName = "Status", DataType = "text" }]
+            }
+        ];
+        var service = CreateService(contract, [], metadata: metadata);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        server.Commands.Should().BeEmpty();
+        result.RuleResults.Should().ContainSingle().Which.Message.Should().Contain("matches several columns");
+    }
+
+    [Test]
+    public async Task EvaluateContractAsync_ContractTableOutsideTheSourcesMetadata_RunsNoRule()
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = SingleValueRow("row_count", 5L) });
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), Rule(DataContractRuleType.Volume, "{}")), [], metadata: []);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        server.Commands.Should().BeEmpty();
+        result.RuleResults.Should().ContainSingle().Which.Message.Should().StartWith("Table sales.orders is not in the data source's metadata");
     }
 
     [Test]
@@ -229,16 +354,25 @@ public class DataQualityCustomSqlReadOnlyTests
         var server = Register(DatabaseEngineType.MySQL, new FakeServer { Result = CustomSqlRow() });
         var saved = new List<object>();
         var priorScore = PriorFailingScore();
-        var evaluation = CreateService(Contract(OrdinarySource(DatabaseEngineType.MySQL), CustomSqlRule(WriteBatch, isEnabled: false)), saved, scores: [priorScore]);
+        var contract = Contract(OrdinarySource(DatabaseEngineType.MySQL), CustomSqlRule(WriteBatch, isEnabled: false));
+        var evaluation = CreateService(contract, saved, scores: [priorScore]);
         var notifications = new Mock<INotificationService>(MockBehavior.Strict);
+        var jobContexts = new Mock<IDbContextFactory<BeaconContext>>();
+        jobContexts
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object> { [typeof(DataContract)] = RecordingBeaconContext.MemorySet([contract], saved) },
+                saved));
         var jobService = new JobService(
-            new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict).Object,
+            jobContexts.Object,
             Mock.Of<IQueryService>(),
             notifications.Object,
             Mock.Of<ITaskService>(),
             Mock.Of<IAnomalyDetectionService>(),
             evaluation,
-            NullLogger<JobService>.Instance);
+            NullLogger<JobService>.Instance,
+            Mock.Of<IRunAsScope>(),
+            new HttpContextAccessor());
 
         var act = () => jobService.EvaluateDataContract(42, CancellationToken.None);
 
@@ -504,7 +638,8 @@ public class DataQualityCustomSqlReadOnlyTests
         DataContract contract,
         List<object> saved,
         TimeSpan? ruleTimeout = null,
-        List<DataQualityScore>? scores = null)
+        List<DataQualityScore>? scores = null,
+        List<DatabaseMetadata>? metadata = null)
     {
         var resolver = new Mock<IDataSourceConnectionResolver>();
         resolver
@@ -515,12 +650,14 @@ public class DataQualityCustomSqlReadOnlyTests
             resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             hostGuard,
+            new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
             NullLogger<DatabaseProvider>.Instance);
         var sets = new Dictionary<Type, object>
         {
             [typeof(DataContract)] = RecordingBeaconContext.MemorySet([contract], saved),
             [typeof(DataQualityEvaluation)] = RecordingBeaconContext.MemorySet(new List<DataQualityEvaluation>(), saved),
-            [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(scores ?? [], saved)
+            [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(scores ?? [], saved),
+            [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(metadata ?? [ContractTable(contract)], saved)
         };
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -532,10 +669,18 @@ public class DataQualityCustomSqlReadOnlyTests
             new DataQualitySqlGenerator(),
             new DataSourceProviderFactory([provider]),
             TestSqlGate.Create(hostGuard: hostGuard),
+            TestConfiguredDatabases.Of("sales"),
+            TestProjectAccess.ExecutionAllowed(),
             NullLogger<DataQualityEvaluationService>.Instance)
         {
             RuleTimeout = ruleTimeout ?? TimeSpan.FromSeconds(60)
         };
+    }
+
+    // The data source's metadata holds the contract's table (its columns not loaded, so columns are not checked).
+    private static DatabaseMetadata ContractTable(DataContract contract)
+    {
+        return new DatabaseMetadata { DataSourceId = contract.DataSourceId, SchemaName = contract.SchemaName, TableName = contract.TableName };
     }
 
     private static DataQualityScore PriorFailingScore()

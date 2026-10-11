@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Worker;
 using Beacon.Core.Data.Entities;
@@ -16,16 +17,24 @@ using Beacon.AI.Services.LlmProviders;
 namespace Beacon.AI.Services.Ai.AiActor;
 
 /// <summary>
-/// Service for managing AI Actors that autonomously monitor data sources
+/// Service for managing AI Actors that autonomously monitor data sources. A think cycle runs only while its actor may
+/// still work ad hoc with the actor's data source: a background cycle runs as the actor's creator
+/// (<see cref="IRunAsScope"/>) and is skipped, recorded on its execution, when the creator may not; a cycle a request
+/// asks for runs as the request's caller.
 /// </summary>
 public class AiActorService : IAiActorServiceExtended
 {
+    /// <summary>Recorded on a background think cycle skipped because the actor's creator may no longer run it.</summary>
+    public const string OwnerNotAuthorizedMessage = "Skipped: owner not authorized.";
+
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly ILlmProvider _llmProvider;
     private readonly IDatabaseMetadataService _metadataService;
     private readonly IQueryService _queryService;
     private readonly ISubscriptionService _subscriptionService;
     private readonly IBeaconScheduler _beaconScheduler;
+    private readonly IRunAsScope _runAs;
+    private readonly IExecutionAccessCheck _executionAccess;
     private readonly ILogger<AiActorService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -41,6 +50,8 @@ public class AiActorService : IAiActorServiceExtended
         IQueryService queryService,
         ISubscriptionService subscriptionService,
         IBeaconScheduler beaconScheduler,
+        IRunAsScope runAs,
+        IExecutionAccessCheck executionAccess,
         ILogger<AiActorService> logger)
     {
         _contextFactory = contextFactory;
@@ -49,6 +60,8 @@ public class AiActorService : IAiActorServiceExtended
         _queryService = queryService;
         _subscriptionService = subscriptionService;
         _beaconScheduler = beaconScheduler;
+        _runAs = runAs;
+        _executionAccess = executionAccess;
         _logger = logger;
     }
 
@@ -163,6 +176,18 @@ public class AiActorService : IAiActorServiceExtended
         if (actor.Status != AiActorStatus.Active)
         {
             throw new BeaconException($"AI Actor {actorId} is not active (status: {actor.Status})");
+        }
+
+        // Before any LLM call or SQL: the cycle's actor (a background cycle's creator, or a request's caller) may still
+        // work ad hoc with the actor's data source, which every action of the cycle reads.
+        if (!await _executionAccess.AllowsAsync(ProjectAction.Query, [actor.DataSourceId], "AI actor", actorId, cancellationToken))
+        {
+            if (!_runAs.IsSet)
+            {
+                throw new BeaconForbiddenException("Working with this AI actor's data source is not allowed.");
+            }
+
+            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, cancellationToken);
         }
 
         // SaveChanges checkpoints in this method are deliberate:
@@ -321,6 +346,9 @@ public class AiActorService : IAiActorServiceExtended
 
     public async Task ExecuteThinkCycleBackgroundAsync(int actorId, int? triggeringSubscriptionId = null)
     {
+        // A background cycle acts as the actor's creator as they are now, set before anything resolves the scope's caller.
+        await RunAsCreatorAsync(actorId);
+
         await ExecuteThinkCycleAsync(actorId, triggeringSubscriptionId);
     }
 
@@ -698,6 +726,53 @@ public class AiActorService : IAiActorServiceExtended
     }
 
     #region Private Helper Methods
+
+    private async Task RunAsCreatorAsync(int actorId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(CancellationToken.None);
+
+        var actor = await context.AiActors
+            .Where(x => x.Id == actorId)
+            .Select(x =>
+                new
+                {
+                    x.CreatedByUserId
+                })
+            .FirstOrDefaultAsync(CancellationToken.None);
+
+        // A missing actor fails its cycle as before; there is no creator to run as.
+        if (actor != null)
+        {
+            _runAs.RunAs(actor.CreatedByUserId);
+        }
+    }
+
+    // A background cycle its creator may no longer run: recorded as a skipped execution (no LLM call, no SQL, no change
+    // to the actor), not as a failure.
+    private static async Task<AiActorThinkResult> RecordSkippedCycleAsync(
+        BeaconContext context,
+        int actorId,
+        int? triggeringSubscriptionId,
+        DateTime startTime,
+        CancellationToken cancellationToken)
+    {
+        var execution = new AiActorExecution
+        {
+            AiActorId = actorId,
+            TriggeringSubscriptionId = triggeringSubscriptionId,
+            Phase = AiActorExecutionPhase.Skipped,
+            StartedAt = startTime,
+            CompletedAt = DateTime.UtcNow,
+            ErrorMessage = OwnerNotAuthorizedMessage
+        };
+        context.AiActorExecutions.Add(execution);
+        await context.SaveChangesAsync(cancellationToken);
+
+        var result = AiActorThinkResult.CreateFailure(execution.Id, OwnerNotAuthorizedMessage);
+        result.Phase = AiActorExecutionPhase.Skipped;
+
+        return result;
+    }
 
     private async Task ExecuteInitialSetupAsync(
         int actorId,

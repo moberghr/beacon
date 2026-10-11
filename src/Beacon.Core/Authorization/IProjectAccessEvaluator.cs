@@ -8,7 +8,10 @@ namespace Beacon.Core.Authorization;
 /// </summary>
 public interface IProjectAccessEvaluator
 {
-    /// <summary>The current request's caller; without a request, the system (unrestricted) until jobs act as owners.</summary>
+    /// <summary>
+    /// The current request's caller. Without a request: the owner the scope runs as (<see cref="IRunAsScope"/>), else the
+    /// system (unrestricted) in a scope marked as system work (<see cref="ISystemWorkScope"/>), nothing in any other scope.
+    /// </summary>
     Task<ProjectAccessScope> GetScopeAsync(CancellationToken cancellationToken);
 
     /// <summary>
