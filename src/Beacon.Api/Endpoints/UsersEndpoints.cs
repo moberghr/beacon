@@ -21,6 +21,8 @@ internal static class UsersEndpoints
             .WithName("GetRoles")
             .RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
+        // A password user is an Admin's to create (the handler refuses a UserAdmin with 403); a UserAdmin creates external
+        // users, whose sign-in the identity provider controls. Only an Admin changes a user's user name or e-mail address.
         users.MapPost("/internal", async (CreateInternalUserCommand cmd, IMediator m, CancellationToken ct) =>
         {
             await m.Send(cmd, ct);

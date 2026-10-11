@@ -14,10 +14,13 @@ namespace Beacon.Core.Handlers.Users;
 /// assigns any role. A UserAdmin who is not an Admin manages the users who hold no protected role
 /// (<see cref="ProtectedUsers"/>: the Admin role, a functional role): never their own account or roles, never an Admin's,
 /// a super admin's or a functional role holder's account (other UserAdmins included), and never a protected role (403);
-/// so a UserAdmin cannot grant or keep more than it was given. Anyone else is refused (403). With separation of duties on
-/// (<see cref="SeparationOfDutiesOptions"/>), roles that would give one user both permissions of a conflicting pair are
-/// refused (400), whoever assigns them. Every role assignment is logged with ids only
-/// (<see cref="ProjectAccessEvents.UserRolesChanged"/>).
+/// so a UserAdmin cannot grant or keep more than it was given. Nor does a UserAdmin control how anyone signs in (403): it
+/// creates no user with a password it chose (only external users, whose sign-in the identity provider controls) and
+/// changes no user's user name or e-mail address, so it cannot make an account it can sign in to. Anyone else is refused
+/// (403). With separation of duties on (<see cref="SeparationOfDutiesOptions"/>), roles that would give one user both
+/// permissions of a conflicting pair are refused (400), whoever assigns them. Every user created and every role
+/// assignment is logged with ids only (<see cref="ProjectAccessEvents.UserCreated"/>,
+/// <see cref="ProjectAccessEvents.UserRolesChanged"/>).
 /// </summary>
 internal sealed class UserAdministrationRules(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -32,6 +35,11 @@ internal sealed class UserAdministrationRules(
         "Only an Admin can change the account of an Admin, a super admin or a holder of a functional role.";
 
     public const string ProtectedRoleMessage = "Only an Admin can assign or remove the Admin role or a functional role.";
+
+    public const string PasswordUserMessage =
+        "Only an Admin can create an internal user, who signs in with a password set here; a UserAdmin can create external users.";
+
+    public const string SignInIdentityMessage = "Only an Admin can change the user name or e-mail address a user signs in with.";
 
     /// <summary>Refuses a change to user <paramref name="userId"/>'s account or roles by a caller who may not make it.</summary>
     public async Task DemandMayChangeUserAsync(int userId, CancellationToken cancellationToken)
@@ -53,6 +61,58 @@ internal sealed class UserAdministrationRules(
         {
             throw AccessRefusal.Of(logger, actor, "user", userId, ProtectedUserMessage);
         }
+    }
+
+    /// <summary>
+    /// Refuses creating an internal user, who signs in with the password the caller sets, to a caller who is not an Admin
+    /// (403): whoever chose the password could sign in as the new user.
+    /// </summary>
+    public async Task DemandMayCreateInternalUserAsync(CancellationToken cancellationToken)
+    {
+        var permissions = await DemandUserAdministrationAsync(null, cancellationToken);
+        if (permissions.IsAdmin)
+        {
+            return;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
+        throw AccessRefusal.Of(logger, actor, "user", null, PasswordUserMessage);
+    }
+
+    /// <summary>
+    /// Refuses a change to what user <paramref name="userId"/> signs in with, its user name or its e-mail address, by a
+    /// caller who is not an Admin (403). Values equal to the stored ones change nothing and pass; a missing e-mail address
+    /// and an empty one are the same.
+    /// </summary>
+    public async Task DemandMayChangeSignInIdentityAsync(int userId, string userName, string? email, CancellationToken cancellationToken)
+    {
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+        if (permissions.IsAdmin)
+        {
+            return;
+        }
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var stored = await context.Users
+            .Where(x => x.Id == userId)
+            .Select(x =>
+                new
+                {
+                    x.UserName,
+                    x.Email
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // An unknown user is the update's to answer (not found); there is nothing to change.
+        if (stored == null || (stored.UserName == userName && EmptyAsNull(stored.Email) == EmptyAsNull(email)))
+        {
+            return;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
+        throw AccessRefusal.Of(logger, actor, "user", userId, SignInIdentityMessage);
     }
 
     /// <summary>The roles that exist among <paramref name="roleIds"/>, as the rules decide them.</summary>
@@ -92,30 +152,40 @@ internal sealed class UserAdministrationRules(
     }
 
     /// <summary>
-    /// Logs the roles a new user was created with (named <paramref name="userName"/>, unique), by the new user's id.
+    /// Logs a new user (named <paramref name="userName"/>, unique), internal or external, and the roles it was created
+    /// with, by the new user's id.
     /// </summary>
-    public async Task LogAssignedRolesAsync(string userName, IReadOnlyCollection<AssignableRole> roles, CancellationToken cancellationToken)
+    public async Task LogCreatedAsync(
+        string userName,
+        bool isInternalUser,
+        IReadOnlyCollection<AssignableRole> roles,
+        CancellationToken cancellationToken)
     {
-        if (roles.Count == 0)
-        {
-            return;
-        }
-
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var userId = await context.Users
             .Where(x => x.UserName == userName)
             .Select(x => (int?)x.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        if (userId != null)
+        if (userId == null)
         {
-            await LogRolesChangedAsync(
-                userId.Value,
-                roles
-                    .Select(x => x.Id)
-                    .ToList(),
-                [],
-                cancellationToken);
+            return;
         }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        logger.LogInformation(
+            ProjectAccessEvents.UserCreated,
+            "User created: user {UserId}, internal {IsInternalUser}, by user {ActorId}",
+            userId.Value,
+            isInternalUser,
+            actor.LogId);
+
+        await LogRolesChangedAsync(
+            userId.Value,
+            roles
+                .Select(x => x.Id)
+                .ToList(),
+            [],
+            cancellationToken);
     }
 
     /// <summary>Logs a change to user <paramref name="userId"/>'s roles: role ids only.</summary>
@@ -158,6 +228,11 @@ internal sealed class UserAdministrationRules(
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         throw AccessRefusal.Of(logger, actor, "user", userId, "Only an Admin or a UserAdmin can manage users.");
+    }
+
+    private static string? EmptyAsNull(string? value)
+    {
+        return string.IsNullOrEmpty(value) ? null : value;
     }
 
     private void DemandSeparated(IReadOnlyCollection<AssignableRole> roles)

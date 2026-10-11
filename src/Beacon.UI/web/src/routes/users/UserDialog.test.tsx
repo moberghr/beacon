@@ -36,12 +36,13 @@ function user(overrides: Partial<UserEntry> = {}): UserEntry {
 
 /** Records the account and role writes; `rolesReply` answers the role write. */
 function serve(rolesReply: () => Response = () => new HttpResponse(null, { status: 204 })) {
-  const writes = { account: 0, roles: [] as unknown[] };
+  const writes = { account: 0, accountBodies: [] as unknown[], roles: [] as unknown[] };
   mswServer.use(
     http.get('*/beacon/api/csrf', () => HttpResponse.json({ token: 'test-token' })),
     http.get('*/beacon/api/users/roles', () => HttpResponse.json({ entries: ROLES })),
-    http.put('*/beacon/api/users/7', () => {
+    http.put('*/beacon/api/users/7', async ({ request }) => {
       writes.account += 1;
+      writes.accountBodies.push(await request.json());
       return new HttpResponse(null, { status: 204 });
     }),
     http.put('*/beacon/api/users/7/roles', async ({ request }) => {
@@ -193,6 +194,86 @@ describe('UserDialog roles', () => {
     await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Viewer' })).toBeEnabled());
     expect(auditor).toBeDisabled();
     expect(screen.getByRole('checkbox', { name: 'Admin' })).toBeDisabled();
+  });
+});
+
+describe('UserDialog sign-in identity', () => {
+  beforeEach(() => {
+    signedInAs('ada');
+  });
+
+  it('offers a UserAdmin only external users to add, and says why', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    serve();
+
+    renderWithProviders(<UserDialog open user={null} onClose={() => {}} />);
+
+    expect(await screen.findByRole('textbox', { name: /External ID/ })).toBeInTheDocument();
+    expect(screen.getByText(/only an admin creates internal users, who sign in with a password set here/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Internal user' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Password/)).not.toBeInTheDocument();
+  });
+
+  it('offers an Admin internal and external users to add', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    serve();
+
+    renderWithProviders(<UserDialog open user={null} onClose={() => {}} />);
+
+    expect(await screen.findByRole('button', { name: 'Internal user' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'External user' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Password/)).toBeInTheDocument();
+    expect(screen.queryByText(/only an admin creates internal users/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a UserAdmin the user name and e-mail address read-only, and sends them unchanged', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    const writes = serve();
+    const onClose = vi.fn();
+
+    await renderEdit(user({ email: 'bea@example.test' }), onClose);
+
+    const userName = screen.getByRole('textbox', { name: /^Username/ });
+    const email = screen.getByRole('textbox', { name: /^Email/ });
+    expect(userName).toBeDisabled();
+    expect(userName).toHaveValue('bea');
+    expect(email).toBeDisabled();
+    expect(email).toHaveValue('bea@example.test');
+    expect(screen.getByText('Only an Admin changes the user name or e-mail address a user signs in with.')).toBeInTheDocument();
+
+    const displayName = screen.getByRole('textbox', { name: /^Display name/ });
+    expect(displayName).toBeEnabled();
+    fireEvent.change(displayName, { target: { value: 'Bea B' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes.accountBodies).toEqual([
+      { userName: 'bea', email: 'bea@example.test', displayName: 'Bea B', isEnabled: true },
+    ]);
+  });
+
+  it('lets an Admin change the user name and e-mail address', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    const writes = serve();
+    const onClose = vi.fn();
+
+    const auditor = await renderEdit(user(), onClose);
+    await waitFor(() => expect(auditor).toBeEnabled());
+
+    const userName = screen.getByRole('textbox', { name: /^Username/ });
+    const email = screen.getByRole('textbox', { name: /^Email/ });
+    expect(userName).toBeEnabled();
+    expect(email).toBeEnabled();
+    expect(screen.queryByText(/only an admin changes the user name/i)).not.toBeInTheDocument();
+
+    fireEvent.change(userName, { target: { value: 'bea-renamed' } });
+    fireEvent.change(email, { target: { value: 'bea@example.test' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(writes.accountBodies).toEqual([
+      { userName: 'bea-renamed', email: 'bea@example.test', displayName: 'Bea', isEnabled: true },
+    ]);
   });
 });
 

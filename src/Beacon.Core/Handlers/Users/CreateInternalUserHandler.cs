@@ -12,7 +12,8 @@ internal sealed class CreateInternalUserHandler(
 {
     public async Task Handle(CreateInternalUserCommand request, CancellationToken cancellationToken)
     {
-        // The roles are checked before the user is created: a refused role creates nobody.
+        // The caller, then the roles, are checked before the user is created: a refusal creates nobody.
+        await rules.DemandMayCreateInternalUserAsync(cancellationToken);
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);
         await rules.DemandMayAssignAsync(null, roles, roles, cancellationToken);
 
@@ -32,15 +33,16 @@ internal sealed class CreateInternalUserHandler(
             throw new InvalidOperationException(response.Message ?? "Failed to create user.");
         }
 
-        await rules.LogAssignedRolesAsync(request.UserName, roles, cancellationToken);
+        await rules.LogCreatedAsync(request.UserName, true, roles, cancellationToken);
     }
 }
 
 /// <summary>
-/// Creates an internal (password) user with <c>RoleIds</c>. For an Admin or a UserAdmin; only an Admin assigns the Admin role or a functional
-/// role (403), and separation of duties, when on, refuses a conflicting pair (400). The roles assigned are logged.
+/// Creates an internal (password) user with <c>RoleIds</c>. For an Admin only (403 for a UserAdmin who is not one): whoever
+/// sets the password can sign in as the user. Separation of duties, when on, refuses a conflicting pair (400). The new user
+/// and the roles assigned are logged.
 /// </summary>
-[ProjectScopeExempt("user management, gated by the UserAdmin permission; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
+[ProjectScopeExempt("user management, gated by the UserAdmin permission and, by the handler, Admin-only; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record CreateInternalUserCommand(
     string UserName,
     string? Email,

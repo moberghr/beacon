@@ -1,3 +1,4 @@
+using System.Reflection;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -21,9 +22,11 @@ namespace Beacon.Tests.Unit.Authorization;
 /// <summary>
 /// A UserAdmin manages users without being able to raise anyone, itself included: it never assigns or removes the Admin
 /// role or a functional role, never changes its own account or roles, and never changes an Admin's, a super admin's or a
-/// functional role holder's account (403). An Admin assigns any role. Separation of duties, when on, refuses roles that
-/// would give one user both permissions of a conflicting pair (400), whoever assigns them. Every role change is logged
-/// with ids only.
+/// functional role holder's account (403). Nor does it control how anyone signs in: it creates no internal (password)
+/// user and changes no user's user name or e-mail address (403), so it cannot make an account it can sign in to. An Admin
+/// assigns any role and does all of these. Separation of duties, when on, refuses roles that would give one user both
+/// permissions of a conflicting pair (400), whoever assigns them. Every user created and every role change is logged with
+/// ids only.
 /// </summary>
 [TestFixture]
 public class UserAdministrationRulesTests
@@ -42,6 +45,18 @@ public class UserAdministrationRulesTests
     private const int SecurityAdminRole = 12;
     private const int UserAdminRole = 13;
     private const int MigrationOperatorRole = 15;
+
+    /// <summary>
+    /// The requests that set a password or what a user signs in as (an external id, an identity provider, the user type),
+    /// and why each may. Adding one means deciding who may send it, and a line here.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> SignInIdentityRequests = new Dictionary<string, string>
+    {
+        [nameof(CreateInternalUserCommand)] = "Admin only: the handler refuses a UserAdmin",
+        [nameof(CreateExternalUserCommand)] = "Admin or UserAdmin: the identity provider controls how the subject signs in",
+        ["ChangeOwnPasswordCommand"] = "the caller's own password, against the current one",
+        ["CreateSuperAdminCommand"] = "first-run setup only"
+    };
 
     private List<BeaconRole> _roles = null!;
     private List<BeaconUser> _users = null!;
@@ -277,14 +292,104 @@ public class UserAdministrationRulesTests
     {
         var users = new Mock<IUserManagementService>();
         users
-            .Setup(x => x.CreateInternalUserAsync(It.IsAny<CreateInternalUserRequest>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.CreateExternalUserAsync(It.IsAny<CreateExternalUserRequest>(), It.IsAny<CancellationToken>()))
             .Callback(() => _users.Add(new BeaconUser { Id = 42, ExternalId = "ext-new", UserName = "newbie", IsEnabled = true }))
             .ReturnsAsync(new BaseResponse { Success = true });
 
-        await CreateInternal(UserAdmin(), users, EditorRole);
+        await CreateExternal(UserAdmin(), users, false, EditorRole);
 
+        _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("User created", StringComparison.Ordinal))
+            .Which.Message.Should().Be($"User created: user 42, internal False, by user {CallerId}");
         _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("User roles changed", StringComparison.Ordinal))
             .Which.Message.Should().Contain("user 42").And.Contain($"added roles {EditorRole}").And.NotContain("newbie");
+    }
+
+    [TestCase(null)]
+    [TestCase(EditorRole)]
+    [TestCase(ViewerRole)]
+    public async Task AUserAdmin_CreatingAnInternalUser_IsForbidden_AndCreatesNobody(int? roleId)
+    {
+        // The password would be the UserAdmin's: it could sign in as the new user and use whatever access it gave it.
+        var users = new Mock<IUserManagementService>();
+        users.Setup(x => x.CreateInternalUserAsync(It.IsAny<CreateInternalUserRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(new BaseResponse { Success = true });
+        var roleIds = roleId == null ? Array.Empty<int>() : new[] { roleId.Value };
+
+        var act = () => CreateInternal(UserAdmin(), users, roleIds);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UserAdministrationRules.PasswordUserMessage);
+        users.Verify(x => x.CreateInternalUserAsync(It.IsAny<CreateInternalUserRequest>(), It.IsAny<CancellationToken>()), Times.Never, "a refusal creates nobody");
+        _saved.Should().BeEmpty();
+        _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("Access refused: user ", StringComparison.Ordinal))
+            .Which.Level.Should().Be(LogLevel.Warning);
+        _logs.Entries.Should().NotContain(x => x.Message.StartsWith("User created", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task AnAdmin_CreatesAnInternalUser_AndTheNewUserIsLogged()
+    {
+        var users = new Mock<IUserManagementService>();
+        users
+            .Setup(x => x.CreateInternalUserAsync(It.IsAny<CreateInternalUserRequest>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _users.Add(new BeaconUser { Id = 42, ExternalId = "int-new", UserName = "newbie", IsInternalUser = true, IsEnabled = true }))
+            .ReturnsAsync(new BaseResponse { Success = true });
+
+        await CreateInternal(Admin(), users, EditorRole);
+
+        users.Verify(x => x.CreateInternalUserAsync(It.Is<CreateInternalUserRequest>(y => y.UserName == "newbie" && y.RoleIds.SequenceEqual(new[] { EditorRole })), It.IsAny<CancellationToken>()), Times.Once);
+        _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("User created", StringComparison.Ordinal))
+            .Which.Message.Should().Be($"User created: user 42, internal True, by user {CallerId}");
+    }
+
+    [TestCase(null, "ben-renamed", null)]
+    [TestCase(null, "ext-ben", "mine@example.test")]
+    [TestCase("ben@example.test", "ext-ben", "mine@example.test")]
+    [TestCase("ben@example.test", "ext-ben", null)]
+    [TestCase("ben@example.test", "EXT-BEN", "ben@example.test")]
+    public async Task AUserAdmin_ChangingWhatAnotherUserSignsInWith_IsForbidden(string? storedEmail, string userName, string? email)
+    {
+        _users.First(x => x.Id == BenId).Email = storedEmail;
+        var users = UpdatableUsers();
+
+        var act = () => Update(UserAdmin(), BenId, userName, email, users);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UserAdministrationRules.SignInIdentityMessage);
+        users.Verify(x => x.UpdateUserAsync(It.IsAny<UpdateUserRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase(null, null)]
+    [TestCase(null, "")]
+    [TestCase("ben@example.test", "ben@example.test")]
+    public async Task AUserAdmin_KeepingWhatTheUserSignsInWith_ChangesTheRestOfTheAccount(string? storedEmail, string? email)
+    {
+        _users.First(x => x.Id == BenId).Email = storedEmail;
+        var users = UpdatableUsers();
+
+        await Update(UserAdmin(), BenId, "ext-ben", email, users);
+
+        users.Verify(x => x.UpdateUserAsync(It.Is<UpdateUserRequest>(y => y.UserId == BenId && y.UserName == "ext-ben" && y.DisplayName == "Display"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AnAdmin_ChangesWhatAUserSignsInWith()
+    {
+        _users.First(x => x.Id == BenId).Email = "ben@example.test";
+        var users = UpdatableUsers();
+
+        await Update(Admin(), BenId, "ben-renamed", "new@example.test", users);
+
+        users.Verify(x => x.UpdateUserAsync(It.Is<UpdateUserRequest>(y => y.UserId == BenId && y.UserName == "ben-renamed" && y.Email == "new@example.test"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public void OnlyTheReviewedRequests_SetAPasswordOrWhatAUserSignsInAs()
+    {
+        // No request resets another user's password or changes an external id, an identity provider or the user type.
+        var requests = BeaconApiRoutes.RequestTypes()
+            .Where(x => CarriesSignInIdentity(x, 0))
+            .Select(x => x.Name)
+            .ToList();
+
+        requests.Should().BeEquivalentTo(SignInIdentityRequests.Keys);
     }
 
     [Test]
@@ -325,11 +430,51 @@ public class UserAdministrationRulesTests
         return handler.Handle(new SetUserRolesCommand(userId, roleIds), CancellationToken.None);
     }
 
+    // Keeps what the user signs in with, as stored.
     private Task Update(IBeaconPermissionAccessor permissions, int userId, Mock<IUserManagementService>? users = null)
+    {
+        var stored = _users.FirstOrDefault(x => x.Id == userId);
+
+        return Update(permissions, userId, stored?.UserName ?? "name", stored?.Email, users);
+    }
+
+    private Task Update(IBeaconPermissionAccessor permissions, int userId, string userName, string? email, Mock<IUserManagementService>? users = null)
     {
         var handler = new UpdateUserHandler((users ?? new Mock<IUserManagementService>()).Object, Rules(permissions, false));
 
-        return handler.Handle(new UpdateUserCommand(userId, "name", null, null, true), CancellationToken.None);
+        return handler.Handle(new UpdateUserCommand(userId, userName, email, "Display", true), CancellationToken.None);
+    }
+
+    private static Mock<IUserManagementService> UpdatableUsers()
+    {
+        var users = new Mock<IUserManagementService>();
+        users
+            .Setup(x => x.UpdateUserAsync(It.IsAny<UpdateUserRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BaseResponse { Success = true });
+
+        return users;
+    }
+
+    // A password, an external id, an identity provider or the user type, on the request or on a Beacon type it carries.
+    private static bool CarriesSignInIdentity(Type type, int depth)
+    {
+        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase)
+                || property.Name is "ExternalId" or "IdentityProvider" or "IsInternalUser")
+            {
+                return true;
+            }
+
+            var carried = property.PropertyType;
+            if (depth < 2 && carried.IsClass && carried.Namespace?.StartsWith("Beacon.", StringComparison.Ordinal) == true
+                && CarriesSignInIdentity(carried, depth + 1))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private Task Toggle(IBeaconPermissionAccessor permissions, int userId, Mock<IUserManagementService>? users = null)

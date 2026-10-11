@@ -18,7 +18,13 @@ import {
   type RoleEntry,
   type UserEntry,
 } from './queries';
-import { changeBlockedReason, isFunctionalRole, mayAssignRole } from './userAdministration';
+import {
+  INTERNAL_USER_NOTE,
+  SIGN_IN_IDENTITY_NOTE,
+  changeBlockedReason,
+  isFunctionalRole,
+  mayAssignRole,
+} from './userAdministration';
 
 const COMMON = {
   userName: z.string().trim().min(3, 'Min 3 characters').max(100),
@@ -47,6 +53,12 @@ const EDIT_SCHEMA = z.object({
   isEnabled: z.boolean(),
 });
 
+// For a UserAdmin, who keeps what the user signs in with as stored: those fields are shown, not edited, so not validated.
+const EDIT_KEEPING_SIGN_IN_SCHEMA = EDIT_SCHEMA.extend({
+  userName: z.string(),
+  email: z.string().optional(),
+});
+
 type CreateInternalForm = z.infer<typeof INTERNAL_SCHEMA>;
 type CreateExternalForm = z.infer<typeof EXTERNAL_SCHEMA>;
 type EditForm = z.infer<typeof EDIT_SCHEMA>;
@@ -62,6 +74,10 @@ type Tab = 'internal' | 'external';
 export function UserDialog({ open, user, onClose }: UserDialogProps) {
   const isEdit = user != null;
   const [tab, setTab] = useState<Tab>('internal');
+  const { isAdmin, isLoading } = useAccess();
+  // Only an Admin creates an internal user (whoever sets the password could sign in as them): a UserAdmin adds external
+  // users. No form is shown until the caller's permissions are known, so it never switches under the user's typing.
+  const shown: Tab = isAdmin ? tab : 'external';
 
   if (isEdit) {
     return <EditUserForm key={user.id} open={open} user={user} onClose={onClose} />;
@@ -72,30 +88,36 @@ export function UserDialog({ open, user, onClose }: UserDialogProps) {
       open={open}
       onClose={onClose}
       title="Add user"
-      sub="Internal users authenticate with a password stored in Beacon. External users are pre-registered and authenticate via JWT/OAuth."
+      sub={isAdmin
+        ? 'Internal users authenticate with a password stored in Beacon. External users are pre-registered and authenticate via JWT/OAuth.'
+        : `External users are pre-registered and authenticate via JWT/OAuth. ${INTERNAL_USER_NOTE}`}
       size="md"
       footer={null}
     >
-      <div className="flex gap-1 mb-3">
-        <Button
-          type="button"
-          variant={tab === 'internal' ? 'primary' : 'secondary'}
-          onClick={() => setTab('internal')}
-        >
-          Internal user
-        </Button>
-        <Button
-          type="button"
-          variant={tab === 'external' ? 'primary' : 'secondary'}
-          onClick={() => setTab('external')}
-        >
-          External user
-        </Button>
-      </div>
+      {isAdmin && (
+        <div className="flex gap-1 mb-3">
+          <Button
+            type="button"
+            variant={tab === 'internal' ? 'primary' : 'secondary'}
+            onClick={() => setTab('internal')}
+          >
+            Internal user
+          </Button>
+          <Button
+            type="button"
+            variant={tab === 'external' ? 'primary' : 'secondary'}
+            onClick={() => setTab('external')}
+          >
+            External user
+          </Button>
+        </div>
+      )}
 
-      {tab === 'internal'
-        ? <CreateInternalForm onClose={onClose} />
-        : <CreateExternalForm onClose={onClose} />}
+      {isLoading
+        ? <div className="text-text-muted text-xs">Loading…</div>
+        : shown === 'internal'
+          ? <CreateInternalForm onClose={onClose} />
+          : <CreateExternalForm onClose={onClose} />}
     </Dialog>
   );
 }
@@ -330,6 +352,8 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
   const { data: me } = useAuth();
   // A UserAdmin changes neither themselves nor an Admin, a super admin or a functional role holder: shown read-only.
   const blocked = changeBlockedReason(user, { isAdmin, userName: me?.userName }, roles);
+  // What a user signs in with, the user name and the e-mail address, is an Admin's to change: a UserAdmin sees it read-only.
+  const keepsSignIn = !isAdmin;
   const initialRoleIds = useMemo(() => user.roles.map(x => x.id), [user]);
   const [selectedRoles, setSelectedRoles] = useState<Set<number>>(() => new Set(initialRoleIds));
   const [rolesError, setRolesError] = useState<{ status: number | undefined; message: string } | null>(null);
@@ -341,7 +365,7 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<EditForm>({
-    resolver: zodResolver(EDIT_SCHEMA),
+    resolver: zodResolver(keepsSignIn ? EDIT_KEEPING_SIGN_IN_SCHEMA : EDIT_SCHEMA),
     defaultValues: {
       userName: user.userName,
       email: user.email ?? '',
@@ -371,8 +395,8 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
         await update.mutateAsync({
           id: user.id,
           payload: {
-            userName: values.userName,
-            email: values.email?.trim() ? values.email.trim() : null,
+            userName: keepsSignIn ? user.userName : values.userName,
+            email: keepsSignIn ? (user.email ?? null) : (values.email?.trim() ? values.email.trim() : null),
             displayName: values.displayName?.trim() ? values.displayName.trim() : null,
             isEnabled: values.isEnabled,
           },
@@ -414,8 +438,18 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
       <form id="edit-user-form" onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
         {blocked && <Banner tone="info" icon={<Lock />} title="Read only" sub={blocked} />}
         <fieldset disabled={blocked != null} className="m-0 p-0 border-0 min-w-0 flex flex-col gap-3">
-          <FieldText label="Username" required register={register('userName')} error={errors.userName?.message} />
-          <FieldText label="Email" type="email" register={register('email')} error={errors.email?.message} />
+          {keepsSignIn ? (
+            <>
+              <ShownText label="Username" value={user.userName} />
+              <ShownText label="Email" value={user.email ?? ''} />
+              <span className="text-xs text-text-muted">{SIGN_IN_IDENTITY_NOTE}</span>
+            </>
+          ) : (
+            <>
+              <FieldText label="Username" required register={register('userName')} error={errors.userName?.message} />
+              <FieldText label="Email" type="email" register={register('email')} error={errors.email?.message} />
+            </>
+          )}
           <FieldText label="Display name" register={register('displayName')} />
           <Field label="Status" hint={user.isSuperAdmin ? 'Super admin accounts cannot be disabled.' : undefined}>
             <label className="flex items-center gap-2">
@@ -470,6 +504,15 @@ function FieldText({ label, register, required, type = 'text', placeholder, help
         {...register}
       />
       {error && <span className="text-xs text-crit">{error}</span>}
+    </Field>
+  );
+}
+
+/** A value shown and not edited (not part of the form). */
+function ShownText({ label, value }: { label: string; value: string }) {
+  return (
+    <Field label={label}>
+      <Input type="text" value={value} disabled readOnly />
     </Field>
   );
 }

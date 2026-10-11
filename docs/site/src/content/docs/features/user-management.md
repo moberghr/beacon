@@ -92,7 +92,7 @@ Until the super admin exists, Beacon provisions **no other user**: an SSO sign-i
 
 After setup, an Admin or a [UserAdmin](#functional-roles) navigates to **Users** in the React UI (`/users`) to:
 
-- Create new internal users
+- Create users: internal (password) users are an Admin's to create; a UserAdmin creates external users
 - Assign roles (a UserAdmin assigns neither the Admin role nor a functional role)
 - Enable/disable accounts (disabling or archiving an account revokes its [API keys](/features/api-keys/#when-the-owner-leaves), and re-enabling it revokes any key still active instead of restoring one)
 - View user details and login history
@@ -132,26 +132,27 @@ The Admin role's duties can be given one at a time. Each functional role grants 
 | **Approver** | Approves and rejects query changes; reads every project's approval requests |
 | **Auditor** | Reads the MCP audit, the MCP and admin settings (secrets masked) and every user's API keys |
 | **SecurityAdmin** | Changes the MCP and admin settings (not the LLM connection), recipients, MCP tool publishing and repository tokens |
-| **UserAdmin** | Manages users and their roles and API keys, resource owners, the members of any project, and restricts projects |
+| **UserAdmin** | Manages users (creates external users only) and their roles and API keys, resource owners, the members of any project, and restricts projects |
 | **DataSourceAdmin** | Creates, tests and deletes data sources; links any data source it can read into a project it administers |
 | **MigrationOperator** | Runs data migration between data sources it may query and write |
 
 **Assigning them.** The roles are listed with the others (`GET /beacon/api/users/roles`; each entry's `permission` names the permission a functional role grants) and are assigned when a user is created or with `PUT /beacon/api/users/{id}/roles` (`{ "roleIds": [1, 4] }`, the complete set of the user's roles; `204`, `404` for an unknown user, `400` for an unknown role). Their names follow `Beacon:Authorization:Roles` (see [Configuration](/getting-started/configuration/#functional-permissions-role-names-identity-provider-app-roles-separation-of-duties)).
 
-**On the Users page.** The add-user dialog and the edit dialog (open a user) list the roles in two groups: **Global roles** (Admin, Editor, Viewer and any other) and **Functional roles**. Saving the edit dialog sends the account changes and, when the roles changed, the complete set of roles (`PUT /users/{id}/roles`). For a UserAdmin who is not an Admin, the Admin role and the functional roles are shown disabled, and the dialog opens read-only, with a note saying why, for their own account and for an Admin, a super admin or a holder of a functional role; the enabled/disabled toggle in the list is disabled for the same users. When the server refuses the roles, the dialog stays open and shows its reason beside them: `400` for separation of duties or an unknown role, `403` for a change the caller may not make.
+**On the Users page.** The add-user dialog and the edit dialog (open a user) list the roles in two groups: **Global roles** (Admin, Editor, Viewer and any other) and **Functional roles**. Saving the edit dialog sends the account changes and, when the roles changed, the complete set of roles (`PUT /users/{id}/roles`). For a UserAdmin who is not an Admin, the add-user dialog offers external users only, the edit dialog shows the user name and e-mail address read-only (and sends them unchanged), the Admin role and the functional roles are shown disabled, and the dialog opens read-only, with a note saying why, for their own account and for an Admin, a super admin or a holder of a functional role; the enabled/disabled toggle in the list is disabled for the same users. When the server refuses the roles, the dialog stays open and shows its reason beside them: `400` for separation of duties or an unknown role, `403` for a change the caller may not make.
 
 **In the shell.** The sidebar shows each page a permission opens to its holders (an Admin sees them all), and pages show their actions only to those who may use them: approving and rejecting to Approvers, the MCP and admin settings read-only to Auditors and editable by SecurityAdmins (the LLM provider, endpoint, region, authentication mode and credential fields stay disabled, with a note, for anyone but an Admin), every user's API keys to Auditors and UserAdmins (revoking to UserAdmins), creating and deleting data sources to DataSourceAdmins, recipients, MCP tool publishing and repository tokens to SecurityAdmins, owner changes, the project **Access** card and the **Members** tab of any Beacon-managed project to UserAdmins. A user who holds functional roles only gets in, sees the pages those open, and finds on every other page a note that project data needs a Viewer or Editor role.
 
 **What a UserAdmin cannot do.** A UserAdmin who is not an Admin cannot raise anyone, itself included (`403`):
 
 - assign or remove the Admin role or a functional role (also when creating a user);
+- create an internal (password) user, or change any user's user name or e-mail address, which an internal user signs in with: so a UserAdmin cannot make an account it can sign in to (`POST /users/internal` creates nobody). No route sets another user's password or changes a user's external id, identity provider or user type after the user is created;
 - change their own account or roles — no self-grant, no self-demotion, no disabling themselves — or their own project membership;
 - change the account, roles, enabled state, project memberships or API keys of a protected user: an Admin, a super admin or a holder of a functional role (another UserAdmin included, so two UserAdmins cannot add each other to a project). Every level-0 system role counts as a functional role, also one the mapping no longer names;
 - open a restricted project (restricting one is theirs), or make themselves the owner of a subscription, data contract or AI actor.
 
-Every role change is logged with ids only (event 7113 `UserRolesChanged`: the user, the role ids added and removed, who changed them), and every membership change as before.
+Every user created is logged with ids only (event 7114 `UserCreated`: the new user, whether it is an internal user, who created it), every role change (event 7113 `UserRolesChanged`: the user, the role ids added and removed, who changed them), and every membership change as before.
 
-**What a UserAdmin can do, and how to watch it.** Creating users and making unprotected users members of any project is the UserAdmin's duty, so a UserAdmin can create an account and add it to a restricted project. That is accepted by design; alert on events **7101** (`MemberAdded`) and **7113** (`UserRolesChanged`) whose actor holds UserAdmin, and review them. A permission an identity provider maps is not stored, so a user who holds one only through an app role is not protected.
+**What a UserAdmin can do, and how to watch it.** Creating external users and making unprotected users members of any project is the UserAdmin's duty. An external user signs in through the identity provider as the subject (`ExternalId`) it was created with, so the identity provider and the [admission rules](#single-sign-on-admission) bound what this reaches: a UserAdmin who also controls a second account at the identity provider can pre-register it and add it to a restricted project. Beacon records no creator per user and applies no four-eyes rule to that; it is accepted by design and should be watched: alert on events **7114** (`UserCreated`), **7101** (`MemberAdded`) and **7113** (`UserRolesChanged`) whose actor holds UserAdmin, and review them. A permission an identity provider maps is not stored, so a user who holds one only through an app role is not protected.
 
 **Separation of duties.** With `Beacon:Authorization:SeparationOfDuties:Enabled`, roles that would give one user both permissions of a conflicting pair — Approver + SecurityAdmin, Auditor + SecurityAdmin, Auditor + UserAdmin, UserAdmin + Approver, UserAdmin + MigrationOperator — are refused with `400`, whoever assigns them; a user who holds such a pair anyway holds neither permission of it (see [Separation of duties](/features/authorization/#separation-of-duties)).
 
@@ -447,8 +448,9 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for what 
 |----------|--------|-------------|
 | `/beacon/api/users` | GET | The user directory |
 | `/beacon/api/users/roles` | GET | Every role, with the permission each functional role grants |
-| `/beacon/api/users/internal`, `/beacon/api/users/external` | POST | Create a user with roles |
-| `/beacon/api/users/{id}` | PUT | Change a user's name, e-mail, display name or enabled state |
+| `/beacon/api/users/internal` | POST | Create an internal (password) user with roles; an Admin's alone (`403` for a UserAdmin) |
+| `/beacon/api/users/external` | POST | Create an external user with roles |
+| `/beacon/api/users/{id}` | PUT | Change a user's name, e-mail, display name or enabled state; the user name and e-mail address are an Admin's to change (`403` for a UserAdmin who sends others than the stored ones) |
 | `/beacon/api/users/{id}/toggle-enabled` | POST | Enable or disable a user |
 | `/beacon/api/users/{id}/roles` | PUT | Replace a user's roles |
 

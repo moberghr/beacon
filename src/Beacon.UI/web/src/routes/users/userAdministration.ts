@@ -18,6 +18,12 @@ export const OWN_ACCOUNT_NOTE = 'You cannot change your own account or roles; an
 export const PROTECTED_USER_NOTE =
   'Only an Admin can change the account of an Admin, a super admin or a holder of a functional role.';
 
+/** Why a UserAdmin adds external users only: whoever sets an internal user's password could sign in as them. */
+export const INTERNAL_USER_NOTE = 'Only an Admin creates internal users, who sign in with a password set here.';
+
+/** Why a UserAdmin sees a user's user name and e-mail address read-only: a user signs in with them. */
+export const SIGN_IN_IDENTITY_NOTE = 'Only an Admin changes the user name or e-mail address a user signs in with.';
+
 interface Caller {
   isAdmin: boolean;
   /** The signed-in user's Beacon user name. */
