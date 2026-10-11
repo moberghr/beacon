@@ -15,6 +15,7 @@ internal sealed class RefreshDataSourceMetadataHandler(
     ISchemaRelationshipSyncService relationshipSyncService,
     ForcedMetadataRefreshCooldown cooldown,
     IOptionsMonitor<MetadataRefreshOptions> refreshOptions,
+    IBeaconPermissionAccessor permissionAccessor,
     ILogger<RefreshDataSourceMetadataHandler> logger)
     : IRequestHandler<RefreshDataSourceMetadataCommand, DatabaseMetadataSnapshot>
 {
@@ -25,10 +26,12 @@ internal sealed class RefreshDataSourceMetadataHandler(
             throw new InvalidOperationException("Data source id must be positive.");
         }
 
-        // One forced refresh per data source per cooldown, whoever asks: a refresh scans the live database. Only a refresh
-        // that succeeded starts the cooldown, so a failed one can be retried at once.
+        // One forced refresh per data source per cooldown: a refresh scans the live database. An Admin or a DataSourceAdmin
+        // is not held to the cooldown, but still waits for a refresh that is running. Only a refresh that succeeded starts
+        // the cooldown, so a failed one can be retried at once.
         var cooldownMinutes = refreshOptions.CurrentValue.ForcedRefreshCooldownMinutes;
-        var refusal = cooldown.TryStart(request.DataSourceId, cooldownMinutes);
+        var ignoreCooldown = (await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.DataSourceAdmin);
+        var refusal = cooldown.TryStart(request.DataSourceId, cooldownMinutes, ignoreCooldown);
         if (refusal != null)
         {
             throw new BeaconRateLimitedException(refusal);
@@ -68,8 +71,8 @@ internal sealed class RefreshDataSourceMetadataHandler(
 
 /// <summary>
 /// Re-reads a data source's metadata from the database now. Curated descriptions are kept; a second forced refresh of the
-/// same data source within <see cref="MetadataRefreshOptions.ForcedRefreshCooldownMinutes"/> of one that succeeded, or
-/// while one is running, answers 429.
+/// same data source within <see cref="MetadataRefreshOptions.ForcedRefreshCooldownMinutes"/> of one that succeeded
+/// (except by an Admin or a DataSourceAdmin), or while one is running, answers 429.
 /// </summary>
 public record RefreshDataSourceMetadataCommand(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>, IProjectAuthorizedRequest
 {

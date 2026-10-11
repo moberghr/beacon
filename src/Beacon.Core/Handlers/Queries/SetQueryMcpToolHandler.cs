@@ -4,6 +4,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.Queries;
 
@@ -11,15 +12,19 @@ namespace Beacon.Core.Handlers.Queries;
 /// Exposes a saved query as the MCP tool <c>q_&lt;name&gt;</c>, or withdraws it. The name must match
 /// <c>^[a-z][a-z0-9_]{2,40}$</c> and is unique across live queries (so it is unique in every project the query is
 /// visible in, and names one query for a caller who reaches several projects). Enabling requires a runnable approved
-/// version (<see cref="SavedQueryRunnableVersion"/>) whose parameters make a valid tool.
+/// version (<see cref="SavedQueryRunnableVersion"/>) whose parameters make a valid tool. Anyone but an Admin publishes
+/// only a query it can read (404 otherwise): the SecurityAdmin permission grants no project data.
 /// </summary>
 internal sealed class SetQueryMcpToolHandler(
     IDbContextFactory<BeaconContext> contextFactory,
+    ProjectRequestAuthorizer authorizer,
     ILogger<SetQueryMcpToolHandler> logger)
     : IRequestHandler<SetQueryMcpToolCommand, SetQueryMcpToolResult>
 {
     public async Task<SetQueryMcpToolResult> Handle(SetQueryMcpToolCommand request, CancellationToken cancellationToken)
     {
+        await authorizer.DemandAsync(new ProjectCheck(ProjectResource.Query(request.QueryId), ProjectAction.Read), cancellationToken);
+
         var name = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
@@ -117,7 +122,7 @@ internal sealed class SetQueryMcpToolHandler(
     }
 }
 
-[ProjectScopeExempt("admin-gated: publishing a saved query as an MCP tool is a publishing decision", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("gated by the SecurityAdmin permission: publishing a saved query as an MCP tool is a publishing decision; the handler demands Read on the query of anyone but an Admin", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record SetQueryMcpToolCommand(int QueryId, bool Enabled, string? Name, string? Description, string? UserId)
     : IRequest<SetQueryMcpToolResult>;
 

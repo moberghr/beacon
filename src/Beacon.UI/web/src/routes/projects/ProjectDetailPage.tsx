@@ -19,7 +19,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Tabs, type TabDef } from '@/components/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess } from '@/auth/useAuth';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import { formatNumber, formatRelativeTime, formatDateTime } from '@/lib/format';
@@ -55,7 +55,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams();
   const projectId = id ? Number.parseInt(id, 10) : Number.NaN;
   const { data, isLoading, isError, error } = useProjectDetailQuery(projectId);
-  const isAdmin = useIsAdmin();
+  const access = useAccess();
   const [tab, setTab] = useState<TabKey>('overview');
   const [linking, setLinking] = useState(false);
 
@@ -110,11 +110,15 @@ export default function ProjectDetailPage() {
 
   // Linking needs the project-admin role (an Admin has it everywhere), whoever manages membership.
   const canLink = project.myRole === ProjectRole.ProjectAdmin;
+  // A UserAdmin manages the members of any project whose membership Beacon keeps, without being its project admin.
+  const showMembers =
+    project.canManageMembers ||
+    (access.hasPermission('UserAdmin') && project.membershipManagement === ProjectMembershipManagement.Beacon);
 
   const tabs: TabDef<TabKey>[] = [
     { key: 'overview', label: <><Layers size={13} /> Overview</> },
     // Hidden unless the caller manages members and Beacon (not the host) manages membership.
-    ...(project.canManageMembers ? [{ key: 'members' as const, label: <><Users size={13} /> Members</> }] : []),
+    ...(showMembers ? [{ key: 'members' as const, label: <><Users size={13} /> Members</> }] : []),
     { key: 'repositories', label: <><GitBranch size={13} /> Repositories</>, count: project.repositories.length },
     { key: 'documentation', label: <><BookOpen size={13} /> Documentation</> },
     { key: 'aiActors', label: <><Bot size={13} /> AI Actors</> },
@@ -138,7 +142,7 @@ export default function ProjectDetailPage() {
         }
       />
 
-      {isAdmin === true && <AccessCard project={project} />}
+      {access.hasPermission('UserAdmin') && <AccessCard project={project} canUnlink={access.isAdmin} canOpen={access.isAdmin} />}
 
       {project.description && (
         <Card>
@@ -182,8 +186,10 @@ export default function ProjectDetailPage() {
           </CardBody>
         )}
 
-        {tab === 'members' && project.canManageMembers && <MembersTab projectId={project.id} />}
-        {tab === 'repositories' && <RepositoriesTab repositories={project.repositories} />}
+        {tab === 'members' && showMembers && <MembersTab projectId={project.id} />}
+        {tab === 'repositories' && (
+          <RepositoriesTab repositories={project.repositories} canSetToken={access.hasPermission('SecurityAdmin')} />
+        )}
         {tab === 'documentation' && <DocumentationTab projectId={project.id} />}
         {tab === 'aiActors' && <AiActorsTab projectId={project.id} dataSources={project.dataSources} />}
       </Card>
@@ -218,12 +224,14 @@ const MEMBERSHIP_NOTE: Partial<Record<ProjectMembershipManagement, string>> = {
 };
 
 /**
- * Admin only: an open project is used by everyone with a Beacon role; a restricted one only by its members and Admins.
+ * For an Admin or a UserAdmin: an open project is used by everyone with a Beacon role; a restricted one only by its
+ * members and Admins. A UserAdmin restricts projects; opening a restricted one is an Admin's (`canOpen`), so the
+ * choice is not offered otherwise.
  * Data sources another open project also links stay reachable through that project, and every other project linking
  * them keeps reaching them: the card lists those projects, with an unlink per shared data source. The server refuses
  * (409) to restrict a project while project membership is unavailable.
  */
-function AccessCard({ project }: { project: ProjectDetailEntry }) {
+function AccessCard({ project, canUnlink, canOpen }: { project: ProjectDetailEntry; canUnlink: boolean; canOpen: boolean }) {
   const setAccess = useSetProjectAccess(project.id);
   const [pending, setPending] = useState<AccessMode | null>(null);
   const current: AccessMode = project.requiresMembership ? 'restricted' : 'open';
@@ -248,19 +256,24 @@ function AccessCard({ project }: { project: ProjectDetailEntry }) {
           <CardSub>
             Open: everyone with a Beacon role can use this project. Restricted: only its members and Admins.
             {membershipNote}
+            {current === 'restricted' && !canOpen && ' Only an Admin can open a restricted project.'}
           </CardSub>
         </div>
         <CardActions>
-          <Seg<AccessMode>
-            ariaLabel="Project access"
-            options={ACCESS_OPTIONS}
-            value={current}
-            onChange={x => {
-              if (x !== current) {
-                setPending(x);
-              }
-            }}
-          />
+          {current === 'restricted' && !canOpen ? (
+            <RestrictedPill />
+          ) : (
+            <Seg<AccessMode>
+              ariaLabel="Project access"
+              options={ACCESS_OPTIONS}
+              value={current}
+              onChange={x => {
+                if (x !== current) {
+                  setPending(x);
+                }
+              }}
+            />
+          )}
         </CardActions>
       </CardHead>
       {openlyReachable.length > 0 && (
@@ -280,7 +293,7 @@ function AccessCard({ project }: { project: ProjectDetailEntry }) {
         </CardBody>
       )}
 
-      {project.sharedSourceProjects.length > 0 && <SharedSourceProjects project={project} />}
+      {project.sharedSourceProjects.length > 0 && <SharedSourceProjects project={project} canUnlink={canUnlink} />}
 
       {project.sharedSourceGuardrails.length > 0 && <SharedSourceGuardrails project={project} />}
 
@@ -314,7 +327,7 @@ interface UnlinkTarget {
  * members keep reaching those sources whatever this project's access. An Admin can unlink a shared source from one of
  * them.
  */
-function SharedSourceProjects({ project }: { project: ProjectDetailEntry }) {
+function SharedSourceProjects({ project, canUnlink }: { project: ProjectDetailEntry; canUnlink: boolean }) {
   const unlink = useUnlinkProjectDataSource();
   const [target, setTarget] = useState<UnlinkTarget | null>(null);
   const sourceName = (id: number) => project.dataSources.find(x => x.id === id)?.name ?? `Data source #${id}`;
@@ -346,16 +359,19 @@ function SharedSourceProjects({ project }: { project: ProjectDetailEntry }) {
           {r.sharedDataSourceIds.map(id => (
             <span key={id} className="inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.5 text-xs">
               {sourceName(id)}
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Unlink />}
-                aria-label={`Unlink ${sourceName(id)} from ${r.name}`}
-                title={`Unlink from ${r.name}`}
-                onClick={() =>
-                  setTarget({ projectId: r.projectId, projectName: r.name, dataSourceId: id, dataSourceName: sourceName(id) })
-                }
-              />
+              {/* Unlinking a data source from a project stays an Admin's. */}
+              {canUnlink && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Unlink />}
+                  aria-label={`Unlink ${sourceName(id)} from ${r.name}`}
+                  title={`Unlink from ${r.name}`}
+                  onClick={() =>
+                    setTarget({ projectId: r.projectId, projectName: r.name, dataSourceId: id, dataSourceName: sourceName(id) })
+                  }
+                />
+              )}
             </span>
           ))}
         </span>
@@ -497,7 +513,8 @@ function SharedSourceGuardrails({ project }: { project: ProjectDetailEntry }) {
 
 // --- Repositories tab -------------------------------------------------
 
-function RepositoriesTab({ repositories }: { repositories: ProjectRepositoryEntry[] }) {
+/** `canSetToken`: setting a repository's access token is a SecurityAdmin's (an Admin holds it). */
+function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectRepositoryEntry[]; canSetToken: boolean }) {
   const [tokenTarget, setTokenTarget] = useState<{ id: number; name: string } | null>(null);
 
   const columns: Column<ProjectRepositoryEntry>[] = [
@@ -524,15 +541,17 @@ function RepositoriesTab({ repositories }: { repositories: ProjectRepositoryEntr
     {
       key: 'actions',
       header: '',
-      render: r => (
-        <Button
-          variant="ghost"
-          onClick={e => { e.stopPropagation(); setTokenTarget({ id: r.id, name: r.name }); }}
-          title="Set access token"
-          aria-label={`Set token for ${r.name}`}
-          icon={<Key />}
-        />
-      ),
+      render: r => canSetToken
+        ? (
+          <Button
+            variant="ghost"
+            onClick={e => { e.stopPropagation(); setTokenTarget({ id: r.id, name: r.name }); }}
+            title="Set access token"
+            aria-label={`Set token for ${r.name}`}
+            icon={<Key />}
+          />
+        )
+        : null,
     },
   ];
 

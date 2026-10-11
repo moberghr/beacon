@@ -5,7 +5,7 @@ import { Button, Card, CardBody, KPI, KPIGrid, PageHeader, Pill } from '@/compon
 import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess } from '@/auth/useAuth';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
 import {
   useAiActorDetailsQuery,
@@ -28,7 +28,8 @@ export default function AiActorDetailPage() {
   const id = params.id ? Number(params.id) : undefined;
   const { data, isLoading, isError, error } = useAiActorDetailsQuery(id);
   const setOwner = useSetAiActorOwner(id ?? 0);
-  const isAdmin = useIsAdmin() === true;
+  // Giving an actor a new owner is a UserAdmin's (an Admin holds it).
+  const canChangeOwner = useAccess().hasPermission('UserAdmin');
   const [changingOwner, setChangingOwner] = useState(false);
 
   return (
@@ -43,7 +44,7 @@ export default function AiActorDetailPage() {
         }
         actions={
           <>
-            {isAdmin && data && (
+            {canChangeOwner && data && (
               <Button type="button" onClick={() => setChangingOwner(true)}>
                 Change owner
               </Button>
@@ -57,7 +58,7 @@ export default function AiActorDetailPage() {
         }
       />
 
-      {isAdmin && changingOwner && (
+      {canChangeOwner && changingOwner && (
         <SetOwnerDialog
           open
           noun="AI actor"

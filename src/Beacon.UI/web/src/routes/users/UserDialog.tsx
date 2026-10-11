@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
+import { AlertTriangle, Lock } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
-import { Button, Field, Input } from '@/components/beacon';
-import { ApiError } from '@/lib/api';
+import { Banner, Button, Field, Input } from '@/components/beacon';
+import { useAccess, useAuth } from '@/auth/useAuth';
+import { ApiError, describeError, httpErrorInfo } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import {
   useCreateExternalUser,
   useCreateInternalUser,
   useRolesQuery,
+  useSetUserRoles,
   useUpdateUser,
+  type RoleEntry,
   type UserEntry,
 } from './queries';
+import { changeBlockedReason, isFunctionalRole, mayAssignRole } from './userAdministration';
 
 const COMMON = {
   userName: z.string().trim().min(3, 'Min 3 characters').max(100),
@@ -94,34 +100,101 @@ export function UserDialog({ open, user, onClose }: UserDialogProps) {
   );
 }
 
-function RoleCheckboxes({
-  roles,
-  register,
-}: {
-  roles: { id: number; name: string; description: string | null }[];
-  register: (id: number) => { name: string; value: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void };
-}) {
-  if (roles.length === 0) {
-    return <div className="text-text-muted text-xs">No roles available.</div>;
-  }
+interface RolePickerProps {
+  roles: RoleEntry[];
+  /** The roles query's state: while it loads or after it failed, that is shown instead of the roles. */
+  status: 'pending' | 'error' | 'success';
+  onRetry: () => void;
+  selected: ReadonlySet<number>;
+  onToggle: (id: number, on: boolean) => void;
+  isAdmin: boolean;
+}
+
+/**
+ * The global roles, then the functional roles (one administrative duty each, without project data). The Admin role
+ * and the functional roles are an Admin's to assign or remove: a UserAdmin sees them disabled. A fieldset, not a
+ * `Field`: that wraps its content in a label, which would toggle the first role when clicked.
+ */
+function RolePicker({ roles, status, onRetry, selected, onToggle, isAdmin }: RolePickerProps) {
+  const functional = roles.filter(isFunctionalRole);
+  const props = { selected, onToggle, isAdmin };
+
   return (
-    <div className="grid gap-1.5">
-      {roles.map(r => {
-        const props = register(r.id);
-        return (
-          <label key={r.id} className="flex items-center gap-2">
-            <input type="checkbox" {...props} />
-            <span><strong>{r.name}</strong>{r.description ? ` — ${r.description}` : ''}</span>
-          </label>
-        );
-      })}
-    </div>
+    <fieldset className="m-0 p-0 border-0 min-w-0">
+      <legend className="p-0 mb-1.5 text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">Roles</legend>
+      {status === 'pending' ? (
+        <div className="text-text-muted text-xs">Loading roles…</div>
+      ) : status === 'error' ? (
+        <div className="flex items-center gap-2 text-xs text-crit">
+          <span>The roles could not be loaded.</span>
+          <Button type="button" size="sm" onClick={onRetry}>Retry</Button>
+        </div>
+      ) : roles.length === 0 ? (
+        <div className="text-text-muted text-xs">No roles available.</div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <RoleGroup title="Global roles" roles={roles.filter(x => !isFunctionalRole(x))} {...props} />
+          {functional.length > 0 && (
+            <RoleGroup
+              title="Functional roles"
+              sub="One administrative duty each, without project data: add a Viewer or Editor role for the user to see projects."
+              roles={functional}
+              {...props}
+            />
+          )}
+          {!isAdmin && (
+            <span className="text-xs text-text-muted">
+              Only an Admin assigns or removes the Admin role and the functional roles.
+            </span>
+          )}
+        </div>
+      )}
+    </fieldset>
   );
+}
+
+function RoleGroup({
+  title,
+  sub,
+  roles,
+  selected,
+  onToggle,
+  isAdmin,
+}: Pick<RolePickerProps, 'selected' | 'onToggle' | 'isAdmin'> & { title: string; sub?: string; roles: RoleEntry[] }) {
+  return (
+    <fieldset className="m-0 p-0 border-0 min-w-0">
+      <legend className="p-0 mb-1 text-2xs font-semibold uppercase tracking-eyebrow text-text-subtle">{title}</legend>
+      {sub && <div className="mb-1.5 text-xs text-text-muted">{sub}</div>}
+      <div className="grid gap-1.5">
+        {roles.map(r => {
+          const assignable = mayAssignRole(r, isAdmin);
+          return (
+            <label key={r.id} className={cn('flex items-center gap-2', !assignable && 'text-text-muted')}>
+              <input
+                type="checkbox"
+                checked={selected.has(r.id)}
+                disabled={!assignable}
+                onChange={e => onToggle(r.id, e.currentTarget.checked)}
+              />
+              <span><strong>{r.name}</strong>{r.description ? ` — ${r.description}` : ''}</span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function toggled(prev: ReadonlySet<number>, id: number, on: boolean): Set<number> {
+  const next = new Set(prev);
+  if (on) next.add(id); else next.delete(id);
+  return next;
 }
 
 function CreateInternalForm({ onClose }: { onClose: () => void }) {
   const create = useCreateInternalUser();
   const rolesQuery = useRolesQuery();
+  const { isAdmin } = useAccess();
   const [selectedRoles, setSelectedRoles] = useState<Set<number>>(new Set());
 
   const {
@@ -134,13 +207,7 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
     defaultValues: { userName: '', email: '', displayName: '', password: '' },
   });
 
-  const toggleRole = (id: number, on: boolean) => {
-    setSelectedRoles(prev => {
-      const next = new Set(prev);
-      if (on) next.add(id); else next.delete(id);
-      return next;
-    });
-  };
+  const toggleRole = (id: number, on: boolean) => setSelectedRoles(prev => toggled(prev, id, on));
 
   const onSubmit = handleSubmit(async values => {
     try {
@@ -180,16 +247,14 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
         help="At least 8 characters, with uppercase, lowercase, digit, and special character."
       />
 
-      <Field label="Roles">
-        <RoleCheckboxes
-          roles={rolesQuery.data?.entries ?? []}
-          register={id => ({
-            name: `role-${id}`,
-            value: id,
-            onChange: e => toggleRole(id, e.currentTarget.checked),
-          })}
-        />
-      </Field>
+      <RolePicker
+        roles={rolesQuery.data?.entries ?? []}
+        status={rolesQuery.status}
+        onRetry={() => rolesQuery.refetch()}
+        selected={selectedRoles}
+        onToggle={toggleRole}
+        isAdmin={isAdmin}
+      />
 
       <FormFooter onClose={onClose} submitting={isSubmitting} submitLabel="Create user" />
     </form>
@@ -199,6 +264,7 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
 function CreateExternalForm({ onClose }: { onClose: () => void }) {
   const create = useCreateExternalUser();
   const rolesQuery = useRolesQuery();
+  const { isAdmin } = useAccess();
   const [selectedRoles, setSelectedRoles] = useState<Set<number>>(new Set());
 
   const {
@@ -210,13 +276,7 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
     defaultValues: { externalId: '', userName: '', email: '', displayName: '' },
   });
 
-  const toggleRole = (id: number, on: boolean) => {
-    setSelectedRoles(prev => {
-      const next = new Set(prev);
-      if (on) next.add(id); else next.delete(id);
-      return next;
-    });
-  };
+  const toggleRole = (id: number, on: boolean) => setSelectedRoles(prev => toggled(prev, id, on));
 
   const onSubmit = handleSubmit(async values => {
     try {
@@ -247,16 +307,14 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
       <FieldText label="Email" type="email" register={register('email')} error={errors.email?.message} placeholder="optional" />
       <FieldText label="Display name" register={register('displayName')} placeholder="optional" />
 
-      <Field label="Roles">
-        <RoleCheckboxes
-          roles={rolesQuery.data?.entries ?? []}
-          register={id => ({
-            name: `role-${id}`,
-            value: id,
-            onChange: e => toggleRole(id, e.currentTarget.checked),
-          })}
-        />
-      </Field>
+      <RolePicker
+        roles={rolesQuery.data?.entries ?? []}
+        status={rolesQuery.status}
+        onRetry={() => rolesQuery.refetch()}
+        selected={selectedRoles}
+        onToggle={toggleRole}
+        isAdmin={isAdmin}
+      />
 
       <FormFooter onClose={onClose} submitting={isSubmitting} submitLabel="Create user" />
     </form>
@@ -265,11 +323,23 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
 
 function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry; onClose: () => void }) {
   const update = useUpdateUser();
+  const setRoles = useSetUserRoles();
+  const rolesQuery = useRolesQuery();
+  const roles = rolesQuery.data?.entries ?? [];
+  const { isAdmin } = useAccess();
+  const { data: me } = useAuth();
+  // A UserAdmin changes neither themselves nor an Admin, a super admin or a functional role holder: shown read-only.
+  const blocked = changeBlockedReason(user, { isAdmin, userName: me?.userName }, roles);
+  const initialRoleIds = useMemo(() => user.roles.map(x => x.id), [user]);
+  const [selectedRoles, setSelectedRoles] = useState<Set<number>>(() => new Set(initialRoleIds));
+  const [rolesError, setRolesError] = useState<{ status: number | undefined; message: string } | null>(null);
+  const rolesChanged =
+    selectedRoles.size !== initialRoleIds.length || initialRoleIds.some(x => !selectedRoles.has(x));
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<EditForm>({
     resolver: zodResolver(EDIT_SCHEMA),
     defaultValues: {
@@ -288,25 +358,41 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
         displayName: user.displayName ?? '',
         isEnabled: user.isEnabled,
       });
+      setSelectedRoles(new Set(user.roles.map(x => x.id)));
+      setRolesError(null);
     }
   }, [open, user, reset]);
 
   const onSubmit = handleSubmit(async values => {
-    try {
-      await update.mutateAsync({
-        id: user.id,
-        payload: {
-          userName: values.userName,
-          email: values.email?.trim() ? values.email.trim() : null,
-          displayName: values.displayName?.trim() ? values.displayName.trim() : null,
-          isEnabled: values.isEnabled,
-        },
-      });
-      toast.success(`Updated user '${values.userName}'`);
-      onClose();
-    } catch {
-      // createSimpleMutation already surfaced the error toast.
+    if (blocked) return;
+    setRolesError(null);
+    if (isDirty || !rolesChanged) {
+      try {
+        await update.mutateAsync({
+          id: user.id,
+          payload: {
+            userName: values.userName,
+            email: values.email?.trim() ? values.email.trim() : null,
+            displayName: values.displayName?.trim() ? values.displayName.trim() : null,
+            isEnabled: values.isEnabled,
+          },
+        });
+      } catch {
+        // createSimpleMutation already surfaced the error toast.
+        return;
+      }
     }
+    if (rolesChanged) {
+      try {
+        await setRoles.mutateAsync({ id: user.id, roleIds: Array.from(selectedRoles) });
+      } catch (err) {
+        // 400: separation of duties or an unknown role; 403: a change the caller may not make. Shown by the roles.
+        setRolesError({ status: httpErrorInfo(err)?.status, message: describeError(err, 'Saving the roles failed') });
+        return;
+      }
+    }
+    toast.success(`Updated user '${values.userName}'`);
+    onClose();
   });
 
   return (
@@ -319,22 +405,41 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
       footer={
         <>
           <Button type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-          <Button type="submit" form="edit-user-form" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" form="edit-user-form" variant="primary" disabled={isSubmitting || blocked != null}>
             {isSubmitting ? 'Saving…' : 'Save changes'}
           </Button>
         </>
       }
     >
       <form id="edit-user-form" onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-        <FieldText label="Username" required register={register('userName')} error={errors.userName?.message} />
-        <FieldText label="Email" type="email" register={register('email')} error={errors.email?.message} />
-        <FieldText label="Display name" register={register('displayName')} />
-        <Field label="Status" hint={user.isSuperAdmin ? 'Super admin accounts cannot be disabled.' : undefined}>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" {...register('isEnabled')} disabled={user.isSuperAdmin} />
-            <span>Account enabled</span>
-          </label>
-        </Field>
+        {blocked && <Banner tone="info" icon={<Lock />} title="Read only" sub={blocked} />}
+        <fieldset disabled={blocked != null} className="m-0 p-0 border-0 min-w-0 flex flex-col gap-3">
+          <FieldText label="Username" required register={register('userName')} error={errors.userName?.message} />
+          <FieldText label="Email" type="email" register={register('email')} error={errors.email?.message} />
+          <FieldText label="Display name" register={register('displayName')} />
+          <Field label="Status" hint={user.isSuperAdmin ? 'Super admin accounts cannot be disabled.' : undefined}>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" {...register('isEnabled')} disabled={user.isSuperAdmin} />
+              <span>Account enabled</span>
+            </label>
+          </Field>
+          <RolePicker
+            roles={roles}
+            status={rolesQuery.status}
+            onRetry={() => rolesQuery.refetch()}
+            selected={selectedRoles}
+            onToggle={(id, on) => setSelectedRoles(prev => toggled(prev, id, on))}
+            isAdmin={isAdmin}
+          />
+        </fieldset>
+        {rolesError && (
+          <Banner
+            tone="crit"
+            icon={<AlertTriangle />}
+            title={rolesError.status === 403 ? 'You may not make this role change' : 'The roles were not saved'}
+            sub={rolesError.message}
+          />
+        )}
       </form>
     </Dialog>
   );

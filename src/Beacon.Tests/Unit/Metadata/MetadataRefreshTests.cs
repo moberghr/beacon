@@ -137,6 +137,36 @@ public class MetadataRefreshTests
     }
 
     [Test]
+    public async Task ADataSourceAdmin_IsNotHeldToTheCooldown()
+    {
+        var metadata = new Mock<IDatabaseMetadataService>();
+        var handler = RefreshHandler(metadata, cooldownMinutes: 15, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin));
+
+        await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+        await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+
+        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Test]
+    public async Task ADataSourceAdmin_StillWaitsForARefreshOfTheSameSourceThatRuns()
+    {
+        var metadata = new Mock<IDatabaseMetadataService>();
+        var handler = RefreshHandler(metadata, cooldownMinutes: 15, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin));
+        var release = new TaskCompletionSource<DatabaseMetadataSnapshot>();
+        metadata
+            .Setup(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
+            .Returns(release.Task);
+
+        var running = handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+        var second = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+
+        await second.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage(ForcedMetadataRefreshCooldown.AlreadyRunningMessage);
+        release.SetResult(Snapshot());
+        await running;
+    }
+
+    [Test]
     public async Task ChangingADataSource_LetsItsMetadataBeRefreshedAgainAtOnce()
     {
         var world = new MetadataWorld();
@@ -272,7 +302,8 @@ public class MetadataRefreshTests
         int cooldownMinutes = 15,
         RefreshSettings? settings = null,
         MemoryCache? cache = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        IBeaconPermissionAccessor? permissions = null)
     {
         metadata
             .Setup(x => x.RefreshMetadataAsync(It.IsAny<int>(), true, It.IsAny<CancellationToken>()))
@@ -283,6 +314,7 @@ public class MetadataRefreshTests
             Mock.Of<ISchemaRelationshipSyncService>(),
             new ForcedMetadataRefreshCooldown(cache ?? new MemoryCache(new MemoryCacheOptions()), time ?? TimeProvider.System),
             settings ?? new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = cooldownMinutes } },
+            permissions ?? TestPermissions.None,
             NullLogger<RefreshDataSourceMetadataHandler>.Instance);
     }
 

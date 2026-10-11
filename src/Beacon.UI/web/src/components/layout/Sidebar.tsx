@@ -14,6 +14,7 @@ import {
   Bell as IconBell,
   Users as IconUsers,
   Check as IconCheck,
+  ClipboardCheck as IconApprovals,
   Key as IconKey,
   SlidersHorizontal as IconSliders,
   Wand2 as IconWand,
@@ -26,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/cn';
-import { useAuth, useIsAdmin } from '@/auth/useAuth';
+import { useAccess, useAuth, type Access, type BeaconPermission } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
 import { BuildBadge } from '@/components/beacon';
 
@@ -36,9 +37,15 @@ interface NavItem {
   slug: string;
   count?: number;
   badge?: string;
-  /** Shown to Admins only: the page's data is served to Admins only. */
-  adminOnly?: boolean;
+  /** Who sees the item; omitted: everyone who reads project data. */
+  visible?: (access: Access) => boolean;
 }
+
+/** Pages of project data: hidden only from a user whose roles are functional only (they would answer 403). */
+const readsProjectData = (access: Access) => !access.isFunctionalOnly;
+
+/** Pages a functional permission opens (an Admin holds them all); hidden until the permissions are known. */
+const opensFor = (...permissions: BeaconPermission[]) => (access: Access) => access.hasAnyPermission(...permissions);
 
 interface NavSection {
   label: string;
@@ -49,7 +56,8 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Overview',
     items: [
-      { name: 'Home', Icon: IconHome, slug: 'home' },
+      // Shown to everyone: for a user with functional roles only it explains what they need to see project data.
+      { name: 'Home', Icon: IconHome, slug: 'home', visible: () => true },
       { name: 'Control Tower', Icon: IconTower, slug: 'control-tower' },
       // Dashboards hidden — feature unfinished, will be redesigned (see internal/UNFINISHED.md).
     ],
@@ -57,10 +65,15 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Data',
     items: [
-      { name: 'Data Sources', Icon: IconDatabase, slug: 'data-sources' },
+      {
+        name: 'Data Sources',
+        Icon: IconDatabase,
+        slug: 'data-sources',
+        visible: access => readsProjectData(access) || access.hasPermission('DataSourceAdmin'),
+      },
       { name: 'Projects', Icon: IconFolder, slug: 'projects' },
       { name: 'Data Quality', Icon: IconShield, slug: 'data-quality' },
-      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', adminOnly: true },
+      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', visible: opensFor('MigrationOperator') },
       { name: 'AI Actors', Icon: IconBot, slug: 'ai-actors' },
     ],
   },
@@ -77,8 +90,13 @@ const SECTIONS: NavSection[] = [
   {
     label: 'MCP',
     items: [
-      { name: 'API Keys', Icon: IconKey, slug: 'api-keys' },
-      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', adminOnly: true },
+      {
+        name: 'API Keys',
+        Icon: IconKey,
+        slug: 'api-keys',
+        visible: access => readsProjectData(access) || access.hasAnyPermission('Auditor', 'UserAdmin'),
+      },
+      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
       { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground' },
       { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning' },
     ],
@@ -86,8 +104,9 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Admin',
     items: [
-      { name: 'User Management', Icon: IconUsers, slug: 'users', adminOnly: true },
-      { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings' },
+      { name: 'Approvals', Icon: IconApprovals, slug: 'approvals', visible: opensFor('Approver') },
+      { name: 'User Management', Icon: IconUsers, slug: 'users', visible: opensFor('UserAdmin') },
+      { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
     ],
   },
 ];
@@ -111,9 +130,9 @@ export function Sidebar() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useAuth();
-  const isAdmin = useIsAdmin() === true;
+  const access = useAccess();
   const sections = SECTIONS
-    .map(section => ({ ...section, items: section.items.filter(item => !item.adminOnly || isAdmin) }))
+    .map(section => ({ ...section, items: section.items.filter(item => (item.visible ?? readsProjectData)(access)) }))
     .filter(section => section.items.length > 0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);

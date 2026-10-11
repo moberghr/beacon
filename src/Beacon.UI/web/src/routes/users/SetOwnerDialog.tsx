@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Field, Modal, ModalBody, ModalFooter, ModalHeader } from '@/components/beacon';
 import { SearchPicker } from '@/components/data/SearchPicker';
+import { useAccess, useAuth } from '@/auth/useAuth';
 
 interface OwnerCandidate {
   id: number;
@@ -20,12 +21,18 @@ interface SetOwnerDialogProps {
   onSubmit: (userId: number) => void;
 }
 
+export const SELF_OWNER_NOTE = 'A UserAdmin cannot make themselves the owner; an Admin can.';
+
 /**
- * Admin only: makes a Beacon user the owner of a resource, for instance one created before owners were recorded. The
- * owner (and every Admin) may then change, run and delete it. The server checks the user is enabled.
+ * For an Admin or a UserAdmin: makes a Beacon user the owner of a resource, for instance one created before owners were
+ * recorded. The owner (and every Admin) may then change, run and delete it. The server checks the user is enabled, and
+ * refuses a UserAdmin who is not an Admin naming themselves, which the dialog does not offer either.
  */
 export function SetOwnerDialog({ open, noun, description, busy, onClose, onSubmit }: SetOwnerDialogProps) {
   const [owner, setOwner] = useState<OwnerCandidate | null>(null);
+  const { isAdmin } = useAccess();
+  const { data: me } = useAuth();
+  const namesSelf = !isAdmin && owner != null && me?.userName != null && owner.userName === me.userName;
 
   return (
     <Modal open={open} onClose={onClose} width={480} ariaLabel={`Change the ${noun}'s owner`}>
@@ -50,13 +57,14 @@ export function SetOwnerDialog({ open, noun, description, busy, onClose, onSubmi
             ariaLabel="New owner"
           />
         </Field>
+        {namesSelf && <p className="m-0 mt-2 text-xs text-text-muted">{SELF_OWNER_NOTE}</p>}
       </ModalBody>
       <ModalFooter>
         <Button type="button" onClick={onClose}>Cancel</Button>
         <Button
           variant="primary"
           type="button"
-          disabled={owner === null || busy}
+          disabled={owner === null || namesSelf || busy}
           onClick={() => owner && onSubmit(owner.id)}
         >
           Save owner

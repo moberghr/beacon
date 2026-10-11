@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
 import type { QueryDetail } from '../queries';
 import { McpToolCard } from './McpToolCard';
 
@@ -41,6 +42,7 @@ function detail(overrides: Partial<QueryDetail> = {}): QueryDetail {
 
 function signInAs(roles: string[]) {
   mswServer.use(
+    permissionsForRoles(roles),
     http.get('*/beacon/api/auth/me', () =>
       HttpResponse.json({
         userId: 'u1',
@@ -121,6 +123,16 @@ describe('McpToolCard', () => {
 
     expect(screen.getByText(/lowercase letters, digits or underscores/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('lets a SecurityAdmin who is not an Admin edit the tool', async () => {
+    signInAs(['Editor']);
+    mswServer.use(permissionsHandler({ permissions: ['SecurityAdmin'] }));
+
+    renderWithProviders(<McpToolCard query={detail()} />);
+
+    expect(await screen.findByRole('checkbox', { name: /Expose as MCP tool/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 
   it('is read-only for a non-admin', async () => {

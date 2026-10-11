@@ -1,7 +1,12 @@
+using System.Security.Claims;
 using Beacon.Api.Authentication;
 using Beacon.Api.Hubs;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
+using Beacon.Core.Services;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -49,7 +54,50 @@ public static class BeaconApiEndpoints
                 .Build());
         });
 
+        // One policy per functional permission (and per pair a route admits): the Admin role, or the role each permission
+        // is mapped to (Beacon:Authorization:Roles, names compared ignoring case), as the session's role claims carry them.
+        // On a host without Beacon user management the mapped roles count only with Roles:HonourHostRoleClaims, as in the
+        // permission accessor; there the Admin role alone admits. An API key carries no role.
+        services.AddOptions<AuthorizationOptions>()
+            .Configure<IOptions<RoleMappingOptions>, IServiceProvider>((options, roleMapping, serviceProvider) =>
+            {
+                var mapping = roleMapping.Value;
+                // Without Beacon's configuration registered (Beacon itself not added) there is no host setting to follow.
+                var userManagement = serviceProvider.GetService<Beacon.Core.BeaconConfiguration>()?.UserManagement.Enabled ?? true;
+                var honoursRoleClaims = userManagement || mapping.Roles.HonourHostRoleClaims;
+                foreach (var (policy, permissions) in BeaconPermissions.Policies)
+                {
+                    var roles = honoursRoleClaims
+                        ? permissions
+                            .Select(mapping.RoleNameFor)
+                            .ToArray()
+                        : [];
+                    options.AddPolicy(policy, new AuthorizationPolicyBuilder()
+                        .RequireAuthenticatedUser()
+                        .RequireAssertion(x => HoldsAdminOrRole(x.User, roles))
+                        .Build());
+                }
+            });
+
+        // Notes the active permission mapping and separation of duties at startup.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconPermissionStartupNote>());
+
         return services;
+    }
+
+    // The Admin role (exactly, as the Admin policy reads it), or one of the mapped roles, ignoring case.
+    private static bool HoldsAdminOrRole(ClaimsPrincipal user, IReadOnlyCollection<string> roles)
+    {
+        if (user.IsInRole(RoleService.RoleNames.Admin))
+        {
+            return true;
+        }
+
+        return roles.Count > 0
+            && user.Identities
+                .Any(x => x
+                    .FindAll(x.RoleClaimType)
+                    .Any(y => roles.Contains(y.Value, StringComparer.OrdinalIgnoreCase)));
     }
 
     public static IEndpointRouteBuilder MapBeaconApi(this IEndpointRouteBuilder endpoints)

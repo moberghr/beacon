@@ -1,8 +1,10 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
@@ -15,7 +17,9 @@ internal sealed class SearchProjectMemberCandidatesHandler(
     IProjectAccessEvaluator projectAccess,
     IProjectMembershipSource membershipSource,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     RateLimiter rateLimiter,
+    IOptions<RoleMappingOptions> roleMapping,
     ILogger<SearchProjectMemberCandidatesHandler> logger)
     : IRequestHandler<SearchProjectMemberCandidatesQuery, SearchProjectMemberCandidatesResult>
 {
@@ -37,8 +41,17 @@ internal sealed class SearchProjectMemberCandidatesHandler(
 
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await ProjectMembershipRules.RequireManageMembersAsync(context, scope, request.ProjectId, actor, logger, cancellationToken);
+        await ProjectMembershipRules.RequireMembershipAdministrationAsync(
+            context,
+            scope,
+            permissions,
+            request.ProjectId,
+            null,
+            actor,
+            logger,
+            cancellationToken);
 
         // Per caller, so the user directory cannot be enumerated quickly.
         if (!rateLimiter.IsAllowed($"member-candidates:{actor.BeaconUserId ?? 0}:{actor.UserId}", MaxSearchesPerMinute, TimeSpan.FromMinutes(1)))
@@ -67,25 +80,42 @@ internal sealed class SearchProjectMemberCandidatesHandler(
             .Take(MaxCandidates)
             .ToListAsync(cancellationToken);
 
+        var unchangeable = await ProjectMembershipRules.UnchangeableMembersAsync(
+            context,
+            scope,
+            permissions,
+            request.ProjectId,
+            candidates
+                .Select(x => x.Id)
+                .ToList(),
+            actor,
+            roleMapping.Value,
+            cancellationToken);
+
         return new SearchProjectMemberCandidatesResult(candidates
-            .Select(x => new MemberCandidate(x.Id, UserLabel.Of(x.Id, x.DisplayName), x.IsMember))
+            .Select(x => new MemberCandidate(x.Id, UserLabel.Of(x.Id, x.DisplayName), x.IsMember, !unchangeable.Contains(x.Id)))
             .ToList());
     }
 }
 
 /// <summary>
 /// Active users to add to a project, matched by display name (case-insensitive; never by user name or e-mail): at least
-/// 2 characters, at most 20 results, 30 searches a minute per caller. For a ProjectAdmin of the project or an Admin; 409 when the host manages membership.
+/// 2 characters, at most 20 results, 30 searches a minute per caller. For a ProjectAdmin of the project, a UserAdmin or an
+/// Admin; 409 when the host manages membership.
 /// </summary>
 public record SearchProjectMemberCandidatesQuery(int ProjectId, string? Search) : IRequest<SearchProjectMemberCandidatesResult>, IProjectAuthorizedRequest
 {
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        new(ProjectResource.Project(ProjectId), ProjectAction.ManageMembers)
+        ProjectCheck.OrPermission(ProjectResource.Project(ProjectId), ProjectAction.ManageMembers, BeaconPermissions.UserAdmin)
     ];
 }
 
 public record SearchProjectMemberCandidatesResult(List<MemberCandidate> Candidates);
 
-/// <summary>A user who may be added to a project; <c>IsMember</c> when they already are.</summary>
-public record MemberCandidate(int UserId, string DisplayName, bool IsMember);
+/// <summary>
+/// A user who may be added to a project; <c>IsMember</c> when they already are. <c>CanAdd</c> is false when the caller may
+/// not add them or change their membership (a UserAdmin who is neither a ProjectAdmin of the project nor an Admin: for
+/// themselves, an Admin, a super admin or a functional role holder).
+/// </summary>
+public record MemberCandidate(int UserId, string DisplayName, bool IsMember, bool CanAdd);

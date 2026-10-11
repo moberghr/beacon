@@ -178,6 +178,7 @@ public class ProjectSourceSharingTests
                 TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
                 new DatabaseProjectMembershipSource(configuration, factory),
                 TestProjectAccess.Actors(),
+                TestPermissions.None,
                 Options.Create(new ProjectAuthorizationOptions()),
                 NullLogger<SetProjectAccessModeHandler>.Instance)
             .Handle(new SetProjectAccessModeCommand(ProjectId, true), CancellationToken.None);

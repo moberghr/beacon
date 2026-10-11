@@ -16,6 +16,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { describeError, httpErrorInfo, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
+import { useAccess } from '@/auth/useAuth';
 import { ProjectChips } from './ProjectChips';
 import { formatNumber } from '@/lib/format';
 import {
@@ -41,6 +42,8 @@ export default function DataSourceDetailPage() {
   const refreshMetadata = useRefreshDataSourceMetadata();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
+  // Deleting a data source is a DataSourceAdmin's (an Admin holds it).
+  const canDelete = useAccess().hasPermission('DataSourceAdmin');
 
   const entry = listQuery.data ?? null;
 
@@ -162,14 +165,16 @@ export default function DataSourceDetailPage() {
             >
               Refresh metadata
             </Button>
-            <Button
-              variant="danger"
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              icon={<X />}
-            >
-              Delete
-            </Button>
+            {canDelete && (
+              <Button
+                variant="danger"
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                icon={<X />}
+              >
+                Delete
+              </Button>
+            )}
           </>
         }
       />

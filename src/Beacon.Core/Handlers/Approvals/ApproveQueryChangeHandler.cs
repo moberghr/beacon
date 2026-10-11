@@ -34,7 +34,7 @@ internal sealed class ApproveQueryChangeHandler(
     }
 }
 
-[ProjectScopeExempt("admin-gated: approving a change is an approval decision", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("gated by the Approver permission: approving a change is an approval decision, and an Approver reads every approval request", Policy = BeaconPermissions.ApproverPolicy)]
 public record ApproveQueryChangeCommand : IRequest
 {
     public required int RequestId { get; init; }

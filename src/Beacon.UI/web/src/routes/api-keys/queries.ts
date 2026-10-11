@@ -26,6 +26,8 @@ export interface AdminApiKeyEntry extends ApiKeyEntry {
   revokedAt: string | null;
   userId: number | null;
   userName: string | null;
+  /** False when the caller may not revoke the key: an Auditor revokes none, a UserAdmin none of a protected owner's. */
+  canRevoke: boolean;
 }
 
 export interface CreateApiKeyPayload {
@@ -43,11 +45,12 @@ const KEYS = ['api-keys'] as const;
 const ADMIN_KEYS = ['api-keys', 'admin'] as const;
 
 /** The caller's API keys: server-paged, newest first. */
-export function useApiKeysList() {
+export function useApiKeysList(enabled = true) {
   return usePagedList<ApiKeyEntry>({
     queryKey: KEYS,
     path: '/beacon/api/api-keys',
     defaultSort: { column: 'createdAt', direction: 'desc' },
+    enabled,
   });
 }
 

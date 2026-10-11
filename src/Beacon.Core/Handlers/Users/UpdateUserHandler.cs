@@ -5,11 +5,13 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Users;
 
-internal sealed class UpdateUserHandler(IUserManagementService userService)
+internal sealed class UpdateUserHandler(IUserManagementService userService, UserAdministrationRules rules)
     : IRequestHandler<UpdateUserCommand>
 {
     public async Task Handle(UpdateUserCommand request, CancellationToken cancellationToken)
     {
+        await rules.DemandMayChangeUserAsync(request.UserId, cancellationToken);
+
         var serviceRequest = new UpdateUserRequest
         {
             UserId = request.UserId,
@@ -28,7 +30,11 @@ internal sealed class UpdateUserHandler(IUserManagementService userService)
     }
 }
 
-[ProjectScopeExempt("admin-gated user management, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Updates a user's account. For an Admin, or a UserAdmin on another user who is no super admin and holds
+/// neither the Admin role nor a functional role (403 otherwise).
+/// </summary>
+[ProjectScopeExempt("user management, gated by the UserAdmin permission; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record UpdateUserCommand(
     int UserId,
     string UserName,

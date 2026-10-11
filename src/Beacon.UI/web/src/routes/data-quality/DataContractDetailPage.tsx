@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess } from '@/auth/useAuth';
 import { toast } from 'sonner';
 import { UserX } from 'lucide-react';
 import { PageHeader, Banner, Button, Card, KPI, KPIGrid, Pill } from '@/components/beacon';
@@ -58,7 +58,8 @@ export default function DataContractDetailPage() {
   const evaluateMutation = useEvaluateContract(id);
   const deleteMutation = useDeleteContract();
   const setOwnerMutation = useSetContractOwner(id);
-  const isAdmin = useIsAdmin() === true;
+  // Giving a contract a new owner is a UserAdmin's (an Admin holds it).
+  const canChangeOwner = useAccess().hasPermission('UserAdmin');
   const [changingOwner, setChangingOwner] = useState(false);
 
   const [tab, setTab] = useState<TabKey>('rules');
@@ -138,7 +139,7 @@ export default function DataContractDetailPage() {
               {evaluateMutation.isPending ? 'Evaluating…' : 'Evaluate now'}
             </Button>
             <Button type="button" onClick={() => setEditing(true)}>Edit</Button>
-            {isAdmin && (
+            {canChangeOwner && (
               <Button type="button" onClick={() => setChangingOwner(true)}>Change owner</Button>
             )}
             <Button variant="danger" type="button" onClick={() => setConfirmDelete(true)}>Delete</Button>
@@ -146,7 +147,7 @@ export default function DataContractDetailPage() {
         }
       />
 
-      {isAdmin && changingOwner && (
+      {canChangeOwner && changingOwner && (
         <SetOwnerDialog
           open
           noun="data contract"
@@ -167,12 +168,12 @@ export default function DataContractDetailPage() {
           icon={<UserX />}
           title="Owner not authorized: scheduled evaluations are skipped"
           sub={
-            isAdmin
+            canChangeOwner
               ? 'The owner this contract runs as may no longer run its rules, so each scheduled evaluation is skipped. Assign an owner who has access to resume it.'
-              : 'The owner this contract runs as may no longer run its rules, so each scheduled evaluation is skipped until an Admin assigns an owner who has access.'
+              : 'The owner this contract runs as may no longer run its rules, so each scheduled evaluation is skipped until an Admin or a UserAdmin assigns an owner who has access.'
           }
           actions={
-            isAdmin ? (
+            canChangeOwner ? (
               <Button size="sm" onClick={() => setChangingOwner(true)}>
                 Change owner
               </Button>

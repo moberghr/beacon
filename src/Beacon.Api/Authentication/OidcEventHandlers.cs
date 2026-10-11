@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
@@ -88,7 +90,19 @@ internal static class OidcEventHandlers
             return;
         }
 
+        // Read before the identity provider's role claims are removed below.
+        var roleMapping = services.GetService<IOptions<RoleMappingOptions>>()?.Value ?? new RoleMappingOptions();
+        var idpPermissions = SeparatedFromStoredRoles(MappedIdpPermissions(principal, roleMapping, user, logger), user, roleMapping, logger);
+
         EnrichBeaconClaims(context, user);
+        AddIdpPermissions(context, roleMapping, idpPermissions, services.GetService<TimeProvider>() ?? TimeProvider.System);
+        if (idpPermissions.Count > 0)
+        {
+            logger.LogInformation(
+                "SSO sign-in mapped identity-provider app roles to permissions {Permissions} for user {UserId}",
+                idpPermissions,
+                user.Id);
+        }
     }
 
     public static Task HandleRemoteFailureAsync(RemoteFailureContext context)
@@ -154,6 +168,121 @@ internal static class OidcEventHandlers
 
         context.Properties!.IsPersistent = true;
         context.Properties.AllowRefresh = true;
+    }
+
+    // The functional permissions the identity provider's app roles map to (Beacon:Authorization:IdpRoles), when the
+    // mapping is on: the values of the roles claim (and the identity's role claim type). When none maps, the counts are
+    // logged (role claims seen, app roles mapped) so a misnamed app role can be found; never the values.
+    private static IReadOnlyList<string> MappedIdpPermissions(
+        ClaimsPrincipal principal,
+        RoleMappingOptions roleMapping,
+        BeaconUserData user,
+        ILogger logger)
+    {
+        if (!roleMapping.IdpRoles.Enabled)
+        {
+            return [];
+        }
+
+        var roleClaimTypes = principal.Identities
+            .Select(x => x.RoleClaimType)
+            .Append("roles")
+            .Append("role")
+            .ToHashSet(StringComparer.Ordinal);
+        var roleClaims = principal.Claims
+            .Where(x => roleClaimTypes.Contains(x.Type))
+            .ToList();
+        var permissions = roleClaims
+            .Select(x => roleMapping.PermissionOfIdpRole(x.Value))
+            .OfType<string>()
+            .Distinct()
+            .Order()
+            .ToList();
+        if (permissions.Count == 0)
+        {
+            logger.LogInformation(
+                "SSO sign-in mapped no identity-provider app role to a permission for user {UserId}: {RoleClaimCount} role claims seen, {MappedRoleCount} app roles mapped",
+                user.Id,
+                roleClaims.Count,
+                roleMapping.IdpRoles.Map.Count);
+        }
+
+        return permissions;
+    }
+
+    // With separation of duties on, a mapped permission that would give the user both permissions of a conflicting pair
+    // with their stored functional roles is not added (the accessor would grant neither). Ids and permission names only.
+    private static IReadOnlyList<string> SeparatedFromStoredRoles(
+        IReadOnlyList<string> mapped,
+        BeaconUserData user,
+        RoleMappingOptions roleMapping,
+        ILogger logger)
+    {
+        if (!roleMapping.SeparationOfDuties.Enabled || mapped.Count == 0)
+        {
+            return mapped;
+        }
+
+        var held = user.Roles
+            .Select(x => roleMapping.PermissionOfStoredRole(x.Name, x.IsSystemRole, x.Level))
+            .OfType<string>()
+            .ToHashSet();
+        var kept = new List<string>();
+        foreach (var permission in mapped)
+        {
+            var conflict = BeaconPermissions.FirstConflict(held.Append(permission).ToHashSet());
+            if (conflict != null && (conflict.Value.First == permission || conflict.Value.Second == permission))
+            {
+                logger.LogWarning(
+                    "Separation of duties: the identity-provider permission {Permission} is not added for user {UserId}; it conflicts with {OtherPermission}",
+                    permission,
+                    user.Id,
+                    conflict.Value.First == permission ? conflict.Value.Second : conflict.Value.First);
+                continue;
+            }
+
+            held.Add(permission);
+            kept.Add(permission);
+        }
+
+        return kept;
+    }
+
+    // For this session only, never stored: the role claim the permission's policy reads, and the claims the permission
+    // accessor honours while the mapping is on, issued by Beacon's sign-in and stamped with its time so they count only for
+    // IdpRoles:ClaimLifetimeMinutes. An API key never carries either.
+    private static void AddIdpPermissions(
+        TokenValidatedContext context,
+        RoleMappingOptions roleMapping,
+        IReadOnlyList<string> permissions,
+        TimeProvider timeProvider)
+    {
+        if (permissions.Count == 0)
+        {
+            return;
+        }
+
+        var identity = context.Principal!.Identities.First();
+        identity.AddClaim(new Claim(
+            BeaconClaims.IdpPermissionsIssuedAt,
+            timeProvider.GetUtcNow().ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
+            ClaimValueTypes.Integer64,
+            BeaconClaims.Issuer));
+        foreach (var permission in permissions)
+        {
+            var roleName = roleMapping.RoleNameFor(permission);
+            if (!identity.HasClaim(ClaimTypes.Role, roleName))
+            {
+                identity.AddClaim(new Claim(ClaimTypes.Role, roleName));
+                identity.AddClaim(new Claim(BeaconClaims.Role, roleName));
+                if (!string.Equals(identity.RoleClaimType, ClaimTypes.Role, StringComparison.Ordinal))
+                {
+                    identity.AddClaim(new Claim(identity.RoleClaimType, roleName));
+                }
+            }
+
+            identity.AddClaim(new Claim(BeaconClaims.IdpPermission, permission, ClaimValueTypes.String, BeaconClaims.Issuer));
+        }
     }
 
     private static bool IsAuthorizationClaim(string claimType, string roleClaimType)

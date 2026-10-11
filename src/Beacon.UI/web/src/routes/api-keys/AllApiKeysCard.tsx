@@ -11,11 +11,15 @@ import { ExpiresCell, ProjectsCell, ScopePills, StatusPill } from './columns';
 
 const GRID_TEMPLATE = '1fr 1.2fr 0.9fr 1fr 0.8fr 1fr 0.9fr 0.7fr 80px';
 
+export const ADMIN_ONLY_KEY_NOTE =
+  'Only an Admin can revoke the keys of an Admin, a super admin or a holder of a functional role.';
+
 /**
- * Administrators: every user's API keys with their owner, filterable to one user (click the owner), and revocable.
- * Rendered only for the Admin role; the endpoints refuse everyone else.
+ * Every user's API keys with their owner, filterable to one user (click the owner): listed for an Auditor or a
+ * UserAdmin, revocable by a UserAdmin (`canRevoke`; an Admin holds both). The endpoints refuse everyone else. A key the
+ * server marks as not the caller's to revoke (its owner is one only an Admin may change) offers no revoke, with a note.
  */
-export function AllApiKeysCard() {
+export function AllApiKeysCard({ canRevoke }: { canRevoke: boolean }) {
   const list = useAllApiKeysList(true);
   const { data, isError, error, setFilter } = list;
   const revoke = useAdminRevokeApiKey();
@@ -55,11 +59,14 @@ export function AllApiKeysCard() {
     {
       key: 'actions',
       header: '',
-      render: k => k.isActive
-        ? <Button type="button" variant="danger" size="sm" onClick={() => setRevoking(k)}>Revoke</Button>
-        : null,
+      render: k => {
+        if (!k.isActive || !canRevoke) return null;
+        return k.canRevoke
+          ? <Button type="button" variant="danger" size="sm" onClick={() => setRevoking(k)}>Revoke</Button>
+          : <span className="text-xs text-text-muted" title={ADMIN_ONLY_KEY_NOTE}>Admin only</span>;
+      },
     },
-  ], [setFilter]);
+  ], [setFilter, canRevoke]);
 
   const onConfirmRevoke = async () => {
     if (revoking == null) return;

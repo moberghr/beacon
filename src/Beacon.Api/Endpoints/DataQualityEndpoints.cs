@@ -1,3 +1,5 @@
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.DataQuality.CreateDataContract;
 using Beacon.Core.Handlers.DataQuality.DeleteDataContract;
 using Beacon.Core.Handlers.DataQuality.EvaluateDataContract;
@@ -55,12 +57,12 @@ internal static class DataQualityEndpoints
             return TypedResults.NoContent();
         }).WithName("DeleteDataContract").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
-        // Making a user the owner of a contract (for instance one created before owners were recorded) is an Admin's.
+        // Making a user the owner of a contract (for instance one created before owners were recorded) is a UserAdmin's.
         quality.MapPut("/contracts/{id:int}/owner", async (int id, SetDataContractOwnerBody body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new SetDataContractOwnerCommand(id, body.UserId), ct);
             return TypedResults.NoContent();
-        }).WithName("SetDataContractOwner").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        }).WithName("SetDataContractOwner").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         quality.MapGet("/contracts/{id:int}/evaluations", (int id, [FromQuery] int? take, IMediator m, CancellationToken ct) =>
                 m.Send(new GetEvaluationHistoryQuery(id, take), ct))

@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Models;
@@ -10,7 +11,7 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 
 /// <summary>
 /// What every membership and link route checks first: that Beacon manages project membership (not the host, and it is
-/// available), and that the caller may manage the members of a live project.
+/// available), and that the caller may manage the members of a live project (for membership itself, a UserAdmin may too).
 /// </summary>
 internal static class ProjectMembershipRules
 {
@@ -73,6 +74,83 @@ internal static class ProjectMembershipRules
         ProjectAccessGuard.Demand(scope, projectId, ProjectAction.ManageMembers, actor, logger);
 
         return project;
+    }
+
+    public const string ProtectedMemberMessage =
+        "Only an Admin can change the project membership of an Admin, a super admin or a holder of a functional role.";
+
+    /// <summary>
+    /// The live project <paramref name="projectId"/>, when the caller may manage its members: a ProjectAdmin of it or an
+    /// Admin (<see cref="RequireManageMembersAsync"/>), or a holder of <see cref="BeaconPermissions.UserAdmin"/>, who
+    /// manages the members of every project but never their own membership (<paramref name="memberUserId"/>, the member a
+    /// change is about; null for a read), nor that of a user whose account only an Admin may change
+    /// (<see cref="ProtectedUsers"/>: an Admin, a super admin, a functional role holder, another UserAdmin among them, so
+    /// two UserAdmins cannot add each other): 403 when they try. Linking data sources stays a ProjectAdmin's or an Admin's.
+    /// </summary>
+    public static async Task<LiveProject> RequireMembershipAdministrationAsync(
+        BeaconContext context,
+        ProjectAccessScope scope,
+        BeaconPermissionSet permissions,
+        int projectId,
+        int? memberUserId,
+        BeaconActor actor,
+        ILogger logger,
+        CancellationToken cancellationToken,
+        RoleMappingOptions? roleMapping = null)
+    {
+        if (scope.Allows(projectId, ProjectAction.ManageMembers) || !permissions.Holds(BeaconPermissions.UserAdmin))
+        {
+            return await RequireManageMembersAsync(context, scope, projectId, actor, logger, cancellationToken);
+        }
+
+        var project = await context.Projects
+            .Where(x => x.Id == projectId)
+            .Select(x => new LiveProject(x.Id, x.HostManagedKey))
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw ProjectAccessGuard.NotFound(logger, actor, projectId, ProjectAction.ManageMembers, AccessRefusal.Missing);
+
+        if (memberUserId != null && memberUserId == actor.BeaconUserId)
+        {
+            throw AccessRefusal.Of(logger, actor, "project membership", projectId, "A UserAdmin cannot change their own project membership.");
+        }
+
+        if (memberUserId != null
+            && await ProtectedUsers.IsProtectedAsync(context, memberUserId.Value, roleMapping ?? new RoleMappingOptions(), cancellationToken))
+        {
+            throw AccessRefusal.Of(logger, actor, "project membership", projectId, ProtectedMemberMessage);
+        }
+
+        return project;
+    }
+
+    /// <summary>
+    /// The users among <paramref name="userIds"/> whose membership of project <paramref name="projectId"/> the caller may
+    /// not add, change or remove by <see cref="RequireMembershipAdministrationAsync"/>: none for a ProjectAdmin of the
+    /// project or an Admin; for a UserAdmin who is neither, themselves and every protected user. So a list can show which
+    /// changes would be refused.
+    /// </summary>
+    public static async Task<IReadOnlySet<int>> UnchangeableMembersAsync(
+        BeaconContext context,
+        ProjectAccessScope scope,
+        BeaconPermissionSet permissions,
+        int projectId,
+        IReadOnlyCollection<int> userIds,
+        BeaconActor actor,
+        RoleMappingOptions roleMapping,
+        CancellationToken cancellationToken)
+    {
+        if (scope.Allows(projectId, ProjectAction.ManageMembers) || !permissions.Holds(BeaconPermissions.UserAdmin))
+        {
+            return new HashSet<int>();
+        }
+
+        var unchangeable = (await ProtectedUsers.ProtectedAmongAsync(context, userIds, roleMapping, cancellationToken)).ToHashSet();
+        if (actor.BeaconUserId != null && userIds.Contains(actor.BeaconUserId.Value))
+        {
+            unchangeable.Add(actor.BeaconUserId.Value);
+        }
+
+        return unchangeable;
     }
 
     /// <summary>

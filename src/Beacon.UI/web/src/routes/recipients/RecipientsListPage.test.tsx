@@ -3,12 +3,14 @@ import { http, HttpResponse } from 'msw';
 import { act, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
 import RecipientsListPage from './RecipientsListPage';
 
 let meServed = false;
 
 function me(roles: string[]) {
   meServed = false;
+  mswServer.use(permissionsForRoles(roles));
   return http.get('*/beacon/api/auth/me', () => {
     meServed = true;
     return HttpResponse.json({
@@ -88,17 +90,26 @@ describe('RecipientsListPage', () => {
     expect(await screen.findByText('Re-enter destination')).toBeInTheDocument();
   });
 
-  it('tells a non-admin that an admin adds recipients when there are none', async () => {
+  it('tells a non-admin that an Admin or a SecurityAdmin adds recipients when there are none', async () => {
     mswServer.use(me(['Editor']), recipientsOf([]));
 
     renderWithProviders(<RecipientsListPage />);
 
     await waitFor(() => expect(meServed).toBe(true));
-    expect(await screen.findByText(/An admin adds recipients/)).toBeInTheDocument();
+    expect(await screen.findByText(/An Admin or a SecurityAdmin adds recipients/)).toBeInTheDocument();
   });
 
   it('shows an admin the create and delete controls', async () => {
     mswServer.use(me(['Admin']), recipients);
+
+    renderWithProviders(<RecipientsListPage />);
+
+    expect(await screen.findByRole('button', { name: /add recipient/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /delete ops channel/i })).toBeInTheDocument();
+  });
+
+  it('shows a SecurityAdmin who is not an Admin the create and delete controls', async () => {
+    mswServer.use(me(['Editor']), permissionsHandler({ permissions: ['SecurityAdmin'] }), recipients);
 
     renderWithProviders(<RecipientsListPage />);
 

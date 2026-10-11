@@ -7,7 +7,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatNumber } from '@/lib/format';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess } from '@/auth/useAuth';
 import {
   NOTIFICATION_TYPE_LABEL,
   useDeleteRecipient,
@@ -22,8 +22,9 @@ export default function RecipientsListPage() {
   const list = useRecipientsList();
   const { data, isLoading, isError, error, refetch } = list;
   const deleteMutation = useDeleteRecipient();
-  // Only admins create, edit or delete recipients (the server enforces it); others list names and types.
-  const isAdmin = useIsAdmin() === true;
+  // Only a SecurityAdmin (or an Admin) creates, edits or deletes recipients (the server enforces it); others list names
+  // and types.
+  const canManage = useAccess().hasPermission('SecurityAdmin');
 
   const [editing, setEditing] = useState<RecipientEntry | null | undefined>(undefined); // undefined = closed
   const [deleting, setDeleting] = useState<RecipientEntry | null>(null);
@@ -68,7 +69,7 @@ export default function RecipientsListPage() {
     {
       key: 'actions',
       header: '',
-      render: r => isAdmin
+      render: r => canManage
         ? (
           <Button
             variant="ghost"
@@ -80,7 +81,7 @@ export default function RecipientsListPage() {
         )
         : null,
     },
-  ], [isAdmin]);
+  ], [canManage]);
 
   const onConfirmDelete = async () => {
     if (deleting == null) return;
@@ -108,7 +109,7 @@ export default function RecipientsListPage() {
             <Button onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
               Refresh
             </Button>
-            {isAdmin && (
+            {canManage && (
               <Button variant="primary" onClick={() => setEditing(null)} icon={<Plus />}>
                 Add recipient
               </Button>
@@ -148,16 +149,16 @@ export default function RecipientsListPage() {
             {...list.tableProps}
             rowKey={r => r.id}
             gridTemplate={GRID_TEMPLATE}
-            onRowClick={isAdmin ? r => setEditing(r) : undefined}
+            onRowClick={canManage ? r => setEditing(r) : undefined}
             empty={
               <EmptyState
                 icon={<Users />}
                 title={isLoading ? 'Loading recipients…' : 'No recipients yet'}
                 description={isLoading
                   ? ''
-                  : isAdmin
+                  : canManage
                     ? 'Add a recipient so subscriptions have somewhere to send alerts.'
-                    : 'An admin adds recipients; you can then attach them to subscriptions.'}
+                    : 'An Admin or a SecurityAdmin adds recipients; you can then attach them to subscriptions.'}
               />
             }
           />

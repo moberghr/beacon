@@ -1,5 +1,6 @@
 using Beacon.Api.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.DataSources;
 using MediatR;
 
@@ -23,13 +24,13 @@ internal static class DataSourcesEndpoints
 
         ds.MapPost("/", (CreateDataSourceCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
             .WithName("CreateDataSource")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
 
-        // Accepts a raw connection string and dials it — an SSRF vector into internal hosts if
-        // exposed to non-admins. Restricted to admins, matching CreateDataSource/DeleteDataSource.
+        // Accepts a raw connection string and dials it — an SSRF vector into internal hosts if exposed to anyone. Restricted
+        // to DataSourceAdmins (and Admins), matching CreateDataSource/DeleteDataSource.
         ds.MapPost("/test-connection", (TestDataSourceConnectionCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
             .WithName("TestDataSourceConnection")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
 
         // Scans the data source live when no metadata is stored yet, so a scoped caller needs the Execute scope.
         ds.MapGet("/{id:int}/metadata", (int id, IMediator m, CancellationToken ct) =>
@@ -45,7 +46,7 @@ internal static class DataSourcesEndpoints
         {
             await m.Send(new DeleteDataSourceCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteDataSource").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        }).WithName("DeleteDataSource").RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
 
         return group;
     }

@@ -42,6 +42,6 @@ internal sealed class UpdateRepositoryTokenHandler(
     }
 }
 
-/// <summary>Sets, replaces or (with no token) clears a repository's access token. Admin only.</summary>
-[ProjectScopeExempt("admin-gated: a repository's access token is a credential decision", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>Sets, replaces or (with no token) clears a repository's access token. For an Admin or a SecurityAdmin.</summary>
+[ProjectScopeExempt("gated by the SecurityAdmin permission: a repository's access token is a credential decision", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateRepositoryTokenCommand(int RepositoryId, string? AccessToken) : IRequest;

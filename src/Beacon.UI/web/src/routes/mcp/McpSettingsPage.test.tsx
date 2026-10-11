@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import McpSettingsPage, { FIELD_TAB, OVERRIDE_SECTIONS } from './McpSettingsPage';
 import { renderWithProviders } from '@/test/render';
+import { functionalOnly, permissionsForRoles, permissionsHandler } from '@/test/permissions';
 import { mswServer } from '../../../vitest.setup';
 
 vi.mock('sonner', () => ({
@@ -85,7 +86,43 @@ describe('McpSettingsPage', () => {
   beforeEach(() => {
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.error).mockClear();
-    mswServer.use(adminMe, globalSettings, csrf, projectOneSettings);
+    mswServer.use(adminMe, permissionsForRoles(['Admin']), globalSettings, csrf, projectOneSettings);
+  });
+
+  it('is read-only for an Auditor: no save, disabled fields, a project scope still readable', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['Auditor'] }));
+    renderWithProviders(<McpSettingsPage />);
+
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    expect(screen.queryByText('Save settings')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Guardrails'));
+    expect(screen.getByLabelText('Statement timeout (s)')).toBeDisabled();
+    expect(screen.getByLabelText(/Retain question and SQL text/)).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings scope' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Acme Analytics' }));
+    expect(await screen.findByLabelText('Override Max row limit')).toBeDisabled();
+    expect(screen.getByLabelText('Max row limit')).toHaveValue(50);
+    expect(screen.queryByText('Save overrides')).not.toBeInTheDocument();
+  });
+
+  it('lets a SecurityAdmin who is not an Admin change the settings', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['SecurityAdmin'] }));
+    await renderPage();
+
+    expect(screen.queryByText('Read only')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Guardrails'));
+    expect(screen.getByLabelText('Statement timeout (s)')).toBeEnabled();
+  });
+
+  it('sends a user holding neither permission home', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    renderWithProviders(<McpSettingsPage />);
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('The Auditor or SecurityAdmin permission is required for this page.'),
+    );
+    expect(screen.queryByText('Save settings')).not.toBeInTheDocument();
   });
 
   it('global scope shows the six execution fields on the Guardrails tab', async () => {
@@ -251,5 +288,138 @@ describe('McpSettingsPage', () => {
       ),
     );
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  describe('read-only enforcement and PII detection', () => {
+    const securityAdmin = permissionsHandler({ permissions: ['SecurityAdmin'] });
+
+    function serveProjectTwo(overrides: Record<string, unknown>, global: Record<string, unknown>) {
+      mswServer.use(
+        http.get('*/beacon/api/mcp/settings', () => HttpResponse.json({ ...GLOBAL, ...global })),
+        http.get('*/beacon/api/mcp/projects/2/settings', () =>
+          HttpResponse.json({
+            projectId: 2,
+            overrides,
+            effective: { ...GLOBAL, ...global, ...overrides },
+            lockedFields: [],
+            clampedFields: [],
+          }),
+        ),
+      );
+    }
+
+    async function switchToProjectTwo() {
+      fireEvent.click(screen.getByRole('button', { name: 'Settings scope' }));
+      fireEvent.click(await screen.findByRole('option', { name: 'Beta Pipeline' }));
+      await screen.findByText('Save overrides');
+    }
+
+    it('cannot be turned off globally by a SecurityAdmin who is not an Admin; the save keeps them on', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      mswServer.use(
+        securityAdmin,
+        http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeDisabled();
+      expect(screen.getByLabelText('Enable PII detection')).toBeDisabled();
+      expect(screen.getByText('Only an Admin can turn read-only enforcement or PII detection off.')).toBeInTheDocument();
+      fireEvent.click(screen.getByText('Save settings'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data).toMatchObject({ enforceReadOnly: true, enablePiiDetection: true });
+    });
+
+    it('can be turned on globally by a SecurityAdmin who is not an Admin', async () => {
+      mswServer.use(
+        securityAdmin,
+        http.get('*/beacon/api/mcp/settings', () => HttpResponse.json({ ...GLOBAL, enforceReadOnly: false })),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeEnabled();
+      expect(screen.getByLabelText('Enable PII detection')).toBeDisabled();
+    });
+
+    it('lets an Admin turn them off globally', async () => {
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeEnabled();
+      expect(screen.getByLabelText('Enable PII detection')).toBeEnabled();
+    });
+
+    it('keeps a SecurityAdmin from turning off or clearing a project override that would loosen them', async () => {
+      // Read-only is pinned on while the global value is off; PII detection is pinned off.
+      serveProjectTwo({ enforceReadOnly: true, enablePiiDetection: false }, { enforceReadOnly: false });
+      mswServer.use(securityAdmin);
+      await renderPage();
+      await switchToProjectTwo();
+
+      expect(screen.getByLabelText('Override Enforce read-only queries')).toBeDisabled();
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeDisabled();
+      expect(screen.getByText(/only an admin can turn read-only enforcement or pii detection off for a project/i))
+        .toBeInTheDocument();
+      // Already pinned off: turning it on, back off, or inheriting the global value loosens nothing.
+      expect(screen.getByLabelText('Override Enable PII detection')).toBeEnabled();
+      fireEvent.click(screen.getByLabelText('Enable PII detection'));
+      expect(screen.getByLabelText('Enable PII detection')).toBeChecked();
+      expect(screen.getByLabelText('Enable PII detection')).toBeEnabled();
+    });
+
+    it('lets a SecurityAdmin clear an override pinning read-only on while the global value is on', async () => {
+      serveProjectTwo({ enforceReadOnly: true }, {});
+      mswServer.use(securityAdmin);
+      await renderPage();
+      await switchToProjectTwo();
+
+      expect(screen.getByLabelText('Override Enforce read-only queries')).toBeEnabled();
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeDisabled();
+    });
+
+    it('pins an inherited switch on when a SecurityAdmin overrides it, even while the global value is off', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      serveProjectTwo({}, { enforceReadOnly: false });
+      mswServer.use(
+        securityAdmin,
+        http.put('*/beacon/api/mcp/projects/2/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      await switchToProjectTwo();
+
+      fireEvent.click(screen.getByLabelText('Override Enforce read-only queries'));
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeChecked();
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeDisabled();
+      fireEvent.click(screen.getByText('Save overrides'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data.enforceReadOnly).toBe(true);
+    });
+
+    it('lets an Admin turn off or clear any project override', async () => {
+      serveProjectTwo({ enforceReadOnly: true, enablePiiDetection: true }, { enforceReadOnly: false });
+      await renderPage();
+      await switchToProjectTwo();
+
+      expect(screen.getByLabelText('Override Enforce read-only queries')).toBeEnabled();
+      expect(screen.getByLabelText('Enforce read-only queries')).toBeEnabled();
+      expect(screen.getByLabelText('Enable PII detection')).toBeEnabled();
+      expect(screen.queryByText(/for a project/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('offers a user with no Viewer or Editor role only the global scope, since picking a project lists them', async () => {
+    mswServer.use(functionalOnly('SecurityAdmin'));
+    await renderPage();
+
+    expect(screen.queryByRole('button', { name: 'Settings scope' })).not.toBeInTheDocument();
   });
 });

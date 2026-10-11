@@ -1,10 +1,16 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import type { ExternalLogin } from './externalLogin';
+import { accessOf, type Access, type CurrentPermissions } from './access';
+
+export type { Access, BeaconPermission, CurrentPermissions } from './access';
 
 export interface CurrentUser {
   userId: string | null;
+  /** The Beacon user name of the session, when it has one. */
+  userName?: string | null;
   displayName: string | null;
   email: string | null;
   isAuthenticated: boolean;
@@ -22,15 +28,10 @@ export function useAuth() {
   });
 }
 
-export interface CurrentPermissions {
-  canRead: boolean;
-  canWrite: boolean;
-}
-
 /**
  * The signed-in user's Beacon permissions. `canRead` is false for an account with no role yet (e.g. a user
- * provisioned by SSO who is waiting for an administrator to assign one). Re-checked when the window regains focus,
- * so a user who was just granted a role gets in without reloading.
+ * provisioned by SSO who is waiting for an administrator to assign one) and for one that holds functional roles only.
+ * Re-checked when the window regains focus, so a user who was just granted a role gets in without reloading.
  */
 export function usePermissions(enabled: boolean) {
   return useQuery<CurrentPermissions>({
@@ -42,12 +43,24 @@ export function usePermissions(enabled: boolean) {
 }
 
 /**
- * True iff the current user is in the `Admin` role (case-insensitive).
- * Returns `undefined` while the auth query is loading.
+ * What the signed-in user may do now: read and write, Admin, and the functional permissions held, as the server
+ * reports them (an Admin holds every permission). While loading, `isLoading` is true and nothing is held.
+ */
+export function useAccess(): Access {
+  const auth = useAuth();
+  const signedIn = auth.data?.isAuthenticated === true;
+  const permissions = usePermissions(signedIn);
+  const isLoading = auth.isLoading || (signedIn && permissions.isPending);
+  const data = signedIn ? permissions.data : undefined;
+
+  return useMemo(() => accessOf(data, isLoading), [data, isLoading]);
+}
+
+/**
+ * True iff the current user is an Admin now (the server's view, not the session's role claims).
+ * Returns `undefined` while the session or its permissions load.
  */
 export function useIsAdmin(): boolean | undefined {
-  const { data, isLoading } = useAuth();
-  if (isLoading) return undefined;
-  if (!data || !data.isAuthenticated) return false;
-  return data.roles.some((r) => r.toLowerCase() === 'admin');
+  const access = useAccess();
+  return access.isLoading ? undefined : access.isAdmin;
 }

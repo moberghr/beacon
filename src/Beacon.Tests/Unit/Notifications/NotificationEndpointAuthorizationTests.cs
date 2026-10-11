@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api.Endpoints;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Recipients;
 using Beacon.Core.Handlers.Subscriptions;
@@ -102,8 +103,9 @@ public class NotificationEndpointAuthorizationTests
         foreach (var endpoint in mutating)
         {
             var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Select(x => x.Policy).ToList();
+            // A functional-permission policy needs a role, which an API key never carries.
             policies.Should().Contain(
-                x => x == BeaconApiEndpoints.ExecuteScopePolicyName || x == BeaconApiEndpoints.AdminPolicyName,
+                x => x == BeaconApiEndpoints.ExecuteScopePolicyName || x == BeaconApiEndpoints.AdminPolicyName || BeaconPermissions.Policies.ContainsKey(x!),
                 $"'{endpoint.RoutePattern.RawText}' changes where or whether data is delivered");
         }
     }

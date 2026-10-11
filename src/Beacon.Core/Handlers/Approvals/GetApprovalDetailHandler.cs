@@ -14,12 +14,13 @@ internal sealed class GetApprovalDetailHandler(IQueryApprovalService approvalSer
     }
 }
 
+/// <summary>An approval request, for a caller who reads its query version, and for an Approver.</summary>
 public record GetApprovalDetailQuery : IRequest<ApprovalRequestDetail?>, IProjectAuthorizedRequest
 {
     public required int RequestId { get; init; }
 
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        new(ProjectResource.ApprovalRequest(RequestId), ProjectAction.Read)
+        ProjectCheck.OrPermission(ProjectResource.ApprovalRequest(RequestId), ProjectAction.Read, BeaconPermissions.Approver)
     ];
 }

@@ -12,14 +12,17 @@ using Beacon.Core.Authorization;
 namespace Beacon.Core.Handlers.ApiKeys;
 
 /// <summary>
-/// Every user's API keys, or one user's, for an administrator in a signed-in session: the Admin role on the route, and
-/// an administrator in the user store now (<see cref="ApiKeyManagementCaller.ResolveAdministratorAsync"/>).
+/// Every user's API keys, or one user's, for an Admin, an Auditor or a UserAdmin in a signed-in session: the route's
+/// policy admits them, and they hold the role now (<see cref="ApiKeyManagementCaller.ResolveAdministratorAsync"/>). Each
+/// key says whether the caller may revoke it, by the rules of <see cref="AdminRevokeApiKeyHandler"/>.
 /// </summary>
 internal sealed class GetAllApiKeysHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IHttpContextAccessor httpContextAccessor,
     IUserManagementService userManagementService,
+    IBeaconPermissionAccessor permissionAccessor,
     IOptions<ApiKeyOptions> options,
+    IOptions<RoleMappingOptions> roleMapping,
     TimeProvider timeProvider)
     : IRequestHandler<GetAllApiKeysQuery, PagedList<AdminApiKeyEntry>>
 {
@@ -27,7 +30,12 @@ internal sealed class GetAllApiKeysHandler(
         GetAllApiKeysQuery request,
         CancellationToken cancellationToken)
     {
-        await ApiKeyManagementCaller.ResolveAdministratorAsync(httpContextAccessor, userManagementService, cancellationToken);
+        var administrator = await ApiKeyManagementCaller.ResolveAdministratorAsync(
+            httpContextAccessor,
+            userManagementService,
+            permissionAccessor,
+            [BeaconPermissions.Auditor, BeaconPermissions.UserAdmin],
+            cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -62,6 +70,23 @@ internal sealed class GetAllApiKeysHandler(
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
 
+        // An Admin revokes every key, a UserAdmin any but those of a user only an Admin may change (its own excepted), an
+        // Auditor none.
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+        var revokesAny = ApiKeyManagementCaller.IsAdmin(administrator, permissions);
+        var revokesUnprotected = revokesAny || permissions.Holds(BeaconPermissions.UserAdmin);
+        var protectedOwners = revokesUnprotected && !revokesAny
+            ? await ProtectedUsers.ProtectedAmongAsync(
+                context,
+                page.Items
+                    .Where(x => x.UserId != null)
+                    .Where(x => x.UserId != administrator.Id)
+                    .Select(x => x.UserId!.Value)
+                    .ToList(),
+                roleMapping.Value,
+                cancellationToken)
+            : new HashSet<int>();
+
         // Active by the rule key validation applies: not revoked, not expired, owner present, enabled, not archived,
         // and still in the owner's API-key generation.
         var now = timeProvider.GetUtcNow().UtcDateTime;
@@ -85,7 +110,8 @@ internal sealed class GetAllApiKeysHandler(
                     now,
                     options.Value) == null,
                 x.UserId,
-                x.UserName));
+                x.UserName,
+                revokesAny || (revokesUnprotected && (x.UserId == null || !protectedOwners.Contains(x.UserId.Value)))));
     }
 
     private sealed class AdminApiKeyRow
@@ -128,7 +154,7 @@ internal sealed class GetAllApiKeysHandler(
 /// All API keys, newest first, optionally only those of <see cref="UserId"/>; sortable by name, prefix, createdAt,
 /// lastUsedAt, expiresAt, revokedAt and userName.
 /// </summary>
-[ProjectScopeExempt("admin-gated key administration, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("key administration, gated by the Auditor and UserAdmin permissions; no project data", Policy = BeaconPermissions.AuditorOrUserAdminPolicy)]
 public record GetAllApiKeysQuery : ListRequest, IRequest<PagedList<AdminApiKeyEntry>>
 {
     public int? UserId { get; init; }
@@ -136,7 +162,8 @@ public record GetAllApiKeysQuery : ListRequest, IRequest<PagedList<AdminApiKeyEn
 
 /// <summary>
 /// An API key with its owner, as an administrator sees it. Scopes, projects and <see cref="IsActive"/> as in
-/// <see cref="ApiKeyEntry"/>.
+/// <see cref="ApiKeyEntry"/>. <see cref="CanRevoke"/>: whether the caller may revoke it (an Auditor revokes none; a
+/// UserAdmin who is not an Admin none of an Admin's, a super admin's or a functional role holder's but its own).
 /// </summary>
 public record AdminApiKeyEntry(
     int Id,
@@ -150,4 +177,5 @@ public record AdminApiKeyEntry(
     DateTime? RevokedAt,
     bool IsActive,
     int? UserId,
-    string? UserName);
+    string? UserName,
+    bool CanRevoke);

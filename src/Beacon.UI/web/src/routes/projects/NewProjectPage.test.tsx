@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsHandler } from '@/test/permissions';
 import NewProjectPage from './NewProjectPage';
 
 vi.mock('sonner', () => ({
@@ -59,6 +60,20 @@ describe('NewProjectPage', () => {
     expect(toast.success).toHaveBeenCalledWith('Project created', {
       description: 'It is restricted to its members, and you are its project admin.',
     });
+  });
+
+  it('lets only a SecurityAdmin set a repository access token', async () => {
+    mswServer.use(noDataSources);
+    const view = renderWithProviders(<NewProjectPage />);
+    const token = () => screen.getByPlaceholderText('Required only for private repositories');
+
+    expect(token()).toBeDisabled();
+    expect(await screen.findByText(/only an admin or a securityadmin sets a repository access token/i)).toBeInTheDocument();
+    view.unmount();
+
+    mswServer.use(permissionsHandler({ permissions: ['SecurityAdmin'] }));
+    renderWithProviders(<NewProjectPage />);
+    await waitFor(() => expect(token()).toBeEnabled());
   });
 
   it('says so, neutrally, when the project came back open', async () => {

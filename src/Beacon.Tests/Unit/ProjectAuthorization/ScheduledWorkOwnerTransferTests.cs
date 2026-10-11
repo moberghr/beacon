@@ -51,7 +51,8 @@ public class ScheduledWorkOwnerTransferTests
         _world.Project(RestrictedProject, requiresMembership: true);
         _world.Source(10, 1);
         var source = _world.Source(RestrictedSource, RestrictedProject);
-        _world.User(1, "ext-admin", RoleService.RoleLevels.Admin);
+        // A stored Admin: owner changes are decided by the roles held now, not the session's claims.
+        _world.User(1, "ext-admin", RoleService.RoleLevels.Admin).UserRoles[0].Role.Name = RoleService.RoleNames.Admin;
         _world.User(EditorId, "ext-editor");
         _world.User(ViewerId, "ext-viewer", RoleService.RoleLevels.Viewer);
         _world.User(DisabledId, "ext-gone").IsEnabled = false;
@@ -113,7 +114,7 @@ public class ScheduledWorkOwnerTransferTests
     }
 
     [Test]
-    public async Task ASubscriptionsOwner_IsChangedByAnAdminOnly()
+    public async Task ASubscriptionsOwner_IsNotChangedByAnEditor()
     {
         _world.Member(RestrictedProject, ViewerId, ProjectRole.Viewer);
 
@@ -121,6 +122,19 @@ public class ScheduledWorkOwnerTransferTests
 
         await act.Should().ThrowAsync<BeaconForbiddenException>();
         _subscriptions[0].OwnerUserId.Should().BeNull();
+    }
+
+    [Test]
+    public async Task AUserAdmin_ChangesOwners_AndTheNewOwnersAccessIsStillValidated()
+    {
+        _world.FunctionalUser(20, "ext-useradmin", RoleService.RoleLevels.Viewer, BeaconPermissions.UserAdmin);
+        _world.Member(RestrictedProject, ViewerId, ProjectRole.Viewer);
+
+        await SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, ViewerId), externalId: "ext-useradmin");
+        var unfit = () => SendAsync(new SetDataContractOwnerCommand(ContractId, EditorId), externalId: "ext-useradmin");
+
+        _subscriptions[0].OwnerUserId.Should().Be("ext-viewer");
+        await unfit.Should().ThrowAsync<BeaconConflictException>("the new owner must be able to evaluate the contract");
     }
 
     [Test]
@@ -168,10 +182,43 @@ public class ScheduledWorkOwnerTransferTests
         _actors[0].CreatedByUserId.Should().Be("ext-editor");
     }
 
-    private async Task SendAsync(IRequest request, bool admin = true)
+    [Test]
+    public async Task AUserAdmin_MakesNoOneButThemselvesTheOwner_WhileAnAdminMayNameThemselves()
     {
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, admin ? "ext-admin" : "ext-editor") };
-        if (admin)
+        _world.FunctionalUser(8, "ext-users", RoleService.RoleLevels.Editor, BeaconPermissions.UserAdmin);
+        _world.Member(RestrictedProject, 8, ProjectRole.Editor);
+        _world.Member(RestrictedProject, EditorId, ProjectRole.Editor);
+
+        var self = () => SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, 8), admin: false, externalId: "ext-users");
+        var selfContract = () => SendAsync(new SetDataContractOwnerCommand(ContractId, 8), admin: false, externalId: "ext-users");
+        var selfActor = () => SendAsync(new SetAiActorOwnerCommand(ActorId, 8), admin: false, externalId: "ext-users");
+
+        await self.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(OwnerTransfer.SelfMessage);
+        await selfContract.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(OwnerTransfer.SelfMessage);
+        await selfActor.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(OwnerTransfer.SelfMessage);
+        _subscriptions[0].OwnerUserId.Should().BeNull();
+
+        await SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, EditorId), admin: false, externalId: "ext-users");
+        _subscriptions[0].OwnerUserId.Should().Be("ext-editor", "a UserAdmin names another user who may run the work");
+
+        await SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, 1));
+        _subscriptions[0].OwnerUserId.Should().Be("ext-admin", "an Admin may name themselves");
+    }
+
+    [Test]
+    public async Task AnOwnerChange_ByAnAuditor_IsForbidden()
+    {
+        _world.FunctionalUser(8, "ext-audit", RoleService.RoleLevels.Editor, BeaconPermissions.Auditor);
+
+        var act = () => SendAsync(new SetAiActorOwnerCommand(ActorId, EditorId), admin: false, externalId: "ext-audit");
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("Only an Admin or a UserAdmin*");
+    }
+
+    private async Task SendAsync(IRequest request, bool admin = true, string? externalId = null)
+    {
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, externalId ?? (admin ? "ext-admin" : "ext-editor")) };
+        if (admin && externalId == null)
         {
             claims.Add(new Claim(ClaimTypes.Role, RoleService.RoleNames.Admin));
         }

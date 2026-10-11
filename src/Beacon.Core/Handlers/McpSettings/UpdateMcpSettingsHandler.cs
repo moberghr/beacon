@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
@@ -14,7 +15,10 @@ namespace Beacon.Core.Handlers.McpSettings;
 internal sealed class UpdateMcpSettingsHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
-    IOptions<McpDeploymentOptions> deploymentOptions)
+    IOptions<McpDeploymentOptions> deploymentOptions,
+    IBeaconPermissionAccessor permissionAccessor,
+    IBeaconActorAccessor actorAccessor,
+    ILogger<UpdateMcpSettingsHandler> logger)
     : IRequestHandler<UpdateMcpSettingsCommand>
 {
     public async Task Handle(UpdateMcpSettingsCommand request, CancellationToken cancellationToken)
@@ -74,6 +78,17 @@ internal sealed class UpdateMcpSettingsHandler(
         foreach (var rule in activeLocks)
         {
             rule.KeepStored(data, entity);
+        }
+
+        // Turning read-only enforcement or PII detection off is an Admin's; a SecurityAdmin turns them on.
+        if (McpSafetySettings.Loosens(entity.EnforceReadOnly, data.EnforceReadOnly)
+            || McpSafetySettings.Loosens(entity.EnablePiiDetection, data.EnablePiiDetection))
+        {
+            McpSafetySettings.DemandAdmin(
+                await permissionAccessor.GetCurrentAsync(cancellationToken),
+                await actorAccessor.GetCurrentAsync(cancellationToken),
+                logger,
+                null);
         }
 
         var ceilings = locks.Ceilings ?? new McpCeilingOptions();
@@ -152,5 +167,9 @@ internal sealed class UpdateMcpSettingsHandler(
     }
 }
 
-[ProjectScopeExempt("admin-gated security configuration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Saves the global MCP settings. For an Admin or a SecurityAdmin; only an Admin turns read-only enforcement or PII
+/// detection off (403, <see cref="McpSafetySettings"/>). A value that contradicts a deployment lock is refused (409).
+/// </summary>
+[ProjectScopeExempt("security configuration, gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateMcpSettingsCommand(McpSettingsData Data) : IRequest;

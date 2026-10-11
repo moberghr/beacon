@@ -61,7 +61,8 @@ public class AiActorOwnershipTests
             new BeaconUser { Id = 1, ExternalId = "ext-ana", UserName = "ana", IsEnabled = true },
             new BeaconUser { Id = 2, ExternalId = "ext-ben", UserName = "ben", IsEnabled = true },
             new BeaconUser { Id = 3, ExternalId = "ext-cid", UserName = "cid", IsEnabled = false },
-            new BeaconUser { Id = 5, ExternalId = "ext-admin", UserName = "admin", IsEnabled = true }
+            new BeaconUser { Id = 5, ExternalId = "ext-admin", UserName = "admin", IsEnabled = true },
+            new BeaconUser { Id = 6, ExternalId = "ext-ula", UserName = "ula", IsEnabled = true }
         ];
     }
 
@@ -343,6 +344,30 @@ public class AiActorOwnershipTests
         _actors[0].CreatedByUserId.Should().Be("ext-ana");
     }
 
+    [Test]
+    public async Task SetOwner_ByAUserAdmin_MakesAnotherUserTheCreator_ButNeverThemself()
+    {
+        var userAdmin = Interactive("ext-ula", BeaconPermissions.UserAdmin);
+
+        var self = () => SetOwnerHandler(userAdmin).Handle(new SetAiActorOwnerCommand(ActorId, 6), CancellationToken.None);
+        await self.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(OwnerTransfer.SelfMessage);
+        _actors[0].CreatedByUserId.Should().Be("ext-ana");
+
+        await SetOwnerHandler(userAdmin).Handle(new SetAiActorOwnerCommand(ActorId, 2), CancellationToken.None);
+
+        _actors[0].CreatedByUserId.Should().Be("ext-ben");
+    }
+
+    [TestCase(BeaconPermissions.Auditor)]
+    [TestCase(BeaconPermissions.SecurityAdmin)]
+    public async Task SetOwner_ByAHolderOfAnotherPermission_IsForbidden(string permission)
+    {
+        var act = () => SetOwnerHandler(Interactive("ext-ula", permission)).Handle(new SetAiActorOwnerCommand(ActorId, 2), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("Only an Admin or a UserAdmin*");
+        _actors[0].CreatedByUserId.Should().Be("ext-ana");
+    }
+
     [TestCase(3)]
     [TestCase(99)]
     public async Task SetOwner_ToSomeoneWhoIsNotAnActiveUser_IsRejected(int owner)
@@ -384,7 +409,7 @@ public class AiActorOwnershipTests
 
     private SetAiActorOwnerHandler SetOwnerHandler(ClaimsPrincipal caller)
     {
-        return new SetAiActorOwnerHandler(Factory(), Actor(caller), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(caller)), NullLogger<SetAiActorOwnerHandler>.Instance);
+        return new SetAiActorOwnerHandler(Factory(), Actor(caller), TestPermissions.ForPrincipal(caller), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(caller)), NullLogger<SetAiActorOwnerHandler>.Instance);
     }
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)

@@ -41,12 +41,13 @@ export interface DataSourceProjectChip {
 const DATA_SOURCES_KEY = ['data-sources'] as const;
 
 /** The data sources grid: server-paged, alphabetical, name search in the URL. */
-export function useDataSourcesList() {
+export function useDataSourcesList(enabled = true) {
   return usePagedList<DataSourceEntry, { search: string }>({
     queryKey: DATA_SOURCES_KEY,
     path: '/beacon/api/data-sources',
     filters: { search: '' },
     defaultSort: { column: 'name', direction: 'asc' },
+    enabled,
   });
 }
 

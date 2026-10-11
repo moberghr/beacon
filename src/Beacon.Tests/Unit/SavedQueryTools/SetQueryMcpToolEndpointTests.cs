@@ -1,4 +1,5 @@
 using Beacon.Api.Endpoints;
+using Beacon.Core.Authorization;
 using FluentAssertions;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -11,14 +12,14 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit.SavedQueryTools;
 
 /// <summary>
-/// Exposing a query as an MCP tool publishes reviewed SQL to every MCP caller of its projects, so the endpoint is
-/// Admin-only. Maps the queries endpoints on a bare app (no database) and reads the endpoint's authorization metadata.
+/// Exposing a query as an MCP tool publishes reviewed SQL to every MCP caller of its projects, so the endpoint is a
+/// SecurityAdmin's (and an Admin's). Maps the queries endpoints on a bare app (no database) and reads the endpoint's authorization metadata.
 /// </summary>
 [TestFixture]
 public class SetQueryMcpToolEndpointTests
 {
     [Test]
-    public async Task SetQueryMcpTool_IsAPutOnTheQuery_AndRequiresTheAdminPolicy()
+    public async Task SetQueryMcpTool_IsAPutOnTheQuery_AndRequiresTheSecurityAdminPolicy()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.Services.AddSingleton(Mock.Of<IMediator>());
@@ -35,6 +36,6 @@ public class SetQueryMcpToolEndpointTests
         endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Should().Equal("PUT");
         endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
             .Select(x => x.Policy)
-            .Should().Contain(BeaconApiEndpoints.AdminPolicyName);
+            .Should().Contain(BeaconPermissions.SecurityAdminPolicy);
     }
 }

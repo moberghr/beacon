@@ -4,6 +4,8 @@ import { Route, Routes } from 'react-router-dom';
 import { screen } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsHandler } from '@/test/permissions';
+import { AccessReady } from '@/test/AccessReady';
 import { AiActorExecutionPhase, AiActorStatus } from '@/lib/enums';
 import AiActorDetailPage from './AiActorDetailPage';
 
@@ -40,10 +42,13 @@ function renderActor(payload: Record<string, unknown>) {
     ),
     http.get('*/beacon/api/ai-actors/3', () => HttpResponse.json(payload)),
   );
-  renderWithProviders(
-    <Routes>
-      <Route path="/ai-actors/:id" element={<AiActorDetailPage />} />
-    </Routes>,
+  return renderWithProviders(
+    <>
+      <Routes>
+        <Route path="/ai-actors/:id" element={<AiActorDetailPage />} />
+      </Routes>
+      <AccessReady />
+    </>,
     { initialEntries: ['/ai-actors/3'] },
   );
 }
@@ -57,6 +62,21 @@ describe('AiActorDetailPage', () => {
   it('shows a neutral label when no owner is recorded or the owner is no longer a user', async () => {
     renderActor(actor());
     expect(await screen.findByText('No owner recorded')).toBeInTheDocument();
+  });
+
+  it('offers a UserAdmin the owner change, and a holder of every other permission none', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    const { unmount } = renderActor(actor());
+    expect(await screen.findByRole('button', { name: 'Change owner' })).toBeInTheDocument();
+    unmount();
+
+    mswServer.use(
+      permissionsHandler({ permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'DataSourceAdmin', 'MigrationOperator'] }),
+    );
+    renderActor(actor());
+    expect(await screen.findByText('No owner recorded')).toBeInTheDocument();
+    await screen.findByTestId('access-ready');
+    expect(screen.queryByRole('button', { name: 'Change owner' })).not.toBeInTheDocument();
   });
 
   it('labels a skipped think cycle and says why', async () => {

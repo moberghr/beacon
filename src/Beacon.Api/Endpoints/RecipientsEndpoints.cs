@@ -1,3 +1,5 @@
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Recipients;
 using MediatR;
 
@@ -9,14 +11,15 @@ internal static class RecipientsEndpoints
     {
         var recipients = group.MapGroup("/recipients").WithTags("Recipients");
 
-        // Any reader may list recipients (names and types, to attach them); destinations and headers come back masked,
-        // and to Admins only. Creating, changing and deleting a recipient decides where Beacon sends data: Admins only.
+        // Any reader may list recipients (names and types, to attach them); destinations and headers come back masked, and
+        // to Admins and SecurityAdmins only. Creating, changing and deleting a recipient decides where Beacon sends data: a
+        // SecurityAdmin's, who changes where a recipient delivers only when it reads everything the recipient is attached to.
         recipients.MapGet("/", ([AsParameters] GetRecipientsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetRecipients");
 
         recipients.MapPost("/", (CreateRecipientCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
             .WithName("CreateRecipient")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.SecurityAdminPolicy);
 
         recipients.MapPut("/{id:int}", async (int id, UpdateRecipientBody body, IMediator m, CancellationToken ct) =>
         {
@@ -24,13 +27,13 @@ internal static class RecipientsEndpoints
                 id, body.Name, body.Description, body.Destination,
                 body.NotificationType, body.HeadersJson, body.BodyTemplate), ct);
             return TypedResults.NoContent();
-        }).WithName("UpdateRecipient").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        }).WithName("UpdateRecipient").RequireBeaconPermission(BeaconPermissions.SecurityAdminPolicy);
 
         recipients.MapDelete("/{id:int}", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new DeleteRecipientCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteRecipient").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        }).WithName("DeleteRecipient").RequireBeaconPermission(BeaconPermissions.SecurityAdminPolicy);
 
         return group;
     }

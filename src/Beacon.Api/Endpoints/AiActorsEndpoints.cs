@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.AiActors;
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -57,14 +59,14 @@ internal static class AiActorsEndpoints
                 }, ct))
             .WithName("RefineAiActor");
 
-        // Making a user the creator of an actor (for instance one created before creators were recorded) is an Admin's.
+        // Making a user the creator of an actor (for instance one created before creators were recorded) is a UserAdmin's.
         actors.MapPut("/{id:int}/owner", async (int id, SetAiActorOwnerBody body, IMediator m, CancellationToken ct) =>
             {
                 await m.Send(new SetAiActorOwnerCommand(id, body.UserId), ct);
                 return TypedResults.NoContent();
             })
             .WithName("SetAiActorOwner")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         actors.MapGet("/{id:int}/pending-plans", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetPendingPlansQuery { ActorId = id }, ct))

@@ -83,8 +83,9 @@ export function RequireAuth({ children }: RequireAuthProps) {
     );
   }
 
-  // Signed in, but no role assigned yet: every page would answer 403, so explain instead.
-  if (permissions.data?.canRead === false) {
+  // Signed in, but no role assigned yet: every page would answer 403, so explain instead. A user who holds functional
+  // permissions only gets in: the pages those permissions open work, and FunctionalOnlyGate explains the rest.
+  if (permissions.data?.canRead === false && (permissions.data.permissions ?? []).length === 0) {
     return (
       <div className="grid place-items-center h-full">
         <div className="flex max-w-md flex-col items-center gap-3 text-center">

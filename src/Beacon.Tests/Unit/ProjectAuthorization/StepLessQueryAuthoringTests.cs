@@ -140,6 +140,7 @@ public class StepLessQueryAuthoringTests
             new ProjectResourceResolver(),
             Factory(),
             actors,
+            TestPermissions.None,
             NullLogger<ProjectRequestAuthorizer>.Instance);
     }
 

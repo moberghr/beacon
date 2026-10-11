@@ -1,8 +1,10 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Models;
@@ -14,6 +16,8 @@ internal sealed class SetProjectMemberHandler(
     IProjectAccessEvaluator projectAccess,
     IProjectMembershipSource membershipSource,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
+    IOptions<RoleMappingOptions> roleMapping,
     TimeProvider timeProvider,
     ILogger<SetProjectMemberHandler> logger)
     : IRequestHandler<SetProjectMemberCommand, SetProjectMemberResult>
@@ -30,7 +34,16 @@ internal sealed class SetProjectMemberHandler(
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await ProjectMembershipRules.RequireManageMembersAsync(context, scope, request.ProjectId, actor, logger, cancellationToken);
+        await ProjectMembershipRules.RequireMembershipAdministrationAsync(
+            context,
+            scope,
+            await permissionAccessor.GetCurrentAsync(cancellationToken),
+            request.ProjectId,
+            request.UserId,
+            actor,
+            logger,
+            cancellationToken,
+            roleMapping.Value);
 
         var isActiveUser = await context.Users
             .Where(x => x.Id == request.UserId)
@@ -140,9 +153,10 @@ internal sealed class SetProjectMemberHandler(
 }
 
 /// <summary>
-/// Adds <c>UserId</c> to the project with <c>Role</c>, or changes their role. For a ProjectAdmin of the project or an
-/// Admin. The last effective ProjectAdmin (active, with a global role of Editor or above) cannot be demoted (an Admin
-/// may). 409 when the host manages membership, and when the members change concurrently (retry).
+/// Adds <c>UserId</c> to the project with <c>Role</c>, or changes their role. For a ProjectAdmin of the project, a
+/// UserAdmin (never their own membership, nor that of an Admin, a super admin or a functional role holder) or an Admin. The last effective ProjectAdmin (active, with a global role of
+/// Editor or above) cannot be demoted (an Admin may). 409 when the host manages membership, and when the members change
+/// concurrently (retry).
 /// </summary>
 public record SetProjectMemberCommand(
     int ProjectId,
@@ -151,7 +165,7 @@ public record SetProjectMemberCommand(
 {
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        new(ProjectResource.Project(ProjectId), ProjectAction.ManageMembers)
+        ProjectCheck.OrPermission(ProjectResource.Project(ProjectId), ProjectAction.ManageMembers, BeaconPermissions.UserAdmin)
     ];
 }
 

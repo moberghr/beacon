@@ -5,6 +5,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
+import { AccessReady } from '@/test/AccessReady';
 import { NotificationStatus } from '@/lib/enums';
 import SubscriptionDetailPage from './SubscriptionDetailPage';
 
@@ -13,6 +15,7 @@ vi.mock('sonner', () => ({
 }));
 
 function signedIn(roles: string[]) {
+  mswServer.use(permissionsForRoles(roles));
   return http.get('*/beacon/api/auth/me', () =>
     HttpResponse.json({ userId: 'u1', displayName: 'Tester', email: 't@example.com', isAuthenticated: true, roles }),
   );
@@ -20,9 +23,12 @@ function signedIn(roles: string[]) {
 
 function renderDetail() {
   return renderWithProviders(
-    <Routes>
-      <Route path="/subscriptions/:id" element={<SubscriptionDetailPage />} />
-    </Routes>,
+    <>
+      <Routes>
+        <Route path="/subscriptions/:id" element={<SubscriptionDetailPage />} />
+      </Routes>
+      <AccessReady />
+    </>,
     { initialEntries: ['/subscriptions/42'] },
   );
 }
@@ -78,6 +84,7 @@ describe('SubscriptionDetailPage', () => {
           roles: ['Admin'],
         }),
       ),
+      permissionsForRoles(['Admin']),
       http.get('*/beacon/api/subscriptions/42', () =>
         HttpResponse.json(detailPayload()),
       ),
@@ -146,6 +153,7 @@ describe('SubscriptionDetailPage', () => {
           roles: ['Admin'],
         }),
       ),
+      permissionsForRoles(['Admin']),
       http.get('*/beacon/api/subscriptions/42', () =>
         HttpResponse.json(detailPayload({ status })),
       ),
@@ -253,8 +261,26 @@ describe('SubscriptionDetailPage', () => {
       renderDetail();
 
       expect(await screen.findByText(/owner not authorized: scheduled runs are skipped/i)).toBeInTheDocument();
-      expect(screen.getByText(/until an admin assigns an owner who has access/i)).toBeInTheDocument();
+      expect(screen.getByText(/until an admin or a useradmin assigns an owner who has access/i)).toBeInTheDocument();
       expect(screen.getByText('not authorized')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /change owner/i })).not.toBeInTheDocument();
+    });
+
+    it('offers a UserAdmin who is not an Admin the owner change, and a holder of every other permission none', async () => {
+      const subscription = http.get('*/beacon/api/subscriptions/42', () =>
+        HttpResponse.json(detailPayload({ hasOwner: true, ownerDisplayName: 'Ada Lovelace', ownerNotAuthorized: true })),
+      );
+      mswServer.use(signedIn(['Editor']), permissionsHandler({ permissions: ['UserAdmin'] }), subscription, noExecutions);
+      const { unmount } = renderDetail();
+      expect((await screen.findAllByRole('button', { name: /change owner/i })).length).toBeGreaterThan(0);
+      unmount();
+
+      mswServer.use(
+        permissionsHandler({ permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'DataSourceAdmin', 'MigrationOperator'] }),
+      );
+      renderDetail();
+      expect(await screen.findByText(/owner not authorized: scheduled runs are skipped/i)).toBeInTheDocument();
+      await screen.findByTestId('access-ready');
       expect(screen.queryByRole('button', { name: /change owner/i })).not.toBeInTheDocument();
     });
 
@@ -272,7 +298,7 @@ describe('SubscriptionDetailPage', () => {
       expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
       expect(screen.queryByText(/owner not authorized/i)).not.toBeInTheDocument();
       // An Admin can still change the owner from the header.
-      expect(screen.getByRole('button', { name: /change owner/i })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /change owner/i })).toBeInTheDocument();
     });
 
     it("lets an Admin change the owner, keeps the dialog open with the server's reason on a 409, and saves on retry", async () => {
@@ -312,7 +338,7 @@ describe('SubscriptionDetailPage', () => {
 
       // The banner's title sits two levels below the banner, next to its actions.
       const banner = (await screen.findByText(/owner not authorized: scheduled runs are skipped/i)).parentElement!.parentElement!;
-      fireEvent.click(within(banner).getByRole('button', { name: /change owner/i }));
+      fireEvent.click(await within(banner).findByRole('button', { name: /change owner/i }));
 
       const dialog = await screen.findByRole('dialog', { name: /change the subscription's owner/i });
       expect(within(dialog).getByText(/scheduled runs run as the owner/i)).toBeInTheDocument();

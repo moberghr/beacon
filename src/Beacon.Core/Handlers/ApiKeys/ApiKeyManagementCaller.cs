@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
@@ -52,24 +53,39 @@ internal static class ApiKeyManagementCaller
     }
 
     /// <summary>
-    /// The signed-in user (see <see cref="ResolveAsync"/>), when they are an administrator now: enabled, and a super
-    /// admin or holding the Admin role in the user store. The Admin-role route policy reads the role claims the session
-    /// was signed in with, which a later role change does not update. Throws <see cref="BeaconForbiddenException"/>
-    /// for a user who is not an administrator now.
+    /// The signed-in user (see <see cref="ResolveAsync"/>), when they administer every user's keys now: enabled, and a
+    /// super admin, holding the Admin role in the user store, or holding one of <paramref name="grantingPermissions"/>
+    /// (a UserAdmin revokes keys; an Auditor or a UserAdmin lists them). The route policies read the role claims the
+    /// session was signed in with, which a later role change does not update. Throws
+    /// <see cref="BeaconForbiddenException"/> for a user who does not administer keys now.
     /// </summary>
     public static async Task<BeaconUserData> ResolveAdministratorAsync(
         IHttpContextAccessor httpContextAccessor,
         IUserManagementService userManagementService,
+        IBeaconPermissionAccessor permissionAccessor,
+        IReadOnlyCollection<string> grantingPermissions,
         CancellationToken cancellationToken)
     {
         var user = await ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
         var isAdministrator = user.IsSuperAdmin
-            || user.Roles.Any(x => x.Name == RoleService.RoleNames.Admin);
+            || user.Roles.Any(x => x.Name == RoleService.RoleNames.Admin)
+            || (await permissionAccessor.GetCurrentAsync(cancellationToken)).HoldsAny(grantingPermissions);
         if (!user.IsEnabled || !isAdministrator)
         {
             throw new BeaconForbiddenException(AdministratorRequired);
         }
 
         return user;
+    }
+
+    /// <summary>
+    /// Whether the administrator <paramref name="user"/> (see <see cref="ResolveAdministratorAsync"/>) is an Admin now: a
+    /// super admin, holding the Admin role in the user store, or an Admin by <paramref name="permissions"/>.
+    /// </summary>
+    public static bool IsAdmin(BeaconUserData user, BeaconPermissionSet permissions)
+    {
+        return user.IsSuperAdmin
+            || user.Roles.Any(x => x.Name == RoleService.RoleNames.Admin)
+            || permissions.IsAdmin;
     }
 }

@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -22,7 +24,7 @@ public class UpdateMcpSettingsHandlerTests
         // invoked on the rejection path — a throwing factory proves the validation short-circuits first.
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var provider = new Mock<IMcpSettingsProvider>(MockBehavior.Strict);
-        return new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options ?? new McpDeploymentOptions()));
+        return new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options ?? new McpDeploymentOptions()), TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance);
     }
 
     [TestCase("(unclosed")]
@@ -129,7 +131,57 @@ public class UpdateMcpSettingsHandlerTests
         stored.EnforceReadOnly.Should().BeTrue();
     }
 
-    private static (UpdateMcpSettingsHandler Handler, Func<int> Saves) CreateHandlerWithRow(McpSettings row, McpDeploymentOptions options)
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task ASecurityAdmin_TurningReadOnlyEnforcementOrPiiDetectionOff_IsForbidden(bool readOnlyOff, bool piiOff)
+    {
+        var stored = new McpSettings { EnforceReadOnly = true, EnablePiiDetection = true, MaxRowLimit = 100 };
+        var (handler, saves) = CreateHandlerWithRow(stored, new McpDeploymentOptions(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+
+        var act = () => handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = !readOnlyOff, EnablePiiDetection = !piiOff, MaxRowLimit = 5 }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(McpSafetySettings.AdminOnlyMessage);
+        stored.EnforceReadOnly.Should().BeTrue();
+        stored.EnablePiiDetection.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(100, "nothing of a refused change is written");
+        saves().Should().Be(0);
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_TurnsThemOn_AndChangesTheRest()
+    {
+        var stored = new McpSettings { EnforceReadOnly = false, EnablePiiDetection = false };
+        var (handler, _) = CreateHandlerWithRow(stored, new McpDeploymentOptions(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = true, EnablePiiDetection = true, MaxRowLimit = 5 }),
+            CancellationToken.None);
+
+        stored.EnforceReadOnly.Should().BeTrue();
+        stored.EnablePiiDetection.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(5);
+    }
+
+    [Test]
+    public async Task AnAdmin_TurnsThemOff()
+    {
+        var stored = new McpSettings { EnforceReadOnly = true, EnablePiiDetection = true };
+        var (handler, _) = CreateHandlerWithRow(stored, new McpDeploymentOptions());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = false, EnablePiiDetection = false }),
+            CancellationToken.None);
+
+        stored.EnforceReadOnly.Should().BeFalse();
+        stored.EnablePiiDetection.Should().BeFalse();
+    }
+
+    private static (UpdateMcpSettingsHandler Handler, Func<int> Saves) CreateHandlerWithRow(
+        McpSettings row,
+        McpDeploymentOptions options,
+        IBeaconPermissionAccessor? permissions = null)
     {
         var saves = 0;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -139,7 +191,7 @@ public class UpdateMcpSettingsHandlerTests
 
         var provider = SettingsProviderMock.Create();
 
-        return (new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options)), () => saves);
+        return (new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance), () => saves);
     }
 
     /// <summary>The single McpSettings row over async-queryable doubles; no DB (§4.7).</summary>

@@ -502,7 +502,16 @@ internal class UserManagementService(
                 "First-run setup has not been completed: users are provisioned only after the super admin exists.");
         }
 
-        await roleService.SeedSystemRolesAsync(ct);
+        // A concurrent sign-in or request may seed the roles first; the unique violation is harmless, and the default
+        // role is looked up below.
+        try
+        {
+            await roleService.SeedSystemRolesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
+        {
+            // Seeded concurrently; nothing is lost.
+        }
 
         // No default role configured: the user is provisioned with no role and has no permissions until an admin
         // assigns one.

@@ -190,6 +190,15 @@ internal static class RecipientSecrets
         return resolved.Count == 0 ? null : JsonSerializer.Serialize(resolved);
     }
 
+    /// <summary>Whether two headers JSON values hold the same header names and values (none and empty are the same).</summary>
+    public static bool SameHeaders(string? first, string? second)
+    {
+        var a = TryReadHeaders(first) ?? [];
+        var b = TryReadHeaders(second) ?? [];
+
+        return a.Count == b.Count && a.All(x => b.TryGetValue(x.Key, out var value) && value == x.Value);
+    }
+
     /// <summary>Whether two URL destinations are the same: scheme, host, port, path and query (no user info or fragment).</summary>
     public static bool SameDestination(string? first, string? second)
     {
@@ -313,6 +322,36 @@ internal sealed class RecipientSecretEditor(NotificationDestinationPolicy destin
         destinationPolicy.ParseHeaders(resolvedHeaders);
 
         return (protector.Protect(allowedDestination), protector.ProtectOptional(resolvedHeaders));
+    }
+
+    /// <summary>
+    /// Whether a submission would change where a stored recipient delivers: its type, its destination, or its headers'
+    /// names or values. What an empty or masked value keeps is unchanged; a stored value that cannot be read must be
+    /// entered again, so it counts as a change. A submission that breaks a rule throws as <see cref="Prepare"/> does.
+    /// </summary>
+    public bool ChangesDelivery(NotificationType type, string? destination, string? headersJson, StoredRecipientSecrets stored)
+    {
+        if (stored.Type != type)
+        {
+            return true;
+        }
+
+        var storedDestination = protector.TryUnprotect(stored.Destination);
+        var storedHeadersJson = protector.TryUnprotect(stored.HeadersJson);
+        if (storedDestination == null || (!string.IsNullOrEmpty(stored.HeadersJson) && storedHeadersJson == null))
+        {
+            return true;
+        }
+
+        var resolvedDestination = RecipientSecrets.ResolveDestination(type, destination, stored.Type, storedDestination, storedUnreadable: false);
+        if (!string.Equals(resolvedDestination, storedDestination, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var resolvedHeaders = RecipientSecrets.ResolveHeaders(type, headersJson, storedHeadersJson, storedUnreadable: false, sameDestination: true);
+
+        return !RecipientSecrets.SameHeaders(resolvedHeaders, storedHeadersJson);
     }
 
     /// <summary>What an admin sees of a stored recipient: masked destination and headers, and whether any stored value cannot be decrypted.</summary>

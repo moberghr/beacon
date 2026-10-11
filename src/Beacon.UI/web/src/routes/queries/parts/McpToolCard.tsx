@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Plug } from 'lucide-react';
 import { Button, Card, CardBody, CardHead, CardSub, CardTitle, Field, Input, Pill, Textarea } from '@/components/beacon';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess } from '@/auth/useAuth';
 import { MCP_TOOL_NAME_PATTERN, useSetQueryMcpTool, type QueryDetail } from '../queries';
 
 interface McpToolCardProps {
@@ -13,10 +13,10 @@ const MAX_DESCRIPTION = 1000;
 /**
  * Exposes the query as the MCP tool `q_<name>`. Only an approved active
  * version ever runs, so the card says which version that is — or why there
- * is none. Admins edit; everyone else sees the state read-only.
+ * is none. A SecurityAdmin (or an Admin) edits; everyone else sees the state read-only.
  */
 export function McpToolCard({ query }: McpToolCardProps) {
-  const isAdmin = useIsAdmin();
+  const canPublish = useAccess().hasPermission('SecurityAdmin');
   const setTool = useSetQueryMcpTool(query.id);
   const formId = useId();
 
@@ -91,7 +91,7 @@ export function McpToolCard({ query }: McpToolCardProps) {
           )}
         </div>
 
-        {isAdmin ? (
+        {canPublish ? (
           <form className="flex flex-col gap-3" onSubmit={onSubmit} noValidate>
             <label className="flex items-center gap-2 text-sm">
               <input

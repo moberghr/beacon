@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -27,6 +29,7 @@ public class McpProjectSettingsHandlerTests
 
     private List<Project> _projects = null!;
     private List<McpProjectSettings> _rows = null!;
+    private List<McpSettings> _global = null!;
     private Mock<IMcpSettingsProvider> _provider = null!;
     private int _saveCalls;
 
@@ -35,6 +38,7 @@ public class McpProjectSettingsHandlerTests
     {
         _projects = [new Project { Id = ProjectId, Name = "warehouse" }];
         _rows = [];
+        _global = [];
         _provider = SettingsProviderMock.Create(new McpSettingsData { MaxRowLimit = 500 });
         _saveCalls = 0;
     }
@@ -201,9 +205,63 @@ public class McpProjectSettingsHandlerTests
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Project 999 not found.");
     }
 
-    private UpdateMcpProjectSettingsHandler CreateUpdateHandler(McpDeploymentOptions? options = null)
+    [TestCase(null, false, true)]
+    [TestCase(true, false, true)]
+    public async Task ASecurityAdmin_TurningReadOnlyEnforcementOffForAProject_IsForbidden(bool? stored, bool requested, bool globalOn)
     {
-        return new UpdateMcpProjectSettingsHandler(CreateFactory(), _provider.Object, Options.Create(options ?? new McpDeploymentOptions()));
+        _global.Add(new McpSettings { EnforceReadOnly = globalOn });
+        if (stored != null)
+        {
+            _rows.Add(new McpProjectSettings { ProjectId = ProjectId, EnforceReadOnly = stored, MaxRowLimit = 10 });
+        }
+
+        var act = () => CreateUpdateHandler(permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+            .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = requested, MaxRowLimit = 99 }), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(McpSafetySettings.AdminOnlyMessage);
+        _rows.Where(x => x.MaxRowLimit == 99).Should().BeEmpty("nothing of a refused change is written");
+        _saveCalls.Should().Be(0);
+    }
+
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public async Task ASecurityAdmin_StoppingAProjectFromPinningPiiDetectionOn_IsForbiddenOnlyWhileTheGlobalValueIsOff(bool globalOn, bool forbidden)
+    {
+        _global.Add(new McpSettings { EnablePiiDetection = globalOn });
+        _rows.Add(new McpProjectSettings { ProjectId = ProjectId, EnablePiiDetection = true });
+
+        var act = () => CreateUpdateHandler(permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+            .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnablePiiDetection = null }), CancellationToken.None);
+
+        if (forbidden)
+        {
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
+            _rows[0].EnablePiiDetection.Should().BeTrue();
+            return;
+        }
+
+        await act.Should().NotThrowAsync();
+        _rows[0].EnablePiiDetection.Should().BeNull("the project inherits the global value, which is on");
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_PinsThemOn_AndAnAdminTurnsThemOff()
+    {
+        await CreateUpdateHandler(permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+            .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = true, EnablePiiDetection = true }), CancellationToken.None);
+        var pinnedOn = (_rows[0].EnforceReadOnly, _rows[0].EnablePiiDetection);
+
+        await CreateUpdateHandler()
+            .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = false, EnablePiiDetection = false }), CancellationToken.None);
+
+        pinnedOn.Should().Be((true, true));
+        _rows[0].EnforceReadOnly.Should().BeFalse();
+        _rows[0].EnablePiiDetection.Should().BeFalse();
+    }
+
+    private UpdateMcpProjectSettingsHandler CreateUpdateHandler(McpDeploymentOptions? options = null, IBeaconPermissionAccessor? permissions = null)
+    {
+        return new UpdateMcpProjectSettingsHandler(CreateFactory(), _provider.Object, Options.Create(options ?? new McpDeploymentOptions()), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpProjectSettingsHandler>.Instance);
     }
 
     private IDbContextFactory<BeaconContext> CreateFactory()
@@ -211,7 +269,7 @@ public class McpProjectSettingsHandlerTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new ProjectSettingsTestContext(_projects, _rows, () => _saveCalls++));
+            .ReturnsAsync(() => new ProjectSettingsTestContext(_projects, _rows, _global, () => _saveCalls++));
 
         return factory.Object;
     }
@@ -227,12 +285,14 @@ public class McpProjectSettingsHandlerTests
 
         private readonly List<Project> _projects;
         private readonly List<McpProjectSettings> _rows;
+        private readonly List<McpSettings> _global;
         private readonly Action _onSave;
 
-        public ProjectSettingsTestContext(List<Project> projects, List<McpProjectSettings> rows, Action onSave) : base(Options, "beacon")
+        public ProjectSettingsTestContext(List<Project> projects, List<McpProjectSettings> rows, List<McpSettings> global, Action onSave) : base(Options, "beacon")
         {
             _projects = projects;
             _rows = rows;
+            _global = global;
             _onSave = onSave;
         }
 
@@ -246,6 +306,11 @@ public class McpProjectSettingsHandlerTests
             if (typeof(TEntity) == typeof(McpProjectSettings))
             {
                 return (DbSet<TEntity>)(object)BuildSet(_rows, x => _rows.Add(x));
+            }
+
+            if (typeof(TEntity) == typeof(McpSettings))
+            {
+                return (DbSet<TEntity>)(object)BuildSet(_global, null);
             }
 
             return base.Set<TEntity>();

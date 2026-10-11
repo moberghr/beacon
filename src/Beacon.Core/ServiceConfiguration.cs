@@ -351,6 +351,19 @@ public static class ServiceConfiguration
         services.TryAddScoped<Authorization.ProjectAccess.IProjectResourceResolver, Authorization.ProjectAccess.ProjectResourceResolver>();
         services.TryAddScoped<Authorization.ProjectAccess.ProjectRequestAuthorizer>();
         services.TryAddScoped<IExecutionAccessCheck, Authorization.ProjectAccess.ExecutionAccessCheck>();
+
+        // Functional permissions (Beacon:Authorization:Roles, IdpRoles, SeparationOfDuties): the role each permission is
+        // held through, identity-provider app roles mapped at sign-in, and separation of duties. ValidateOnStart so a
+        // mapping onto a built-in role, or two permissions on one role, fails the host at boot. The permission accessor is
+        // scoped (the caller's permissions are read once per request); TryAdd so a host can supply its own.
+        services.AddOptions<Configuration.RoleMappingOptions>()
+            .Bind(configuration.GetSection(Configuration.RoleMappingOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RoleMappingOptions>, Configuration.RoleMappingOptionsValidator>());
+        services.TryAddScoped<IBeaconPermissionAccessor, BeaconPermissionAccessor>();
+        services.TryAddSingleton<BeaconPermissionLog>();
+        services.TryAddScoped<Handlers.Users.UserAdministrationRules>();
+        services.TryAddScoped<Handlers.DataMigration.MigrationJobAccess>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

@@ -111,20 +111,22 @@ internal static class TestProjectAccess
     /// <summary>
     /// The authorizer behind the project authorization behaviour, for <paramref name="scope"/>. Unrestricted and fast-path
     /// scopes never read the database; other scopes resolve resources with <paramref name="resolver"/> (default: the real
-    /// resolver) on <paramref name="factory"/>.
+    /// resolver) on <paramref name="factory"/>. The caller holds <paramref name="permissions"/> (default: none).
     /// </summary>
     public static ProjectRequestAuthorizer Authorizer(
         ProjectAccessScope scope,
         IProjectResourceResolver? resolver = null,
         IDbContextFactory<BeaconContext>? factory = null,
         IBeaconActorAccessor? actors = null,
-        ILogger<ProjectRequestAuthorizer>? logger = null)
+        ILogger<ProjectRequestAuthorizer>? logger = null,
+        IBeaconPermissionAccessor? permissions = null)
     {
         return new ProjectRequestAuthorizer(
             Evaluator(scope),
             resolver ?? new ProjectResourceResolver(),
             factory ?? new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict).Object,
             actors ?? Actors(),
+            permissions ?? TestPermissions.None,
             logger ?? NullLogger<ProjectRequestAuthorizer>.Instance);
     }
 

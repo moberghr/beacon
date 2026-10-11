@@ -24,6 +24,9 @@ const ROLE_OPTIONS: SegOption<string>[] = ROLES.map(x => ({ value: String(x), la
 
 const toRole = (value: string) => Number(value) as ProjectRole;
 
+/** Why a membership the server marks as not the caller's to change is shown read-only. */
+export const ADMIN_ONLY_MEMBERSHIP_NOTE = 'Only an Admin can change this membership.';
+
 /**
  * A project's members: who has which role, adding users found by display name, changing roles and removing members. Shown
  * only to a caller who manages the project's members while Beacon (not the host) manages membership.
@@ -54,18 +57,25 @@ export function MembersTab({ projectId }: { projectId: number }) {
       key: 'role',
       sortKey: 'role',
       header: 'Role',
-      render: r => (
-        <Seg
-          ariaLabel={`Role of ${userLabel(r.userId, r.displayName)}`}
-          options={ROLE_OPTIONS}
-          value={String(r.role)}
-          onChange={value => {
-            if (toRole(value) !== r.role) {
-              setMember.mutate({ userId: r.userId, role: toRole(value) });
-            }
-          }}
-        />
-      ),
+      render: r => r.canChange
+        ? (
+          <Seg
+            ariaLabel={`Role of ${userLabel(r.userId, r.displayName)}`}
+            options={ROLE_OPTIONS}
+            value={String(r.role)}
+            onChange={value => {
+              if (toRole(value) !== r.role) {
+                setMember.mutate({ userId: r.userId, role: toRole(value) });
+              }
+            }}
+          />
+        )
+        : (
+          <span className="flex items-center gap-2">
+            <Pill>{PROJECT_ROLE_LABEL[r.role]}</Pill>
+            <span className="text-xs text-text-muted">{ADMIN_ONLY_MEMBERSHIP_NOTE}</span>
+          </span>
+        ),
     },
     {
       key: 'addedAt',
@@ -76,7 +86,7 @@ export function MembersTab({ projectId }: { projectId: number }) {
     {
       key: 'actions',
       header: '',
-      render: r => (
+      render: r => r.canChange && (
         <Button
           variant="ghost"
           size="sm"
@@ -207,17 +217,19 @@ function AddMember({ projectId }: { projectId: number }) {
               <span className="truncate">{userLabel(x.userId, x.displayName)}</span>
               {x.isMember
                 ? <span className="text-xs text-text-muted">Already a member</span>
-                : (
-                  <Button
-                    size="sm"
-                    icon={<UserPlus />}
-                    aria-label={`Add ${userLabel(x.userId, x.displayName)}`}
-                    disabled={setMember.isPending}
-                    onClick={() => setMember.mutate({ userId: x.userId, role })}
-                  >
-                    Add
-                  </Button>
-                )}
+                : !x.canAdd
+                  ? <span className="text-xs text-text-muted">Only an Admin can add this user.</span>
+                  : (
+                    <Button
+                      size="sm"
+                      icon={<UserPlus />}
+                      aria-label={`Add ${userLabel(x.userId, x.displayName)}`}
+                      disabled={setMember.isPending}
+                      onClick={() => setMember.mutate({ userId: x.userId, role })}
+                    >
+                      Add
+                    </Button>
+                  )}
             </div>
           ))}
         </div>

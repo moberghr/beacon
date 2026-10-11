@@ -311,6 +311,26 @@ public class OidcAdmissionTests
         register.Should().Throw<InvalidOperationException>().WithMessage("*AllowedTenants*");
     }
 
+    [TestCase("Admin", null, true)]
+    [TestCase("userAdmin", null, true)]
+    [TestCase("Compliance Reviewer", "Compliance Reviewer", true)]
+    [TestCase("Auditor", "Compliance Reviewer", false)]
+    [TestCase("Viewer", null, false)]
+    public void AddBeaconOidcAuthentication_ADefaultRoleThatAdministersBeacon_FailsStartup(string defaultRole, string? auditorRole, bool fails)
+    {
+        var configuration = OidcConfiguration(TenantId, defaultRoleName: defaultRole, auditorRoleName: auditorRole);
+
+        var register = () => new ServiceCollection().AddBeaconOidcAuthentication(configuration);
+
+        if (fails)
+        {
+            register.Should().Throw<InvalidOperationException>().WithMessage("*DefaultRoleName*");
+            return;
+        }
+
+        register.Should().NotThrow();
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public void FrontChannelSignOut_IsServedOnlyOnOptIn(bool enabled)
@@ -386,7 +406,11 @@ public class OidcAdmissionTests
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "oidc"));
     }
 
-    private static IConfiguration OidcConfiguration(string? allowedTenant, bool frontChannelLogout = false)
+    private static IConfiguration OidcConfiguration(
+        string? allowedTenant,
+        bool frontChannelLogout = false,
+        string? defaultRoleName = null,
+        string? auditorRoleName = null)
     {
         var values = new Dictionary<string, string?>
         {
@@ -394,7 +418,9 @@ public class OidcAdmissionTests
             ["Beacon:Authentication:Oidc:Authority"] = "https://login.example.test/",
             ["Beacon:Authentication:Oidc:ClientId"] = "beacon-client",
             ["Beacon:Authentication:Oidc:ClientSecret"] = "unused-test-value",
-            ["Beacon:Authentication:Oidc:EnableFrontChannelLogout"] = frontChannelLogout.ToString()
+            ["Beacon:Authentication:Oidc:EnableFrontChannelLogout"] = frontChannelLogout.ToString(),
+            ["Beacon:Authentication:Oidc:DefaultRoleName"] = defaultRoleName,
+            ["Beacon:Authorization:Roles:Auditor"] = auditorRoleName
         };
         if (allowedTenant != null)
         {

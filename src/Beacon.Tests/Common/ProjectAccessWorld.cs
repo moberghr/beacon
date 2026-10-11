@@ -16,10 +16,10 @@ using Moq;
 namespace Beacon.Tests.Common;
 
 /// <summary>
-/// The real project access stack (actor accessor, evaluator, default membership and ceiling sources) over in-memory
-/// users, projects, data sources, links and memberships, with user management on — no database (§4.7). Every context
-/// reads the lists as they are, so a change made between two DI scopes shows in the second, as a database change shows
-/// on the next request. Rows the code adds (audit rows, signals) land in <see cref="Saved"/>.
+/// The real project access stack (actor accessor, evaluator, default membership and ceiling sources, permission accessor)
+/// over in-memory users, projects, data sources, links and memberships, with user management on — no database (§4.7).
+/// Every context reads the lists as they are, so a change made between two DI scopes shows in the second, as a database
+/// change shows on the next request. Rows the code adds (audit rows, signals) land in <see cref="Saved"/>.
 /// </summary>
 internal sealed class ProjectAccessWorld
 {
@@ -58,6 +58,30 @@ internal sealed class ProjectAccessWorld
             UserRoles = [new BeaconUserRole { UserId = id, Role = new BeaconRole { Name = $"Level {roleLevel}", Level = roleLevel } }]
         };
         Users.Add(user);
+
+        return user;
+    }
+
+    /// <summary>
+    /// A user holding the functional roles of <paramref name="permissions"/> (by their default names, at level 0) and, when
+    /// <paramref name="roleLevel"/> is above 0, a global role of that level.
+    /// </summary>
+    public BeaconUser FunctionalUser(int id, string externalId, int roleLevel, params string[] permissions)
+    {
+        var user = User(id, externalId, roleLevel);
+        if (roleLevel <= 0)
+        {
+            user.UserRoles.Clear();
+        }
+
+        foreach (var permission in permissions)
+        {
+            user.UserRoles.Add(new BeaconUserRole
+            {
+                UserId = id,
+                Role = new BeaconRole { Name = permission, Level = RoleService.RoleLevels.Functional }
+            });
+        }
 
         return user;
     }
@@ -132,6 +156,7 @@ internal sealed class ProjectAccessWorld
         var provider = new Mock<IBeaconAuthorizationProvider>();
         provider.Setup(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
         provider.Setup(x => x.HasReadPermissionAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        provider.Setup(x => x.AllowsFunctionalPermissionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
 
         services.AddLogging();
         services.AddSingleton(configuration);
@@ -147,6 +172,9 @@ internal sealed class ProjectAccessWorld
         services.AddSingleton<IProjectMembershipSource, DatabaseProjectMembershipSource>();
         services.AddSingleton<IRunAsCeilingSource, DatabaseRunAsCeilingSource>();
         services.AddScoped<IProjectAccessEvaluator, ProjectAccessEvaluator>();
+        services.AddSingleton(Options.Create(new RoleMappingOptions()));
+        services.AddSingleton<BeaconPermissionLog>();
+        services.AddScoped<IBeaconPermissionAccessor, BeaconPermissionAccessor>();
     }
 
     private Dictionary<Type, object> Sets()
@@ -158,6 +186,11 @@ internal sealed class ProjectAccessWorld
             [typeof(DataSource)] = RecordingBeaconContext.MemorySet(DataSources, Saved),
             [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(Links, Saved),
             [typeof(ProjectMember)] = RecordingBeaconContext.MemorySet(Members, Saved),
+            [typeof(BeaconUserRole)] = RecordingBeaconContext.MemorySet(
+                Users
+                    .SelectMany(x => x.UserRoles)
+                    .ToList(),
+                Saved),
             [typeof(ProjectDocumentation)] = RecordingBeaconContext.MemorySet(new List<ProjectDocumentation>(), Saved),
             [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet(new List<GitHubRepository>(), Saved)
         };

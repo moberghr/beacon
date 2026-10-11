@@ -74,7 +74,7 @@ The list is enforced on every REST route and on the [MCP Server](/features/mcp-s
 - **`Execute` follows the owner.** A key keeps the `Execute` scope only while its owner has write permission — the Editor role or above, or super admin, and the authorization provider's consent — checked on every request from the owner's current roles and the provider's current answer. When the owner loses it, the key acts as a `Read` key (and a warning naming the key id is logged once per process); when the owner regains it, so does the key. This holds whatever `Authorization.Enabled` says.
 - The **MCP endpoint** `/beacon/mcp` requires the `Execute` scope as a whole, because its tools can run SQL. A `Read` key cannot open an MCP session when the host maps the endpoint with `app.MapBeaconMcp()`, and inside the MCP layer every request from it is refused either way — see the [MCP Server guide](/features/mcp-server/).
 - The **real-time hub** (`/beacon/api/hub`) accepts browser sessions only; no key reaches it.
-- Routes that require the Admin role (user management, settings, data-source administration, the key administration below) are never reachable with a key: keys carry no role.
+- Routes that require the Admin role or a [functional permission](/features/authorization/#functional-permissions) (user management, settings, data-source administration, the key administration below) are never reachable with a key: keys carry no role and no functional permission, whatever their owner holds. A key refused on a route that requires a permission gets `403` with the detail *"API keys cannot use administrative routes; sign in as a user with the X permission."* Automate administrative work as a signed-in user.
 - Scopes are attached to the request as claims by the API-key authentication middleware. Interactive browser sessions (cookie/OIDC) carry no scope claims and are not scope-gated — they are governed by user roles instead. Scopes constrain **API keys and Entra callers on MCP only**.
 - Requests authenticated with an API key or a bearer token in the `Authorization` header need no antiforgery token, and `GET /beacon/api/csrf` does not issue one to them (it answers `400`). Browser sessions keep sending the token as before.
 
@@ -103,14 +103,14 @@ Click **Revoke** next to an active key and confirm. Revocation is immediate — 
 
 ### Administering every user's keys
 
-Administrators (the Admin role) see a second table on the same page, **All API keys**: every user's keys with their owner. Click an owner to show only that user's keys, and **Revoke** any active key. The same is available over the API:
+Admins, Auditors and UserAdmins see a second table on the same page, **All API keys**: every user's keys with their owner. Click an owner to show only that user's keys; Admins and UserAdmins **Revoke** an active key (a UserAdmin who is not an Admin is not offered the keys of an Admin, a super admin or a functional role holder, other than their own). The same is available over the API; each listed key's `canRevoke` says whether the caller may revoke it:
 
-| Method | Route | What it does |
-|--------|-------|--------------|
-| `GET` | `/beacon/api/api-keys/admin?userId={id}` | Every key, newest first, or only the keys of user `id`; paged and sortable like other lists |
-| `DELETE` | `/beacon/api/api-keys/admin/{id}` | Revokes key `id`, whoever owns it |
+| Method | Route | What it does | Who |
+|--------|-------|--------------|-----|
+| `GET` | `/beacon/api/api-keys/admin?userId={id}` | Every key, newest first, or only the keys of user `id`; paged and sortable like other lists | Admin, Auditor, UserAdmin |
+| `DELETE` | `/beacon/api/api-keys/admin/{id}` | Revokes key `id`, whoever owns it (a UserAdmin who is not an Admin: not the key of an Admin, a super admin or a functional role holder, `403`) | Admin, UserAdmin |
 
-Both require the Admin role, and an administrator in the user store at the time of the request (enabled; super admin or the Admin role) — a session whose user has since been demoted or disabled is refused with `403`. API keys never reach them.
+Besides the route's policy, the caller must hold the role in the user store at the time of the request (enabled; super admin, the Admin role, or the [functional permission](/features/authorization/#functional-permissions)) — a session whose user has since been demoted or disabled is refused with `403`. API keys never reach them.
 
 ### When the owner leaves
 

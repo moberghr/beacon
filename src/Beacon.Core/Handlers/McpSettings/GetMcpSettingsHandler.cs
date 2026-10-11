@@ -14,5 +14,5 @@ internal sealed class GetMcpSettingsHandler(IMcpSettingsProvider settingsProvide
     }
 }
 
-[ProjectScopeExempt("admin-gated security configuration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("security configuration, read by an Auditor or a SecurityAdmin", Policy = BeaconPermissions.AuditorOrSecurityAdminPolicy)]
 public record GetMcpSettingsQuery : IRequest<McpSettingsData>;

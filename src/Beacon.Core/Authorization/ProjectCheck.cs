@@ -13,7 +13,17 @@ public sealed record ProjectCheck(ProjectResource Resource, ProjectAction Action
     /// </summary>
     public bool InEveryLinkingProject { get; init; }
 
+    /// <summary>
+    /// A functional permission (<see cref="BeaconPermissions"/>) whose holder passes this check without project access,
+    /// once the resource exists: an Approver reading an approval request, a UserAdmin managing a project's members.
+    /// </summary>
+    public string? GrantedBy { get; init; }
+
     /// <summary>A check on shared data-source state: <paramref name="action"/>, and Write in every live project linking it.</summary>
     public static ProjectCheck SharedSource(ProjectResource resource, ProjectAction action) =>
         new(resource, action) { InEveryLinkingProject = true };
+
+    /// <summary>A check a holder of <paramref name="permission"/> passes without project access (<see cref="GrantedBy"/>).</summary>
+    public static ProjectCheck OrPermission(ProjectResource resource, ProjectAction action, string permission) =>
+        new(resource, action) { GrantedBy = permission };
 }

@@ -4,6 +4,7 @@ import { AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Button, PageHeader } from '@/components/beacon';
+import { useAccess } from '@/auth/useAuth';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import { usePendingApprovalsList, type ApprovalRequestSummary } from './queries';
 import { ReviewApprovalDialog } from './ReviewApprovalDialog';
@@ -15,6 +16,8 @@ export default function ApprovalsListPage() {
   const list = usePendingApprovalsList();
   const { data, isLoading, isError, error, refetch } = list;
   const [reviewing, setReviewing] = useState<number | null>(null);
+  // Approving and rejecting is an Approver's (an Admin holds it); everyone else reads the requests.
+  const canReview = useAccess().hasPermission('Approver');
 
   // Hub-driven invalidation lives in `useHubInvalidations` mounted in
   // AppShell — approvals refresh automatically when SignalR broadcasts
@@ -53,17 +56,19 @@ export default function ApprovalsListPage() {
     {
       key: 'actions',
       header: '',
-      render: a => (
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={e => { e.stopPropagation(); setReviewing(a.id); }}
-        >
-          Review
-        </Button>
-      ),
+      render: a => canReview
+        ? (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={e => { e.stopPropagation(); setReviewing(a.id); }}
+          >
+            Review
+          </Button>
+        )
+        : null,
     },
-  ], []);
+  ], [canReview]);
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -110,11 +115,13 @@ export default function ApprovalsListPage() {
         />
       )}
 
-      <ReviewApprovalDialog
-        open={reviewing != null}
-        approvalId={reviewing}
-        onClose={() => setReviewing(null)}
-      />
+      {canReview && (
+        <ReviewApprovalDialog
+          open={reviewing != null}
+          approvalId={reviewing}
+          onClose={() => setReviewing(null)}
+        />
+      )}
     </div>
   );
 }

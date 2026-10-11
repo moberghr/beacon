@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { describeError, httpErrorInfo } from '@/lib/api';
+import { useAccess } from '@/auth/useAuth';
 import {
   Button,
   Field as BField,
@@ -274,7 +275,10 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
   const { register, watch, reset, formState: { errors }, getValues } = form;
 
   // The projects the new source is linked into on create; without one, only Admins can use it until it is linked.
+  // Picking them lists the projects, which needs a Viewer or Editor role (offered once the permissions are known).
   const [projects, setProjects] = useState<DataSourceProjectChip[]>([]);
+  const access = useAccess();
+  const picksProjects = !access.isLoading && !access.isFunctionalOnly;
 
   const [testState, setTestState] = useState<
     | { status: 'idle' }
@@ -630,18 +634,27 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
             {/* Not a <Field>: that wraps its children in a <label>, and the picker holds its own checkboxes. */}
             <div className="flex flex-col gap-1.5 mt-3.5">
               <span className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">Projects</span>
-              <SearchMultiSelect<DataSourceProjectChip>
-                path="/beacon/api/projects"
-                queryKey={['projects']}
-                selected={projects}
-                onChange={setProjects}
-                getId={x => x.id}
-                getLabel={x => x.name}
-                noun="projects"
-              />
-              <span className="text-xs text-text-subtle">
-                Link the new data source into projects now. Without a project, only Admins can use it until it is linked.
-              </span>
+              {picksProjects ? (
+                <>
+                  <SearchMultiSelect<DataSourceProjectChip>
+                    path="/beacon/api/projects"
+                    queryKey={['projects']}
+                    selected={projects}
+                    onChange={setProjects}
+                    getId={x => x.id}
+                    getLabel={x => x.name}
+                    noun="projects"
+                  />
+                  <span className="text-xs text-text-subtle">
+                    Link the new data source into projects now. Without a project, only Admins can use it until it is linked.
+                  </span>
+                </>
+              ) : access.isFunctionalOnly && (
+                <span className="text-xs text-text-subtle">
+                  Only Admins can use the new data source until it is linked into a project. Picking projects here needs
+                  a Viewer or Editor role.
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2.5 mt-3.5">

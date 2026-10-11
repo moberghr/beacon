@@ -328,6 +328,7 @@ public class ProjectAuthorizationBehaviorTests
             new ProjectResourceResolver(),
             capture.Factory(),
             actors.Object,
+            TestPermissions.None,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ProjectRequestAuthorizer>.Instance);
 
         await authorizer.DemandAsync(new ProjectCheck(ProjectResource.Project(WritableProject), ProjectAction.Write), CancellationToken.None);

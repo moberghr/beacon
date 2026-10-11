@@ -3,11 +3,11 @@ import { http, HttpResponse } from 'msw';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
-import { AllApiKeysCard } from './AllApiKeysCard';
+import { ADMIN_ONLY_KEY_NOTE, AllApiKeysCard } from './AllApiKeysCard';
 
 const csrf = http.get('*/beacon/api/csrf', () => HttpResponse.json({ token: 'test-token' }));
 
-const key = (id: number, name: string, userId: number, userName: string, isActive: boolean) => ({
+const key = (id: number, name: string, userId: number, userName: string, isActive: boolean, canRevoke = true) => ({
   id,
   name,
   prefix: 'sk-sem_abcdefgh',
@@ -20,6 +20,7 @@ const key = (id: number, name: string, userId: number, userName: string, isActiv
   isActive,
   userId,
   userName,
+  canRevoke,
 });
 
 /** Serves every user's keys and records each list request's user filter. */
@@ -47,7 +48,7 @@ describe('AllApiKeysCard', () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    renderWithProviders(<AllApiKeysCard />);
+    renderWithProviders(<AllApiKeysCard canRevoke />);
     await screen.findByText('Reporting');
 
     expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(1);
@@ -63,7 +64,7 @@ describe('AllApiKeysCard', () => {
 
   it("filters to one owner's keys when the owner is clicked", async () => {
     const userFilters = serveKeys([key(2, 'Reporting', 5, 'bob', true)]);
-    renderWithProviders(<AllApiKeysCard />);
+    renderWithProviders(<AllApiKeysCard canRevoke />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'bob' }));
 
@@ -72,9 +73,28 @@ describe('AllApiKeysCard', () => {
     expect(await screen.findByRole('button', { name: 'Show all users' })).toBeInTheDocument();
   });
 
+  it('lists every key without a revoke for an Auditor', async () => {
+    // The server marks no key as an Auditor's to revoke.
+    serveKeys([key(2, 'Reporting', 5, 'bob', true, false)]);
+    renderWithProviders(<AllApiKeysCard canRevoke={false} />);
+
+    expect(await screen.findByText('Reporting')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Admin only')).not.toBeInTheDocument();
+  });
+
+  it("offers a UserAdmin no revoke of a key whose owner only an Admin may change, and says why", async () => {
+    serveKeys([key(2, 'Reporting', 5, 'bob', true), key(4, 'Boss key', 1, 'boss', true, false)]);
+    renderWithProviders(<AllApiKeysCard canRevoke />);
+
+    expect(await screen.findByText('Boss key')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(1);
+    expect(screen.getByText('Admin only')).toHaveAttribute('title', ADMIN_ONLY_KEY_NOTE);
+  });
+
   it('shows the error when the keys cannot be loaded', async () => {
     mswServer.use(http.get('*/beacon/api/api-keys/admin', () => new HttpResponse(null, { status: 500 })));
-    renderWithProviders(<AllApiKeysCard />);
+    renderWithProviders(<AllApiKeysCard canRevoke />);
 
     expect(await screen.findByText('Failed to load API keys')).toBeInTheDocument();
   });

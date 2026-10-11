@@ -9,7 +9,8 @@ namespace Beacon.SampleProject.Services;
 /// Transforms claims after authentication to add Beacon role claims.
 /// The role is resolved from the Beacon user store by the session's user id (<see cref="ClaimTypes.NameIdentifier"/>,
 /// the user's external id) — never by a display name and never inferred from the username string — so neither
-/// self-registration nor a look-alike name can grant privileges. A user without any role gets no role claim.
+/// self-registration nor a look-alike name can grant privileges. A user without any role, or with functional roles only,
+/// gets no role claim.
 /// </summary>
 public class SampleClaimsTransformation(IUserManagementService userService) : IClaimsTransformation
 {
@@ -77,6 +78,7 @@ public class SampleClaimsTransformation(IUserManagementService userService) : IC
             return RoleService.RoleNames.Editor;
         }
 
-        return RoleService.RoleNames.Viewer;
+        // Functional roles (level 0) carry no global role.
+        return maxLevel >= RoleService.RoleLevels.Viewer ? RoleService.RoleNames.Viewer : null;
     }
 }

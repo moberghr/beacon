@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
@@ -15,7 +16,10 @@ namespace Beacon.Core.Handlers.McpSettings;
 internal sealed class UpdateMcpProjectSettingsHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
-    IOptions<McpDeploymentOptions> deploymentOptions)
+    IOptions<McpDeploymentOptions> deploymentOptions,
+    IBeaconPermissionAccessor permissionAccessor,
+    IBeaconActorAccessor actorAccessor,
+    ILogger<UpdateMcpProjectSettingsHandler> logger)
     : IRequestHandler<UpdateMcpProjectSettingsCommand>
 {
     public async Task Handle(UpdateMcpProjectSettingsCommand request, CancellationToken cancellationToken)
@@ -59,6 +63,17 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         var entity = await context.McpProjectSettings
             .Where(x => x.ProjectId == request.ProjectId)
             .FirstOrDefaultAsync(cancellationToken);
+
+        // Turning read-only enforcement or PII detection off for the project is an Admin's; a SecurityAdmin turns them
+        // on. An override left empty inherits the global value, read only when that decides it.
+        if (await LoosensSafetyAsync(context, entity, data, cancellationToken))
+        {
+            McpSafetySettings.DemandAdmin(
+                await permissionAccessor.GetCurrentAsync(cancellationToken),
+                await actorAccessor.GetCurrentAsync(cancellationToken),
+                logger,
+                request.ProjectId);
+        }
 
         if (entity == null)
         {
@@ -115,7 +130,43 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
     }
+
+    private static async Task<bool> LoosensSafetyAsync(
+        BeaconContext context,
+        McpProjectSettings? entity,
+        McpProjectSettingsData data,
+        CancellationToken cancellationToken)
+    {
+        var readOnly = McpSafetySettings.Loosens(entity?.EnforceReadOnly, data.EnforceReadOnly);
+        var pii = McpSafetySettings.Loosens(entity?.EnablePiiDetection, data.EnablePiiDetection);
+        if (readOnly == true || pii == true)
+        {
+            return true;
+        }
+
+        if (readOnly == null || pii == null)
+        {
+            var global = await context.McpSettings
+                .Select(x =>
+                    new
+                    {
+                        x.EnforceReadOnly,
+                        x.EnablePiiDetection
+                    })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return (readOnly == null && !(global?.EnforceReadOnly ?? true))
+                || (pii == null && !(global?.EnablePiiDetection ?? true));
+        }
+
+        return false;
+    }
 }
 
-[ProjectScopeExempt("admin-gated security configuration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Saves a project's MCP setting overrides (null inherits the global value). For an Admin or a SecurityAdmin; only an
+/// Admin turns read-only enforcement or PII detection off for the project, or pins either off (403,
+/// <see cref="McpSafetySettings"/>). An override of a field a deployment lock pins is refused (409).
+/// </summary>
+[ProjectScopeExempt("security configuration, gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateMcpProjectSettingsCommand(int ProjectId, McpProjectSettingsData Data) : IRequest;

@@ -12,6 +12,7 @@ using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Services;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
@@ -447,6 +448,228 @@ public class ProjectMembershipHandlersTests
         serialization.Commits.Should().Be(0);
     }
 
+    [Test]
+    public async Task AUserAdmin_ManagesTheMembersOfAProjectItCannotRead_AndTheChangeIsLogged()
+    {
+        var saved = new List<object>();
+        var logs = new LogRecorder();
+        var factory = Recording(saved, users: [new BeaconUser { Id = MemberId, ExternalId = "ext-ben", UserName = "ben", IsEnabled = true }]);
+        var handler = new SetProjectMemberHandler(
+            factory,
+            TestProjectAccess.Evaluator(ProjectAccessScope.None),
+            Source(),
+            TestProjectAccess.Actors(),
+            TestPermissions.Holding(BeaconPermissions.UserAdmin),
+            Options.Create(new RoleMappingOptions()),
+            new FakeTimeProvider(DateTimeOffset.UtcNow),
+            logs.For<SetProjectMemberHandler>());
+
+        var result = await handler.Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.ProjectAdmin), CancellationToken.None);
+
+        result.Added.Should().BeTrue();
+        saved.OfType<ProjectMember>().Should().ContainSingle().Which.AddedByUserId.Should().Be(3);
+        logs.Entries.Should().ContainSingle()
+            .Which.Message.Should().Be($"Project member added: project {ProjectId}, user {MemberId}, role ProjectAdmin, by user 3");
+    }
+
+    [TestCase("Admin", RoleService.RoleLevels.Admin, false)]
+    [TestCase("UserAdmin", RoleService.RoleLevels.Functional, false)]
+    [TestCase("Auditor", RoleService.RoleLevels.Functional, false)]
+    [TestCase("Former functional role", RoleService.RoleLevels.Functional, false)]
+    [TestCase("Viewer", RoleService.RoleLevels.Viewer, true)]
+    public async Task AUserAdmin_ChangesNoProjectMembershipOfAUserOnlyAnAdminMayChange(string roleName, int level, bool allowed)
+    {
+        var saved = new List<object>();
+        var member = new BeaconUser
+        {
+            Id = MemberId,
+            ExternalId = "ext-ben",
+            UserName = "ben",
+            IsEnabled = true,
+            UserRoles = [new BeaconUserRole { UserId = MemberId, Role = new BeaconRole { Name = roleName, Level = level, IsSystemRole = true } }]
+        };
+        var factory = Recording(saved, users: [member], members: [Member(MemberId, ProjectRole.Viewer)]);
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var add = () => SetMember(factory, ProjectAccessScope.None, permissions: userAdmin)
+            .Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.ProjectAdmin), CancellationToken.None);
+        var remove = () => Remove(factory, ProjectAccessScope.None, permissions: userAdmin)
+            .Handle(new RemoveProjectMemberCommand(ProjectId, MemberId), CancellationToken.None);
+
+        if (allowed)
+        {
+            await add.Should().NotThrowAsync();
+            return;
+        }
+
+        await add.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ProjectMembershipRules.ProtectedMemberMessage);
+        await remove.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ProjectMembershipRules.ProtectedMemberMessage);
+        saved.OfType<ProjectMember>().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task AUserAdmin_ChangesNoProjectMembershipOfASuperAdmin_ButAProjectAdminOfTheProjectMay()
+    {
+        var factory = Recording([], users: [new BeaconUser { Id = MemberId, ExternalId = "ext-root", UserName = "root", IsEnabled = true, IsSuperAdmin = true }]);
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var asUserAdmin = () => SetMember(factory, ProjectAccessScope.None, permissions: userAdmin)
+            .Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.Viewer), CancellationToken.None);
+        var asProjectAdmin = () => SetMember(factory, ProjectAdminScope(), permissions: userAdmin)
+            .Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.Viewer), CancellationToken.None);
+
+        await asUserAdmin.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ProjectMembershipRules.ProtectedMemberMessage);
+        await asProjectAdmin.Should().NotThrowAsync("a ProjectAdmin manages its own project's members");
+    }
+
+    [Test]
+    public async Task OpeningARestrictedProject_IsAnAdmins_WhileAUserAdminRestrictsOne()
+    {
+        var restricted = new Project { Id = ProjectId, Name = "restricted", RequiresMembership = true };
+        var open = new Project { Id = 7, Name = "open" };
+        var factory = Recording([], projects: [restricted, open]);
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var opened = () => AccessMode(factory, ProjectAccessScope.None, userAdmin)
+            .Handle(new SetProjectAccessModeCommand(ProjectId, false), CancellationToken.None);
+        await opened.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(SetProjectAccessModeHandler.OpenRequiresAdminMessage);
+        restricted.RequiresMembership.Should().BeTrue();
+
+        var restrictedByUserAdmin = await AccessMode(factory, ProjectAccessScope.None, userAdmin)
+            .Handle(new SetProjectAccessModeCommand(7, true), CancellationToken.None);
+        var openedByAdmin = await AccessMode(factory, ProjectAccessScope.Unrestricted, TestPermissions.Admin)
+            .Handle(new SetProjectAccessModeCommand(ProjectId, false), CancellationToken.None);
+
+        restrictedByUserAdmin.RequiresMembership.Should().BeTrue();
+        openedByAdmin.RequiresMembership.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task AUserAdmin_ListsTheMembersAndCandidates_OfAProjectItCannotRead()
+    {
+        var factory = Recording(
+            [],
+            users: [new BeaconUser { Id = MemberId, ExternalId = "ext-ben", UserName = "ben", DisplayName = "Ben", IsEnabled = true }],
+            members: [Member(MemberId, ProjectRole.Editor, "Ben")]);
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var members = await Members(factory, ProjectAccessScope.None, Source(), userAdmin).Handle(new GetProjectMembersQuery { ProjectId = ProjectId }, CancellationToken.None);
+        var candidates = await Candidates(factory, ProjectAccessScope.None, Source(), new RateLimiter(), userAdmin).Handle(new SearchProjectMemberCandidatesQuery(ProjectId, "be"), CancellationToken.None);
+        var withoutPermission = () => Members(factory, ProjectAccessScope.None, Source()).Handle(new GetProjectMembersQuery { ProjectId = ProjectId }, CancellationToken.None);
+
+        members.Items.Should().ContainSingle().Which.UserId.Should().Be(MemberId);
+        candidates.Candidates.Should().ContainSingle().Which.Should().Be(new MemberCandidate(MemberId, "Ben", true, true));
+        await withoutPermission.Should().ThrowAsync<BeaconNotFoundException>("without the permission the project is unreadable");
+    }
+
+    [Test]
+    public async Task TheMembersAndCandidates_SayWhichMembershipsAUserAdminMayNotChange()
+    {
+        // The caller (TestProjectAccess.Actors) is Beacon user 3; Ben holds a functional role, Bert a built-in one.
+        const int bertId = 9;
+        var auditorRole = new BeaconRole { Name = BeaconPermissions.Auditor, Level = RoleService.RoleLevels.Functional, IsSystemRole = true };
+        var viewerRole = new BeaconRole { Name = RoleService.RoleNames.Viewer, Level = RoleService.RoleLevels.Viewer, IsSystemRole = true };
+        var users = new List<BeaconUser>
+        {
+            new() { Id = 3, ExternalId = "ext-ada", UserName = "ada", DisplayName = "Bess", IsEnabled = true },
+            new() { Id = MemberId, ExternalId = "ext-ben", UserName = "ben", DisplayName = "Ben", IsEnabled = true, UserRoles = [new BeaconUserRole { UserId = MemberId, Role = auditorRole }] },
+            new() { Id = bertId, ExternalId = "ext-bert", UserName = "bert", DisplayName = "Bert", IsEnabled = true, UserRoles = [new BeaconUserRole { UserId = bertId, Role = viewerRole }] }
+        };
+        var factory = Recording(
+            [],
+            users: users,
+            members: [Member(3, ProjectRole.Viewer, "Bess"), Member(MemberId, ProjectRole.Editor, "Ben"), Member(bertId, ProjectRole.Viewer, "Bert")]);
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var asUserAdmin = await Members(factory, ProjectAccessScope.None, Source(), userAdmin).Handle(new GetProjectMembersQuery { ProjectId = ProjectId }, CancellationToken.None);
+        var candidatesAsUserAdmin = await Candidates(factory, ProjectAccessScope.None, Source(), new RateLimiter(), userAdmin).Handle(new SearchProjectMemberCandidatesQuery(ProjectId, "be"), CancellationToken.None);
+        var asProjectAdmin = await Members(factory, ProjectAdminScope(), Source(), userAdmin).Handle(new GetProjectMembersQuery { ProjectId = ProjectId }, CancellationToken.None);
+        var candidatesAsProjectAdmin = await Candidates(factory, ProjectAdminScope(), Source(), new RateLimiter(), userAdmin).Handle(new SearchProjectMemberCandidatesQuery(ProjectId, "be"), CancellationToken.None);
+
+        asUserAdmin.Items.ToDictionary(x => x.UserId, x => x.CanChange).Should().Equal(new Dictionary<int, bool> { [3] = false, [MemberId] = false, [bertId] = true });
+        candidatesAsUserAdmin.Candidates.ToDictionary(x => x.UserId, x => x.CanAdd).Should().Equal(new Dictionary<int, bool> { [3] = false, [MemberId] = false, [bertId] = true });
+        asProjectAdmin.Items.Should().OnlyContain(x => x.CanChange, "a ProjectAdmin manages its own project's members");
+        candidatesAsProjectAdmin.Candidates.Should().OnlyContain(x => x.CanAdd);
+    }
+
+    [Test]
+    public async Task AUserAdmin_CannotChangeTheirOwnMembership()
+    {
+        // The caller (TestProjectAccess.Actors) is Beacon user 3.
+        var users = new List<BeaconUser> { new() { Id = 3, ExternalId = "ext-ada", UserName = "ada", IsEnabled = true } };
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var join = () => SetMember(Recording([], users: users), ProjectAccessScope.None, permissions: userAdmin)
+            .Handle(new SetProjectMemberCommand(ProjectId, 3, ProjectRole.ProjectAdmin), CancellationToken.None);
+        var leave = () => Remove(Recording([], users: users, offline: new SqlCapture()), ProjectAccessScope.None, permissions: userAdmin)
+            .Handle(new RemoveProjectMemberCommand(ProjectId, 3), CancellationToken.None);
+
+        await join.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*own project membership*");
+        await leave.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*own project membership*");
+    }
+
+    [Test]
+    public async Task AUserAdmin_RestrictsOrOpensAnyProject_ButLinksNoDataSource()
+    {
+        var userAdmin = TestPermissions.Holding(BeaconPermissions.UserAdmin);
+
+        var restrict = () => AccessMode(new SqlCapture().ThenNoRows(), ProjectAccessScope.None, Source(), userAdmin)
+            .Handle(new SetProjectAccessModeCommand(ProjectId, true), CancellationToken.None);
+        var link = () => Link(Recording([], dataSources: [Source(10)], offline: new SqlCapture()), ProjectAccessScope.None, permissions: userAdmin)
+            .Handle(new LinkProjectDataSourcesCommand(ProjectId, [10]), CancellationToken.None);
+
+        await restrict.Should().ThrowAsync<BeaconNotFoundException>("past the permission check, the project is looked up (and missing here)");
+        await link.Should().ThrowAsync<BeaconNotFoundException>("linking needs ManageMembers in the project, which the permission does not give");
+    }
+
+    [Test]
+    public async Task ADataSourceAdmin_LinksASourceOnlyARestrictedProjectItReadsHolds_AndGainsNoMembership()
+    {
+        var saved = new List<object>();
+        var restricted = new Project { Id = 2, Name = "restricted", RequiresMembership = true };
+        var factory = Recording(
+            saved,
+            projects: [new Project { Id = ProjectId, Name = "target" }, restricted],
+            dataSources: [Source(20)],
+            links: [new ProjectDataSource { ProjectId = 2, DataSourceId = 20, Project = restricted }],
+            offline: new SqlCapture());
+        var readsRestricted = TestProjectAccess.Scope(
+            new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.ProjectAdmin, [2] = ProjectRole.Viewer },
+            includesOpen: true,
+            notOpen: []);
+
+        var result = await Link(factory, readsRestricted, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin))
+            .Handle(new LinkProjectDataSourcesCommand(ProjectId, [20]), CancellationToken.None);
+        var withoutPermission = () => Link(factory, readsRestricted)
+            .Handle(new LinkProjectDataSourcesCommand(ProjectId, [20]), CancellationToken.None);
+
+        result.LinkedDataSourceIds.Should().Equal(20);
+        saved.OfType<ProjectMember>().Should().BeEmpty("linking a restricted project's source grants no membership of it");
+        await withoutPermission.Should().ThrowAsync<BeaconForbiddenException>("only an Admin or a DataSourceAdmin links a source no open project holds");
+    }
+
+    [Test]
+    public async Task ADataSourceAdmin_CannotLinkASourceItCannotRead_IntoAProjectItIsAMemberOf()
+    {
+        var saved = new List<object>();
+        var restricted = new Project { Id = 2, Name = "restricted", RequiresMembership = true };
+        var factory = Recording(
+            saved,
+            projects: [new Project { Id = ProjectId, Name = "target", RequiresMembership = true }, restricted],
+            dataSources: [Source(20), Source(30)],
+            links: [new ProjectDataSource { ProjectId = 2, DataSourceId = 20, Project = restricted }],
+            offline: new SqlCapture());
+
+        var restrictedOnly = () => Link(factory, ProjectAdminScope(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin))
+            .Handle(new LinkProjectDataSourcesCommand(ProjectId, [20]), CancellationToken.None);
+        var unlinked = () => Link(factory, ProjectAdminScope(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin))
+            .Handle(new LinkProjectDataSourcesCommand(ProjectId, [30]), CancellationToken.None);
+
+        await restrictedOnly.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ProjectDataSourceLinks.UnreadableSourceMessage);
+        await unlinked.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ProjectDataSourceLinks.UnreadableSourceMessage);
+        saved.OfType<ProjectDataSource>().Should().BeEmpty("the members of the target project would read the source");
+    }
+
     // The target project, data source 10 (ordinary, closed when unlinked), held by the live open project 4.
     private static SqlCapture LinkScript()
     {
@@ -519,34 +742,38 @@ public class ProjectMembershipHandlersTests
         return new DatabaseProjectMembershipSource(configuration, new SqlCapture().Factory());
     }
 
-    private static SetProjectMemberHandler SetMember(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null)
+    private static SetProjectMemberHandler SetMember(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
     {
-        return SetMember(capture.Factory(), scope, source);
+        return SetMember(capture.Factory(), scope, source, permissions);
     }
 
-    private static SetProjectMemberHandler SetMember(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null)
+    private static SetProjectMemberHandler SetMember(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
     {
         return new SetProjectMemberHandler(
             factory,
             TestProjectAccess.Evaluator(scope),
             source ?? Source(),
             TestProjectAccess.Actors(),
+            permissions ?? TestPermissions.None,
+            Options.Create(new RoleMappingOptions()),
             new FakeTimeProvider(DateTimeOffset.UtcNow),
             NullLogger<SetProjectMemberHandler>.Instance);
     }
 
-    private static RemoveProjectMemberHandler Remove(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null)
+    private static RemoveProjectMemberHandler Remove(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
     {
-        return Remove(capture.Factory(), scope, source);
+        return Remove(capture.Factory(), scope, source, permissions);
     }
 
-    private static RemoveProjectMemberHandler Remove(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null)
+    private static RemoveProjectMemberHandler Remove(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
     {
         return new RemoveProjectMemberHandler(
             factory,
             TestProjectAccess.Evaluator(scope),
             source ?? Source(),
             TestProjectAccess.Actors(),
+            permissions ?? TestPermissions.None,
+            Options.Create(new RoleMappingOptions()),
             NullLogger<RemoveProjectMemberHandler>.Instance);
     }
 
@@ -555,13 +782,15 @@ public class ProjectMembershipHandlersTests
         return Members(capture.Factory(), scope, source);
     }
 
-    private static GetProjectMembersHandler Members(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource source)
+    private static GetProjectMembersHandler Members(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource source, IBeaconPermissionAccessor? permissions = null)
     {
         return new GetProjectMembersHandler(
             factory,
             TestProjectAccess.Evaluator(scope),
             source,
             TestProjectAccess.Actors(),
+            permissions ?? TestPermissions.None,
+            Options.Create(new RoleMappingOptions()),
             NullLogger<GetProjectMembersHandler>.Instance);
     }
 
@@ -578,24 +807,40 @@ public class ProjectMembershipHandlersTests
         IDbContextFactory<BeaconContext> factory,
         ProjectAccessScope scope,
         IProjectMembershipSource source,
-        RateLimiter limiter)
+        RateLimiter limiter,
+        IBeaconPermissionAccessor? permissions = null)
     {
         return new SearchProjectMemberCandidatesHandler(
             factory,
             TestProjectAccess.Evaluator(scope),
             source,
             TestProjectAccess.Actors(),
+            permissions ?? TestPermissions.None,
             limiter,
+            Options.Create(new RoleMappingOptions()),
             NullLogger<SearchProjectMemberCandidatesHandler>.Instance);
     }
 
-    private static SetProjectAccessModeHandler AccessMode(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource source)
+    private static SetProjectAccessModeHandler AccessMode(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IBeaconPermissionAccessor permissions)
+    {
+        return new SetProjectAccessModeHandler(
+            factory,
+            TestProjectAccess.Evaluator(scope),
+            Source(),
+            TestProjectAccess.Actors(),
+            permissions,
+            Options.Create(new ProjectAuthorizationOptions()),
+            NullLogger<SetProjectAccessModeHandler>.Instance);
+    }
+
+    private static SetProjectAccessModeHandler AccessMode(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource source, IBeaconPermissionAccessor? permissions = null)
     {
         return new SetProjectAccessModeHandler(
             capture.Factory(),
             TestProjectAccess.Evaluator(scope),
             source,
             TestProjectAccess.Actors(),
+            permissions ?? TestPermissions.None,
             Options.Create(new ProjectAuthorizationOptions()),
             NullLogger<SetProjectAccessModeHandler>.Instance);
     }
@@ -605,12 +850,13 @@ public class ProjectMembershipHandlersTests
         return Link(capture.Factory(), scope);
     }
 
-    private static LinkProjectDataSourcesHandler Link(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IHostDataSourceRegistry? hostSources = null)
+    private static LinkProjectDataSourcesHandler Link(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IHostDataSourceRegistry? hostSources = null, IBeaconPermissionAccessor? permissions = null)
     {
         return new LinkProjectDataSourcesHandler(
             factory,
             TestProjectAccess.Evaluator(scope),
             TestProjectAccess.Actors(),
+            permissions ?? TestPermissions.None,
             hostSources ?? new TestHostDataSources(),
             Options.Create(new ProjectAuthorizationOptions()),
             NullLogger<LinkProjectDataSourcesHandler>.Instance);

@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
@@ -17,10 +18,10 @@ internal static class EvalEndpoints
     public static RouteGroupBuilder MapEvalEndpoints(this RouteGroupBuilder group)
     {
         // The eval harness is admin tuning surface: it executes SQL against live data sources and
-        // writes/edits golden cases. Gate the whole group with the admin policy (matching MCP management,
-        // data-sources, migrations, users) rather than the base authenticated policy (§1.1/§1.4).
+        // writes/edits golden cases. Gate the whole group with the admin policy, and an Admin by live roles (a
+        // session whose Admin role was removed is refused), rather than the base authenticated policy (§1.1/§1.4).
         var eval = group.MapGroup("/eval").WithTags("Eval")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconAdmin();
 
         eval.MapPost("/golden/promote", (PromoteSignalToGoldenBody body, IMediator m, CancellationToken ct) =>
                 m.Send(new PromoteSignalToGoldenCommand(body.SignalId, body.Notes), ct))

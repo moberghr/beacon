@@ -6,7 +6,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class RunMigrationJobHandler(IMigrationService migrationService)
+internal sealed class RunMigrationJobHandler(IMigrationService migrationService, MigrationJobAccess access)
     : IRequestHandler<RunMigrationJobCommand, RunMigrationJobResult>
 {
     public async Task<RunMigrationJobResult> Handle(
@@ -17,6 +17,9 @@ internal sealed class RunMigrationJobHandler(IMigrationService migrationService)
         {
             throw new InvalidOperationException("Migration job id is required.");
         }
+
+        // Checked at every run, on the job as stored now: the caller may since have lost access to a data source.
+        await access.DemandForJobAsync(request.MigrationJobId, cancellationToken);
 
         var response = await migrationService.ExecuteMigrationJob(
             new ExecuteMigrationJobRequest(
@@ -35,7 +38,12 @@ internal sealed class RunMigrationJobHandler(IMigrationService migrationService)
     }
 }
 
-[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Runs a migration job now. For an Admin, or a MigrationOperator who may still query its source and the data source of
+/// every step it runs and write its destination, and whose destination is no more widely reachable than any of those
+/// sources (<see cref="MigrationJobAccess"/>). A refused run never starts.
+/// </summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; the handler checks Query on the job's source and every step's data source and Write on its destination through project access", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record RunMigrationJobCommand(int MigrationJobId) : IRequest<RunMigrationJobResult>;
 
 public record RunMigrationJobResult(

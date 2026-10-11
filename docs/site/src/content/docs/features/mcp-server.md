@@ -418,7 +418,7 @@ Review the queue on the **MCP Learning** page (`/mcp-learning`), where pending p
 
 ## Configuration
 
-Administrators can customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`).
+Admins and SecurityAdmins customize the MCP server behavior at **MCP Settings** in the React UI (`/mcp-settings`); Auditors read it. The routes: `GET /beacon/api/mcp/settings` and `GET /beacon/api/mcp/projects/{projectId}/settings` for an Auditor or a SecurityAdmin, the `PUT`s for a SecurityAdmin (Admins hold both; see [Functional permissions](/features/authorization/#functional-permissions)).
 
 **Global defaults or per project.** A scope selector at the top of the page switches between the global defaults and any single project. In project scope each field gets an **Override** checkbox: leave it unchecked and the project inherits the global value (shown greyed out); check it and the project keeps its own. Prompts and tool descriptions stay global by design — `tools/list` is answered before any project is known.
 

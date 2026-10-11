@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { ProjectRole } from '@/lib/enums';
-import { MembersTab } from './MembersTab';
+import { ADMIN_ONLY_MEMBERSHIP_NOTE, MembersTab } from './MembersTab';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -17,7 +17,15 @@ function members(items: Array<Record<string, unknown>>) {
   );
 }
 
-const ada = { userId: 3, displayName: 'Ada', role: ProjectRole.ProjectAdmin, isActive: true, addedAt: '2026-10-01T10:00:00Z', modifiedAt: null };
+const ada = {
+  userId: 3,
+  displayName: 'Ada',
+  role: ProjectRole.ProjectAdmin,
+  isActive: true,
+  addedAt: '2026-10-01T10:00:00Z',
+  modifiedAt: null,
+  canChange: true,
+};
 
 const conflict = (detail: string) =>
   HttpResponse.json({ title: 'Conflict', status: 409, detail }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } });
@@ -37,8 +45,8 @@ describe('MembersTab', () => {
         searched = new URL(request.url).searchParams.get('search') ?? '';
         return HttpResponse.json({
           candidates: [
-            { userId: 3, displayName: 'Ada', isMember: true },
-            { userId: 4, displayName: 'Grace', isMember: false },
+            { userId: 3, displayName: 'Ada', isMember: true, canAdd: true },
+            { userId: 4, displayName: 'Grace', isMember: false, canAdd: true },
           ],
         });
       }),
@@ -88,6 +96,39 @@ describe('MembersTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove Linus' }));
     fireEvent.click(await screen.findByRole('button', { name: /^remove$/i }));
     await waitFor(() => expect(deleted).toBe(true));
+  });
+
+  it('shows a membership the caller may not change read-only, without a remove', async () => {
+    mswServer.use(members([ada, { ...ada, userId: 6, displayName: 'Linus', role: ProjectRole.Editor, canChange: false }]));
+
+    renderWithProviders(<MembersTab projectId={5} />);
+
+    expect(await screen.findByText(ADMIN_ONLY_MEMBERSHIP_NOTE)).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Role of Linus' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Linus' })).not.toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Role of Ada' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Ada' })).toBeInTheDocument();
+  });
+
+  it('offers no add for a person the caller may not add, and says why', async () => {
+    mswServer.use(
+      members([ada]),
+      http.get('*/beacon/api/projects/5/member-candidates', () =>
+        HttpResponse.json({
+          candidates: [
+            { userId: 4, displayName: 'Grace', isMember: false, canAdd: false },
+            { userId: 7, displayName: 'Greta', isMember: false, canAdd: true },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<MembersTab projectId={5} />);
+    fireEvent.change(screen.getByRole('searchbox', { name: /search people to add/i }), { target: { value: 'gr' } });
+
+    expect(await screen.findByRole('button', { name: 'Add Greta' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Grace' })).not.toBeInTheDocument();
+    expect(screen.getByText('Only an Admin can add this user.')).toBeInTheDocument();
   });
 
   it('warns when the project has no active project admin', async () => {
@@ -200,7 +241,7 @@ describe('MembersTab', () => {
     mswServer.use(
       members([ada, { ...ada, userId: 9, displayName: '', role: ProjectRole.Viewer }]),
       http.get('*/beacon/api/projects/5/member-candidates', () =>
-        HttpResponse.json({ candidates: [{ userId: 12, displayName: ' ', isMember: false }] }),
+        HttpResponse.json({ candidates: [{ userId: 12, displayName: ' ', isMember: false, canAdd: true }] }),
       ),
     );
 

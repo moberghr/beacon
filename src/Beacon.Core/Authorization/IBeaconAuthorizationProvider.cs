@@ -13,6 +13,15 @@ public interface IBeaconAuthorizationProvider
     Task<bool> HasReadPermissionAsync(CancellationToken cancellationToken = default);
     Task<bool> HasWritePermissionAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Whether the caller, who holds the functional permission <paramref name="permission"/> (a
+    /// <see cref="BeaconPermissions"/> name) and is not an Admin, may use it on this request. Asked on the routes the
+    /// permission opens, instead of <see cref="HasReadPermissionAsync"/> and <see cref="HasWritePermissionAsync"/>, which an
+    /// Admin is still asked: a host vetoes a permission here. True by default.
+    /// </summary>
+    Task<bool> AllowsFunctionalPermissionAsync(string permission, CancellationToken cancellationToken = default) =>
+        Task.FromResult(true);
+
     [Obsolete(ResourceLevelObsoleteMessage)]
     Task<AuthorizationResult?> AuthorizeAsync(
         ResourceType resourceType,

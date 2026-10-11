@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Lock, ShieldAlert } from 'lucide-react';
+import { Eye, Lock, ShieldAlert } from 'lucide-react';
 import {
   PageHeader,
   Banner,
@@ -15,7 +15,8 @@ import {
   Textarea,
 } from '@/components/beacon';
 import { Tabs } from '@/components/Tabs';
-import { useRequireAdmin } from '@/auth/useRequireAdmin';
+import { useAccess } from '@/auth/useAuth';
+import { useRequirePermission } from '@/auth/useRequirePermission';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { ProjectPicker } from '@/routes/projects/ProjectPicker';
@@ -88,10 +89,11 @@ export const FIELD_TAB: Record<keyof FormValues, TabKey> = {
   allowExplicitFeedbackContent: 'guardrails',
 };
 
+/** Read by an Auditor or a SecurityAdmin; changed by a SecurityAdmin (an Admin holds both). */
 export default function McpSettingsPage() {
-  const isAdmin = useRequireAdmin();
+  const allowed = useRequirePermission('Auditor', 'SecurityAdmin');
 
-  if (isAdmin === undefined) {
+  if (allowed === undefined) {
     return (
       <div className="flex flex-col gap-5 p-7">
         <PageHeader
@@ -102,9 +104,21 @@ export default function McpSettingsPage() {
       </div>
     );
   }
-  if (isAdmin === false) return null;
+  if (allowed === false) return null;
 
   return <McpSettingsShell />;
+}
+
+/** Shown to an Auditor: the settings are theirs to read, a SecurityAdmin's to change. */
+function ReadOnlyBanner() {
+  return (
+    <Banner
+      tone="info"
+      icon={<Eye />}
+      title="Read only"
+      sub="You can read these settings. Changing them needs the SecurityAdmin permission."
+    />
+  );
 }
 
 /**
@@ -113,11 +127,14 @@ export default function McpSettingsPage() {
  * header so it stays reachable while a scope is loading or failed to load.
  */
 function McpSettingsShell() {
+  const access = useAccess();
+  const readOnly = !access.hasPermission('SecurityAdmin');
   const [scope, setScope] = useState<Scope>('global');
   // The picked project's name, for the heading; the picker fetches matches as the user types.
   const [scopeName, setScopeName] = useState<string | null>(null);
 
-  const scopeSelector = (
+  // Picking a project lists the projects, which needs a Viewer or Editor role: without one, only the global scope.
+  const scopeSelector = access.isFunctionalOnly ? null : (
     <ProjectPicker
       ariaLabel="Settings scope"
       className="w-auto min-w-[14rem]"
@@ -131,7 +148,7 @@ function McpSettingsShell() {
   );
 
   if (scope === 'global') {
-    return <McpSettingsForm scopeSelector={scopeSelector} />;
+    return <McpSettingsForm scopeSelector={scopeSelector} readOnly={readOnly} />;
   }
 
   const projectName = scopeName ?? `#${scope}`;
@@ -141,11 +158,13 @@ function McpSettingsShell() {
       projectId={scope}
       projectName={projectName}
       scopeSelector={scopeSelector}
+      readOnly={readOnly}
     />
   );
 }
 
-function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
+function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode; readOnly: boolean }) {
+  const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpSettings();
   const updateMutation = useUpdateMcpSettings();
   const [tab, setTab] = useState<TabKey>('prompt');
@@ -162,6 +181,7 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
   const { errors } = form.formState;
 
   function onSubmit(values: FormValues) {
+    if (readOnly) return;
     // Blank/whitespace-only nullable text fields must round-trip back to null so
     // the backend's `?? default` fallback keeps working — saving '' would wipe
     // the default Ask system prompt and tool descriptions.
@@ -246,12 +266,16 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
           actions={
             <div className="flex items-center gap-2">
               {scopeSelector}
-              <Button variant="primary" type="submit" disabled={updateMutation.isPending}>
-                {updateMutation.isPending ? 'Saving…' : 'Save settings'}
-              </Button>
+              {!readOnly && (
+                <Button variant="primary" type="submit" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? 'Saving…' : 'Save settings'}
+                </Button>
+              )}
             </div>
           }
         />
+
+        {readOnly && <ReadOnlyBanner />}
 
         <Tabs<TabKey>
           active={tab}
@@ -265,6 +289,8 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
         />
 
         <Card className="p-4">
+          {/* The context preview reads a project's context and stays usable; the settings tabs are read-only for an Auditor. */}
+          <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">
           {tab === 'prompt' && (
             <div className="flex flex-col gap-3">
               <p className="text-text-muted text-sm">
@@ -320,13 +346,24 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
                 />
               </Field>
               <label className="flex gap-2 items-center text-sm">
-                <input type="checkbox" {...form.register('enforceReadOnly')} />
+                <input
+                  type="checkbox"
+                  disabled={!isAdmin && data?.enforceReadOnly === true}
+                  {...form.register('enforceReadOnly')}
+                />
                 Enforce read-only queries
               </label>
               <label className="flex gap-2 items-center text-sm">
-                <input type="checkbox" {...form.register('enablePiiDetection')} />
+                <input
+                  type="checkbox"
+                  disabled={!isAdmin && data?.enablePiiDetection === true}
+                  {...form.register('enablePiiDetection')}
+                />
                 Enable PII detection
               </label>
+              {!readOnly && !isAdmin && (
+                <p className="text-xs text-text-muted">Only an Admin can turn read-only enforcement or PII detection off.</p>
+              )}
               <Field label="Custom PII patterns (one per line)">
                 <Textarea
                   rows={6}
@@ -476,6 +513,7 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
               </Field>
             </div>
           )}
+          </fieldset>
 
           {tab === 'context' && <ProjectContextPreview />}
         </Card>
@@ -607,14 +645,21 @@ export const OVERRIDE_SECTIONS: OverrideSection[] = [
   },
 ];
 
+/** The safety switches only an Admin loosens, per project as globally; anyone else who may edit only tightens them. */
+const SAFETY_KEYS: ReadonlySet<OverrideKey> = new Set<OverrideKey>(['enforceReadOnly', 'enablePiiDetection']);
+
 interface ProjectSettingsFormProps {
   projectId: number;
   projectName: string;
   scopeSelector: ReactNode;
+  readOnly: boolean;
 }
 
-function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectSettingsFormProps) {
+function ProjectSettingsForm({ projectId, projectName, scopeSelector, readOnly }: ProjectSettingsFormProps) {
+  const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpProjectSettings(projectId);
+  // The global values decide whether clearing an override that pins a safety switch on loosens it.
+  const global = useMcpSettings().data;
   const updateMutation = useUpdateMcpProjectSettings();
   // Draft of the override row. Fields the UI does not edit ride along untouched so a
   // save never clears an override it cannot show.
@@ -667,13 +712,24 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
     setDraft(prev => ({ ...(prev ?? {}), [key]: value }));
   }
 
+  // A non-Admin only tightens a safety switch (the server refuses the rest, 403): it keeps the switch on unless the
+  // stored override already pins it off, and clears an override pinning it on only while the global value is on too.
+  function mayTurnOff(key: OverrideKey): boolean {
+    return isAdmin || !SAFETY_KEYS.has(key) || data!.overrides[key] === false;
+  }
+
+  function mayClear(key: OverrideKey): boolean {
+    return isAdmin || !SAFETY_KEYS.has(key) || data!.overrides[key] !== true || global?.[key] === true;
+  }
+
   function toggleOverride(field: OverrideFieldDef, on: boolean) {
     // Turning an override on seeds it with the effective value so the row shows what
     // the project will keep getting until the admin changes it. A null effective value
     // (e.g. no EXPLAIN cost limit) would read as "inherit" again, so seed a kind-appropriate
-    // placeholder the admin then edits.
+    // placeholder the admin then edits. A safety switch the caller may not turn off is pinned on.
     const effective = data!.effective[field.key] as McpProjectSettingsData[OverrideKey];
-    setOverride(field.key, on ? (effective ?? seedFor(field)) : null);
+    const seed = mayTurnOff(field.key) ? (effective ?? seedFor(field)) : true;
+    setOverride(field.key, on ? seed : null);
   }
 
   function onSave() {
@@ -715,15 +771,19 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
     <div className="flex flex-col gap-5 p-7">
       {header(
         'Checked fields override the global value for this project; unchecked fields inherit it (shown greyed).',
-        <Button
-          variant="primary"
-          type="button"
-          onClick={onSave}
-          disabled={updateMutation.isPending}
-        >
-          {updateMutation.isPending ? 'Saving…' : 'Save overrides'}
-        </Button>,
+        readOnly ? undefined : (
+          <Button
+            variant="primary"
+            type="button"
+            onClick={onSave}
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending ? 'Saving…' : 'Save overrides'}
+          </Button>
+        ),
       )}
+
+      {readOnly && <ReadOnlyBanner />}
 
       {data.lockedFields.length > 0 && (
         <Banner
@@ -743,7 +803,12 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
       )}
 
       <Card className="p-4">
-        <div className="flex flex-col gap-3">
+        {!readOnly && !isAdmin && (
+          <p className="m-0 mb-3 text-xs text-text-muted">
+            Only an Admin can turn read-only enforcement or PII detection off for a project.
+          </p>
+        )}
+        <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0 flex flex-col gap-3">
           {OVERRIDE_SECTIONS.map(section => {
             const visible = section.fields.filter(f => !locked.has(f.key));
             if (visible.length === 0) return null;
@@ -757,6 +822,8 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
                     overridden={isOverridden(f.key)}
                     value={isOverridden(f.key) ? draft[f.key] : data.effective[f.key]}
                     clamped={clamped.has(f.key)}
+                    mayTurnOff={mayTurnOff(f.key)}
+                    mayClear={mayClear(f.key)}
                     onToggle={on => toggleOverride(f, on)}
                     onChange={v => setOverride(f.key, v)}
                   />
@@ -765,7 +832,7 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
               </div>
             );
           })}
-        </div>
+        </fieldset>
       </Card>
     </div>
   );
@@ -776,15 +843,20 @@ interface OverrideRowProps {
   overridden: boolean;
   value: unknown;
   clamped: boolean;
+  /** False when the caller may not turn this switch off (it stays on). */
+  mayTurnOff: boolean;
+  /** False when the caller may not clear this override (inheriting would loosen it). */
+  mayClear: boolean;
   onToggle: (on: boolean) => void;
   onChange: (value: McpProjectSettingsData[OverrideKey]) => void;
 }
 
-function OverrideRow({ field, overridden, value, clamped, onToggle, onChange }: OverrideRowProps) {
+function OverrideRow({ field, overridden, value, clamped, mayTurnOff, mayClear, onToggle, onChange }: OverrideRowProps) {
   const toggle = (
     <input
       type="checkbox"
       aria-label={`Override ${field.label}`}
+      disabled={overridden && !mayClear}
       checked={overridden}
       onChange={e => onToggle(e.target.checked)}
     />
@@ -811,7 +883,7 @@ function OverrideRow({ field, overridden, value, clamped, onToggle, onChange }: 
         <label className="flex gap-2 items-center">
           <input
             type="checkbox"
-            disabled={!overridden}
+            disabled={!overridden || (Boolean(value) && !mayTurnOff)}
             checked={Boolean(value)}
             onChange={e => onChange(e.target.checked)}
           />

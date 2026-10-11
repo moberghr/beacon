@@ -5,7 +5,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button, Card, Banner, PageHeader } from '@/components/beacon';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess } from '@/auth/useAuth';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useApiKeysList, useRevokeApiKey, type ApiKeyEntry } from './queries';
 import { GenerateApiKeyDialog } from './GenerateApiKeyDialog';
@@ -15,8 +15,10 @@ import { ExpiresCell, ProjectsCell, ScopePills, StatusPill } from './columns';
 const GRID_TEMPLATE = '1.4fr 0.9fr 1.1fr 0.8fr 1fr 1fr 0.9fr 0.7fr 80px';
 
 export default function ApiKeysListPage() {
-  const isAdmin = useIsAdmin() === true;
-  const list = useApiKeysList();
+  const access = useAccess();
+  // A user with functional roles only manages no keys of their own here; an Auditor or a UserAdmin lists everyone's.
+  const ownKeys = !access.isFunctionalOnly;
+  const list = useApiKeysList(ownKeys);
   const { data, isLoading, isError, error, refetch } = list;
   const revoke = useRevokeApiKey();
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -108,19 +110,23 @@ export default function ApiKeysListPage() {
         prefix="API"
         emphasis="keys"
         sub={
-          isLoading
-            ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} total</span>
+          !ownKeys
+            ? <span className="text-text-muted">Every user's keys</span>
+            : isLoading
+              ? <span className="text-text-muted">Loading…</span>
+              : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} total</span>
         }
         actions={
-          <>
-            <Button icon={<RefreshCw />} type="button" onClick={() => refetch()} disabled={isLoading}>
-              Refresh
-            </Button>
-            <Button variant="primary" icon={<Key />} type="button" onClick={() => setGenerateOpen(true)}>
-              Generate key
-            </Button>
-          </>
+          ownKeys && (
+            <>
+              <Button icon={<RefreshCw />} type="button" onClick={() => refetch()} disabled={isLoading}>
+                Refresh
+              </Button>
+              <Button variant="primary" icon={<Key />} type="button" onClick={() => setGenerateOpen(true)}>
+                Generate key
+              </Button>
+            </>
+          )
         }
       />
 
@@ -131,7 +137,7 @@ export default function ApiKeysListPage() {
         sub="Rotate them regularly. Revoke any key that may have been exposed."
       />
 
-      {isError && (
+      {ownKeys && isError && (
         <EmptyState
           icon={<AlertTriangle />}
           title="Failed to load API keys"
@@ -139,7 +145,7 @@ export default function ApiKeysListPage() {
         />
       )}
 
-      {!isError && (
+      {ownKeys && !isError && (
         <Card>
           <DataTable
             columns={columns}
@@ -165,7 +171,9 @@ export default function ApiKeysListPage() {
         </Card>
       )}
 
-      {isAdmin && <AllApiKeysCard />}
+      {access.hasAnyPermission('Auditor', 'UserAdmin') && (
+        <AllApiKeysCard canRevoke={access.hasPermission('UserAdmin')} />
+      )}
 
       <GenerateApiKeyDialog open={generateOpen} onClose={() => setGenerateOpen(false)} />
 

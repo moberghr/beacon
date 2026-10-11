@@ -86,7 +86,14 @@ public class ProjectMembershipEndpointsTests
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(mediator);
         builder.Services.AddRouting();
-        builder.Services.AddAuthorization(x => x.AddPolicy(BeaconApiEndpoints.AdminPolicyName, y => y.RequireAssertion(_ => true)));
+        builder.Services.AddAuthorization(x =>
+        {
+            x.AddPolicy(BeaconApiEndpoints.AdminPolicyName, y => y.RequireAssertion(_ => true));
+            foreach (var policy in BeaconPermissions.Policies.Keys)
+            {
+                x.AddPolicy(policy, y => y.RequireAssertion(_ => true));
+            }
+        });
         var app = builder.Build();
         app.UseAuthorization();
         app.MapGroup("/beacon/api").MapProjectsEndpoints();

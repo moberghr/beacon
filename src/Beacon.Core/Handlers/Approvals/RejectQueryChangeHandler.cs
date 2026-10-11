@@ -34,7 +34,7 @@ internal sealed class RejectQueryChangeHandler(
     }
 }
 
-[ProjectScopeExempt("admin-gated: rejecting a change is an approval decision", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("gated by the Approver permission: rejecting a change is an approval decision, and an Approver reads every approval request", Policy = BeaconPermissions.ApproverPolicy)]
 public record RejectQueryChangeCommand : IRequest
 {
     public required int RequestId { get; init; }

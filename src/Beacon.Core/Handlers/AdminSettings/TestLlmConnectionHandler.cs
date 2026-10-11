@@ -2,18 +2,39 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using MediatR;
 using Beacon.Core.Authorization;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Handlers.AdminSettings;
 
 internal sealed class TestLlmConnectionHandler(
     IAppSettingsService settingsService,
-    ILlmConnectionTester tester)
+    ILlmConnectionTester tester,
+    IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
+    ILogger<TestLlmConnectionHandler> logger)
     : IRequestHandler<TestLlmConnectionCommand, TestLlmConnectionResult>
 {
     public async Task<TestLlmConnectionResult> Handle(TestLlmConnectionCommand request, CancellationToken cancellationToken)
     {
         // Merge incoming form values with persisted secrets — UI sends `null` for "leave as is".
         var current = await settingsService.GetSettingsAsync(cancellationToken);
+
+        // A SecurityAdmin tests the stored connection only: the stored credentials never go to an endpoint they chose.
+        LlmConnectionSettings.DemandAdminForChanges(
+            await permissionAccessor.GetCurrentAsync(cancellationToken),
+            await actorAccessor.GetCurrentAsync(cancellationToken),
+            logger,
+            current,
+            new LlmConnectionRequest(
+                request.LlmProvider,
+                request.LlmRegion,
+                request.LlmBedrockAuthMode,
+                request.LlmApiKey,
+                request.LlmEndpoint,
+                request.LlmSessionToken,
+                request.LlmAwsAccessKeyId,
+                request.LlmAwsSecretAccessKey),
+            nullKeepsStored: true);
 
         var provider = request.LlmProvider ?? current.LlmProvider ?? AiProvider.OpenAI;
         var model = request.LlmModel ?? current.LlmModel;
@@ -40,7 +61,11 @@ internal sealed class TestLlmConnectionHandler(
     }
 }
 
-[ProjectScopeExempt("admin-gated settings, no project data", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Tests an LLM connection. For an Admin or a SecurityAdmin; only an Admin tests with another provider, endpoint, region,
+/// Bedrock authentication mode or credentials than the stored ones (403 otherwise, <see cref="LlmConnectionSettings"/>).
+/// </summary>
+[ProjectScopeExempt("gated by the SecurityAdmin permission: settings, no project data; another LLM connection stays an Admin's to test", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record TestLlmConnectionCommand(
     AiProvider? LlmProvider,
     string? LlmModel,

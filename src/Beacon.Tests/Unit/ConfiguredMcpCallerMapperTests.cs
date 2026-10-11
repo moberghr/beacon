@@ -558,6 +558,21 @@ public class ConfiguredMcpCallerMapperTests
         caller!.BeaconUserId.Should().Be(21, "the losing request re-reads the user the winning request created");
     }
 
+    [TestCase("Admin", false)]
+    [TestCase("approver", false)]
+    [TestCase("Viewer", true)]
+    public void AProvisionedUsersDefaultRole_IsNeverTheAdminRoleOrAFunctionalRole(string defaultRoleName, bool valid)
+    {
+        var options = new McpCallerOptions
+        {
+            Users = new McpUserCallerOptions { Enabled = true, AutoProvision = true, DefaultRoleName = defaultRoleName }
+        };
+
+        var result = new McpCallerOptionsValidator(null, Options.Create(new RoleMappingOptions())).Validate(null, options);
+
+        (result.FailureMessage?.Contains("Users:DefaultRoleName cannot be", StringComparison.Ordinal) ?? false).Should().Be(!valid);
+    }
+
     [Test]
     public void UniqueViolation_RecognisesPostgresAndIgnoresOtherErrors()
     {

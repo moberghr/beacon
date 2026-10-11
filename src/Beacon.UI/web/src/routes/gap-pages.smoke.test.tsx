@@ -2,6 +2,7 @@ import { cleanup, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, it, expect } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders } from '@/test/render';
+import { functionalOnly, permissionsForRoles } from '@/test/permissions';
 import { mswServer } from '../../vitest.setup';
 
 import ApiKeysListPage from './api-keys/ApiKeysListPage';
@@ -28,6 +29,8 @@ const adminMe = http.get('*/beacon/api/auth/me', () =>
     roles: ['Admin'],
   }),
 );
+
+const adminPermissions = permissionsForRoles(['Admin']);
 
 const editorMe = http.get('*/beacon/api/auth/me', () =>
   HttpResponse.json({
@@ -74,6 +77,7 @@ describe('ApiKeysListPage', () => {
   it('shows an admin every user\'s keys with their owner', async () => {
     mswServer.use(
       adminMe,
+      adminPermissions,
       ownKeys,
       http.get('*/beacon/api/api-keys/admin', () =>
         HttpResponse.json({
@@ -93,6 +97,7 @@ describe('ApiKeysListPage', () => {
               isActive: true,
               userId: 5,
               userName: 'bob',
+              canRevoke: true,
             },
           ],
         }),
@@ -104,6 +109,44 @@ describe('ApiKeysListPage', () => {
     await waitFor(() => expect(screen.getByText('All API keys')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText('bob')).toBeInTheDocument());
     expect(screen.getByText('Reporting')).toBeInTheDocument();
+  });
+
+  it('shows an Auditor with no Viewer or Editor role every user\'s keys, without own keys or revoking', async () => {
+    // onUnhandledRequest is 'error': a request for the caller's own keys would fail this test.
+    mswServer.use(
+      editorMe,
+      functionalOnly('Auditor'),
+      http.get('*/beacon/api/api-keys/admin', () =>
+        HttpResponse.json({
+          totalCount: 1,
+          pageCount: 1,
+          items: [
+            {
+              id: 2,
+              name: 'Reporting',
+              prefix: 'sk-sem_repo',
+              scopes: ['Read'],
+              allowedProjectIds: null,
+              createdAt: '2026-06-02T09:00:00Z',
+              lastUsedAt: null,
+              expiresAt: null,
+              revokedAt: null,
+              isActive: true,
+              userId: 5,
+              userName: 'bob',
+              canRevoke: false,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderWithProviders(<ApiKeysListPage />);
+
+    expect(await screen.findByText('Reporting')).toBeInTheDocument();
+    expect(screen.getByText('All API keys')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /generate key/i })).not.toBeInTheDocument();
   });
 
   it('renders keys from /beacon/api/api-keys', async () => {
@@ -138,6 +181,8 @@ describe('ApiKeysListPage', () => {
 describe('UsersListPage', () => {
   it('renders users from /beacon/api/users', async () => {
     mswServer.use(
+      adminPermissions,
+      http.get('*/beacon/api/users/roles', () => HttpResponse.json({ entries: [] })),
       http.get('*/beacon/api/users', () =>
         HttpResponse.json({
           totalCount: 1,
@@ -169,6 +214,7 @@ describe('AdminSettingsPage', () => {
   it('renders provider settings from /beacon/api/admin-settings for an admin', async () => {
     mswServer.use(
       adminMe,
+      adminPermissions,
       http.get('*/beacon/api/admin-settings', () =>
         HttpResponse.json({
           settings: {

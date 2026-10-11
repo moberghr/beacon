@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Helpers;
 using System.Security.Claims;
 using Beacon.Api.Authentication;
@@ -64,7 +65,7 @@ internal static class QueriesEndpoints
                     body.Description,
                     http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value), ct))
             .WithName("SetQueryMcpTool")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.SecurityAdminPolicy);
 
         // SQL-executing endpoints: require the Execute (or Admin) scope for API-key callers (§1.4).
         // Interactive cookie/OIDC sessions carry no scope claim and pass through, governed by role.

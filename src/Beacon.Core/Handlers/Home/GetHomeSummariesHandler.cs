@@ -9,32 +9,44 @@ namespace Beacon.Core.Handlers.Home;
 
 // ── Migration summary ─────────────────────────────────────────────────────────
 
-internal sealed class GetHomeMigrationSummaryHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
+internal sealed class GetHomeMigrationSummaryHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    IBeaconPermissionAccessor permissionAccessor)
     : IRequestHandler<GetHomeMigrationSummaryQuery, GetHomeMigrationSummaryResult>
 {
     public async Task<GetHomeMigrationSummaryResult> Handle(GetHomeMigrationSummaryQuery request, CancellationToken cancellationToken)
     {
-        // Data migration is an Admin's (its routes are Admin-gated): anyone else sees zeros.
+        // Data migration is an Admin's or a MigrationOperator's (its routes are gated by that permission): anyone else sees
+        // zeros.
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
-        if (!scope.IsUnrestricted)
+        if (!scope.IsUnrestricted && !(await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.MigrationOperator))
         {
             return new GetHomeMigrationSummaryResult(0, 0, 0, 0);
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // The jobs the migration list shows the caller: those whose source and destination it reads (an Admin's: all).
         // Global query filter on ArchivableBaseEntity excludes archived rows.
-        var total = await context.MigrationJobs
+        var readable = scope.For(ProjectAction.Read);
+        var jobs = context.MigrationJobs
+            .WhereSourceAccessible(context, readable, x => x.DataSourceId)
+            .WhereSourceAccessible(context, readable, x => x.DestinationDataSourceId);
+
+        var total = await jobs
             .CountAsync(cancellationToken);
 
         var executions = await context.MigrationExecutions
+            .WhereSourceAccessible(context, readable, x => x.MigrationJob.DataSourceId)
+            .WhereSourceAccessible(context, readable, x => x.MigrationJob.DestinationDataSourceId)
             .CountAsync(cancellationToken);
 
-        var successful = await context.MigrationJobs
+        var successful = await jobs
             .Where(x => x.Executions.Any(e => e.Status == MigrationStatus.Completed || e.Status == MigrationStatus.PartialSuccess))
             .CountAsync(cancellationToken);
 
-        var errored = await context.MigrationJobs
+        var errored = await jobs
             .Where(x => x.Executions.Any(e => e.Status == MigrationStatus.Failed))
             .CountAsync(cancellationToken);
 
@@ -42,7 +54,11 @@ internal sealed class GetHomeMigrationSummaryHandler(IDbContextFactory<BeaconCon
     }
 }
 
-[ProjectScopeExempt("migration data is an Admin's: everyone else gets zeros, with no project data")]
+/// <summary>
+/// The migration counts of the Home page: for an Admin every job, for a MigrationOperator the jobs whose source and
+/// destination it reads (as the migration list shows them), for anyone else zeros.
+/// </summary>
+[ProjectScopeExempt("migration data is an Admin's or a MigrationOperator's, counted over the jobs whose data sources the caller reads: everyone else gets zeros, with no project data")]
 public record GetHomeMigrationSummaryQuery : IRequest<GetHomeMigrationSummaryResult>;
 
 public record GetHomeMigrationSummaryResult(

@@ -24,7 +24,8 @@ internal static class AuthEndpoints
             .WithTags("Auth");
 
         // Authenticated but not permission-gated: a user without a role gets { canRead: false } (the shell shows a
-        // "no access yet" message) rather than a 403.
+        // "no access yet" message) rather than a 403. Also names the functional permissions the caller holds now, for the
+        // shell to show the pages they open.
         group.MapGet("/auth/permissions", GetCurrentPermissions)
             .SkipBeaconPermissionCheck()
             .WithName("GetCurrentPermissions")
@@ -68,11 +69,23 @@ internal static class AuthEndpoints
 
     private static async Task<CurrentPermissionsResponse> GetCurrentPermissions(
         IBeaconAuthorizationProvider authorization,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         var canRead = await authorization.HasReadPermissionAsync(cancellationToken);
         var canWrite = await authorization.HasWritePermissionAsync(cancellationToken);
-        return new CurrentPermissionsResponse(canRead, canWrite);
+        var accessor = httpContext.RequestServices.GetService<IBeaconPermissionAccessor>();
+        var permissions = accessor == null
+            ? BeaconPermissionSet.None
+            : await accessor.GetCurrentAsync(cancellationToken);
+
+        return new CurrentPermissionsResponse(
+            canRead,
+            canWrite,
+            permissions.IsAdmin,
+            BeaconPermissions.All
+                .Where(permissions.Holds)
+                .ToArray());
     }
 }
 
@@ -102,6 +115,10 @@ internal sealed record ExternalLoginResponse(string LoginUrl, string ReturnUrlPa
         options == null ? null : new ExternalLoginResponse(options.LoginUrl, options.ReturnUrlParameter);
 }
 
-internal sealed record CurrentPermissionsResponse(bool CanRead, bool CanWrite);
+/// <summary>
+/// What the caller may do now: read and write (its global role), whether it is an Admin, and the functional permissions
+/// it holds (<see cref="BeaconPermissions"/>; an Admin holds every one).
+/// </summary>
+internal sealed record CurrentPermissionsResponse(bool CanRead, bool CanWrite, bool IsAdmin, IReadOnlyList<string> Permissions);
 
 internal sealed record SsoConfigResponse(bool Enabled);

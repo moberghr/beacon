@@ -222,12 +222,16 @@ export interface ProjectMemberEntry {
   isActive: boolean;
   addedAt: string;
   modifiedAt: string | null;
+  /** False when the caller may not change or remove this membership (only an Admin may). */
+  canChange: boolean;
 }
 
 export interface MemberCandidate {
   userId: number;
   displayName: string;
   isMember: boolean;
+  /** False when the caller may not add this user or change their membership (only an Admin may). */
+  canAdd: boolean;
 }
 
 /**

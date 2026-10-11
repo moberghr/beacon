@@ -13,11 +13,12 @@ cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `a
 1. Write the query as usual. Parameters are `{name}` placeholders in the step SQL, with a type (Number, DateTime,
    String) and a description — the description becomes the argument's description in the tool schema.
 2. Get a version **approved** (see [the approval rule](#which-version-runs)). With the approval workflow enabled,
-   saving SQL changes submits a version for approval; an admin approves it on the Approvals page.
-3. On the query's detail page, an **admin** opens the **MCP tool** card, ticks *Expose as MCP tool*, sets a name
-   and (optionally) a description, and saves. The card shows which approved version calls run, or why none can.
+   saving SQL changes submits a version for approval; an Approver (or an Admin) approves it on the Approvals page.
+3. On the query's detail page, a **SecurityAdmin** (or an Admin) opens the **MCP tool** card, ticks *Expose as MCP
+   tool*, sets a name and (optionally) a description, and saves. The card shows which approved version calls run, or why
+   none can.
 
-The same through the API (Admin policy):
+The same through the API (the SecurityAdmin policy, see [Functional permissions](/features/authorization/#functional-permissions); anyone but an Admin publishes only a query they can read, `404` otherwise):
 
 ```http
 PUT /beacon/api/queries/42/mcp-tool

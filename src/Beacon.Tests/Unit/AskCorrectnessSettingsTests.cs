@@ -102,7 +102,7 @@ public class AskCorrectnessSettingsTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(context);
 
         var settingsProvider = SettingsProviderMock.Create();
-        var handler = new UpdateMcpSettingsHandler(factory.Object, settingsProvider.Object, Options.Create(new McpDeploymentOptions()));
+        var handler = new UpdateMcpSettingsHandler(factory.Object, settingsProvider.Object, Options.Create(new McpDeploymentOptions()), TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance);
 
         var data = new McpSettingsData
         {

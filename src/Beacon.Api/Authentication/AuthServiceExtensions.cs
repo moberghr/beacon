@@ -14,6 +14,7 @@ using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 
 namespace Beacon.Api.Authentication;
@@ -23,6 +24,12 @@ namespace Beacon.Api.Authentication;
 /// </summary>
 public static class AuthServiceExtensions
 {
+    // A problem body without the members it does not carry (a plain refusal has no detail).
+    private static readonly System.Text.Json.JsonSerializerOptions ProblemJson = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
     /// <summary>
     /// Adds cookie authentication for Beacon login form.
     /// </summary>
@@ -74,7 +81,7 @@ public static class AuthServiceExtensions
                 {
                     if (IsApiRequest(context))
                     {
-                        return WriteJsonStatusAsync(context, StatusCodes.Status403Forbidden, "Forbidden");
+                        return WriteJsonStatusAsync(context, StatusCodes.Status403Forbidden, "Forbidden", ApiKeyRefusalDetail(context.HttpContext));
                     }
 
                     context.Response.Redirect(context.RedirectUri);
@@ -106,6 +113,14 @@ public static class AuthServiceExtensions
 
         // Fails startup without Authority/ClientId/ClientSecret, or without a tenant admission rule.
         options.Validate();
+
+        // Every user provisioned at a first sign-in gets the default role: never the Admin role or a functional role.
+        var roleMapping = configuration.GetSection(RoleMappingOptions.SectionName).Get<RoleMappingOptions>() ?? new RoleMappingOptions();
+        if (roleMapping.IsPrivilegedRoleName(options.DefaultRoleName))
+        {
+            throw new InvalidOperationException(
+                "Beacon:Authentication:Oidc:DefaultRoleName cannot be the Admin role or the role of a functional permission: every user signing in for the first time would administer Beacon.");
+        }
 
         // Warns at startup when the tenant check is skipped for an Entra authority.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, OidcStartupWarnings>());
@@ -217,19 +232,34 @@ public static class AuthServiceExtensions
         return false;
     }
 
+    // An API key refused by a route that requires a functional permission (its policy names roles a key never carries)
+    // is told why; every other refusal keeps the plain body.
+    internal static string? ApiKeyRefusalDetail(HttpContext httpContext)
+    {
+        var functional = httpContext.GetEndpoint()?.Metadata.GetMetadata<BeaconFunctionalPermissionMetadata>();
+
+        return functional is { IsRequired: true } && BeaconUserLookup.IsApiKey(httpContext.User)
+            ? BeaconPermissionEndpointFilter.RequiredPermissionDetail(httpContext.User, functional.Permissions)
+            : null;
+    }
+
     private static async Task WriteJsonStatusAsync(
         Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context,
         int statusCode,
-        string title)
+        string title,
+        string? detail = null)
     {
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/problem+json";
-        var payload = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            type = "about:blank",
-            title,
-            status = statusCode
-        });
+        var payload = System.Text.Json.JsonSerializer.Serialize(
+            new
+            {
+                type = "about:blank",
+                title,
+                status = statusCode,
+                detail
+            },
+            ProblemJson);
         await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
     }
 }

@@ -132,6 +132,25 @@ public class SampleClaimsTransformationTests
     }
 
     [Test]
+    public async Task TransformAsync_UserWithFunctionalRolesOnly_GetsNoRoleClaim()
+    {
+        SetupUser("finn", new BeaconUserData
+        {
+            UserName = "finn",
+            IsEnabled = true,
+            IsSuperAdmin = false,
+            Roles = new List<BeaconRoleData>
+            {
+                new() { Name = BeaconPermissions.Auditor, Level = RoleService.RoleLevels.Functional }
+            }
+        });
+
+        var result = await _transformation.TransformAsync(AuthenticatedPrincipal("finn"));
+
+        result.HasClaim(x => x.Type == BeaconClaims.Role).Should().BeFalse("a functional role carries no global role");
+    }
+
+    [Test]
     public async Task TransformAsync_ResolvesTheUserBySessionId_NeverByTheDisplayedName()
     {
         // The session's name is a display name another account could share; only the user id selects the account.

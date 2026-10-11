@@ -42,5 +42,5 @@ internal sealed class DeleteRecipientHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
-[ProjectScopeExempt("recipients are project-less; changing them is admin-gated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("recipients are project-less; changing them is gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record DeleteRecipientCommand(int Id) : IRequest;

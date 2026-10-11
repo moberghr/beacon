@@ -159,6 +159,7 @@ public class ProjectCreationAccessTests
             capture.Factory(),
             encryption.Object,
             TestProjectAccess.Actors(),
+            TestPermissions.None,
             TestProjectAccess.Evaluator(Editor()),
             BeaconMembership(capture.Factory()),
             Options.Create(new ProjectAuthorizationOptions()),
@@ -184,6 +185,52 @@ public class ProjectCreationAccessTests
 
         await act.Should().ThrowAsync<BeaconForbiddenException>();
         saved.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ANewProject_ByADataSourceAdmin_CannotLinkASourceItCannotRead()
+    {
+        // The creator becomes the new project's member, so the link would let it read the restricted project's source.
+        var saved = new List<object>();
+
+        var act = () => CreateProject(saved, Editor(), new SqlCapture(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin))
+            .Handle(new CreateProjectCommand("p", null, [20], []), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ProjectDataSourceLinks.UnreadableSourceMessage);
+        saved.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ANewProject_ByADataSourceAdmin_LinksASourceOnlyARestrictedProjectItReadsHolds()
+    {
+        var saved = new List<object>();
+        var readsRestricted = TestProjectAccess.Scope(
+            new Dictionary<int, ProjectRole> { [RestrictedProject] = ProjectRole.Viewer, [OpenProject] = ProjectRole.Editor },
+            includesOpen: true,
+            notOpen: [20]);
+
+        await CreateProject(saved, readsRestricted, new SqlCapture(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin))
+            .Handle(new CreateProjectCommand("p", null, [20], []), CancellationToken.None);
+        var withoutPermission = () => CreateProject([], readsRestricted, new SqlCapture())
+            .Handle(new CreateProjectCommand("p", null, [20], []), CancellationToken.None);
+
+        saved.OfType<Project>().Should().ContainSingle().Which.DataSources.Select(x => x.DataSourceId).Should().Equal(20);
+        await withoutPermission.Should().ThrowAsync<BeaconForbiddenException>("only an Admin or a DataSourceAdmin links a source no open project holds");
+    }
+
+    [Test]
+    public async Task ARepositoryToken_IsSetByAnAdminOrASecurityAdminNow_NotByAStaleAdminClaim()
+    {
+        var staleAdmin = new BeaconActor("ext-ana", true) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true };
+
+        var refused = () => CreateProject([], Editor(), actor: staleAdmin)
+            .Handle(new CreateProjectCommand("p", null, [], ["https://example.test/repo"], "token"), CancellationToken.None);
+        var saved = new List<object>();
+        await CreateProject(saved, Editor(), permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+            .Handle(new CreateProjectCommand("p", null, [], ["https://example.test/repo"], "token"), CancellationToken.None);
+
+        await refused.Should().ThrowAsync<BeaconForbiddenException>("the session's Admin claim outlives a removed Admin role");
+        saved.OfType<Project>().Should().ContainSingle().Which.Repositories.Should().ContainSingle().Which.EncryptedAccessToken.Should().Be("enc");
     }
 
     [Test]
@@ -269,7 +316,8 @@ public class ProjectCreationAccessTests
         SqlCapture? transactions = null,
         BeaconActor? actor = null,
         IProjectMembershipSource? membership = null,
-        LogRecorder? logs = null)
+        LogRecorder? logs = null,
+        IBeaconPermissionAccessor? permissions = null)
     {
         var restricted = new Project { Id = RestrictedProject, Name = "restricted", RequiresMembership = true };
         var open = new Project { Id = OpenProject, Name = "open" };
@@ -295,6 +343,7 @@ public class ProjectCreationAccessTests
             factory,
             encryption.Object,
             actor == null ? TestProjectAccess.Actors() : Mock.Of<IBeaconActorAccessor>(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()) == Task.FromResult(actor)),
+            permissions ?? TestPermissions.None,
             TestProjectAccess.Evaluator(scope),
             membership ?? BeaconMembership(factory),
             Options.Create(new ProjectAuthorizationOptions()),

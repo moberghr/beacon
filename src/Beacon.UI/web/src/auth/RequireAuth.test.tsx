@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { delay, http, HttpResponse } from 'msw';
 import { renderWithProviders } from '@/test/render';
 import { mswServer } from '../../vitest.setup';
+import { functionalOnly } from '@/test/permissions';
 import { RequireAuth } from './RequireAuth';
 
 function serveUser(isAuthenticated: boolean) {
@@ -59,6 +60,16 @@ describe('RequireAuth for a signed-in user', () => {
     expect(await screen.findByText(/your account has no access yet/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /sign out/i })).toHaveAttribute('href', '/logout');
     expect(screen.queryByText('workspace')).toBeNull();
+  });
+
+  it('lets in a user who holds functional roles only, for the pages those open', async () => {
+    serveUser(true);
+    mswServer.use(functionalOnly('Auditor'));
+
+    renderGuardedPage();
+
+    expect(await screen.findByText('workspace')).toBeInTheDocument();
+    expect(screen.queryByText(/your account has no access yet/i)).toBeNull();
   });
 
   it('signs out from inside the app without asking again', async () => {

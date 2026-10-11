@@ -13,5 +13,5 @@ internal sealed class DeleteDataSourceHandler(IDataSourceService dataSourceServi
     }
 }
 
-[ProjectScopeExempt("admin-gated data-source administration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("data-source administration, gated by the DataSourceAdmin permission", Policy = BeaconPermissions.DataSourceAdminPolicy)]
 public record DeleteDataSourceCommand(int DataSourceId) : IRequest;

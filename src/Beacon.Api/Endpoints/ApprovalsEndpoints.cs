@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Models.Queries;
 using MediatR;
@@ -14,13 +16,15 @@ internal static class ApprovalsEndpoints
         var approvals = group.MapGroup("/approvals").WithTags("Approvals");
 
         approvals.MapGet("/pending", ([AsParameters] GetPendingApprovalsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
-            .WithName("GetPendingApprovals");
+            .WithName("GetPendingApprovals")
+            .AdmitBeaconPermission(BeaconPermissions.Approver);
 
         approvals.MapGet("/{id:int}", async Task<Results<Ok<ApprovalRequestDetail>, NotFound>> (int id, IMediator m, CancellationToken ct) =>
             {
                 var result = await m.Send(new GetApprovalDetailQuery { RequestId = id }, ct);
                 return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
-            }).WithName("GetApprovalDetail");
+            }).WithName("GetApprovalDetail")
+            .AdmitBeaconPermission(BeaconPermissions.Approver);
 
         approvals.MapPost("/{id:int}/approve", async (
             int id,
@@ -39,7 +43,7 @@ internal static class ApprovalsEndpoints
             }, ct);
             return TypedResults.NoContent();
         }).WithName("ApproveQueryChange")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.ApproverPolicy);
 
         approvals.MapPost("/{id:int}/reject", async (
             int id,
@@ -58,7 +62,7 @@ internal static class ApprovalsEndpoints
             }, ct);
             return TypedResults.NoContent();
         }).WithName("RejectQueryChange")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.ApproverPolicy);
 
         return group;
     }

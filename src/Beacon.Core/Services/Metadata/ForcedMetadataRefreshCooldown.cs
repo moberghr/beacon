@@ -8,7 +8,8 @@ namespace Beacon.Core.Services.Metadata;
 /// source and per Beacon process. The time of the last forced refresh that succeeded is kept in the memory cache, so a
 /// refresh that fails (a broken connection, a cancelled request) does not hold back its retry, and the cooldown in force
 /// when the next request arrives is the one applied. Changing or archiving the data source clears it
-/// (<see cref="CacheKey"/>). While the cooldown is on, one forced refresh of a data source runs at a time.
+/// (<see cref="CacheKey"/>). While the cooldown is on, one forced refresh of a data source runs at a time, also for a
+/// caller the cooldown itself does not hold back (an Admin, a DataSourceAdmin).
 /// </summary>
 internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProvider timeProvider)
 {
@@ -23,9 +24,10 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
 
     /// <summary>
     /// Starts a forced refresh of the data source: null when it may run (it is then running until
-    /// <see cref="Finish"/>), else why not. A cooldown of 0 never refuses.
+    /// <see cref="Finish"/>), else why not. A cooldown of 0 never refuses; <paramref name="ignoreCooldown"/> refuses only
+    /// while another refresh of the data source runs.
     /// </summary>
-    public string? TryStart(int dataSourceId, int cooldownMinutes)
+    public string? TryStart(int dataSourceId, int cooldownMinutes, bool ignoreCooldown)
     {
         if (cooldownMinutes <= 0)
         {
@@ -39,7 +41,8 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
                 return AlreadyRunningMessage;
             }
 
-            if (cache.TryGetValue(CacheKey(dataSourceId), out DateTimeOffset lastRefreshed)
+            if (!ignoreCooldown
+                && cache.TryGetValue(CacheKey(dataSourceId), out DateTimeOffset lastRefreshed)
                 && timeProvider.GetUtcNow() - lastRefreshed < TimeSpan.FromMinutes(cooldownMinutes))
             {
                 return $"This data source's metadata was refreshed less than {cooldownMinutes} minutes ago; try again later.";

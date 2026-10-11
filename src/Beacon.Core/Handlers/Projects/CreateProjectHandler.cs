@@ -17,6 +17,7 @@ internal sealed class CreateProjectHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     IProjectAccessEvaluator projectAccess,
     IProjectMembershipSource membershipSource,
     IOptions<ProjectAuthorizationOptions> options,
@@ -28,12 +29,14 @@ internal sealed class CreateProjectHandler(
         CancellationToken cancellationToken)
     {
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
 
-        // A repository access token is an Admin's to set, whether here or on the repository's token route.
+        // A repository access token is an Admin's or a SecurityAdmin's to set (live roles), whether here or on the
+        // repository's token route.
         var hasAccessToken = !string.IsNullOrWhiteSpace(request.AccessToken);
-        if (hasAccessToken && !actor.IsAdmin)
+        if (hasAccessToken && !permissions.Holds(BeaconPermissions.SecurityAdmin))
         {
-            throw AccessRefusal.Of(logger, actor, "repository access token", null, "Only an Admin can set a repository access token.");
+            throw AccessRefusal.Of(logger, actor, "repository access token", null, "Only an Admin or a SecurityAdmin can set a repository access token.");
         }
 
         var dataSourceIds = (request.DataSourceIds ?? [])
@@ -43,7 +46,7 @@ internal sealed class CreateProjectHandler(
 
         try
         {
-            var project = await CreateAsync(request, actor, scope, dataSourceIds, hasAccessToken, cancellationToken);
+            var project = await CreateAsync(request, actor, permissions, scope, dataSourceIds, hasAccessToken, cancellationToken);
             if (!project.RequiresMembership)
             {
                 // Created open because its creator cannot be its member: no active Beacon user, or memberships kept elsewhere.
@@ -67,6 +70,7 @@ internal sealed class CreateProjectHandler(
     private async Task<Project> CreateAsync(
         CreateProjectCommand request,
         BeaconActor actor,
+        BeaconPermissionSet permissions,
         ProjectAccessScope scope,
         List<int> dataSourceIds,
         bool hasAccessToken,
@@ -89,7 +93,8 @@ internal sealed class CreateProjectHandler(
                 _ => null,
                 options.Value.RequireProjectMembership,
                 actor,
-                logger);
+                logger,
+                permissions.Holds(BeaconPermissions.DataSourceAdmin));
         }
 
         var encryptedToken = hasAccessToken
@@ -135,9 +140,10 @@ internal sealed class CreateProjectHandler(
 
 /// <summary>
 /// Creates a project restricted to its members, with its creator as its ProjectAdmin, when the creator is an active Beacon
-/// user and Beacon manages project membership; otherwise the project is created open. A non-Admin links only data
-/// sources a live open project already holds; a host's data source cannot be linked. An <c>AccessToken</c> for its
-/// repositories may be given by an Admin only. <c>DataSourceIds</c> and <c>RepositoryUrls</c> may be left out (none).
+/// user and Beacon manages project membership; otherwise the project is created open. Anyone but an Admin or a
+/// DataSourceAdmin links only data sources a live open project already holds, and a DataSourceAdmin no data source it
+/// cannot read (403: its creator would read it through the new project); a host's data source cannot be linked. An
+/// <c>AccessToken</c> for its repositories may be given by an Admin or a SecurityAdmin only. <c>DataSourceIds</c> and <c>RepositoryUrls</c> may be left out (none).
 /// 409 when the data sources' links change concurrently (retry).
 /// </summary>
 public record CreateProjectCommand(

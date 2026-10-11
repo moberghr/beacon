@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { MigrationMode } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
+import { useAccess } from '@/auth/useAuth';
 import {
   useMigrationJobsList,
   useDeleteMigrationJob,
@@ -25,6 +26,8 @@ export default function MigrationJobsListPage() {
   const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
   const deleteMutation = useDeleteMigrationJob();
   const [deleting, setDeleting] = useState<MigrationJobListItem | null>(null);
+  // Jobs are listed only where the caller reads their data sources: without a Viewer or Editor role, none may be.
+  const readsNoProjectData = useAccess().isFunctionalOnly;
 
   const jobs = list.items;
 
@@ -153,11 +156,23 @@ export default function MigrationJobsListPage() {
           gridTemplate={GRID_TEMPLATE}
           onRowClick={r => navigate(`/migration-jobs/${r.id}`)}
           empty={
-            <EmptyState
-              icon={<ArrowLeftRight />}
-              title={isLoading ? 'Loading jobs…' : 'No migration jobs yet'}
-              description={isLoading ? '' : 'Create your first job above.'}
-            />
+            isLoading || !readsNoProjectData ? (
+              <EmptyState
+                icon={<ArrowLeftRight />}
+                title={isLoading ? 'Loading jobs…' : 'No migration jobs yet'}
+                description={isLoading ? '' : 'Create your first job above.'}
+              />
+            ) : (
+              <EmptyState
+                icon={<ArrowLeftRight />}
+                title="No migration jobs you can see"
+                description={
+                  'Only jobs whose data sources you can read are listed, and a job needs read access to its data ' +
+                  'sources and write access to its destination. Ask a Beacon administrator for a Viewer or Editor role ' +
+                  'in the projects that hold them.'
+                }
+              />
+            )
           }
         />
       )}

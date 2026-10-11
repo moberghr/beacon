@@ -78,10 +78,10 @@ internal sealed class CreateDataSourceHandler(
 }
 
 /// <summary>
-/// Creates a data source (Admin). It is reachable by Admins only until a project links it; <c>ProjectIds</c> links it
-/// into those projects as it is created.
+/// Creates a data source (an Admin or a DataSourceAdmin). It is reachable by Admins only until a project links it;
+/// <c>ProjectIds</c> links it into those projects as it is created, each one a project whose members the caller manages.
 /// </summary>
-[ProjectScopeExempt("admin-gated data-source administration; the link rules check ProjectIds in the handler", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("data-source administration, gated by the DataSourceAdmin permission; the link rules check ProjectIds in the handler", Policy = BeaconPermissions.DataSourceAdminPolicy)]
 public record CreateDataSourceCommand(
     string Name,
     DataSourceType DataSourceType,

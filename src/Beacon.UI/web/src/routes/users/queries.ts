@@ -28,6 +28,8 @@ export interface RoleEntry {
   description: string | null;
   level: number;
   isSystemRole: boolean;
+  /** The functional permission a functional role grants (e.g. `Auditor`); null for Admin, Editor, Viewer and others. */
+  permission?: string | null;
 }
 
 interface GetRolesResult {
@@ -109,6 +111,23 @@ export function useUpdateUser() {
       mutationFn: ({ id, payload }) => beaconApi().updateUser(id, payload as never),
       invalidate: [USERS_ALL_KEY],
       errorFallback: 'Update user failed',
+    }),
+  );
+}
+
+/**
+ * Replaces the user's roles (`PUT /users/{id}/roles`, the complete set). Not toasted: the dialog shows the server's
+ * reason (400 separation of duties or an unknown role, 403 a change the caller may not make) beside the roles.
+ */
+export function useSetUserRoles() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ id: number; roleIds: number[] }, void>({
+      qc,
+      mutationFn: ({ id, roleIds }) => beaconApi().setUserRoles(id, { roleIds }),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Saving the roles failed',
+      errorToast: false,
     }),
   );
 }

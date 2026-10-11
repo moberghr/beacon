@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataMigration;
 using MediatR;
@@ -12,10 +14,12 @@ internal static class MigrationsEndpoints
     {
         var migrations = group.MapGroup("/migrations").WithTags("Migrations");
 
-        // Data migration is an Admin feature: its job catalogue and run history are read by Admins only.
+        // Data migration is a MigrationOperator's (and an Admin's): its job catalogue, run history and runs. Creating,
+        // running and deleting a job also need Query on its source and every step's data source and Write on the
+        // destination (checked by the handlers).
         migrations.MapGet("/jobs", ([AsParameters] GetMigrationJobsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetMigrationJobs")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapGet("/jobs/{id:int}", async Task<Results<Ok<MigrationJobListItem>, NotFound>> (int id, IMediator m, CancellationToken ct) =>
             {
@@ -23,26 +27,26 @@ internal static class MigrationsEndpoints
                 return job is null ? TypedResults.NotFound() : TypedResults.Ok(job);
             })
             .WithName("GetMigrationJob")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapPost("/jobs", ([FromBody] CreateMigrationJobCommand cmd, IMediator m, CancellationToken ct) =>
                 m.Send(cmd, ct))
             .WithName("CreateMigrationJob")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapPost("/jobs/{id:int}/run", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RunMigrationJobCommand(id), ct))
             .WithName("RunMigrationJob")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapDelete("/jobs/{id:int}", (int id, [FromQuery] bool? forceDelete, IMediator m, CancellationToken ct) =>
                 m.Send(new DeleteMigrationJobCommand(id, forceDelete ?? false), ct))
             .WithName("DeleteMigrationJob")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapGet("/executions", ([AsParameters] GetMigrationExecutionsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetMigrationExecutions")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         return group;
     }

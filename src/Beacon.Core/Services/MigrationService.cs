@@ -6,6 +6,7 @@ using EFCore.BulkExtensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
@@ -277,6 +278,13 @@ internal partial class MigrationService(
         if (request.EndDate.HasValue)
         {
             query = query.Where(e => e.StartedAt <= request.EndDate.Value);
+        }
+
+        if (request.Readable != null)
+        {
+            query = query
+                .WhereSourceAccessible(context, request.Readable, x => x.MigrationJob.DataSourceId)
+                .WhereSourceAccessible(context, request.Readable, x => x.MigrationJob.DestinationDataSourceId);
         }
 
         // MigrationExecutionDto is positional, so EF cannot order through it: sort the entity, then project.

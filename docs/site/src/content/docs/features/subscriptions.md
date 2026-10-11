@@ -145,7 +145,7 @@ A subscription without an owner (created before owners were recorded) runs only 
 
 ### Change the owner
 
-An Admin assigns an owner with **Change owner** on the subscription page (in the header, and in the "owner not authorized" banner): pick a user and save. The same change is `PUT /beacon/api/subscriptions/{id}/owner` with `{ "userId": 12 }` (the user's id in the user directory) — for instance for a subscription created before owners were recorded, or one whose owner left. The new owner must be an existing, enabled user who may run the subscription's query: run saved SQL in one project that holds all of its data sources. A user who may not is refused with `409` and a message saying so, because every run would be skipped; the page shows that message and keeps the picker open so you can choose someone else.
+An Admin or a UserAdmin assigns an owner with **Change owner** on the subscription page (in the header, and in the "owner not authorized" banner): pick a user and save. The same change is `PUT /beacon/api/subscriptions/{id}/owner` with `{ "userId": 12 }` (the user's id in the user directory) — for instance for a subscription created before owners were recorded, or one whose owner left. The new owner must be an existing, enabled user who may run the subscription's query: run saved SQL in one project that holds all of its data sources. A user who may not is refused with `409` and a message saying so, because every run would be skipped; the page shows that message and keeps the picker open so you can choose someone else.
 
 ### Execute Manually
 

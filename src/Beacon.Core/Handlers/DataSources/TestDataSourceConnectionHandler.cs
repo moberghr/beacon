@@ -25,7 +25,7 @@ internal sealed class TestDataSourceConnectionHandler(IDataSourceService dataSou
     }
 }
 
-[ProjectScopeExempt("admin-gated data-source administration; no stored data source", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("data-source administration, gated by the DataSourceAdmin permission; no stored data source", Policy = BeaconPermissions.DataSourceAdminPolicy)]
 public record TestDataSourceConnectionCommand(
     string? Name,
     DataSourceType DataSourceType,

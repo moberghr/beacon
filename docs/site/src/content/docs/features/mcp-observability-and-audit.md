@@ -247,9 +247,12 @@ or by calling `IMcpAuditRetentionService.PurgeExpiredAsync(cancellationToken)` f
 
 ## Reading the audit
 
-`GET /beacon/api/mcp/audit` is an admin-only, paged JSON export. Rows come back exactly as stored — any retention
-redaction was already applied at write time, so this endpoint never re-reads or reconstructs content. Reading the
-audit is itself audited (9103, above).
+`GET /beacon/api/mcp/audit` is a paged JSON export for an Auditor or an Admin (the
+[Auditor permission](/features/authorization/#functional-permissions)). Rows come back exactly as stored — any retention
+redaction was already applied at write time, so this endpoint never re-reads or reconstructs content. The rows are not
+filtered by project membership: an Auditor reads every project's tool calls, including the SQL and question text the
+retention settings keep, though the Auditor role grants no other project data. Reading the audit is itself audited
+(9103, above).
 
 | Query parameter | Required | Notes |
 |---|---|---|
@@ -258,5 +261,5 @@ audit is itself audited (9103, above).
 | `page` | No (default `1`) | Must be `≥ 1`. |
 | `pageSize` | No (default `100`) | Must be between `1` and `500`. |
 
-A non-admin caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI for this endpoint and
+Any other caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI for this endpoint and
 no NSwag client is generated for it — it's an operational export, not a product surface.

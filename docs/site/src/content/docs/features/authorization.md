@@ -25,6 +25,7 @@ The authorization system consists of:
 - Backward compatible — existing installations work unchanged
 - Framework agnostic — works with ASP.NET Core Identity, OAuth, custom auth, etc.
 - Database-backed roles — built-in user management with Admin, Editor, Viewer roles
+- Functional permissions — the Admin role's duties (approving, auditing, security settings, user, data-source and migration administration) can be granted separately, without project data
 
 :::note
 For full user management (creating users, assigning roles, login form), see the [User Management Guide](/features/user-management/).
@@ -92,7 +93,7 @@ builder.Services.AddScoped<IClaimsTransformation, MyClaimsTransformation>();
 
 ### Admin role claim
 
-Admin-only routes (the `BeaconApiAdmin` policy) and the resource rules that let an Admin act on what another user owns (working someone else's alert task, changing another user's data contract or AI actor, setting a repository access token) read the standard `ClaimTypes.Role` claim with the value `Admin`. A host that signs users in itself must emit that claim for its administrators; `beacon:role` alone is not enough. Beacon's own login and OIDC sign-in emit it from the user's roles. When Beacon user management stores the caller, the user must also be enabled and not archived; an API key never carries a role, so it is never an Admin. For [project access](#project-access), a stored user is an Admin by the roles stored now, not by the claim the session carries, so a demoted Admin loses the Admin bypass on the next request; the claim counts only on a host without Beacon user management, for a caller without a stored user. While user management is on, a session without a stored user reaches no project at all.
+Admin-only routes (the `BeaconApiAdmin` policy; routes of a [functional permission](#functional-permissions) admit the Admin role too) and the resource rules that let an Admin act on what another user owns (working someone else's alert task, changing another user's data contract or AI actor, setting a repository access token) read the standard `ClaimTypes.Role` claim with the value `Admin`. A host that signs users in itself must emit that claim for its administrators; `beacon:role` alone is not enough. Beacon's own login and OIDC sign-in emit it from the user's roles. When Beacon user management stores the caller, the user must also be enabled and not archived; an API key never carries a role, so it is never an Admin. For [project access](#project-access), a stored user is an Admin by the roles stored now, not by the claim the session carries, so a demoted Admin loses the Admin bypass on the next request; the claim counts only on a host without Beacon user management, for a caller without a stored user. While user management is on, a session without a stored user reaches no project at all.
 
 ### 3. Test Authorization
 
@@ -171,6 +172,9 @@ Database-backed authorization that reads roles from Beacon's user management tab
 | **Admin** | 3 | Yes | Yes | Yes |
 | **Editor** | 2 | Yes | Yes | No |
 | **Viewer** | 1 | Yes | No | No |
+| Functional roles (Approver, Auditor, …) | 0 | No | No | No |
+
+A functional role grants its [functional permission](#functional-permissions) and no read or write permission.
 
 **Use case:** When using Beacon's built-in user management with login form and role assignment.
 
@@ -388,6 +392,59 @@ builder.Services.AddScoped<IExternalAuthService, YourExternalAuthService>();
 options.AddAuthorizationProvider<ExternalAuthProvider>();
 ```
 
+## Functional permissions
+
+The Admin role's duties are split into six **functional permissions**. An Admin holds every one of them, so nothing changes for Admins; a user who should do one duty, and not the others, gets the role of that permission instead.
+
+| Permission | What it opens |
+|---|---|
+| **Approver** | Approve and reject query changes (`POST /approvals/{id}/approve`, `/reject`); read the approval requests of **every** project (`GET /approvals/pending`, `GET /approvals/{id}`) |
+| **Auditor** | Read the MCP audit (`GET /mcp/audit`), the MCP settings and project settings (`GET /mcp/settings`, `GET /mcp/projects/{projectId}/settings`), the admin settings with secrets masked (`GET /admin-settings`) and every user's API keys (`GET /api-keys/admin`) |
+| **SecurityAdmin** | Read and change the MCP settings and project settings; read and change the admin settings **except the LLM provider, endpoint, region, authentication mode and credentials** ([Admin Settings](/features/admin-settings/#who-may-do-what)); test the stored LLM connection; create, change and delete recipients; publish a saved query it can read as an MCP tool (`PUT /queries/{id}/mcp-tool`); set a repository access token (`PUT /projects/repositories/{id}/token`, and on project creation) |
+| **UserAdmin** | Manage users (`/users/*`, including `PUT /users/{id}/roles`), list and revoke any user's API keys, change the owner of a subscription, data contract or AI actor, manage the members of **any** project, restrict a project (`PUT /projects/{id}/access`) |
+| **DataSourceAdmin** | Create, test and delete data sources; link a data source no open project holds (restricted-only or unlinked) into a project it is the admin of, when it can read the source; change a shared data source's state with Write only where it acts; force a metadata refresh without the cooldown |
+| **MigrationOperator** | Data migration (`/migrations/*`), for the jobs whose data sources it reads, and the Home migration totals of those jobs |
+
+**Admin only:** glossary and eval curation (checked against live roles), the LLM provider, endpoint, region, authentication mode and credentials, the base URL, turning read-only enforcement or PII detection off (globally or for a project), opening a restricted project, unlinking a data source from a project, data contracts with Custom SQL rules, and the Warp dashboard of the sample host.
+
+### Rules
+
+- **Functional roles grant no project data.** Project access is decided as before: the Admin bypass stays an Admin's, and a functional role carries no global role (it is a level-0 role), so a user holding only functional roles reads no project, data source or resource and gets `403` on every other route. Give such a user a Viewer or Editor role as well to let them use projects as usual. Two duty-specific exceptions: an **Approver** reads every project's approval requests, with their SQL; an **Auditor** reads every project's MCP audit rows, with the SQL and question text the retention settings keep.
+- **A UserAdmin cannot raise anyone, itself included.** A UserAdmin who is not an Admin never assigns or removes the Admin role or a functional role, never changes their own account, roles or project membership, and never changes the account, the project memberships or the API keys of a **protected user**: an Admin, a super admin, or a holder of a functional role (every level-0 system role, whatever it is named now, and any role named as a functional role) — other UserAdmins included, so two UserAdmins cannot add each other to a project (`403`). A UserAdmin restricts projects but does not open a restricted one, and never makes themselves the owner of a subscription, data contract or AI actor (`403`). The membership rules still apply: the last effective project admin is kept unless an Admin removes them. Every role change is logged (event 7113 `UserRolesChanged`, ids only), and every membership change as before (7101–7103).
+- **What a UserAdmin can still do (accepted).** A UserAdmin creates users and gives them the Viewer or Editor role, and adds unprotected users to any project, so a UserAdmin can create an account and make it a member of a restricted project. This is the duty, not a loophole; watch it: alert on events **7101** (`MemberAdded`) and **7113** (`UserRolesChanged`) whose actor holds UserAdmin, and review them. A permission an identity provider maps is not stored, so a user holding UserAdmin (or another permission) only through an app role is not a protected user.
+- **A MigrationOperator goes through project access, with no bypass.** A job reads its declared source and the data source of **every step** its query text runs (read the way a run reads it). Creating a job, every run of it and deleting it need **Query** on each of those data sources (a step is SQL of its own) and Write on the destination (`404` unreadable, `403` refused), and the destination may not be more widely reachable than any of them: every live project linking the destination must link each source too, and an openly reachable destination needs openly reachable sources (`403`). A source that is also the destination widens nothing, but its steps are checked like any other. The job list, a job and its run history need Read on the declared source and the destination; a failed run's error text is shown only to a caller who reads every data source the job reads. Running the steps checks Query on each step's data source once more. See [Data Migration](/features/data-migration/#managing-migration-jobs).
+- **A DataSourceAdmin links without gaining access.** Linking a data source that only restricted projects hold (or no project) into a project the DataSourceAdmin is the admin of gives them no membership of those projects; they still need that project's admin role to link at all. A data source the DataSourceAdmin cannot read is linked only into a restricted project they are not a member of, since the link would otherwise let them read it: in practice an Admin links it. `POST /projects` with such a data source is refused (`403`): the creator becomes the new project's member.
+- **A SecurityAdmin redirects only what it can read, and tightens.** Changing where a recipient delivers (type, destination or headers) is refused (`403`) when the recipient is attached to a subscription or data contract the SecurityAdmin cannot read; only an Admin changes or tests another LLM endpoint, region, provider, authentication mode or credential, or changes the base URL. A SecurityAdmin turns read-only enforcement and PII detection on, globally and per project; turning either off, pinning a project's override off, or clearing a project's override that is on while the global value is off is an Admin's (`403`).
+- **Permissions are read live.** Each route of a functional permission carries the policy `BeaconApi.{Permission}` (`BeaconPermissions.ApproverPolicy`, …; the settings reads `BeaconApi.Auditor|SecurityAdmin`, the key list `BeaconApi.Auditor|UserAdmin`), which admits the Admin role or the permission's role among the session's role claims (role names compared ignoring case). The permission filter then admits the caller only if they hold the permission **now**: a user whose role was removed is refused with `403` although their session still carries the claim. The glossary and eval routes keep `BeaconApiAdmin` and, the same way, admit only an Admin by live roles. A few routes a permission also opens (approval reads, a project's members and member candidates, the Home migration summary) admit its holder beside everyone with read or write permission.
+- **The authorization provider is still asked.** On a permission's routes an Admin needs read or write permission from `IBeaconAuthorizationProvider`, as on every other route. A holder who is not an Admin is admitted without a Viewer or Editor role, unless the provider vetoes the permission: `AllowsFunctionalPermissionAsync(permission, cancellationToken)` (a default interface member that returns `true`) is asked instead of `HasReadPermissionAsync`/`HasWritePermissionAsync`. On a route the permission is the requirement of, a veto is `403`; on a route it only also opens, the caller needs read or write permission as usual.
+
+### Holding a permission
+
+- **Through a Beacon role.** Each permission is granted by one role, by default named after it (`Approver`, `Auditor`, `SecurityAdmin`, `UserAdmin`, `DataSourceAdmin`, `MigrationOperator`); `Beacon:Authorization:Roles:{Permission}` maps it to another name (see [Configuration](/getting-started/configuration/#functional-permissions-role-names-identity-provider-app-roles-separation-of-duties)). Only a **functional role** grants a permission: a system role at level 0 with the mapped name (compared ignoring case). Beacon creates the roles at level 0 when roles are listed for assignment (`GET /beacon/api/users/roles`, which returns each role's `permission`), at first-run setup and when single sign-on provisions a user; a role someone created earlier under one of these names is left as it is and grants nothing, and seeding logs a warning with its id (rename it, or map the permission to another name). Assign them on the Users page or with `PUT /beacon/api/users/{id}/roles` (`{ "roleIds": [...] }`), see [User Management](/features/user-management/#functional-roles).
+- **Through an identity-provider app role** (opt-in, `Beacon:Authorization:IdpRoles`). At single sign-on, app roles listed in `IdpRoles:Map` add their permission to the session's claims, issued by Beacon's sign-in and stamped with its time. Nothing is stored, and the permission is honoured for `IdpRoles:ClaimLifetimeMinutes` (default 60) after that sign-in, although the session cookie lives longer: an app role the identity provider withdraws stops counting at the latest then, and signing in again renews it. Dropped permissions are logged once per sign-in. Such claims from any other issuer grant nothing. The permission does not show on the Users page.
+- **Never through an API key.** A key carries no role and no functional permission, whatever its owner holds. A key refused by a route a permission is required on is told so: *"API keys cannot use administrative routes; sign in as a user with the X permission."* Automate administrative work as a signed-in user.
+- **On a host without Beacon user management**, the session's `Admin` role claim grants every permission. Its other role claims (`ClaimTypes.Role` with a permission's role name) grant that permission only with `Beacon:Authorization:Roles:HonourHostRoleClaims: true` (default `false`); the route policies follow the same setting. The startup log says which applies.
+
+`GET /beacon/api/auth/permissions` returns the caller's permissions now, besides `canRead` and `canWrite`: `isAdmin` and `permissions` (the names it holds; an Admin's lists all six). The shell uses it to show the pages each permission opens.
+
+### Separation of duties
+
+With `Beacon:Authorization:SeparationOfDuties:Enabled: true` (off by default), assigning roles that would give one user both permissions of a conflicting pair is refused with `400`, also when an Admin assigns them. The pairs: **Approver + SecurityAdmin**, **Auditor + SecurityAdmin**, **Auditor + UserAdmin**, **UserAdmin + Approver**, **UserAdmin + MigrationOperator**. With it on, also:
+
+- an `IdpRoles:Map` that maps app roles onto both permissions of a pair fails startup;
+- at single sign-on, a mapped permission that would conflict with the user's stored functional roles is not added (logged as a warning, ids and permission names only);
+- whatever way a caller came to hold both permissions of a pair (roles assigned before the switch, a mapped permission), it holds **neither** of them, and a warning is logged at most once an hour per caller;
+- the startup log says that separation of duties is on and, best effort, how many active users already hold a conflicting pair through their stored roles.
+
+Admins hold every permission by construction and are not separated.
+
+### Host seams for permissions
+
+- **`IBeaconPermissionAccessor`** (scoped, registered with `TryAdd`) — the caller's `BeaconPermissionSet` (`IsAdmin`, `Permissions`, `Holds(permission)`). The default reads a stored user's roles in the user store, once per request and only when a permission is asked for.
+- **`IBeaconAuthorizationProvider.AllowsFunctionalPermissionAsync`** — a host's veto on a functional permission it does not want used (default: allowed).
+- **`BeaconPermissions`** — the permission names, their policy names (`Policies`) and the conflicting pairs; **`RoleMappingOptions`** — the role names, identity-provider mapping and separation of duties, validated at startup.
+- **Policy names.** The `BeaconApi.` prefix is Beacon's: do not name a host authorization policy with it.
+
 ## Project access
 
 Projects are the authorization boundary. A caller reaches a project's queries, subscriptions, stored runs, tasks, data contracts, AI actors, documentation and data-source metadata only through a project it may use, and a data source only through a project that links it. One evaluator, `IProjectAccessEvaluator`, decides this for every caller once per request; the REST API, the UI, the MCP playground and MCP tool calls consult it.
@@ -395,7 +452,7 @@ Projects are the authorization boundary. A caller reaches a project's queries, s
 ### Open and restricted projects
 
 - **Open** (every project that existed before this version, and a new project whose creator cannot be its member — see below): everyone with a Beacon role uses the project at their global role — a Viewer reads and runs saved SQL, an Editor also writes and works ad hoc.
-- **Restricted**: only the project's members and Admins use it; to anyone else it does not exist (`404`). An Admin restricts or opens a project with the **Access** card on the project page (`PUT /beacon/api/projects/{id}/access` with `{ "requiresMembership": true }`). Add members — a project admin first — before restricting. The card lists the project's data sources another open project also links, which stay reachable through that project, and every other project, open or restricted, that links any of its data sources, with that project's admins (see [Unlinking](#unlinking-data-sources)); the `PUT` answer carries the same list as `sharedSourceProjects`. Restricting answers `409` while project membership is unavailable; opening is always possible.
+- **Restricted**: only the project's members and Admins use it; to anyone else it does not exist (`404`). An Admin or a UserAdmin restricts a project with the **Access** card on the project page (`PUT /beacon/api/projects/{id}/access` with `{ "requiresMembership": true }`); opening a restricted one again is an Admin's (`403` for anyone else). Add members — a project admin first — before restricting. The card lists the project's data sources another open project also links, which stay reachable through that project, and every other project, open or restricted, that links any of its data sources, with that project's admins (see [Unlinking](#unlinking-data-sources)); the `PUT` answer carries the same list as `sharedSourceProjects`. Restricting answers `409` while project membership is unavailable; an Admin can always open a project.
 - **`Beacon:Authorization:RequireProjectMembership: true`** restricts every project, whatever its own setting, and makes data sources no project links Admin-only. It needs project memberships (Beacon user management, or a host [membership source](#host-seams)); the host fails at startup otherwise.
 - **New projects are restricted.** When the creator is an active Beacon user and Beacon manages project membership, the project is created restricted with the creator as its project admin (an Admin who creates a project becomes its project admin too); the creator adds members, and an Admin opens it if everyone should reach it. A creator without an active Beacon user (a host principal, a host without Beacon user management), and any creator while the host manages membership or membership is unavailable, gets an open project — nobody could be a member of a restricted one — and Beacon logs `ProjectCreatedOpen` (7112, Information, ids only). The `POST /beacon/api/projects` answer carries `requiresMembership`.
 - **Archived projects** grant nothing. No route archives a project today.
@@ -413,6 +470,8 @@ A member holds one role in a project. The **effective role** is the lower of the
 | Manage: delete, archive, take over a lock, force a metadata refresh | – | only as the recorded owner | ✓ | ✓ | ✓ |
 | Manage members and link data sources | – | – | – | ✓ | ✓ |
 | Restrict or open the project | – | – | – | – | ✓ |
+
+A UserAdmin also manages the members of every project (never a protected user's), and restricts any project, without being its member (see [Functional permissions](#functional-permissions)); a DataSourceAdmin links data sources no open project holds, when it can read them.
 
 The recorded owner is a data contract's or subscription's owner, an AI actor's creator, and a query's lock holder. The ownership rules on tasks, contracts and AI actors still apply on top: both the project action and the owner rule must pass.
 
@@ -473,7 +532,7 @@ The global role that caps a signed-in caller comes from the authorization provid
 - **Every request declares its check.** A request that addresses a resource by id implements `IProjectAuthorizedRequest` and names the resource and the action; a MediatR pipeline behaviour resolves the resource's project (or data sources) and refuses before the handler runs — `404` when the resource is missing or unreadable, `403` when it is readable but the action is not allowed. A list request implements `IProjectFilteredRequest` and filters in SQL, so totals and pages never count what the caller cannot see. A request with nothing project-scoped is marked `[ProjectScopeExempt("reason")]`. A test fails when a request property ending in `Id` or `Ids` is neither checked nor exempt.
 - **Requests sent in-process are checked too.** The behaviour runs on every `IMediator.Send` made while an HTTP request is served, so a host endpoint that sends Beacon requests is checked against that request's caller (`404`/`403`), not trusted.
 - **Problem details.** Refusals throw `BeaconForbiddenException` (`403`) and `BeaconNotFoundException` (`404`). On `/beacon/api` these become RFC 7807 responses without their message (a caller cannot tell a resource it may not see from a missing one), and `BeaconConflictException` and `BeaconRateLimitedException` become `409` and `429` with theirs — in every host, without the sample's middleware. Only these Beacon exceptions are mapped; any other exception, including `UnauthorizedAccessException`, is left to the host's exception handling. Each mapping is logged with the exception type, the route name and the route's ids.
-- **Security log events.** Refusals are logged as `AccessRefused` (7108, a `403`) and `AccessHidden` (7109, a `404` for a resource that is missing or unreadable), and scheduled work skipped because its owner may not run it as `ScheduledWorkSkipped` (7111, a warning), with the resource and its id, the reason (`not-readable`, `missing` or `not-granted`), the principal kind, the API key's id and the caller's Beacon user id (its external id when it has no stored user) — identifiers only; a missing resource logs at Information, the rest at Warning. Membership, access-mode, link and repository changes have their own events (7101–7107, 7110; see [Upgrading](#upgrading-from-45-project-access)), and a project created open because its creator could not be its member `ProjectCreatedOpen` (7112, Information).
+- **Security log events.** Refusals are logged as `AccessRefused` (7108, a `403`) and `AccessHidden` (7109, a `404` for a resource that is missing or unreadable), and scheduled work skipped because its owner may not run it as `ScheduledWorkSkipped` (7111, a warning), with the resource and its id, the reason (`not-readable`, `missing` or `not-granted`), the principal kind, the API key's id and the caller's Beacon user id (its external id when it has no stored user) — identifiers only; a missing resource logs at Information, the rest at Warning. Membership, access-mode, link and repository changes have their own events (7101–7107, 7110; see [Upgrading](#upgrading-from-45-project-access)), a project created open because its creator could not be its member `ProjectCreatedOpen` (7112, Information), and a change to a user's roles `UserRolesChanged` (7113, Information: the user, the role ids added and removed, and who changed them).
 - **The UI** hides what a caller may not do: the **Members** tab (shown to project admins and Admins while Beacon manages membership), **Link data sources**, and the **Access** card (Admins), which says whether members are managed by the host or membership is unavailable. A resource the caller may not read shows the not-found state.
 - **The MCP playground** checks the caller's project access for every tool call (Read for the catalog tools, Query for `ask`, `query`, `dry_run` and `feedback`) and refuses a call without a signed-in request.
 - **MCP tool calls** over `/beacon/mcp` take the projects the caller may read from the evaluator on every call, so a revoked membership or a disabled user applies to the next call of the same session. Each built-in tool needs its action in the project it resolves, as in the playground: Read for the catalog tools, Query for `ask`, `query`, `dry_run` and `feedback` (a Viewer is refused them, audited). Saved-query tools are listed only where the caller may run saved SQL and re-checked right before their SQL runs; host endpoint tools need Read in the host's project. A call without an HTTP request, or without an authenticated caller, reaches nothing. Audit rows and signals record the caller's Beacon user id.
@@ -481,7 +540,7 @@ The global role that caps a signed-in caller comes from the authorization provid
 
 ### Members
 
-A project admin or an Admin manages members on the project page's **Members** tab: search people by display name (case-insensitive, at least two characters; up to 20 matches; rate-limited), add them with a role, change a role, remove a member. People are shown by display name, or as "User {id}" without one — never by user name, e-mail address or external id — and people without a display name are not found by the search. A disabled or archived user stays listed as inactive and grants nothing.
+A project admin, a UserAdmin or an Admin manages members on the project page's **Members** tab (a UserAdmin never their own membership): search people by display name (case-insensitive, at least two characters; up to 20 matches; rate-limited), add them with a role, change a role, remove a member. People are shown by display name, or as "User {id}" without one — never by user name, e-mail address or external id — and people without a display name are not found by the search. A disabled or archived user stays listed as inactive and grants nothing.
 
 A project keeps an **effective project admin**: a member with the project admin role who is enabled, not archived, and holds a global role of Editor or above (a project admin capped at Viewer manages nothing). Removing or demoting the last one is refused (`400`) unless an Admin does it. The check and the change run in one serializable transaction, so two concurrent changes cannot both pass; a change that collides with another answers `409` (reload and retry). The routes:
 
@@ -491,7 +550,7 @@ A project keeps an **effective project admin**: a member with the project admin 
 | `GET /beacon/api/projects/{id}/member-candidates?search=` | people to add |
 | `PUT /beacon/api/projects/{id}/members/{userId}` | add a member or change their role (`{ "role": 1 \| 2 \| 3 }`: Viewer, Editor, ProjectAdmin) |
 | `DELETE /beacon/api/projects/{id}/members/{userId}` | remove a member |
-| `PUT /beacon/api/projects/{id}/access` | restrict or open (Admin) |
+| `PUT /beacon/api/projects/{id}/access` | restrict (Admin, UserAdmin) or open (Admin) |
 | `POST /beacon/api/projects/{id}/data-sources` | link data sources (`{ "dataSourceIds": [...] }`) |
 | `DELETE /beacon/api/projects/{id}/data-sources/{dataSourceId}` | unlink a data source (Admin) |
 
@@ -621,6 +680,8 @@ Project access has its own options, bound from `Beacon:Authorization`:
 ```
 
 `RequireProjectMembership: true` restricts every project and makes data sources no project links Admin-only (see [Project access](#open-and-restricted-projects)). It is validated at startup: without Beacon user management and without a host `IProjectMembershipSource`, the host does not start.
+
+The same section holds the [functional permissions](#functional-permissions) settings (`Roles`, `IdpRoles`, `SeparationOfDuties`), bound to `RoleMappingOptions`; see [Configuration](/getting-started/configuration/#functional-permissions-role-names-identity-provider-app-roles-separation-of-duties).
 
 ### Example Configuration
 
@@ -781,6 +842,32 @@ This version makes projects the authorization boundary on the REST API, the UI, 
 - Additive: data-source entries carry `openWhenUnlinked`, `projects` and `otherProjectCount`; `GetProjectsQuery.ForApiKey`; `SetProjectAccessModeResult.SharedSourceProjects`; `SharedSourceProjectEntry`; `UnlinkProjectDataSourceCommand` and its result; new membership and link commands and routes (see [Members](#members)).
 
 **Recommended steps for a regulated deployment:** upgrade; give each data source a database login per boundary and configure its database (catalog, project) in the connection; add members (a project admin first) and restrict sensitive projects, checking the list of data sources that stay reachable through open projects; re-issue integration keys with explicit project lists; check the other projects each sensitive project shares data sources with (the **Access** card), and unlink what should not be shared; finally set `Beacon:Authorization:RequireProjectMembership: true`, which restricts every project and makes unlinked data sources Admin-only.
+
+## Upgrading: functional permissions
+
+This version splits the Admin role into [functional permissions](#functional-permissions). **Existing Admins are unchanged**: they hold every permission, and the new roles are optional — nothing has to be configured or assigned.
+
+**What changes without any configuration:**
+
+- **New roles appear.** `Approver`, `Auditor`, `SecurityAdmin`, `UserAdmin`, `DataSourceAdmin` and `MigrationOperator` are created as level-0 system roles the next time roles are listed for assignment or seeded (names compared ignoring case, each role in its own save). A role that already exists under one of these names but is not a level-0 system role is left as it is and grants **nothing** (a warning names its id): rename it, or map the permission to another name with `Beacon:Authorization:Roles`. No schema change: the roles are rows in the existing `roles` table.
+- **Route policies.** The routes listed in [Functional permissions](#functional-permissions) carry `BeaconApi.{Permission}` policies instead of `BeaconApiAdmin`; both admit the `Admin` role claim, and the permission filter additionally requires the permission (Admin included) to be held now — a demoted Admin's session that still carries the `Admin` claim is refused on these routes. Glossary, eval, unlinking and the Warp dashboard keep `BeaconApiAdmin`; glossary and eval now also admit only an Admin by live roles. The `BeaconApi.` policy-name prefix is reserved for Beacon.
+- **Hosts without Beacon user management.** A session's role claims named like a permission's role no longer grant it by themselves: set `Beacon:Authorization:Roles:HonourHostRoleClaims: true` to keep that. The `Admin` claim still grants every permission.
+- **Custom authorization providers** are asked on a permission's routes again: an Admin needs read or write permission there, and a host may veto a permission with `AllowsFunctionalPermissionAsync` (default: allowed). No code change is needed.
+- **Default roles.** `Beacon:Authentication:Oidc:DefaultRoleName` and `Beacon:Mcp:Callers:Users:DefaultRoleName` may no longer name the Admin role or a functional role: startup fails, since every provisioned user would administer Beacon.
+- **UserAdmins** no longer open restricted projects (an Admin does), change the memberships or revoke the API keys of protected users, or make themselves the owner of scheduled work.
+- **SecurityAdmins** no longer turn read-only enforcement or PII detection off, or change the base URL (`403`); an Admin does.
+- **MigrationOperators** need Query (not Run) on the declared source and on every step's data source, also to delete a job; a failed run's error text shows only to callers who read every data source the job reads. The Home migration totals count only the jobs their list shows.
+- **LLM connection.** Only an Admin changes or tests another LLM provider, endpoint, region, Bedrock authentication mode or credential; a SecurityAdmin's admin-settings save that changes any of them answers `403`.
+- **Forced metadata refresh.** Admins (and DataSourceAdmins) are no longer held to `Beacon:Metadata:ForcedRefreshCooldownMinutes`; a refresh of a data source that is running still refuses a second one (`429`).
+- **Recipients.** Admins and SecurityAdmins see recipients' masked destinations; a SecurityAdmin redirecting a recipient attached to work it cannot read gets `403`.
+- **The Home migration summary** shows the totals to MigrationOperators as well as Admins.
+- **`GET /beacon/api/auth/permissions`** returns `isAdmin` and `permissions` besides `canRead` and `canWrite`.
+
+**Public API.**
+
+- New in `Beacon.Core.Authorization`: `BeaconPermissions` (names, policy names, `Policies`, `ConflictingPairs`, `Find`, `FirstConflict`, `WithoutConflicts`), `BeaconPermissionSet`, `IBeaconPermissionAccessor` (registered with `TryAdd`), `BeaconClaims.IdpPermission`, `BeaconClaims.IdpPermissionsIssuedAt` and `BeaconClaims.Issuer`, `ProjectCheck.GrantedBy` and `ProjectCheck.OrPermission`. In `Beacon.Core.Authorization.ProjectAccess`, `ProjectAccessEvents.UserRolesChanged` (7113). In `Beacon.Core.Configuration`, `RoleMappingOptions` with `FunctionalRoleNames` (incl. `HonourHostRoleClaims`), `IdpRoleOptions` (incl. `ClaimLifetimeMinutes`) and `SeparationOfDutiesOptions` (bound from `Beacon:Authorization`, validated at startup), `PermissionOfStoredRole` and `IsPrivilegedRoleName`; `PermissionOfRole` compares names ignoring case. `RoleService.RoleLevels.Functional` (`0`).
+- New route and request: `PUT /beacon/api/users/{id}/roles` (`SetUserRolesCommand(int UserId, int[] RoleIds)`). `RoleEntry` gains `Permission` (an optional last positional parameter; set for functional roles only). The `ProjectScopeExempt` policy of the requests behind the moved routes names the permission policy.
+- `IBeaconAuthorizationProvider` gains `AllowsFunctionalPermissionAsync` as a default interface member (no change for implementers). `IUserManagementService` and the evaluator are unchanged.
 
 ## Migration from Previous Versions
 

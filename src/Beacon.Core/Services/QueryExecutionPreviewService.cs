@@ -101,6 +101,8 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
 
     public async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null)
     {
+        await DemandMayQueryEachStepAsync(queryData.Steps, queryData.FinalQueryDataSourceId, cancellationToken);
+
         int? tempQueryId = null;
         try
         {
@@ -158,6 +160,13 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
 
     public async Task<QueryStepResult?> ExecuteTemporaryStepPreview(QueryData queryData, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken)
     {
+        await DemandMayQueryEachStepAsync(
+            queryData.Steps
+                .Where(x => x.StepOrder <= stepOrder)
+                .ToList(),
+            null,
+            cancellationToken);
+
         int? tempQueryId = null;
         try
         {
@@ -221,6 +230,21 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
             : new ProjectCheck(ProjectResource.DataSources(draft.Steps?.Select(x => x.DataSourceId)), ProjectAction.Query);
 
         return _authorizer.DemandAsync(check, cancellationToken);
+    }
+
+    // Temporary steps are ad-hoc SQL with no saved query behind them: a caller other than system work (which, like an
+    // Admin, is not checked) needs Query on each step's data source, each on its own. A step naming no data source is
+    // refused as missing.
+    private Task DemandMayQueryEachStepAsync(IEnumerable<QueryStepData> steps, int? finalQueryDataSourceId, CancellationToken cancellationToken)
+    {
+        var checks = steps
+            .Select(x => x.DataSourceId)
+            .Concat(finalQueryDataSourceId is { } id ? [id] : [])
+            .Distinct()
+            .Select(x => new ProjectCheck(ProjectResource.DataSource(x), ProjectAction.Query))
+            .ToList();
+
+        return _authorizer.DemandAsync(checks, cancellationToken);
     }
 
     // The stored steps that run are the ones authorized here, right before their SQL: the query is read once, detached,

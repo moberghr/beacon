@@ -9,6 +9,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Data;
 using Beacon.Core.Handlers.Queries;
+using Beacon.Tests.Common;
 using FluentAssertions;
 using MediatR;
 using Microsoft.AspNetCore.Antiforgery;
@@ -278,6 +279,164 @@ public class BeaconPermissionEndpointFilterTests
     }
 
     [Test]
+    public async Task ARequiredPermission_AdmitsItsHolder_WithNoViewerOrEditorRole()
+    {
+        GrantPermissions(read: false, write: false);
+        var context = CreateContext(
+            HttpMethods.Put,
+            CookieUser,
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.SecurityAdmin], isRequired: true),
+            permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().BeTrue();
+        _authorization.Verify(x => x.AllowsFunctionalPermissionAsync(BeaconPermissions.SecurityAdmin, It.IsAny<CancellationToken>()), Times.Once);
+        _authorization.Verify(x => x.HasReadPermissionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _authorization.Verify(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ARequiredPermission_TheAuthorizationProviderVetoes_IsRefused()
+    {
+        GrantPermissions(read: true, write: true, allowsFunctionalPermissions: false);
+        var context = CreateContext(
+            HttpMethods.Put,
+            CookieUser,
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.SecurityAdmin], isRequired: true),
+            permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().BeFalse("a host's authorization provider may veto a functional permission");
+        AssertForbidden(outcome.Result);
+    }
+
+    [Test]
+    public async Task AnAdmittedPermission_TheAuthorizationProviderVetoes_LeavesTheUsualReadCheck()
+    {
+        GrantPermissions(read: false, write: false, allowsFunctionalPermissions: false);
+        var context = CreateContext(
+            HttpMethods.Get,
+            CookieUser,
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.Approver], isRequired: false),
+            permissions: TestPermissions.Holding(BeaconPermissions.Approver));
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().BeFalse();
+        _authorization.Verify(x => x.HasReadPermissionAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task ARequiredPermission_RefusesAnyoneWhoDoesNotHoldItNow_EvenAnEditor()
+    {
+        GrantPermissions(read: true, write: true);
+        var context = CreateContext(
+            HttpMethods.Get,
+            CookieUser,
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.Auditor, BeaconPermissions.SecurityAdmin], isRequired: true),
+            permissions: TestPermissions.Holding(BeaconPermissions.UserAdmin));
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().BeFalse();
+        AssertForbidden(outcome.Result);
+        ((ProblemHttpResult)outcome.Result!).ProblemDetails.Detail.Should().Be("The Auditor or SecurityAdmin permission is required for this operation.");
+    }
+
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public async Task ARequiredPermission_AdmitsAnAdmin_WhomTheAuthorizationProviderLetsWrite(bool canWrite, bool admitted)
+    {
+        GrantPermissions(read: true, write: canWrite);
+        var context = CreateContext(
+            HttpMethods.Delete,
+            CookieUser,
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.DataSourceAdmin], isRequired: true),
+            permissions: TestPermissions.Admin);
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().Be(admitted, "an Admin is still asked of the provider, as on every other route");
+        _authorization.Verify(x => x.AllowsFunctionalPermissionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ARequiredPermission_RefusesAnApiKey_WithItsOwnMessage()
+    {
+        GrantPermissions(read: true, write: true);
+        var context = CreateContext(
+            HttpMethods.Get,
+            ScopedCaller("api_key", "Execute"),
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.UserAdmin], isRequired: true),
+            permissions: TestPermissions.None);
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().BeFalse();
+        ((ProblemHttpResult)outcome.Result!).ProblemDetails.Detail.Should()
+            .Be("API keys cannot use administrative routes; sign in as a user with the UserAdmin permission.");
+    }
+
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public async Task AnAdminRoute_AdmitsOnlyACallerWhoIsAnAdminNow(bool isAdmin, bool admitted)
+    {
+        GrantPermissions(read: true, write: true);
+        var context = CreateContext(
+            HttpMethods.Post,
+            CookieUser,
+            permissions: isAdmin ? TestPermissions.Admin : TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+        context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(BeaconAdminMetadata.Instance), "admin route"));
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().Be(admitted, "a session whose Admin role was removed is refused although its claim remains");
+    }
+
+    [TestCase(true, false, true)]
+    [TestCase(false, true, true)]
+    [TestCase(false, false, false)]
+    public async Task AnAdmittedPermission_IsAnExtraWayIn_BesideReadPermission(bool holds, bool canRead, bool admitted)
+    {
+        GrantPermissions(read: canRead, write: false);
+        var context = CreateContext(
+            HttpMethods.Get,
+            CookieUser,
+            metadata: new BeaconFunctionalPermissionMetadata([BeaconPermissions.Approver], isRequired: false),
+            permissions: holds ? TestPermissions.Holding(BeaconPermissions.Approver) : TestPermissions.None);
+
+        var outcome = await InvokeAsync(context);
+
+        outcome.NextInvoked.Should().Be(admitted);
+    }
+
+    [Test]
+    public async Task MapBeaconApi_PermissionsEndpoint_NamesTheFunctionalPermissionsHeldNow()
+    {
+        GrantPermissions(read: true, write: false);
+        await using var app = await StartBeaconApiAsync(Mock.Of<IMediator>(), TestPermissions.Holding(BeaconPermissions.Auditor, BeaconPermissions.Approver));
+
+        var body = await (await SendAsync(app, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync();
+
+        body.Should().Contain("\"canRead\":true").And.Contain("\"isAdmin\":false");
+        body.Should().Contain("\"permissions\":[\"Approver\",\"Auditor\"]");
+    }
+
+    [Test]
+    public async Task MapBeaconApi_PermissionsEndpoint_GivesAnAdminEveryPermission()
+    {
+        GrantPermissions(read: true, write: true);
+        await using var app = await StartBeaconApiAsync(Mock.Of<IMediator>(), TestPermissions.Admin);
+
+        var body = await (await SendAsync(app, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync();
+
+        body.Should().Contain("\"isAdmin\":true");
+        body.Should().Contain("\"permissions\":[\"Approver\",\"Auditor\",\"SecurityAdmin\",\"UserAdmin\",\"DataSourceAdmin\",\"MigrationOperator\"]");
+    }
+
+    [Test]
     public async Task AllowViewerAccess_MarksExactlyTheViewerEndpoints()
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -425,7 +584,7 @@ public class BeaconPermissionEndpointFilterTests
         _authorization.VerifyNoOtherCalls();
     }
 
-    private async Task<WebApplication> StartBeaconApiAsync(IMediator mediator)
+    private async Task<WebApplication> StartBeaconApiAsync(IMediator mediator, IBeaconPermissionAccessor? permissions = null)
     {
         var configuration = new BeaconConfiguration();
         configuration.UserManagement.Enabled = true;
@@ -436,6 +595,7 @@ public class BeaconPermissionEndpointFilterTests
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false });
         builder.Services.AddSingleton(mediator);
         builder.Services.AddSingleton(_authorization.Object);
+        builder.Services.AddSingleton(permissions ?? TestPermissions.None);
         builder.Services.AddSingleton(Mock.Of<IBeaconUserContext>());
         builder.Services.AddSingleton(Mock.Of<IActorUserResolver>());
         builder.Services.AddSingleton(Mock.Of<IDbContextFactory<BeaconContext>>());
@@ -491,7 +651,7 @@ public class BeaconPermissionEndpointFilterTests
         return app.GetTestClient().SendAsync(request);
     }
 
-    private void GrantPermissions(bool read, bool write)
+    private void GrantPermissions(bool read, bool write, bool allowsFunctionalPermissions = true)
     {
         _authorization
             .Setup(x => x.HasReadPermissionAsync(It.IsAny<CancellationToken>()))
@@ -499,6 +659,9 @@ public class BeaconPermissionEndpointFilterTests
         _authorization
             .Setup(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(write);
+        _authorization
+            .Setup(x => x.AllowsFunctionalPermissionAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(allowsFunctionalPermissions);
     }
 
     private DefaultHttpContext CreateContext(
@@ -508,7 +671,8 @@ public class BeaconPermissionEndpointFilterTests
         bool userManagementEnabled = true,
         object? metadata = null,
         IBeaconAuthorizationProvider? provider = null,
-        BeaconConfiguration? configuration = null)
+        BeaconConfiguration? configuration = null,
+        IBeaconPermissionAccessor? permissions = null)
     {
         configuration ??= new BeaconConfiguration();
         configuration.Authorization.Enabled = authorizationEnabled;
@@ -518,6 +682,7 @@ public class BeaconPermissionEndpointFilterTests
         services.AddLogging();
         services.AddSingleton(configuration);
         services.AddSingleton(provider ?? _authorization.Object);
+        services.AddSingleton(permissions ?? TestPermissions.None);
 
         var context = new DefaultHttpContext
         {

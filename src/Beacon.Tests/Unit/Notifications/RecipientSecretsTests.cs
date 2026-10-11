@@ -5,6 +5,8 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Recipients;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
+using Beacon.Tests.Common;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Beacon.Tests.Unit.Notifications;
 
@@ -385,7 +387,13 @@ public class RecipientSecretsTests
 
     private static UpdateRecipientHandler UpdateHandler(RecipientStore store)
     {
-        return new UpdateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor());
+        return new UpdateRecipientHandler(
+            NotificationTestKit.Factory(store),
+            NotificationTestKit.Editor(),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            TestProjectAccess.Actors(),
+            TestPermissions.Admin,
+            NullLogger<UpdateRecipientHandler>.Instance);
     }
 
     private static RecipientStore StoreWith(NotificationType type, string destination, string? headers)

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import DataContractDetailPage from './DataContractDetailPage';
 import { renderWithProviders } from '@/test/render';
+import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -89,6 +90,7 @@ describe('DataContractDetailPage', () => {
 
   function serveContract(contract: Record<string, unknown>, roles: string[] = []) {
     mswServer.use(
+      permissionsForRoles(roles),
       http.get('*/beacon/api/data-quality/contracts/7', () => HttpResponse.json(contract)),
       http.get('*/beacon/api/data-quality/contracts/7/evaluations', () => HttpResponse.json({ evaluations: [] })),
       http.get('*/beacon/api/auth/me', () =>
@@ -126,7 +128,7 @@ describe('DataContractDetailPage', () => {
     const title = await screen.findByText('Owner not authorized: scheduled evaluations are skipped');
     // The banner: its title sits in its text column, beside the action.
     const banner = title.parentElement!.parentElement!;
-    fireEvent.click(within(banner).getByRole('button', { name: 'Change owner' }));
+    fireEvent.click(await within(banner).findByRole('button', { name: 'Change owner' }));
 
     const dialog = await screen.findByRole('dialog', { name: "Change the data contract's owner" });
     expect(within(dialog).getByText(/must be able to run this contract's rules/)).toBeInTheDocument();
@@ -137,8 +139,16 @@ describe('DataContractDetailPage', () => {
     renderContract();
 
     expect(await screen.findByText('Owner not authorized: scheduled evaluations are skipped')).toBeInTheDocument();
-    expect(screen.getByText(/until an Admin assigns an owner who has access/)).toBeInTheDocument();
+    expect(screen.getByText(/until an Admin or a UserAdmin assigns an owner who has access/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change owner' })).not.toBeInTheDocument();
+  });
+
+  it('offers a UserAdmin who is not an Admin the owner change', async () => {
+    serveContract({ ...SAMPLE_CONTRACT, hasOwner: true, ownerDisplayName: 'Ada Lovelace' });
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    renderContract();
+
+    expect(await screen.findByRole('button', { name: 'Change owner' })).toBeInTheDocument();
   });
 
   it('shows no warning while scheduled evaluations run', async () => {

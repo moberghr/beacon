@@ -12,13 +12,17 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 /// not take on a readable one is 403 (<see cref="BeaconForbiddenException"/>); both are logged with ids only. An
 /// unrestricted caller (an Admin, system work in a marked scope) is
 /// not checked, and its handler answers a missing resource as before; so is a caller whose access reaches every project
-/// for the actions concerned, without a database read.
+/// for the actions concerned, without a database read. A check a functional permission grants
+/// (<see cref="ProjectCheck.GrantedBy"/>) passes for a holder of it once the resource exists; a holder of
+/// <see cref="BeaconPermissions.DataSourceAdmin"/> changes shared data-source state without Write in every project
+/// linking the source. Permissions are read only when a check could need them.
 /// </summary>
 internal sealed class ProjectRequestAuthorizer(
     IProjectAccessEvaluator evaluator,
     IProjectResourceResolver resolver,
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     ILogger<ProjectRequestAuthorizer> logger)
 {
     public async Task DemandAsync(IEnumerable<ProjectCheck> checks, CancellationToken cancellationToken)
@@ -43,9 +47,16 @@ internal sealed class ProjectRequestAuthorizer(
             return;
         }
 
+        var granted = await GrantedByPermissionAsync(lookups, cancellationToken);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         foreach (var check in lookups)
         {
+            if (granted.Contains(check))
+            {
+                await DemandExistsAsync(context, check, cancellationToken);
+                continue;
+            }
+
             await DemandAsync(context, scope, check, cancellationToken);
         }
     }
@@ -101,6 +112,31 @@ internal sealed class ProjectRequestAuthorizer(
             && (!check.InEveryLinkingProject || scope.For(ProjectAction.Write).Ids == null);
     }
 
+    // The checks the caller passes through a functional permission it holds. No read without such a check.
+    private async Task<IReadOnlySet<ProjectCheck>> GrantedByPermissionAsync(IReadOnlyList<ProjectCheck> checks, CancellationToken cancellationToken)
+    {
+        if (checks.All(x => x.GrantedBy == null))
+        {
+            return new HashSet<ProjectCheck>();
+        }
+
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+
+        return checks
+            .Where(x => x.GrantedBy != null)
+            .Where(x => permissions.Holds(x.GrantedBy!))
+            .ToHashSet();
+    }
+
+    private async Task DemandExistsAsync(BeaconContext context, ProjectCheck check, CancellationToken cancellationToken)
+    {
+        var resolved = await resolver.ResolveAsync(context, check.Resource, cancellationToken);
+        if (resolved.IsMissing)
+        {
+            throw await NotFoundAsync(check, AccessRefusal.Missing, cancellationToken);
+        }
+    }
+
     private async Task DemandAsync(
         BeaconContext context,
         ProjectAccessScope scope,
@@ -137,7 +173,7 @@ internal sealed class ProjectRequestAuthorizer(
     }
 
     // Shared data-source state (metadata, relationships, descriptions) is grounding for every project linking the
-    // source: changing it needs Write in each of them.
+    // source: changing it needs Write in each of them, or a DataSourceAdmin.
     private async Task DemandWriteInEveryLinkingProjectAsync(
         BeaconContext context,
         ProjectAccessScope scope,
@@ -155,6 +191,12 @@ internal sealed class ProjectRequestAuthorizer(
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
         if (linking.All(x => scope.Allows(x, ProjectAction.Write)))
+        {
+            return;
+        }
+
+        // A DataSourceAdmin administers the source for every project: Write where it acts (checked above) is enough.
+        if ((await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.DataSourceAdmin))
         {
             return;
         }

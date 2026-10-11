@@ -346,6 +346,7 @@ public class NotificationResultAccessTests
             new ProjectResolver(),
             new SqlCapture().Factory(),
             TestProjectAccess.Actors(),
+            TestPermissions.None,
             NullLogger<ProjectRequestAuthorizer>.Instance);
         mediator
             .Setup(x => x.Send(It.IsAny<GetImportedDocumentsQuery>(), It.IsAny<CancellationToken>()))

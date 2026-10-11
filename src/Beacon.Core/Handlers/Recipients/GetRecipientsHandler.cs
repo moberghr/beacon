@@ -1,10 +1,8 @@
-using System.Security.Claims;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Notifications;
-using Beacon.Core.Services;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,12 +10,13 @@ namespace Beacon.Core.Handlers.Recipients;
 
 /// <summary>
 /// Every reader may list recipients by name and type, so they can attach them to subscriptions and data contracts.
-/// Only an Admin sees destinations and headers, and only masked (<see cref="RecipientSecrets"/>), with a flag when a
-/// stored value cannot be decrypted and must be entered again; for anyone else they, and the body template, are null.
+/// Only those who change recipients, an Admin or a SecurityAdmin, see destinations and headers, and only masked
+/// (<see cref="RecipientSecrets"/>), with a flag when a stored value cannot be decrypted and must be entered again; for
+/// anyone else they, and the body template, are null.
 /// </summary>
 internal sealed class GetRecipientsHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IBeaconUserContext userContext,
+    IBeaconPermissionAccessor permissionAccessor,
     RecipientSecretEditor secretEditor)
     : IRequestHandler<GetRecipientsQuery, PagedList<RecipientEntry>>
 {
@@ -50,12 +49,12 @@ internal sealed class GetRecipientsHandler(
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "name");
 
-        // The same role the BeaconApiAdmin policy requires. API-key principals carry no role.
-        var isAdmin = userContext.HasClaim(ClaimTypes.Role, RoleService.RoleNames.Admin);
+        // Who may change recipients, now. API keys hold no permission.
+        var seesDestinations = (await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.SecurityAdmin);
 
         return page.Map(x =>
         {
-            var masked = isAdmin
+            var masked = seesDestinations
                 ? secretEditor.ReadMasked((NotificationType)x.NotificationType, x.StoredDestination, x.StoredHeadersJson)
                 : null;
 
@@ -67,7 +66,7 @@ internal sealed class GetRecipientsHandler(
                 Destination = masked?.Destination,
                 NotificationType = x.NotificationType,
                 HeadersJson = masked?.HeadersJson,
-                BodyTemplate = isAdmin ? x.StoredBodyTemplate : null,
+                BodyTemplate = seesDestinations ? x.StoredBodyTemplate : null,
                 SecretsUnreadable = masked?.Unreadable == true,
                 SubscriptionCount = x.SubscriptionCount,
             };
@@ -98,7 +97,7 @@ internal sealed class GetRecipientsHandler(
 }
 
 /// <summary>Alphabetical unless <c>sort</c> says otherwise; <c>search</c> matches name and description.</summary>
-[ProjectScopeExempt("recipients are project-less; destinations are masked for non-Admins")]
+[ProjectScopeExempt("recipients are project-less; destinations are shown, masked, to Admins and SecurityAdmins only")]
 public record GetRecipientsQuery : ListRequest, IRequest<PagedList<RecipientEntry>>
 {
     public string? Search { get; init; }

@@ -1,9 +1,14 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Data;
+using Beacon.Core.Models;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
+using Beacon.Tests.Common;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
 
 namespace Beacon.Tests.Unit.SavedQueryTools;
@@ -195,6 +200,28 @@ public class SetQueryMcpToolHandlerTests
         return data;
     }
 
+    [Test]
+    public async Task ACallerWhoCannotReadTheQuery_CannotPublishIt()
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var authorizer = TestProjectAccess.Authorizer(ProjectAccessScope.None, new MissingResolver(), new SqlCapture().Factory());
+
+        var act = () => new SetQueryMcpToolHandler(data.Store.Factory().Object, authorizer, NullLogger<SetQueryMcpToolHandler>.Instance)
+            .Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconNotFoundException>();
+        query.McpToolEnabled.Should().BeFalse();
+        data.Store.SaveCount.Should().Be(0);
+    }
+
     private static SetQueryMcpToolHandler Handler(SavedQueryTestData data) =>
-        new(data.Store.Factory().Object, NullLogger<SetQueryMcpToolHandler>.Instance);
+        new(data.Store.Factory().Object, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted), NullLogger<SetQueryMcpToolHandler>.Instance);
+
+    // Resolves every resource into a project the caller does not read.
+    private sealed class MissingResolver : IProjectResourceResolver
+    {
+        public Task<ResolvedProjectResource> ResolveAsync(BeaconContext context, ProjectResource resource, CancellationToken cancellationToken) =>
+            Task.FromResult(ResolvedProjectResource.InProject(77));
+    }
 }

@@ -1,3 +1,5 @@
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Subscriptions;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -66,12 +68,12 @@ internal static class SubscriptionsEndpoints
             .WithName("GetSubscriptionAnomalyChart");
 
         // Making a user the owner a subscription's scheduled runs run as (for instance one created before owners were
-        // recorded) is an Admin's; the new owner must be able to run the subscription's query (409 otherwise).
+        // recorded) is a UserAdmin's; the new owner must be able to run the subscription's query (409 otherwise).
         subs.MapPut("/{id:int}/owner", async (int id, SetSubscriptionOwnerBody body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new SetSubscriptionOwnerCommand(id, body.UserId), ct);
             return TypedResults.NoContent();
-        }).WithName("SetSubscriptionOwner").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        }).WithName("SetSubscriptionOwner").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         return group;
     }

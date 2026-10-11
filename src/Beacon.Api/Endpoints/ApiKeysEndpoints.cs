@@ -1,4 +1,5 @@
 using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.ApiKeys;
 using MediatR;
 
@@ -29,17 +30,19 @@ internal static class ApiKeysEndpoints
             return TypedResults.NoContent();
         }).WithName("RevokeApiKey").AllowViewerAccess();
 
-        // Administration of every user's keys: list (optionally one user's) and revoke any key. Admin role only.
-        var admin = keys.MapGroup("/admin").RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        // Administration of every user's keys: an Auditor or a UserAdmin lists them (optionally one user's), a UserAdmin
+        // revokes any key.
+        var admin = keys.MapGroup("/admin");
 
         admin.MapGet("/", ([AsParameters] GetAllApiKeysQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
-            .WithName("GetAllApiKeys");
+            .WithName("GetAllApiKeys")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrUserAdminPolicy);
 
         admin.MapDelete("/{id:int}", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new AdminRevokeApiKeyCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("AdminRevokeApiKey");
+        }).WithName("AdminRevokeApiKey").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         return group;
     }

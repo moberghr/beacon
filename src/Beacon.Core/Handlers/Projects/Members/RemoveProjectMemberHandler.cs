@@ -1,8 +1,10 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 
 namespace Beacon.Core.Handlers.Projects.Members;
@@ -12,6 +14,8 @@ internal sealed class RemoveProjectMemberHandler(
     IProjectAccessEvaluator projectAccess,
     IProjectMembershipSource membershipSource,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
+    IOptions<RoleMappingOptions> roleMapping,
     ILogger<RemoveProjectMemberHandler> logger)
     : IRequestHandler<RemoveProjectMemberCommand>
 {
@@ -22,7 +26,16 @@ internal sealed class RemoveProjectMemberHandler(
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await ProjectMembershipRules.RequireManageMembersAsync(context, scope, request.ProjectId, actor, logger, cancellationToken);
+        await ProjectMembershipRules.RequireMembershipAdministrationAsync(
+            context,
+            scope,
+            await permissionAccessor.GetCurrentAsync(cancellationToken),
+            request.ProjectId,
+            request.UserId,
+            actor,
+            logger,
+            cancellationToken,
+            roleMapping.Value);
 
         // The last-ProjectAdmin condition and the removal run in one serializable transaction.
         var removed = await ProjectMembershipRules.InSerializableTransactionAsync(
@@ -49,9 +62,9 @@ internal sealed class RemoveProjectMemberHandler(
 }
 
 /// <summary>
-/// Removes <c>UserId</c> from the project. For a ProjectAdmin of the project or an Admin. The last effective ProjectAdmin
-/// (active, with a global role of Editor or above) cannot be removed (an Admin may). 409 when the host manages
-/// membership, and when the members change concurrently (retry).
+/// Removes <c>UserId</c> from the project. For a ProjectAdmin of the project, a UserAdmin (never their own membership, nor
+/// that of an Admin, a super admin or a functional role holder) or an Admin. The last effective ProjectAdmin (active, with a global role of Editor or above) cannot be removed (an Admin
+/// may). 409 when the host manages membership, and when the members change concurrently (retry).
 /// </summary>
 public record RemoveProjectMemberCommand(
     int ProjectId,
@@ -59,6 +72,6 @@ public record RemoveProjectMemberCommand(
 {
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        new(ProjectResource.Project(ProjectId), ProjectAction.ManageMembers)
+        ProjectCheck.OrPermission(ProjectResource.Project(ProjectId), ProjectAction.ManageMembers, BeaconPermissions.UserAdmin)
     ];
 }

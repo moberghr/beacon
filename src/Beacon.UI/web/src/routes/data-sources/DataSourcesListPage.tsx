@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { AlertTriangle, Database, Plus, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Database, Lock, Plus, RefreshCw, X } from 'lucide-react';
 import { PageHeader } from '@/components/beacon';
 import { Button, Input, Pill } from '@/components/beacon';
 import { useSearchFilter } from '@/lib/usePagedList';
@@ -9,6 +9,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatNumber } from '@/lib/format';
+import { useAccess } from '@/auth/useAuth';
 import {
   useDataSourcesList,
   useDeleteDataSource,
@@ -21,7 +22,12 @@ const GRID_TEMPLATE = '0.6fr 1.6fr 0.8fr 0.9fr 1.6fr 0.7fr 0.7fr 60px';
 
 export default function DataSourcesListPage() {
   const navigate = useNavigate();
-  const list = useDataSourcesList();
+  const access = useAccess();
+  // Creating, testing and deleting data sources is a DataSourceAdmin's (an Admin holds it). One with no Viewer or Editor
+  // role adds data sources here but cannot list them.
+  const canManage = access.hasPermission('DataSourceAdmin');
+  const listsSources = !access.isFunctionalOnly;
+  const list = useDataSourcesList(listsSources);
   const { data, isLoading, isError, error, refetch } = list;
   const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
   const deleteMutation = useDeleteDataSource();
@@ -77,18 +83,20 @@ export default function DataSourcesListPage() {
     {
       key: 'actions',
       header: '',
-      render: r => (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={`Delete data source ${r.name}`}
-          onClick={e => { e.stopPropagation(); setDeleting(r); }}
-          title="Delete data source"
-          icon={<X />}
-        />
-      ),
+      render: r => canManage
+        ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete data source ${r.name}`}
+            onClick={e => { e.stopPropagation(); setDeleting(r); }}
+            title="Delete data source"
+            icon={<X />}
+          />
+        )
+        : null,
     },
-  ], []);
+  ], [canManage]);
 
   const onConfirmDelete = async () => {
     if (deleting == null) return;
@@ -109,23 +117,37 @@ export default function DataSourcesListPage() {
         prefix="Connected"
         emphasis="data sources"
         sub={
-          isLoading
-            ? <span className="text-text-muted">Loading…</span>
-            : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} configured</span>
+          !listsSources
+            ? undefined
+            : isLoading
+              ? <span className="text-text-muted">Loading…</span>
+              : <span className="text-text-muted">{formatNumber(data?.totalCount ?? 0)} configured</span>
         }
         actions={
           <>
-            <Button type="button" onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
-              Refresh
-            </Button>
-            <Button variant="primary" type="button" onClick={() => setAddOpen(true)} icon={<Plus />}>
-              New data source
-            </Button>
+            {listsSources && (
+              <Button type="button" onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
+                Refresh
+              </Button>
+            )}
+            {canManage && (
+              <Button variant="primary" type="button" onClick={() => setAddOpen(true)} icon={<Plus />}>
+                New data source
+              </Button>
+            )}
           </>
         }
       />
 
-      {isError && (
+      {!listsSources && (
+        <EmptyState
+          icon={<Lock />}
+          title="Listing data sources needs a Viewer or Editor role"
+          description="You can add a data source here. To see the data sources and their data, ask a Beacon administrator for a Viewer or Editor role as well."
+        />
+      )}
+
+      {listsSources && isError && (
         <EmptyState
           icon={<AlertTriangle />}
           title="Failed to load data sources"
@@ -138,7 +160,7 @@ export default function DataSourcesListPage() {
         />
       )}
 
-      {!isError && (
+      {listsSources && !isError && (
         <Input
           type="search"
           value={search}
@@ -148,7 +170,7 @@ export default function DataSourcesListPage() {
         />
       )}
 
-      {!isError && (
+      {listsSources && !isError && (
         <DataTable
           columns={columns}
           rows={entries}
@@ -166,7 +188,7 @@ export default function DataSourcesListPage() {
         />
       )}
 
-      <AddDataSourceDialog open={addOpen} onClose={() => setAddOpen(false)} />
+      {canManage && <AddDataSourceDialog open={addOpen} onClose={() => setAddOpen(false)} />}
 
       <ConfirmDialog
         open={deleting != null}

@@ -11,6 +11,7 @@ namespace Beacon.Core.Handlers.AiActors;
 internal sealed class SetAiActorOwnerHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     ProjectRequestAuthorizer authorizer,
     ILogger<SetAiActorOwnerHandler> logger) : IRequestHandler<SetAiActorOwnerCommand>
 {
@@ -20,10 +21,14 @@ internal sealed class SetAiActorOwnerHandler(
     public async Task Handle(SetAiActorOwnerCommand request, CancellationToken cancellationToken)
     {
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        if (!actor.IsAdmin)
-        {
-            throw AccessRefusal.Of(logger, actor, "AI actor", request.ActorId, "Only an Admin can change an AI actor's creator.");
-        }
+        OwnerTransfer.Demand(
+            await permissionAccessor.GetCurrentAsync(cancellationToken),
+            actor,
+            request.UserId,
+            "AI actor",
+            request.ActorId,
+            "Only an Admin or a UserAdmin can change an AI actor's creator.",
+            logger);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -55,8 +60,8 @@ internal sealed class SetAiActorOwnerHandler(
 /// <summary>
 /// Makes a Beacon user (<c>UserId</c>, the user's id in the user directory) the creator of an AI actor, the user who may
 /// then pause, resume, archive, refine and run it and whom its background think cycles run as (for instance an actor
-/// created before creators were recorded). Admin only; the user must be an existing, enabled user who may work ad hoc
-/// with the actor's data source (409 otherwise); an AI actor that does not exist answers 404.
+/// created before creators were recorded). For an Admin or a UserAdmin (who is not an Admin never names themselves: 403); the user must be an existing, enabled user who
+/// may work ad hoc with the actor's data source (409 otherwise); an AI actor that does not exist answers 404.
 /// </summary>
-[ProjectScopeExempt("admin-gated ownership transfer; the new owner's access is validated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("ownership transfer, gated by the UserAdmin permission; the new owner's access is validated", Policy = BeaconPermissions.UserAdminPolicy)]
 public record SetAiActorOwnerCommand(int ActorId, int UserId) : IRequest;

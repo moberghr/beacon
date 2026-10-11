@@ -164,7 +164,7 @@ internal sealed class GetMcpAuditLogsHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
-[ProjectScopeExempt("admin-gated audit; not filtered by membership", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("the audit, gated by the Auditor permission; not filtered by membership", Policy = BeaconPermissions.AuditorPolicy)]
 public record GetMcpAuditLogsQuery(
     DateTime From,
     DateTime To,

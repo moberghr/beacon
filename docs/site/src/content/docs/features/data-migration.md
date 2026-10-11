@@ -187,10 +187,17 @@ Click **Save** to create the migration job.
 
 ## Managing Migration Jobs
 
-Data migration is an Admin feature: creating, running and deleting jobs, and reading the job list, a job and its run history, need the Admin role. The **Data Migration** entry is hidden from other users.
+Data migration is a MigrationOperator's (and an Admin's, see [Functional permissions](/features/authorization/#functional-permissions)): creating, running and deleting jobs, and reading the job list, a job and its run history, need that permission. The **Data Migration** entry is hidden from other users. The Home page's migration summary shows Admins the totals of every job, MigrationOperators those of the jobs their list shows, and zeros to everyone else.
+
+A MigrationOperator goes through project access like any other user, with no bypass. A job reads the source it declares and the data source of **every step** in its query text (a JSON list of steps, each naming its data source; plain SQL names none). Creating a job, every run of it and deleting it need:
+
+- **Query** on each of those data sources (a step is SQL of its own, so running saved SQL is not enough) and **Write** on the destination, through the projects that link them (`404` for a data source the operator cannot read, `403` for one it reads but may not query or write);
+- a destination **no more widely reachable** than any of those sources: every live project that links the destination must link each source too, and an openly reachable destination needs openly reachable sources (`403` otherwise). A source that is also the destination widens nothing, but the job's other steps are still checked. Copying data never makes it readable to more people.
+
+The steps are checked once more as they run: each step's data source needs Query for the caller. The job list, a job and the run history show a MigrationOperator only the jobs whose source and destination data sources they can read (a job they cannot read is not found, `404`); a failed run's error text, which can quote any data source the job reads, is replaced by a note unless the caller reads every one of them. An Admin is not checked. Refusals are logged with ids only.
 
 :::caution[Upgrading]
-`GET /migrations/jobs`, `GET /migrations/jobs/{id}` and `GET /migrations/executions` now need the Admin role. The Home page's migration summary stays visible to every user.
+`GET /migrations/jobs`, `GET /migrations/jobs/{id}` and `GET /migrations/executions` need the Admin role or the MigrationOperator permission.
 :::
 
 ### View Migration Jobs
@@ -202,7 +209,7 @@ The Data Migration page shows all configured jobs with:
 - Schedule (if configured)
 - Last execution status
 - Enabled/disabled state
-- Actions (Execute, Edit, History, Delete)
+- Actions (Delete; open a job to run it)
 
 ### Execute Job Manually
 
@@ -236,31 +243,13 @@ Review past executions with detailed metrics:
 - Performance (rows/second)
 - Retry attempt number
 
-### Edit Migration Job
+### Change a Migration Job
 
-1. Click **Edit** (pencil icon) on the job row
-2. Modify any configuration
-3. Test changes with **Preview Query**
-4. Click **Save**
+A job is not edited once it is created: there is no route that changes one. To change its query, destination, schedule or whether it is enabled, create a new job with the new settings (which checks its data sources again) and delete the old one; the old job's execution history is kept.
 
-:::caution
-Changes to query or destination table structure may break existing jobs. Always test after editing.
-:::
+### Enabled and Disabled Jobs
 
-### Enable/Disable Job
-
-Temporarily pause scheduled execution:
-
-1. Toggle the **Enabled** switch in the edit page
-2. Or use the **Disable** action on the job row
-3. Disabled jobs won't execute on schedule
-4. Manual execution is still available
-
-**Use cases for disabling:**
-- Database maintenance windows
-- Destination table schema changes in progress
-- Temporary data freeze requirements
-- Testing alternative approaches
+Whether a job is enabled is set when it is created. A disabled job does not run: a run of it fails as disabled, and its page does not offer **Run now**.
 
 ### Delete Migration Job
 

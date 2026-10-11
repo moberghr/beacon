@@ -6,7 +6,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class CreateMigrationJobHandler(IMigrationService migrationService)
+internal sealed class CreateMigrationJobHandler(IMigrationService migrationService, MigrationJobAccess access)
     : IRequestHandler<CreateMigrationJobCommand, CreateMigrationJobResult>
 {
     public async Task<CreateMigrationJobResult> Handle(
@@ -43,6 +43,8 @@ internal sealed class CreateMigrationJobHandler(IMigrationService migrationServi
             throw new InvalidOperationException("Source query text is required.");
         }
 
+        await access.DemandAsync(request.DataSourceId, request.QueryText, request.DestinationDataSourceId, cancellationToken);
+
         var serviceRequest = new CreateMigrationJobRequest
         {
             Name = request.Name,
@@ -69,7 +71,12 @@ internal sealed class CreateMigrationJobHandler(IMigrationService migrationServi
     }
 }
 
-[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Creates a migration job. For an Admin, or a MigrationOperator who may query the source and the data source of every
+/// step in <c>QueryText</c> and write the destination, and whose destination is no more widely reachable than any of those
+/// sources (<see cref="MigrationJobAccess"/>).
+/// </summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; the handler checks Query on the source and every step's data source and Write on the destination through project access", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record CreateMigrationJobCommand(
     string Name,
     string Description,

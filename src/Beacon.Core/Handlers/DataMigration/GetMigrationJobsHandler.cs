@@ -4,19 +4,24 @@ using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetMigrationJobsQuery, PagedList<MigrationJobListItem>>
 {
     public async Task<PagedList<MigrationJobListItem>> Handle(
         GetMigrationJobsQuery request,
         CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // The jobs whose data sources the caller reads at both ends (an Admin's: every job).
         return await context.MigrationJobs
+            .WhereSourceAccessible(context, readable, x => x.DataSourceId)
+            .WhereSourceAccessible(context, readable, x => x.DestinationDataSourceId)
             .WhereIf(!string.IsNullOrWhiteSpace(request.Search), x => x.Name.Contains(request.Search!))
             .Select(x =>
                 new MigrationJobListItem
@@ -38,8 +43,11 @@ internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> c
     }
 }
 
-/// <summary>Newest first unless <c>sort</c> says otherwise; <c>search</c> matches the job name.</summary>
-[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Newest first unless <c>sort</c> says otherwise; <c>search</c> matches the job name. Only the jobs whose source and
+/// destination data sources the caller reads.
+/// </summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; the list is filtered to jobs whose data sources the caller reads", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record GetMigrationJobsQuery : ListRequest, IRequest<PagedList<MigrationJobListItem>>
 {
     public string? Search { get; init; }

@@ -9,8 +9,8 @@ using Beacon.Core.Authorization;
 namespace Beacon.Core.Handlers.Recipients;
 
 /// <summary>
-/// Admin only (the endpoint carries the admin policy). The destination and headers must pass the destination policy
-/// and are stored encrypted.
+/// For an Admin or a SecurityAdmin (the endpoint carries the SecurityAdmin policy). The destination and headers must pass
+/// the destination policy and are stored encrypted.
 /// </summary>
 internal sealed class CreateRecipientHandler(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -65,7 +65,7 @@ internal sealed class CreateRecipientHandler(
     }
 }
 
-[ProjectScopeExempt("recipients are project-less; changing them is admin-gated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("recipients are project-less; changing them is gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record CreateRecipientCommand(
     string Name,
     string? Description,

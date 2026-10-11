@@ -17,7 +17,8 @@ namespace Beacon.Tests.Common;
 /// <summary>
 /// Sends requests through the real Beacon Core and AI registrations (MediatR pipeline, handlers, services) with the
 /// database replaced by a <see cref="SqlCapture"/> that answers every count with one and every other read with no rows,
-/// and project access fixed to a given scope: what each handler sends to the database, without one (§4.7). The by-id
+/// and project access fixed to a given scope (and no functional permission): what each handler sends to the database,
+/// without one (§4.7). The by-id
 /// checks a request also declares resolve every resource into project 1, so they pass for a scope that reads project 1
 /// and the handler's own SQL is what is captured.
 /// </summary>
@@ -95,6 +96,7 @@ internal sealed class ListHandlerHarness
         services.AddScoped<IBeaconUserContext, HttpContextUserContext>();
         services.AddSingleton(factory);
         services.AddScoped(_ => TestProjectAccess.Evaluator(_scope));
+        services.AddScoped(_ => TestPermissions.None);
         services.AddScoped<IProjectResourceResolver, InProjectOne>();
 
         return services.BuildServiceProvider();

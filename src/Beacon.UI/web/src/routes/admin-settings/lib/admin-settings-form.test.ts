@@ -5,6 +5,7 @@ import {
   settingsToForm,
   formToUpdatePayload,
   formToTestPayload,
+  keepStoredConnection,
   type AdminSettingsFormValues,
 } from './admin-settings-form';
 import { AiProvider, BedrockAuthMode } from '@/lib/enums';
@@ -139,5 +140,62 @@ describe('formToTestPayload', () => {
     expect(payload.llmEndpoint).toBeNull();
     expect(payload.llmApiKey).toBeNull();
     expect(payload.llmSessionToken).toBe('s');
+  });
+});
+
+describe('keepStoredConnection', () => {
+  const stored = {
+    baseUrl: null,
+    llmProvider: AiProvider.Bedrock,
+    llmApiKeySet: false,
+    llmEndpointSet: false,
+    llmRegion: 'eu-west-1',
+    llmSessionTokenSet: false,
+    llmAwsAccessKeyIdSet: true,
+    llmAwsSecretAccessKeySet: true,
+    llmBedrockAuthMode: BedrockAuthMode.AccessKey,
+    llmModel: 'anthropic.claude',
+    llmFastModel: null,
+    llmMaxConcurrentRequests: 4,
+    llmTokensPerMinute: 0,
+    llmRequestsPerMinute: 0,
+    llmMonthlyBudget: 0,
+  } satisfies AdminSettingsView;
+
+  it('sends the stored provider, region and authentication mode, and no endpoint or credential', () => {
+    const edited = formToUpdatePayload({
+      ...settingsToForm(stored),
+      llmProvider: AiProvider.OpenAI,
+      llmRegion: 'us-east-1',
+      llmBedrockAuthMode: BedrockAuthMode.IamRole,
+      llmApiKey: 'sk-new',
+      llmEndpoint: 'https://elsewhere.example.test',
+      llmAwsAccessKeyId: 'AKIA',
+      llmModel: 'anthropic.claude-v2',
+      llmMonthlyBudget: 50,
+    });
+
+    const payload = keepStoredConnection(edited, stored);
+
+    expect(payload).toMatchObject({
+      llmProvider: AiProvider.Bedrock,
+      llmRegion: 'eu-west-1',
+      llmBedrockAuthMode: BedrockAuthMode.AccessKey,
+      llmApiKey: null,
+      llmEndpoint: null,
+      llmSessionToken: null,
+      llmAwsAccessKeyId: null,
+      llmAwsSecretAccessKey: null,
+      // The rest is the form's.
+      llmModel: 'anthropic.claude-v2',
+      llmMonthlyBudget: 50,
+    });
+  });
+
+  it('keeps no provider when none is stored', () => {
+    const payload = keepStoredConnection(formToTestPayload(settingsToForm(undefined)), { ...stored, llmProvider: null, llmRegion: null });
+
+    expect(payload.llmProvider).toBeNull();
+    expect(payload.llmRegion).toBeNull();
   });
 });

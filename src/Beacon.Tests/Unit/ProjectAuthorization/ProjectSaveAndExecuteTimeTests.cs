@@ -247,7 +247,7 @@ public class ProjectSaveAndExecuteTimeTests
     public async Task MigrationTotals_AreAnAdminsAlone()
     {
         var capture = new SqlCapture();
-        var handler = new GetHomeMigrationSummaryHandler(capture.Factory(), TestProjectAccess.Evaluator(TestProjectAccess.FastPath));
+        var handler = new GetHomeMigrationSummaryHandler(capture.Factory(), TestProjectAccess.Evaluator(TestProjectAccess.FastPath), TestPermissions.None);
 
         var summary = await handler.Handle(new GetHomeMigrationSummaryQuery(), CancellationToken.None);
 

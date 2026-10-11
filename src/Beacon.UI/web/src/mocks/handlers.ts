@@ -38,7 +38,7 @@
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
- * - admin: api-keys, users, users/roles, admin-settings, user-settings
+ * - admin: api-keys, users, users/roles, PUT users/:id/roles (no state kept), admin-settings, user-settings
  * - data-quality: overview, contracts
  * - catch-alls: 404 GET / 400 mutations / 503 hub negotiate
  */
@@ -90,13 +90,21 @@ const authHandlers = [
   http.get('/beacon/api/auth/me', () =>
     HttpResponse.json({
       userId: 'mock-admin',
+      userName: 'mock.admin',
       displayName: 'Mock Admin',
       email: 'mock.admin@example.test',
       isAuthenticated: true,
       roles: ['Admin'],
       realtimeEnabled: true,
     })),
-  http.get('/beacon/api/auth/permissions', () => HttpResponse.json({ canRead: true, canWrite: true })),
+  // An Admin holds every functional permission.
+  http.get('/beacon/api/auth/permissions', () =>
+    HttpResponse.json({
+      canRead: true,
+      canWrite: true,
+      isAdmin: true,
+      permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'],
+    })),
   http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];
@@ -242,13 +250,15 @@ const projectsHandlers = [
         isActive: true,
         addedAt: iso(40),
         modifiedAt: null,
+        // The mock user is an Admin: every membership is theirs to change.
+        canChange: true,
       },
     ]))),
   http.get('/beacon/api/projects/:id/member-candidates', ({ request }) => {
     const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase();
     const people = [
-      { userId: 1, displayName: 'Mock Admin', isMember: true },
-      { userId: 2, displayName: 'Sample Analyst', isMember: false },
+      { userId: 1, displayName: 'Mock Admin', isMember: true, canAdd: true },
+      { userId: 2, displayName: 'Sample Analyst', isMember: false, canAdd: true },
     ];
     return HttpResponse.json({ candidates: people.filter(x => x.displayName.toLowerCase().includes(search)) });
   }),
@@ -1328,8 +1338,11 @@ const adminHandlers = [
       entries: [
         { id: 1, name: 'Admin', description: 'Full access', level: 100, isSystemRole: true },
         { id: 2, name: 'Member', description: 'Standard access', level: 10, isSystemRole: true },
+        { id: 3, name: 'Approver', description: 'Approves query changes', level: 0, isSystemRole: true, permission: 'Approver' },
+        { id: 4, name: 'Auditor', description: 'Reads the audit and settings', level: 0, isSystemRole: true, permission: 'Auditor' },
       ],
     })),
+  http.put('/beacon/api/users/:id/roles', () => new HttpResponse(null, { status: 204 })),
 
   // Admin (LLM provider) settings — no secrets are ever returned, only "*Set" booleans.
   http.get('/beacon/api/admin-settings', () =>

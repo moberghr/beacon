@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Core;
@@ -20,9 +21,23 @@ using Moq;
 
 namespace Beacon.Tests.Common;
 
-/// <summary>One <c>/beacon/api</c> route as <c>MapBeaconApi</c> maps it: method, pattern, endpoint name and policies.</summary>
-internal sealed record BeaconApiRoute(string Method, string Pattern, string? Name, IReadOnlyList<string> Policies)
+/// <summary>
+/// One <c>/beacon/api</c> route as <c>MapBeaconApi</c> maps it: method, pattern, endpoint name, policies, the
+/// functional permissions the permission filter admits on it (<see cref="PermissionRequired"/>: as its requirement), and
+/// whether the filter admits only an Admin by live roles (<see cref="RequiresLiveAdmin"/>).
+/// </summary>
+internal sealed record BeaconApiRoute(
+    string Method,
+    string Pattern,
+    string? Name,
+    IReadOnlyList<string> Policies,
+    IReadOnlyList<string> AdmittedPermissions,
+    bool PermissionRequired,
+    bool RequiresLiveAdmin = false)
 {
+    /// <summary>The route as policy maps name it: <c>METHOD /pattern</c>.</summary>
+    public string Key => $"{Method} {Pattern}";
+
     /// <summary>A route that addresses something by a route value (<c>{id}</c>, <c>{projectId}</c>, …).</summary>
     public bool IsById => Pattern.Contains('{');
 
@@ -70,7 +85,10 @@ internal static class BeaconApiRoutes
                         x.Metadata.GetOrderedMetadata<IAuthorizeData>()
                             .Select(z => z.Policy)
                             .OfType<string>()
-                            .ToList())))
+                            .ToList(),
+                        x.Metadata.GetMetadata<BeaconFunctionalPermissionMetadata>()?.Permissions ?? [],
+                        x.Metadata.GetMetadata<BeaconFunctionalPermissionMetadata>()?.IsRequired == true,
+                        x.Metadata.GetMetadata<BeaconAdminMetadata>() != null)))
             .ToList();
     }
 

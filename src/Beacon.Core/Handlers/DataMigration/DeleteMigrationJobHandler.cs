@@ -4,7 +4,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class DeleteMigrationJobHandler(IMigrationService migrationService)
+internal sealed class DeleteMigrationJobHandler(IMigrationService migrationService, MigrationJobAccess access)
     : IRequestHandler<DeleteMigrationJobCommand, DeleteMigrationJobResult>
 {
     public async Task<DeleteMigrationJobResult> Handle(
@@ -16,6 +16,9 @@ internal sealed class DeleteMigrationJobHandler(IMigrationService migrationServi
             throw new InvalidOperationException("Migration job id is required.");
         }
 
+        // Deleting a job needs the access running it needs.
+        await access.DemandForJobAsync(request.MigrationJobId, cancellationToken);
+
         var response = await migrationService.DeleteMigrationJob(
             request.MigrationJobId,
             cancellationToken,
@@ -25,7 +28,11 @@ internal sealed class DeleteMigrationJobHandler(IMigrationService migrationServi
     }
 }
 
-[ProjectScopeExempt("admin-gated data migration", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+/// <summary>
+/// Archives a migration job (or deletes it, with <c>ForceDelete</c>). For an Admin, or a MigrationOperator who may run the
+/// job (<see cref="MigrationJobAccess"/>).
+/// </summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; the handler demands what running the job demands", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record DeleteMigrationJobCommand(int MigrationJobId, bool ForceDelete = false)
     : IRequest<DeleteMigrationJobResult>;
 

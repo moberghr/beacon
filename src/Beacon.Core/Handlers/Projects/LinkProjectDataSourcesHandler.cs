@@ -17,6 +17,7 @@ internal sealed class LinkProjectDataSourcesHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     IHostDataSourceRegistry hostSources,
     IOptions<ProjectAuthorizationOptions> options,
     ILogger<LinkProjectDataSourcesHandler> logger)
@@ -34,10 +35,11 @@ internal sealed class LinkProjectDataSourcesHandler(
 
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
 
         try
         {
-            return await LinkAsync(request.ProjectId, dataSourceIds, scope, actor, cancellationToken);
+            return await LinkAsync(request.ProjectId, dataSourceIds, scope, actor, permissions, cancellationToken);
         }
         catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
         {
@@ -50,6 +52,7 @@ internal sealed class LinkProjectDataSourcesHandler(
         List<int> dataSourceIds,
         ProjectAccessScope scope,
         BeaconActor actor,
+        BeaconPermissionSet permissions,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -59,6 +62,17 @@ internal sealed class LinkProjectDataSourcesHandler(
         // is never linked on stale reads.
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var candidates = await ProjectDataSourceLinks.ReadAsync(context, dataSourceIds, cancellationToken);
+
+        // A restricted project the caller has no role in: linking a source there gives the caller no way to read it.
+        var asDataSourceAdmin = permissions.Holds(BeaconPermissions.DataSourceAdmin);
+        var targetHiddenFromCaller = asDataSourceAdmin
+            && !scope.IsUnrestricted
+            && scope.RoleIn(project.Id) == null
+            && (options.Value.RequireProjectMembership
+                || await context.Projects
+                    .Where(x => x.Id == project.Id)
+                    .Select(x => x.RequiresMembership)
+                    .FirstOrDefaultAsync(cancellationToken));
         ProjectDataSourceLinks.Check(
             scope,
             dataSourceIds,
@@ -67,7 +81,9 @@ internal sealed class LinkProjectDataSourcesHandler(
             ProjectDataSourceLinks.HostProjectKeys(hostSources),
             options.Value.RequireProjectMembership,
             actor,
-            logger);
+            logger,
+            asDataSourceAdmin,
+            targetHiddenFromCaller);
 
         var linked = candidates
             .Where(x => x.Links.All(y => y.ProjectId != project.Id))
@@ -107,9 +123,10 @@ internal sealed class LinkProjectDataSourcesHandler(
 }
 
 /// <summary>
-/// Links existing data sources into a project. For a ProjectAdmin of the project or an Admin. A non-Admin links only
-/// data sources a live open project already holds; a host's data source links only into the project the host declares
-/// for it. 404 for a data source that is missing or unreadable to the caller, 403 for one it may read but not link, 409
+/// Links existing data sources into a project. For a ProjectAdmin of the project or an Admin. Anyone but an Admin or a
+/// DataSourceAdmin links only data sources a live open project already holds; a DataSourceAdmin links a source it cannot
+/// read only into a restricted project it is not a member of (403); a host's data source links only into the
+/// project the host declares for it. 404 for a data source that is missing or unreadable to the caller, 403 for one it may read but not link, 409
 /// when the links change concurrently (retry). Already linked sources are left as they are.
 /// </summary>
 public record LinkProjectDataSourcesCommand(int ProjectId, [property: ProjectScopeExempt("save-time: the link rules check each data source inside the handler's transaction (404 unreadable, 403 not linkable)")] List<int> DataSourceIds) : IRequest<LinkProjectDataSourcesResult>, IProjectAuthorizedRequest

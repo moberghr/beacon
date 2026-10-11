@@ -12,18 +12,20 @@ using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api.Endpoints;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Recipients;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.Notifications;
 
 /// <summary>
 /// Recipient secrets (the Jira <c>site;project;email;apiToken</c> tuple, Slack and Teams webhook URLs, webhook auth
-/// headers) never leave the server in a read: non-admins get names and types only, admins get masked values, and the
-/// list's search does not read destinations. Covers rows encrypted at rest and rows stored before encryption.
+/// headers) never leave the server in a read: everyone else gets names and types only, Admins and SecurityAdmins (who
+/// change recipients) get masked values, and the list's search does not read destinations. Covers rows encrypted at rest and rows stored before encryption.
 /// </summary>
 [TestFixture]
 public class RecipientSecretExposureTests
@@ -49,10 +51,11 @@ public class RecipientSecretExposureTests
         JsonSerializer.Serialize(result).Should().NotContainAny(Secrets);
     }
 
-    [Test]
-    public async Task GetRecipients_ForAnAdmin_ReturnsMaskedValuesOnly()
+    [TestCase(RoleService.RoleNames.Admin)]
+    [TestCase(BeaconPermissions.SecurityAdmin)]
+    public async Task GetRecipients_ForAnAdminOrASecurityAdmin_ReturnsMaskedValuesOnly(string role)
     {
-        var handler = Handler(NotificationTestKit.Admin());
+        var handler = Handler(NotificationTestKit.Interactive(role));
 
         var result = await handler.Handle(new GetRecipientsQuery { PageSize = 200 }, CancellationToken.None);
 
@@ -96,7 +99,7 @@ public class RecipientSecretExposureTests
         var foreign = new RecipientSecretProtector(new EncryptionService("another-key"));
         var store = new RecipientStore();
         store.Recipients.Add(new Recipient { Id = 7, Name = "rotated", NotificationType = NotificationType.Slack, Destination = foreign.Protect(SlackWebhook) });
-        var handler = new GetRecipientsHandler(NotificationTestKit.Factory(store), NotificationTestKit.UserContext(NotificationTestKit.Admin()), NotificationTestKit.Editor());
+        var handler = new GetRecipientsHandler(NotificationTestKit.Factory(store), TestPermissions.ForPrincipal(NotificationTestKit.Admin()), NotificationTestKit.Editor());
 
         var result = await handler.Handle(new GetRecipientsQuery { PageSize = 200 }, CancellationToken.None);
 
@@ -121,7 +124,7 @@ public class RecipientSecretExposureTests
         var endpoints = app.Services.GetRequiredService<EndpointDataSource>().Endpoints;
         foreach (var name in new[] { "CreateRecipient", "UpdateRecipient", "DeleteRecipient" })
         {
-            Policies(endpoints, name).Should().Contain(BeaconApiEndpoints.AdminPolicyName, $"{name} decides where Beacon sends data");
+            Policies(endpoints, name).Should().Contain(BeaconPermissions.SecurityAdminPolicy, $"{name} decides where Beacon sends data");
         }
 
         var client = app.GetTestClient();
@@ -177,7 +180,7 @@ public class RecipientSecretExposureTests
     {
         return new GetRecipientsHandler(
             NotificationTestKit.Factory(Seed()),
-            NotificationTestKit.UserContext(user),
+            TestPermissions.ForPrincipal(user),
             NotificationTestKit.Editor());
     }
 

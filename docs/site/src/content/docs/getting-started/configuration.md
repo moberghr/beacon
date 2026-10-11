@@ -335,7 +335,50 @@ public class MyAuthorizationProvider : IBeaconAuthorizationProvider
 options.AddAuthorizationProvider<MyAuthorizationProvider>();
 ```
 
-When `Authorization.Enabled` or user management is on, Beacon enforces Viewer vs Editor server-side on `/beacon/api`: `GET` requests need read permission (Viewer or above) and every other method needs write permission (Editor or above). The exceptions are running query previews and changing your own password, which a Viewer may do. Read-scoped API keys cannot call mutating endpoints, whatever role the key's user holds.
+When `Authorization.Enabled` or user management is on, Beacon enforces Viewer vs Editor server-side on `/beacon/api`: `GET` requests need read permission (Viewer or above) and every other method needs write permission (Editor or above). The exceptions are running query previews and changing your own password, which a Viewer may do. Read-scoped API keys cannot call mutating endpoints, whatever role the key's user holds. A route gated by a [functional permission](/features/authorization/#functional-permissions) admits its holder instead, with no Viewer or Editor role.
+
+### Functional permissions: role names, identity-provider app roles, separation of duties
+
+The Admin role's duties are split into six functional permissions — `Approver`, `Auditor`, `SecurityAdmin`, `UserAdmin`, `DataSourceAdmin` and `MigrationOperator` (see [Functional permissions](/features/authorization/#functional-permissions)). Admins keep all of them; nothing here needs configuring to keep the current behaviour.
+
+```json
+{
+  "Beacon": {
+    "Authorization": {
+      "Roles": {
+        "Approver": "Approver",
+        "Auditor": "Compliance Reviewer",
+        "SecurityAdmin": "SecurityAdmin",
+        "UserAdmin": "UserAdmin",
+        "DataSourceAdmin": "DataSourceAdmin",
+        "MigrationOperator": "MigrationOperator",
+        "HonourHostRoleClaims": false
+      },
+      "IdpRoles": {
+        "Enabled": false,
+        "Map": {
+          "beacon.auditor": "Auditor"
+        },
+        "ClaimLifetimeMinutes": 60
+      },
+      "SeparationOfDuties": {
+        "Enabled": false
+      }
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `Roles:{Permission}` | The Beacon role that grants the permission. Beacon creates the role (level 0, a system role) when roles are next listed or seeded, under this name. The name may not be `Admin`, `Editor` or `Viewer`, nor one another permission uses (startup fails), and is compared ignoring case. Only a level-0 system role with the name grants the permission: a role someone created under it grants nothing (seeding logs its id). | the permission's name |
+| `Roles:HonourHostRoleClaims` | On a host **without** Beacon user management: let the session's role claims named like a permission's role grant that permission. Off, such a session holds functional permissions only through the `Admin` role claim (all of them). Ignored with Beacon user management, where stored roles decide. | `false` |
+| `IdpRoles:Enabled` | Map identity-provider app roles onto permissions at single sign-on. A mapped permission is added to the session's claims when the user signs in and is **never stored**: it is honoured for `ClaimLifetimeMinutes` after that sign-in, does not appear on the Users page, and an [API key](/features/api-keys/) never carries it. Startup fails when it is on with an empty `Map`. | `false` |
+| `IdpRoles:Map` | App role value (the `roles` claim, or the identity's role claim type) → permission name. Only the six permissions may be mapped, never `Admin`, `Editor` or `Viewer` (startup fails otherwise); with separation of duties on, not both permissions of a conflicting pair. App role values are compared exactly. | empty |
+| `IdpRoles:ClaimLifetimeMinutes` | How long a mapped permission counts after the sign-in that mapped it (1–1440; startup fails otherwise). The session cookie lives longer and slides; signing in again renews the mapped permissions. | `60` |
+| `SeparationOfDuties:Enabled` | Refuse (`400`) role assignments that give one user both permissions of a conflicting pair: Approver + SecurityAdmin, Auditor + SecurityAdmin, Auditor + UserAdmin, UserAdmin + Approver, UserAdmin + MigrationOperator (also when an Admin assigns them). On, a mapped permission that conflicts with the user's stored roles is not added at sign-in, and a caller who holds both permissions of a pair anyway (roles assigned before the switch) holds neither. The startup log counts the users concerned. | `false` |
+
+`Beacon:Authentication:Oidc:DefaultRoleName` and `Beacon:Mcp:Callers:Users:DefaultRoleName` may not name the `Admin` role or a functional permission's role: startup fails, since every provisioned user would get it.
 
 :::note
 For complete authorization documentation, see the [Authorization Guide](/features/authorization/).
@@ -409,7 +452,7 @@ A forced [metadata refresh](/features/data-sources/#refreshing-metadata) re-read
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `ForcedRefreshCooldownMinutes` | Minutes after a successful forced refresh of a data source before the next one is accepted (0–1440; `0` turns the cooldown off). A failed refresh does not start it, changing the data source clears it, and a changed value applies to the next request. Kept per Beacon process, so each instance of a multi-instance host keeps its own. A value out of range fails startup. | `15` |
+| `ForcedRefreshCooldownMinutes` | Minutes after a successful forced refresh of a data source before the next one is accepted (0–1440; `0` turns the cooldown off). A failed refresh does not start it, changing the data source clears it, and a changed value applies to the next request. Kept per Beacon process, so each instance of a multi-instance host keeps its own. An Admin or a DataSourceAdmin is not held to it (one refresh of a data source still runs at a time). A value out of range fails startup. | `15` |
 
 ## AI / LLM Configuration (Optional — Experimental)
 

@@ -5,6 +5,8 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsHandler } from '@/test/permissions';
+import { AccessReady } from '@/test/AccessReady';
 import DataSourceDetailPage from './DataSourceDetailPage';
 
 vi.mock('sonner', () => ({
@@ -34,10 +36,13 @@ function renderWith(payload: Record<string, unknown>, ...extra: Parameters<typeo
     http.get('*/beacon/api/data-sources/42/metadata', () => HttpResponse.json({ tables: [] })),
     http.get('*/beacon/api/*', () => HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404 })),
   );
-  renderWithProviders(
-    <Routes>
-      <Route path="/data-sources/:id" element={<DataSourceDetailPage />} />
-    </Routes>,
+  return renderWithProviders(
+    <>
+      <Routes>
+        <Route path="/data-sources/:id" element={<DataSourceDetailPage />} />
+      </Routes>
+      <AccessReady />
+    </>,
     { initialEntries: ['/data-sources/42'] },
   );
 }
@@ -56,6 +61,31 @@ describe('DataSourceDetailPage projects', () => {
 
     expect(await screen.findByText('Admins only')).toBeInTheDocument();
     expect(screen.queryByText('Not linked')).not.toBeInTheDocument();
+  });
+});
+
+describe('DataSourceDetailPage delete', () => {
+  // The page's catch-all answers every other GET with 404: who the user is must be answered first.
+  const me = http.get('*/beacon/api/auth/me', () =>
+    HttpResponse.json({ userId: 'u1', userName: 'tester', displayName: 'Tester', email: null, isAuthenticated: true, roles: [] }),
+  );
+
+  it('is offered to a DataSourceAdmin', async () => {
+    renderWith(entry({}), me, permissionsHandler({ permissions: ['DataSourceAdmin'] }));
+
+    expect(await screen.findByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
+
+  it('is not offered to a holder of every other permission', async () => {
+    renderWith(
+      entry({}),
+      me,
+      permissionsHandler({ permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'MigrationOperator'] }),
+    );
+
+    expect(await screen.findByRole('button', { name: /refresh metadata/i })).toBeInTheDocument();
+    await screen.findByTestId('access-ready');
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
   });
 });
 

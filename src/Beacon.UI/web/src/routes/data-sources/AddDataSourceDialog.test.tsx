@@ -3,6 +3,8 @@ import { http, HttpResponse } from 'msw';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { functionalOnly } from '@/test/permissions';
+import { AccessReady } from '@/test/AccessReady';
 import { AddDataSourceDialog } from './AddDataSourceDialog';
 
 describe('AddDataSourceDialog (multi-engine)', () => {
@@ -79,11 +81,35 @@ describe('AddDataSourceDialog (multi-engine)', () => {
     await advanceToTestStep();
 
     // Without a project the source stays Admin-only, and the dialog says so.
-    expect(screen.getByText(/only admins can use it until it is linked/i)).toBeInTheDocument();
+    expect(await screen.findByText(/only admins can use it until it is linked/i)).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('checkbox', { name: /beta pipeline/i }));
     fireEvent.click(screen.getByRole('button', { name: /create data source/i }));
 
     await waitFor(() => expect(captured).toMatchObject({ projectIds: [2] }));
+  });
+
+  it('offers a DataSourceAdmin with no Viewer or Editor role no project to pick, since that lists the projects', async () => {
+    let projectLists = 0;
+    mswServer.use(
+      functionalOnly('DataSourceAdmin'),
+      http.get('*/beacon/api/projects', () => {
+        projectLists += 1;
+        return HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 });
+      }),
+    );
+
+    renderWithProviders(
+      <>
+        <AddDataSourceDialog open onClose={vi.fn()} />
+        <AccessReady />
+      </>,
+    );
+    await screen.findByTestId('access-ready');
+    await advanceToTestStep();
+
+    expect(screen.getByText(/picking projects here needs a viewer or editor role/i)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /beta pipeline/i })).not.toBeInTheDocument();
+    expect(projectLists).toBe(0);
   });
 
   it('explains a 403 on test-connection instead of showing a bare status code', async () => {

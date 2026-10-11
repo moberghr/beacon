@@ -1,6 +1,5 @@
 using System.Data.Common;
 using System.Dynamic;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
@@ -48,8 +47,8 @@ internal partial class MigrationService
 
         try
         {
-            // Parse query steps from JSON format
-            var querySteps = ParseQueryStepsFromJson(migrationJob.QueryText);
+            // Parse query steps from JSON format, as the job's access was decided
+            var querySteps = MigrationQuerySteps.Parse(migrationJob.QueryText);
 
             if (!querySteps.Any())
             {
@@ -142,49 +141,6 @@ internal partial class MigrationService
         {
             logger.LogError(ex, "Migration execution failed");
             throw;
-        }
-    }
-
-    private List<QueryStepData> ParseQueryStepsFromJson(string queryTextJson)
-    {
-        if (string.IsNullOrWhiteSpace(queryTextJson))
-            return new List<QueryStepData>();
-
-        try
-        {
-            // Try to parse as JSON first (new format)
-            var stepObjects = JsonSerializer.Deserialize<List<JsonElement>>(queryTextJson);
-            return stepObjects?.Select((step, index) => new QueryStepData
-            {
-                StepId = 0, // Temporary step
-                StepOrder = step.TryGetProperty("StepOrder", out var stepOrder) ? stepOrder.GetInt32() : index + 1,
-                Name = step.TryGetProperty("Name", out var name) ? name.GetString() : $"Step {index + 1}",
-                Description = step.TryGetProperty("Description", out var desc) ? desc.GetString() : null,
-                SqlValue = step.TryGetProperty("SqlValue", out var sql) ? sql.GetString() ?? "" : "",
-                DataSourceId = step.TryGetProperty("DataSourceId", out var dataSourceId) ? dataSourceId.GetInt32() : 0,
-                DataSourceName = step.TryGetProperty("DataSourceName", out var dataSourceName) ? dataSourceName.GetString() : "",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Default
-                Parameters = new List<QueryStepParameterData>()
-            }).ToList() ?? new List<QueryStepData>();
-        }
-        catch
-        {
-            // Fallback: treat as plain SQL (old format)
-            return new List<QueryStepData>
-            {
-                new QueryStepData
-                {
-                    StepId = 0,
-                    StepOrder = 1,
-                    Name = "Migration Query",
-                    Description = "Data extraction query",
-                    SqlValue = queryTextJson,
-                    DataSourceId = 0, // Will need to be resolved
-                    DataSourceName = "Unknown",
-                    DatabaseEngineType = DatabaseEngineType.PostgreSQL,
-                    Parameters = new List<QueryStepParameterData>()
-                }
-            };
         }
     }
 

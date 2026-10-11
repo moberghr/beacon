@@ -5,7 +5,7 @@ import { Banner, Button } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { useAuth, useIsAdmin } from '@/auth/useAuth';
+import { useAccess, useAuth } from '@/auth/useAuth';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
 import {
   useArchiveSubscription,
@@ -32,7 +32,10 @@ export default function SubscriptionDetailPage() {
   const validId = Number.isFinite(id) ? id : undefined;
 
   const auth = useAuth();
-  const isAdmin = useIsAdmin() === true;
+  const access = useAccess();
+  const isAdmin = access.isAdmin;
+  // Giving a subscription a new owner is a UserAdmin's (an Admin holds it).
+  const canChangeOwner = access.hasPermission('UserAdmin');
   const canWrite = auth.data?.isAuthenticated === true;
 
   const detail = useSubscriptionDetailQuery(validId);
@@ -107,7 +110,7 @@ export default function SubscriptionDetailPage() {
         onTest={onTest}
         onArchive={onArchive}
         onReactivate={onReactivate}
-        onChangeOwner={isAdmin ? () => setChangingOwner(true) : undefined}
+        onChangeOwner={canChangeOwner ? () => setChangingOwner(true) : undefined}
       />
 
       {subscription.ownerNotAuthorized && (
@@ -116,12 +119,12 @@ export default function SubscriptionDetailPage() {
           icon={<UserX />}
           title="Owner not authorized: scheduled runs are skipped"
           sub={
-            isAdmin
+            canChangeOwner
               ? 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped. Assign an owner who has access to resume it.'
-              : 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped until an Admin assigns an owner who has access.'
+              : 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped until an Admin or a UserAdmin assigns an owner who has access.'
           }
           actions={
-            isAdmin ? (
+            canChangeOwner ? (
               <Button size="sm" onClick={() => setChangingOwner(true)}>
                 Change owner
               </Button>
@@ -164,7 +167,7 @@ export default function SubscriptionDetailPage() {
         onReactivate={onReactivate}
       />
 
-      {isAdmin && changingOwner && (
+      {canChangeOwner && changingOwner && (
         <SetOwnerDialog
           open
           noun="subscription"

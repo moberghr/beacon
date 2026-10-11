@@ -21,6 +21,7 @@ import {
   type PillProps,
   Textarea,
 } from '@/components/beacon';
+import { useAccess } from '@/auth/useAuth';
 import { ApprovalStatus } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
@@ -50,6 +51,9 @@ export default function ApprovalDetailPage() {
   const approve = useApproveQueryChange();
   const reject = useRejectQueryChange();
   const [comment, setComment] = useState('');
+  // Approving and rejecting is an Approver's (an Admin holds it); the query itself needs read permission to open.
+  const access = useAccess();
+  const canReview = access.hasPermission('Approver');
 
   if (Number.isNaN(numericId)) {
     return (
@@ -124,7 +128,7 @@ export default function ApprovalDetailPage() {
               <dl className="grid grid-cols-[180px_1fr] gap-y-2 gap-x-3 m-0">
                 <dt className="text-text-muted">Query</dt>
                 <dd>
-                  {data.queryId
+                  {data.queryId && access.canRead
                     ? <Link to={`/queries/${data.queryId}`} className="font-semibold">{data.queryName}</Link>
                     : <span className="font-semibold">{data.queryName}</span>}
                 </dd>
@@ -190,7 +194,7 @@ export default function ApprovalDetailPage() {
             </Card>
           )}
 
-          {isPending && (
+          {isPending && canReview && (
             <Card>
               <CardHead>
                 <Check className="size-3.5 text-text-muted" />

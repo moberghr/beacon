@@ -11,6 +11,7 @@ namespace Beacon.Core.Handlers.DataQuality.SetDataContractOwner;
 internal sealed class SetDataContractOwnerHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     ProjectRequestAuthorizer authorizer,
     ILogger<SetDataContractOwnerHandler> logger) : IRequestHandler<SetDataContractOwnerCommand>
 {
@@ -20,10 +21,14 @@ internal sealed class SetDataContractOwnerHandler(
     public async Task Handle(SetDataContractOwnerCommand request, CancellationToken cancellationToken)
     {
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        if (!actor.IsAdmin)
-        {
-            throw AccessRefusal.Of(logger, actor, "data contract", request.DataContractId, "Only an Admin can change a data contract's owner.");
-        }
+        OwnerTransfer.Demand(
+            await permissionAccessor.GetCurrentAsync(cancellationToken),
+            actor,
+            request.UserId,
+            "data contract",
+            request.DataContractId,
+            "Only an Admin or a UserAdmin can change a data contract's owner.",
+            logger);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -54,9 +59,9 @@ internal sealed class SetDataContractOwnerHandler(
 
 /// <summary>
 /// Makes a Beacon user (<c>UserId</c>, the user's id in the user directory) the owner of a data contract, the user its
-/// scheduled evaluations run as (for instance a contract created before owners were recorded). Admin only; the user must
-/// be an existing, enabled user who may run saved SQL on the contract's data source (409 otherwise); a contract that does
-/// not exist answers 404.
+/// scheduled evaluations run as (for instance a contract created before owners were recorded). For an Admin or a
+/// UserAdmin (who is not an Admin never names themselves: 403); the user must be an existing, enabled user who may run saved SQL on the contract's data source (409
+/// otherwise); a contract that does not exist answers 404.
 /// </summary>
-[ProjectScopeExempt("admin-gated ownership transfer; the new owner's access is validated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("ownership transfer, gated by the UserAdmin permission; the new owner's access is validated", Policy = BeaconPermissions.UserAdminPolicy)]
 public record SetDataContractOwnerCommand(int DataContractId, int UserId) : IRequest;

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using FluentAssertions;
@@ -8,8 +9,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Configuration;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
@@ -322,6 +325,193 @@ public class OidcEventHandlersTests
     }
 
     [Test]
+    public async Task HandleTokenValidatedAsync_MappedIdpAppRoles_AddTheirPermissionsToTheSessionOnly()
+    {
+        var userService = ProvisioningAs(Viewer("sub-ida"));
+        var mapping = new RoleMappingOptions
+        {
+            IdpRoles = new IdpRoleOptions { Enabled = true, Map = { ["beacon.audit"] = BeaconPermissions.Auditor, ["beacon.users"] = BeaconPermissions.UserAdmin } }
+        };
+        var context = BuildContext(
+            userService.Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.audit"), new Claim("roles", "Admin"), new Claim("role", "unmapped")],
+            roleClaimType: "role",
+            roleMapping: mapping);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        var principal = context.Principal!;
+        principal.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().BeEquivalentTo("Viewer", BeaconPermissions.Auditor);
+        principal.IsInRole(BeaconPermissions.Auditor).Should().BeTrue("the permission's policy reads the identity's role claim type");
+        principal.IsInRole("Admin").Should().BeFalse("only a mapped app role grants anything, and never Admin");
+        principal.FindAll(BeaconClaims.IdpPermission).Select(x => x.Value).Should().Equal(BeaconPermissions.Auditor);
+        userService.Verify(x => x.GetOrCreateExternalUserAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        userService.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_MappedIdpAppRoles_UseTheConfiguredRoleName()
+    {
+        var mapping = new RoleMappingOptions
+        {
+            Roles = new FunctionalRoleNames { Auditor = "Compliance Reviewer" },
+            IdpRoles = new IdpRoleOptions { Enabled = true, Map = { ["beacon.audit"] = BeaconPermissions.Auditor } }
+        };
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-ida")).Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.audit")],
+            roleMapping: mapping);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Principal!.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().BeEquivalentTo("Viewer", "Compliance Reviewer");
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_MappedIdpPermissions_AreIssuedByBeacon_AndStampedWithTheSignInTime()
+    {
+        var signedInAt = new DateTimeOffset(2026, 10, 11, 9, 30, 0, TimeSpan.Zero);
+        var mapping = new RoleMappingOptions
+        {
+            IdpRoles = new IdpRoleOptions { Enabled = true, Map = { ["beacon.audit"] = BeaconPermissions.Auditor } }
+        };
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-ida")).Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.audit")],
+            roleMapping: mapping,
+            timeProvider: new FakeTimeProvider(signedInAt));
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        var permission = context.Principal!.FindAll(BeaconClaims.IdpPermission).Should().ContainSingle().Subject;
+        permission.Issuer.Should().Be(BeaconClaims.Issuer);
+        var issuedAt = context.Principal!.FindAll(BeaconClaims.IdpPermissionsIssuedAt).Should().ContainSingle().Subject;
+        issuedAt.Issuer.Should().Be(BeaconClaims.Issuer);
+        issuedAt.Value.Should().Be(signedInAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_UnderSeparationOfDuties_AMappedPermissionConflictingWithAStoredRole_IsNotAdded()
+    {
+        var logs = new LogRecorder();
+        var user = Viewer("sub-ida");
+        user.Roles.Add(new BeaconRoleData { Id = 13, Name = BeaconPermissions.UserAdmin, Level = RoleService.RoleLevels.Functional, IsSystemRole = true });
+        var mapping = new RoleMappingOptions
+        {
+            IdpRoles = new IdpRoleOptions { Enabled = true, Map = { ["beacon.audit"] = BeaconPermissions.Auditor, ["beacon.sources"] = BeaconPermissions.DataSourceAdmin } },
+            SeparationOfDuties = new SeparationOfDutiesOptions { Enabled = true }
+        };
+        var context = BuildContext(
+            ProvisioningAs(user).Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.audit"), new Claim("roles", "beacon.sources")],
+            logs: logs,
+            roleMapping: mapping);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Principal!.FindAll(BeaconClaims.IdpPermission).Select(x => x.Value).Should().Equal(BeaconPermissions.DataSourceAdmin);
+        context.Principal!.IsInRole(BeaconPermissions.Auditor).Should().BeFalse();
+        var warning = logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("Separation of duties", StringComparison.Ordinal)).Subject;
+        warning.Level.Should().Be(LogLevel.Warning);
+        warning.Message.Should().Contain("Auditor").And.Contain("UserAdmin").And.NotContain("sub-ida");
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_WhenNoIdpAppRoleMaps_LogsTheCountsOnly()
+    {
+        var logs = new LogRecorder();
+        var mapping = new RoleMappingOptions { IdpRoles = new IdpRoleOptions { Enabled = true, Map = { ["beacon.audit"] = BeaconPermissions.Auditor } } };
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-ida")).Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.auditors"), new Claim("roles", "finance.readers")],
+            logs: logs,
+            roleMapping: mapping);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Principal!.FindAll(BeaconClaims.IdpPermission).Should().BeEmpty();
+        var entry = logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("SSO sign-in mapped no identity-provider app role", StringComparison.Ordinal)).Subject;
+        entry.Level.Should().Be(LogLevel.Information);
+        entry.Message.Should().Contain("2 role claims seen, 1 app roles mapped");
+        logs.Contains("beacon.auditors").Should().BeFalse("role claim values are never logged");
+        logs.Contains("finance.readers").Should().BeFalse();
+        logs.Contains("sub-ida").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_WhenAnIdpAppRoleMaps_LogsNoUnmatchedCounts()
+    {
+        var logs = new LogRecorder();
+        var mapping = new RoleMappingOptions { IdpRoles = new IdpRoleOptions { Enabled = true, Map = { ["beacon.audit"] = BeaconPermissions.Auditor } } };
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-ida")).Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.audit")],
+            logs: logs,
+            roleMapping: mapping);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        logs.Entries.Should().NotContain(x => x.Message.StartsWith("SSO sign-in mapped no identity-provider app role", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_IdpAppRoles_GrantNothing_WhileTheMappingIsOff()
+    {
+        var mapping = new RoleMappingOptions { IdpRoles = new IdpRoleOptions { Map = { ["beacon.audit"] = BeaconPermissions.Auditor } } };
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-ida")).Object,
+            sub: "sub-ida",
+            iss: "https://login.example.com/",
+            email: null,
+            name: "Ida",
+            preferredUsername: "ida",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("roles", "beacon.audit"), new Claim(BeaconClaims.IdpPermission, BeaconPermissions.UserAdmin)],
+            roleMapping: mapping);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Principal!.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().Equal("Viewer");
+        context.Principal!.FindAll(BeaconClaims.IdpPermission).Should().BeEmpty("a permission claim the token carries is removed like every beacon: claim");
+    }
+
+    [Test]
     public async Task HandleTokenValidatedAsync_TokenSuppliedBeaconClaims_NeverReachTheSession()
     {
         var userService = ProvisioningAs(Viewer("sub-hal"));
@@ -543,7 +733,9 @@ public class OidcEventHandlersTests
         IEnumerable<Claim>? extraClaims = null,
         Action<OidcAuthenticationOptions>? configure = null,
         string roleClaimType = ClaimTypes.Role,
-        LogRecorder? logs = null)
+        LogRecorder? logs = null,
+        RoleMappingOptions? roleMapping = null,
+        TimeProvider? timeProvider = null)
     {
         var oidcOptions = new OidcAuthenticationOptions
         {
@@ -557,6 +749,16 @@ public class OidcEventHandlersTests
         var services = new ServiceCollection();
         services.AddSingleton(userService);
         services.AddSingleton(Options.Create(oidcOptions));
+        if (roleMapping != null)
+        {
+            services.AddSingleton(Options.Create(roleMapping));
+        }
+
+        if (timeProvider != null)
+        {
+            services.AddSingleton(timeProvider);
+        }
+
         if (logs == null)
         {
             services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);

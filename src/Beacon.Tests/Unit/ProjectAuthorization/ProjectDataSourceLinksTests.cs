@@ -159,6 +159,47 @@ public class ProjectDataSourceLinksTests
         act.Should().Throw<BeaconForbiddenException>();
     }
 
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void ADataSourceAdmin_LinksASourceItCannotRead_OnlyWhereTheLinkDoesNotLetItReadTheSource(bool targetHidden, bool refused)
+    {
+        var candidate = Candidate(20, links: [new SourceLink(RestrictedProject, false)]);
+
+        var act = () => ProjectDataSourceLinks.Check(
+            Editor(notOpen: [20]),
+            [20],
+            [candidate],
+            null,
+            HostProjectKeys,
+            requireMembershipEverywhere: false,
+            Caller,
+            NullLogger.Instance,
+            asDataSourceAdmin: true,
+            targetHiddenFromCaller: targetHidden);
+
+        if (refused)
+        {
+            act.Should().Throw<BeaconForbiddenException>().WithMessage(ProjectDataSourceLinks.UnreadableSourceMessage);
+            return;
+        }
+
+        act.Should().NotThrow("a restricted project the DataSourceAdmin is not a member of gives it no way to read the source");
+    }
+
+    [Test]
+    public void ADataSourceAdmin_LinksASourceItReads_AnywhereItManagesMembers()
+    {
+        var candidate = Candidate(20, links: [new SourceLink(RestrictedProject, false)]);
+        var readsRestricted = TestProjectAccess.Scope(
+            new Dictionary<int, ProjectRole> { [OpenProject] = ProjectRole.ProjectAdmin, [RestrictedProject] = ProjectRole.Viewer },
+            includesOpen: true,
+            notOpen: [20]);
+
+        var act = () => ProjectDataSourceLinks.Check(readsRestricted, [20], [candidate], null, HostProjectKeys, false, Caller, NullLogger.Instance, asDataSourceAdmin: true);
+
+        act.Should().NotThrow();
+    }
+
     private static void Check(ProjectAccessScope scope, LinkCandidate candidate, string? targetHostKey = null)
     {
         ProjectDataSourceLinks.Check(

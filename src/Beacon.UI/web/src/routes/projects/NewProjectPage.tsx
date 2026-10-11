@@ -9,6 +9,7 @@ import { Database, Folder, GitBranch, Lock } from 'lucide-react';
 import { beaconApi } from '@/api/client';
 import { Banner, Button, Card, CardBody, Field, Input, PageHeader, Textarea } from '@/components/beacon';
 import { describeError, unwrap } from '@/lib/api';
+import { useAccess } from '@/auth/useAuth';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import type { DataSourceEntry } from '@/routes/data-sources/queries';
 
@@ -63,6 +64,8 @@ export default function NewProjectPage() {
   const navigate = useNavigate();
   const createMutation = useCreateProject();
   const [selectedSources, setSelectedSources] = useState<DataSourceEntry[]>([]);
+  // A repository access token is set by a SecurityAdmin (an Admin holds it); the server refuses it from anyone else.
+  const canSetToken = useAccess().hasPermission('SecurityAdmin');
 
   const {
     register,
@@ -81,7 +84,7 @@ export default function NewProjectPage() {
         description: v.description.trim() || null,
         dataSourceIds: selectedSources.map(x => x.id),
         repositoryUrls: splitLines(v.repositoryUrls),
-        accessToken: v.accessToken.trim() || null,
+        accessToken: canSetToken ? v.accessToken.trim() || null : null,
       });
       if (result.requiresMembership) {
         toast.success('Project created', { description: 'It is restricted to its members, and you are its project admin.' });
@@ -212,7 +215,11 @@ export default function NewProjectPage() {
 
               <Field
                 label="Personal access token"
-                hint="Token is encrypted at rest. Required only for private repos; leave empty for public ones."
+                hint={
+                  canSetToken
+                    ? 'Token is encrypted at rest. Required only for private repos; leave empty for public ones.'
+                    : 'Only an Admin or a SecurityAdmin sets a repository access token. Public repositories need none.'
+                }
               >
                 <Input
                   id="np-token"
@@ -220,6 +227,7 @@ export default function NewProjectPage() {
                   className="mono"
                   placeholder="Required only for private repositories"
                   {...register('accessToken')}
+                  disabled={!canSetToken}
                 />
               </Field>
             </div>

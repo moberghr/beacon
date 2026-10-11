@@ -5,6 +5,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
+import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
 import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import ProjectDetailPage from './ProjectDetailPage';
 
@@ -38,6 +39,7 @@ function project(overrides: Record<string, unknown> = {}) {
 }
 
 function signedIn(roles: string[]) {
+  mswServer.use(permissionsForRoles(roles));
   return http.get('*/beacon/api/auth/me', () =>
     HttpResponse.json({
       userId: 'u1',
@@ -84,7 +86,15 @@ describe('ProjectDetailPage access', () => {
       http.get('*/beacon/api/projects/5/members', () =>
         HttpResponse.json({
           items: [
-            { userId: 3, displayName: 'Ada', role: ProjectRole.ProjectAdmin, isActive: true, addedAt: '2026-10-01T10:00:00Z', modifiedAt: null },
+            {
+              userId: 3,
+              displayName: 'Ada',
+              role: ProjectRole.ProjectAdmin,
+              isActive: true,
+              addedAt: '2026-10-01T10:00:00Z',
+              modifiedAt: null,
+              canChange: true,
+            },
           ],
           totalCount: 1,
           pageCount: 1,
@@ -275,6 +285,78 @@ describe('ProjectDetailPage access', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be restricted')));
     expect(screen.getByRole('button', { name: /^restrict$/i })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /^open$/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('shows a UserAdmin who is not the project admin the Members tab and the access card, without unlinking', async () => {
+    mswServer.use(
+      signedIn([]),
+      permissionsHandler({ permissions: ['UserAdmin'] }),
+      http.get('*/beacon/api/projects/5', () =>
+        HttpResponse.json(project({ myRole: ProjectRole.Viewer, canManageMembers: false, sharedSourceProjects: sharing })),
+      ),
+      http.get('*/beacon/api/projects/5/members', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('radiogroup', { name: /project access/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /members/i })).toBeInTheDocument();
+    // Unlinking a data source from another project stays an Admin's.
+    expect(screen.queryByRole('button', { name: /^unlink /i })).not.toBeInTheDocument();
+    // Linking needs the project-admin role.
+    expect(screen.queryByRole('button', { name: /link data sources/i })).not.toBeInTheDocument();
+  });
+
+  it('does not offer a UserAdmin to open a restricted project, which is an Admin\'s', async () => {
+    mswServer.use(
+      signedIn([]),
+      permissionsHandler({ permissions: ['UserAdmin'] }),
+      http.get('*/beacon/api/projects/5', () =>
+        HttpResponse.json(project({ myRole: ProjectRole.Viewer, canManageMembers: false, requiresMembership: true })),
+      ),
+      http.get('*/beacon/api/projects/5/members', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText(/only an admin can open a restricted project/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: /project access/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a UserAdmin no Members tab while the host manages membership', async () => {
+    mswServer.use(
+      signedIn([]),
+      permissionsHandler({ permissions: ['UserAdmin'] }),
+      http.get('*/beacon/api/projects/5', () =>
+        HttpResponse.json(project({ membershipManagement: ProjectMembershipManagement.Host })),
+      ),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('radiogroup', { name: /project access/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /members/i })).not.toBeInTheDocument();
+  });
+
+  it('offers a repository access token to a SecurityAdmin only', async () => {
+    const repositories = [
+      { id: 21, name: 'ledger-api', url: 'https://example.test/ledger-api', scanStatus: null, lastScanAt: null, referenceCount: 0, hasAccessToken: false },
+    ];
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories }))),
+    );
+
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    expect(await screen.findByText('ledger-api')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /set token for ledger-api/i })).not.toBeInTheDocument();
+    view.unmount();
+
+    mswServer.use(permissionsHandler({ permissions: ['SecurityAdmin'] }));
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    expect(await screen.findByRole('button', { name: /set token for ledger-api/i })).toBeInTheDocument();
   });
 
   it('never shows the access card or the projects sharing its sources to a non-Admin, even a project admin', async () => {

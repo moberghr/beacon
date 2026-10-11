@@ -799,7 +799,7 @@ public class DataContractCustomSqlSaveTests
 
     private SetDataContractOwnerHandler SetOwnerHandler(ClaimsPrincipal user, IDbContextFactory<BeaconContext> factory)
     {
-        return new SetDataContractOwnerHandler(factory, Actor(user), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(user)), NullLogger<SetDataContractOwnerHandler>.Instance);
+        return new SetDataContractOwnerHandler(factory, Actor(user), TestPermissions.ForPrincipal(user), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(user)), NullLogger<SetDataContractOwnerHandler>.Instance);
     }
 
     private static List<BeaconUser> Users()

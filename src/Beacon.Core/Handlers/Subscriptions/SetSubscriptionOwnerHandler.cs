@@ -11,6 +11,7 @@ namespace Beacon.Core.Handlers.Subscriptions;
 internal sealed class SetSubscriptionOwnerHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
     ProjectRequestAuthorizer authorizer,
     ILogger<SetSubscriptionOwnerHandler> logger) : IRequestHandler<SetSubscriptionOwnerCommand>
 {
@@ -20,10 +21,14 @@ internal sealed class SetSubscriptionOwnerHandler(
     public async Task Handle(SetSubscriptionOwnerCommand request, CancellationToken cancellationToken)
     {
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        if (!actor.IsAdmin)
-        {
-            throw AccessRefusal.Of(logger, actor, "subscription", request.SubscriptionId, "Only an Admin can change a subscription's owner.");
-        }
+        OwnerTransfer.Demand(
+            await permissionAccessor.GetCurrentAsync(cancellationToken),
+            actor,
+            request.UserId,
+            "subscription",
+            request.SubscriptionId,
+            "Only an Admin or a UserAdmin can change a subscription's owner.",
+            logger);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -54,8 +59,8 @@ internal sealed class SetSubscriptionOwnerHandler(
 /// <summary>
 /// Makes a Beacon user (<c>UserId</c>, the user's id in the user directory) the owner of a subscription, the user its
 /// scheduled runs run as (for instance a subscription created before owners were recorded, or one whose owner left).
-/// Admin only; the user must be an existing, enabled user who may run the subscription's query (409 otherwise); a
-/// subscription that does not exist answers 404.
+/// For an Admin or a UserAdmin (who is not an Admin never names themselves: 403); the user must be an existing, enabled user who may run the subscription's query (409
+/// otherwise); a subscription that does not exist answers 404.
 /// </summary>
-[ProjectScopeExempt("admin-gated ownership transfer; the new owner's access is validated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
+[ProjectScopeExempt("ownership transfer, gated by the UserAdmin permission; the new owner's access is validated", Policy = BeaconPermissions.UserAdminPolicy)]
 public record SetSubscriptionOwnerCommand(int SubscriptionId, int UserId) : IRequest;

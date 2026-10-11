@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Beacon.Core.Data;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Moq;
@@ -15,15 +16,33 @@ internal sealed class SqlCapturedException() : Exception("The command was captur
 /// Runs real service code against a <see cref="BeaconContext"/> on the Npgsql provider without a database (§4.7):
 /// opening a connection is suppressed, every command's SQL is captured and answered from a script (or stopped with
 /// <see cref="SqlCapturedException"/>), and every transaction start records its isolation level and gets a stand-in.
-/// No connection is ever opened, so nothing is created or dropped.
+/// No connection is ever opened, so nothing is created or dropped. <see cref="OnSqlServer"/> does the same on the SQL
+/// Server provider, for the SQL Server twin of a translation test.
 /// </summary>
 internal sealed class SqlCapture
 {
+    private readonly bool _sqlServer;
+
     private readonly Queue<(Func<DbDataReader> Reader, int RowsAffected)> _answers = new();
     private readonly List<string> _commands = [];
     private readonly List<IReadOnlyDictionary<string, object?>> _parameters = [];
     private readonly List<IsolationLevel> _transactions = [];
     private Func<string, (Func<DbDataReader> Reader, int RowsAffected)>? _fallback;
+
+    public SqlCapture()
+    {
+    }
+
+    private SqlCapture(bool sqlServer)
+    {
+        _sqlServer = sqlServer;
+    }
+
+    /// <summary>A capture on the SQL Server provider (<see cref="SqlServerTestContext"/>) instead of Npgsql.</summary>
+    public static SqlCapture OnSqlServer()
+    {
+        return new SqlCapture(sqlServer: true);
+    }
 
     public IReadOnlyList<string> Commands => _commands;
 
@@ -174,8 +193,18 @@ internal sealed class SqlCapture
         return factory.Object;
     }
 
-    private NpgsqlTestContext CreateContext()
+    private BeaconContext CreateContext()
     {
+        if (_sqlServer)
+        {
+            var sqlServerOptions = new DbContextOptionsBuilder<SqlServerTestContext>()
+                .UseSqlServer("Server=localhost;Database=never_opened;TrustServerCertificate=True")
+                .AddInterceptors(new NoConnection(), new CapturingCommands(this), new StandInTransactions(this))
+                .Options;
+
+            return new SqlServerTestContext(sqlServerOptions);
+        }
+
         var options = new DbContextOptionsBuilder<NpgsqlTestContext>()
             .UseNpgsql("Host=localhost;Database=never_opened")
             .UseSnakeCaseNamingConvention()
@@ -239,7 +268,7 @@ internal sealed class SqlCapture
     {
         public override InterceptionResult<DbCommand> CommandCreating(
             CommandCorrelatedEventData eventData,
-            InterceptionResult<DbCommand> result) => InterceptionResult<DbCommand>.SuppressWithResult(new CapturingCommand(capture));
+            InterceptionResult<DbCommand> result) => InterceptionResult<DbCommand>.SuppressWithResult(new CapturingCommand(capture, capture._sqlServer));
     }
 
     private sealed class StandInTransactions(SqlCapture capture) : DbTransactionInterceptor
@@ -280,10 +309,13 @@ internal sealed class SqlCapture
         }
     }
 
-    /// <summary>A command that records its SQL and answers from the script; parameters are real Npgsql parameters.</summary>
-    private sealed class CapturingCommand(SqlCapture capture) : DbCommand
+    /// <summary>
+    /// A command that records its SQL and answers from the script; parameters are real parameters of the provider (Npgsql,
+    /// or SQL Server's on <paramref name="sqlServer"/>), as its type mappings expect.
+    /// </summary>
+    private sealed class CapturingCommand(SqlCapture capture, bool sqlServer) : DbCommand
     {
-        private readonly NpgsqlCommand _parameters = new();
+        private readonly DbParameterCollection _parameters = sqlServer ? new SqlCommand().Parameters : new NpgsqlCommand().Parameters;
 
         [System.Diagnostics.CodeAnalysis.AllowNull]
         public override string CommandText { get; set; } = string.Empty;
@@ -298,7 +330,7 @@ internal sealed class SqlCapture
 
         protected override DbConnection? DbConnection { get; set; }
 
-        protected override DbParameterCollection DbParameterCollection => _parameters.Parameters;
+        protected override DbParameterCollection DbParameterCollection => _parameters;
 
         protected override DbTransaction? DbTransaction { get; set; }
 
@@ -325,7 +357,7 @@ internal sealed class SqlCapture
         {
         }
 
-        protected override DbParameter CreateDbParameter() => new NpgsqlParameter();
+        protected override DbParameter CreateDbParameter() => sqlServer ? new SqlParameter() : new NpgsqlParameter();
 
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior) => capture.Answer(CommandText, Parameters).Reader;
     }

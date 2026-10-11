@@ -11,13 +11,16 @@ import {
 import { formatNumber } from '@/lib/format';
 import { Mini } from './atoms';
 import { useHomeMigrationSummaryQuery, useHomeTaskSummaryQuery } from './queries';
+import { useAccess } from '@/auth/useAuth';
 
 /**
  * Migration overview card — totals, success rate, execution count, errors.
- * Self-contained: owns its own query hook and renders four Mini bars.
+ * Self-contained: owns its own query hook and renders four Mini bars. The totals and the jobs are a
+ * MigrationOperator's (an Admin holds it); everyone else gets zeros and no link.
  */
 export function MigrationOverviewCard() {
   const { data, isLoading } = useHomeMigrationSummaryQuery();
+  const opensJobs = useAccess().hasPermission('MigrationOperator');
 
   const total = data?.total ?? 0;
   const successful = data?.successful ?? 0;
@@ -34,14 +37,16 @@ export function MigrationOverviewCard() {
         <ArrowLeftRight className="size-3.5 text-text-muted" />
         <CardTitle>Data migration</CardTitle>
         <CardSub>overview</CardSub>
-        <CardActions>
-          <Link
-            to="/migration-history"
-            className="text-xs font-medium text-brand-600 hover:underline"
-          >
-            Open jobs →
-          </Link>
-        </CardActions>
+        {opensJobs && (
+          <CardActions>
+            <Link
+              to="/migration-history"
+              className="text-xs font-medium text-brand-600 hover:underline"
+            >
+              Open jobs →
+            </Link>
+          </CardActions>
+        )}
       </CardHead>
       <CardBody flush>
         <div className="grid grid-cols-2 sm:grid-cols-4">
