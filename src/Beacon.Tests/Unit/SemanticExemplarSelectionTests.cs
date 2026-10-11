@@ -14,6 +14,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -324,6 +325,7 @@ public class SemanticExemplarSelectionTests
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
                 == Task.FromResult("")),
             TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

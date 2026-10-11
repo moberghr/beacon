@@ -17,6 +17,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
+using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
@@ -218,6 +219,7 @@ public class GroundingProjectFilterTests
             Mock.Of<ISchemaGraphService>(),
             Mock.Of<IValueGroundingService>(),
             TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

@@ -26,12 +26,24 @@ namespace Beacon.Core.Services.Validation;
 /// when read-only enforcement is off.
 /// </para>
 /// <para>
+/// A statement runs in its data source's own context, so what changes that context is refused: <c>USE</c> in every form
+/// (database, catalog, schema, warehouse), role and user switches (<c>SET ROLE</c>, PostgreSQL <c>SET role</c> /
+/// <c>session_authorization</c> and <c>set_config</c>, T-SQL <c>EXECUTE AS</c> and <c>sp_setapprole</c>), Databricks
+/// settings that name a catalog, and SQLite <c>ATTACH</c>. So is SQL a statement runs from a string, a variable or the
+/// session, which no name rule can read: T-SQL <c>EXEC</c> of a variable and the procedures that run SQL text
+/// (<c>sp_executesql</c>, <c>sp_sqlexec</c>, …), every <c>EXECUTE</c> and <c>PREPARE</c> outside T-SQL (<c>EXECUTE
+/// IMMEDIATE</c>, prepared statements, Snowflake tasks), a function defined from a string, and the PostgreSQL functions
+/// that run the query text they are given (<c>query_to_xml</c>, <c>crosstab</c>, <c>ts_stat</c>). Forms the parser cannot
+/// read (T-SQL <c>EXEC('...')</c>, PostgreSQL <c>DO</c> blocks, Snowflake <c>USE ROLE</c>, Databricks <c>SET
+/// CATALOG</c>, BigQuery <c>SET @@dataset_project_id</c>) are refused as SQL that cannot be parsed. A T-SQL <c>EXEC</c> of
+/// a procedure by name stays allowed; its name is checked like any other.
+/// </para>
+/// <para>
 /// SQL that cannot be parsed cannot be checked, so <see cref="Validate"/> refuses it. Comparisons follow the engine:
 /// PostgreSQL folds an unquoted name to lower case and Snowflake to upper case, then compares exactly; MySQL compares
 /// database names exactly (they are case-sensitive on most servers); SQL Server, SQLite, Databricks and BigQuery compare
-/// without regard to case. The rule reads names only: a view, synonym, foreign table or share that itself reaches another
-/// database is invisible to it, and so is SQL a statement runs from a string (possible only with read-only enforcement
-/// off), so the data source login's grants remain the boundary.
+/// without regard to case. The rule reads names only: a view, synonym, foreign table, share or stored procedure that
+/// itself reaches another database is invisible to it, so the data source login's grants remain the boundary.
 /// </para>
 /// </summary>
 public static class SqlCrossDatabaseRule
@@ -44,6 +56,25 @@ public static class SqlCrossDatabaseRule
     private static readonly HashSet<string> TSqlTableArgumentFunctions = new(StringComparer.OrdinalIgnoreCase)
     {
         "CONTAINSTABLE", "FREETEXTTABLE", "SEMANTICKEYPHRASETABLE", "SEMANTICSIMILARITYTABLE", "SEMANTICSIMILARITYDETAILSTABLE"
+    };
+
+    // T-SQL system procedures that run SQL passed as text (or a handle prepared from it), or a command per database.
+    private static readonly HashSet<string> TSqlDynamicSqlProcedures = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sp_executesql", "sp_sqlexec", "sp_execute", "sp_prepare", "sp_prepexec", "sp_prepexecrpc", "sp_cursoropen",
+        "sp_cursorprepare", "sp_cursorprepexec", "sp_cursorexecute", "sp_msforeachdb", "sp_msforeachtable", "sp_msforeach_worker"
+    };
+
+    // PostgreSQL functions that run the query text they are given.
+    private static readonly HashSet<string> PostgreSqlQueryTextFunctions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "query_to_xml", "query_to_xmlschema", "query_to_xml_and_xmlschema", "crosstab", "crosstab2", "crosstab3", "crosstab4", "ts_stat"
+    };
+
+    // PostgreSQL settings that change the role, and so the grants, the SQL runs with.
+    private static readonly HashSet<string> PostgreSqlRoleSettings = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "role", "session_authorization"
     };
 
     /// <summary>The refusal reason, or null when the statement stays in the configured database.</summary>
@@ -109,6 +140,14 @@ public static class SqlCrossDatabaseRule
                     TableFactor.Table table when naming.Dialect is DatabricksDialect && SqlReadOnlyAstValidator.IsPathReference(table.Name) => PathReferenceMessage,
                     TableFactor.TableFunction { Expression: not Expression.Function } => DynamicNameMessage(naming),
                     Statement.Execute execute when SqlDeniedFunctions.ReachesBeyondTheSource(LastPartOf(execute.Name)) => BeyondTheSourceMessage(LastPartOf(execute.Name)),
+                    Statement.Execute execute => CheckExecute(execute, naming),
+                    Statement.Prepare => DynamicSqlMessage("PREPARE", naming),
+                    Statement.Use => $"USE is not allowed: it changes the {naming.Noun}, schema, role or warehouse the SQL after it runs in. Write {naming.LocalForm} names instead.",
+                    Statement.SetRole => RoleSwitchMessage("SET ROLE"),
+                    Statement.SetVariable setting => CheckSetting(setting, naming),
+                    Statement.AttachDatabase => "ATTACH is not allowed: it opens another database.",
+                    Statement.CreateFunction { FunctionBody: CreateFunctionBody.AsBeforeOptions { Expression: Expression.LiteralValue } or CreateFunctionBody.AsAfterOptions { Expression: Expression.LiteralValue } } =>
+                        $"A function defined from a string is not allowed: the {naming.Noun}s its body names cannot be checked.",
                     ObjectName name when !functionNames.Contains(name) => CheckName(name.Values, naming, home),
                     _ => null
                 };
@@ -142,6 +181,16 @@ public static class SqlCrossDatabaseRule
             return BeyondTheSourceMessage(lastPart);
         }
 
+        if (naming.Dialect is PostgreSqlDialect && PostgreSqlQueryTextFunctions.Contains(lastPart))
+        {
+            return DynamicSqlMessage(lastPart, naming);
+        }
+
+        if (naming.Dialect is PostgreSqlDialect && lastPart.Equals("set_config", StringComparison.OrdinalIgnoreCase))
+        {
+            return "set_config is not allowed: it can change the role, and so the grants, the SQL runs with. Use SET for other settings.";
+        }
+
         if (NamesItsObjectInAString(lastPart, naming.Dialect))
         {
             return $"{lastPart} names its object in a string, so the {naming.Noun} it reads cannot be checked.";
@@ -164,6 +213,64 @@ public static class SqlCrossDatabaseRule
         }
 
         return CheckName(parts, naming, home);
+    }
+
+    // A T-SQL EXEC of a procedure by name stays allowed: the name is checked like any other. Every other EXECUTE runs SQL
+    // the rule cannot read — a string, a variable, a prepared statement, a task — or, as T-SQL EXECUTE AS, switches user.
+    private static string? CheckExecute(Statement.Execute execute, Naming naming)
+    {
+        var parts = execute.Name.Values;
+        var lastPart = LastPartOf(execute.Name);
+        var keyword = parts.Count == 1 && parts[0].QuoteStyle == null ? lastPart.ToUpperInvariant() : null;
+        if (naming.Dialect is not MsSqlDialect)
+        {
+            var form = keyword is "IMMEDIATE" or "TASK" ? $"EXECUTE {keyword}" : "EXECUTE";
+
+            return DynamicSqlMessage(form, naming);
+        }
+
+        if (keyword == "AS")
+        {
+            return RoleSwitchMessage("EXECUTE AS");
+        }
+
+        if (lastPart.StartsWith('@'))
+        {
+            return DynamicSqlMessage("EXEC of a variable", naming);
+        }
+
+        if (TSqlDynamicSqlProcedures.Contains(lastPart))
+        {
+            return DynamicSqlMessage(lastPart, naming);
+        }
+
+        return lastPart.Equals("sp_setapprole", StringComparison.OrdinalIgnoreCase)
+            ? RoleSwitchMessage(lastPart)
+            : null;
+    }
+
+    // Settings that choose the role (PostgreSQL) or the catalog (Databricks: the default catalog, a catalog plugin)
+    // change what the SQL after them reaches. Other settings stay allowed.
+    private static string? CheckSetting(Statement.SetVariable setting, Naming naming)
+    {
+        var names = SqlAst.Nodes(setting.Variables)
+            .OfType<ObjectName>()
+            .Select(x => string.Join('.', x.Values.Select(y => y.Value)));
+
+        foreach (var name in names)
+        {
+            if (naming.Dialect is PostgreSqlDialect && PostgreSqlRoleSettings.Contains(name))
+            {
+                return RoleSwitchMessage($"SET {name}");
+            }
+
+            if (naming.Dialect is DatabricksDialect && name.Contains("catalog", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"SET {name} is not allowed: it changes the catalog the SQL runs in, or adds one.";
+            }
+        }
+
+        return null;
     }
 
     // The table a full-text or semantic rowset function reads is its first argument, written as a name.
@@ -237,6 +344,16 @@ public static class SqlCrossDatabaseRule
         return $"{function} is not allowed: it reaches other servers, files or storage.";
     }
 
+    private static string DynamicSqlMessage(string form, Naming naming)
+    {
+        return $"{form} is not allowed: it runs SQL held in a string, a variable or the session, so the {naming.Noun}s that SQL names cannot be checked.";
+    }
+
+    private static string RoleSwitchMessage(string form)
+    {
+        return $"{form} is not allowed: it changes the role or user, and so the grants, the SQL runs with.";
+    }
+
     private static string TooManyPartsMessage(Naming naming)
     {
         return $"The SQL uses a name with more parts than {naming.FullForm}, which can reach another server or {naming.Noun}.";
@@ -257,14 +374,15 @@ public static class SqlCrossDatabaseRule
         return name.Values.Count == 1 && name.Values[0].Value.Equals("IDENTIFIER", StringComparison.OrdinalIgnoreCase);
     }
 
-    // Snowflake's GET_DDL('table', 'db.schema.t') and T-SQL's OBJECT_DEFINITION(OBJECT_ID('db.dbo.p')) read an object
-    // named in a string. (OBJECT_ID alone returns only a number.)
+    // Snowflake's GET_DDL('table', 'db.schema.t'), T-SQL's OBJECT_DEFINITION(OBJECT_ID('db.dbo.p')) and PostgreSQL
+    // tablefunc's connectby('table', ...) read an object named in a string. (OBJECT_ID alone returns only a number.)
     private static bool NamesItsObjectInAString(string function, Dialect dialect)
     {
         return dialect switch
         {
             SnowflakeDialect => function.Equals("GET_DDL", StringComparison.OrdinalIgnoreCase),
             MsSqlDialect => function.Equals("OBJECT_DEFINITION", StringComparison.OrdinalIgnoreCase),
+            PostgreSqlDialect => function.Equals("connectby", StringComparison.OrdinalIgnoreCase),
             _ => false
         };
     }

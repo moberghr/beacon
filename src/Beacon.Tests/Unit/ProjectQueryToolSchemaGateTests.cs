@@ -108,6 +108,35 @@ public class ProjectQueryToolSchemaGateTests
         }
     }
 
+    // With read-only enforcement off the database rule still holds: a database switch or SQL run from a string is refused
+    // before the provider, and a write batch that stays in the configured database reaches it.
+    [TestCase("USE HR; SELECT * FROM dbo.Customers", "USE is not allowed")]
+    [TestCase("EXEC sp_executesql N'SELECT * FROM HR.dbo.Customers'", "sp_executesql is not allowed")]
+    public async Task WithReadOnlyEnforcementOff_ADatabaseSwitchOrDynamicSql_IsRefusedBeforeTheProvider(string sql, string reason)
+    {
+        _warehouseEngine = DatabaseEngineType.MSSQL;
+        _configuredDatabases = TestConfiguredDatabases.Of("Sales");
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
+
+        var refused = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+
+        (refused.IsError ?? false).Should().BeTrue();
+        refused.Content.OfType<TextContentBlock>().Single().Text.Should().Contain(reason);
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Contain(reason);
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        const string batch = "UPDATE Sales.dbo.Customers SET tier = 'gold' WHERE id = 1; SELECT id FROM dbo.Customers";
+        var allowed = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: batch, cancellationToken: CancellationToken.None);
+
+        (allowed.IsError ?? false).Should().BeFalse();
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), batch, It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [TestCase(DataSourceType.BigQuery, "bigquery")]
     [TestCase(DataSourceType.Databricks, "databricks")]
     public async Task WarehouseWithoutEngineType_IsGatedInItsOwnDialect(DataSourceType type, string dialect)

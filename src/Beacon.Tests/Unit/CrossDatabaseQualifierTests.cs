@@ -155,6 +155,143 @@ public class CrossDatabaseQualifierTests
         TestSqlGate.Create().Evaluate(request).Blocked.Should().BeFalse();
     }
 
+    // A statement that changes the database, schema, role or user it runs in, or runs SQL held in a string, a variable or
+    // the session, is refused whether or not read-only enforcement is on — when it runs and when it is saved.
+    [TestCase("MSSQL", "USE HR; SELECT * FROM dbo.Customers", "changes the database")]
+    [TestCase("MSSQL", "USE [HR]", "changes the database")]
+    [TestCase("AzureSynapse", "USE HR", "changes the database")]
+    [TestCase("MSSQL", "EXEC @sql", "runs SQL held in")]
+    [TestCase("MSSQL", "EXEC sp_executesql N'SELECT * FROM HR.dbo.t'", "runs SQL held in")]
+    [TestCase("MSSQL", "EXECUTE sys.sp_executesql @stmt = N'SELECT 1'", "runs SQL held in")]
+    [TestCase("MSSQL", "EXEC [sp_executesql] @sql", "runs SQL held in")]
+    [TestCase("MSSQL", "EXEC sp_sqlexec 'SELECT 1'", "runs SQL held in")]
+    [TestCase("MSSQL", "EXEC sp_MSforeachdb 'SELECT 1'", "runs SQL held in")]
+    [TestCase("MSSQL", "SELECT 1; EXEC sp_executesql @sql", "runs SQL held in")]
+    [TestCase("MSSQL", "EXECUTE AS USER = 'reporting_admin'", "changes the role or user")]
+    [TestCase("MSSQL", "EXECUTE AS LOGIN = 'sa'", "changes the role or user")]
+    [TestCase("MSSQL", "EXEC sp_setapprole 'auditor', 'secret'", "changes the role or user")]
+    [TestCase("MSSQL", "SET ROLE admin", "changes the role or user")]
+    [TestCase("MySQL", "USE hr", "changes the database")]
+    [TestCase("MySQL", "USE `hr`; SELECT * FROM salaries", "changes the database")]
+    [TestCase("MySQL", "EXECUTE stmt", "runs SQL held in")]
+    [TestCase("MySQL", "EXECUTE stmt USING @a", "runs SQL held in")]
+    [TestCase("MySQL", "EXECUTE IMMEDIATE 'SELECT 1'", "runs SQL held in")]
+    [TestCase("MySQL", "SET ROLE ALL", "changes the role or user")]
+    [TestCase("PostgreSQL", "SET ROLE admin", "changes the role or user")]
+    [TestCase("PostgreSQL", "SET SESSION ROLE admin", "changes the role or user")]
+    [TestCase("PostgreSQL", "SET LOCAL ROLE admin; SELECT * FROM public.salaries", "changes the role or user")]
+    [TestCase("PostgreSQL", "SET session_authorization = 'admin'", "changes the role or user")]
+    [TestCase("PostgreSQL", "SET \"role\" = 'admin'", "changes the role or user")]
+    [TestCase("PostgreSQL", "SELECT set_config('role', 'admin', false)", "change the role")]
+    [TestCase("PostgreSQL", "PREPARE p AS SELECT 1", "runs SQL held in")]
+    [TestCase("PostgreSQL", "EXECUTE p(1)", "runs SQL held in")]
+    [TestCase("PostgreSQL", "SELECT query_to_xml('SELECT * FROM dblink(''host=x'', ''select 1'') AS t(a int)', true, false, '')", "runs SQL held in")]
+    [TestCase("PostgreSQL", "SELECT * FROM crosstab('SELECT 1, 2, 3')", "runs SQL held in")]
+    [TestCase("PostgreSQL", "SELECT * FROM ts_stat('SELECT v FROM public.docs')", "runs SQL held in")]
+    [TestCase("PostgreSQL", "SELECT * FROM connectby('public.tree', 'id', 'parent_id', '1', 0)", "names its object in a string")]
+    [TestCase("PostgreSQL", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql", "defined from a string")]
+    [TestCase("PostgreSQL", "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'", "defined from a string")]
+    [TestCase("Snowflake", "USE HR", "changes the database")]
+    [TestCase("Snowflake", "USE DATABASE HR", "changes the database")]
+    [TestCase("Snowflake", "USE SCHEMA HR.PUBLIC", "changes the database")]
+    [TestCase("Snowflake", "USE WAREHOUSE BIG_WH", "changes the database")]
+    [TestCase("Snowflake", "EXECUTE IMMEDIATE 'SELECT 1'", "runs SQL held in")]
+    [TestCase("Snowflake", "EXECUTE IMMEDIATE $$SELECT 1$$", "runs SQL held in")]
+    [TestCase("Snowflake", "EXECUTE IMMEDIATE :q", "runs SQL held in")]
+    [TestCase("Snowflake", "EXECUTE TASK refresh_task", "runs SQL held in")]
+    [TestCase("databricks", "USE CATALOG hive_metastore", "changes the catalog")]
+    [TestCase("databricks", "USE SCHEMA hive_metastore.sales", "changes the catalog")]
+    [TestCase("databricks", "USE DATABASE sales", "changes the catalog")]
+    [TestCase("databricks", "USE hive_metastore", "changes the catalog")]
+    [TestCase("databricks", "SET spark.sql.defaultCatalog = hive_metastore", "changes the catalog")]
+    [TestCase("databricks", "SET `spark.sql.catalog.remote` = x", "changes the catalog")]
+    [TestCase("databricks", "EXECUTE IMMEDIATE 'SELECT 1'", "runs SQL held in")]
+    [TestCase("databricks", "EXECUTE IMMEDIATE sqlStr", "runs SQL held in")]
+    [TestCase("bigquery", "EXECUTE IMMEDIATE 'SELECT * FROM `acme-dev.sales.t`'", "runs SQL held in")]
+    [TestCase("bigquery", "EXECUTE IMMEDIATE \"SELECT 1\"", "runs SQL held in")]
+    [TestCase("bigquery", "USE other", "changes the project")]
+    [TestCase("SQLite", "ATTACH DATABASE '/data/other.db' AS o", "opens another database")]
+    [TestCase("SQLite", "ATTACH '/data/other.db' AS o", "opens another database")]
+    public void Gate_WithReadOnlyEnforcementOff_RefusesContextSwitchesAndDynamicSql(string dialect, string sql, string reason)
+    {
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        {
+            EnforceReadOnly = false,
+            ConfiguredDatabase = "Sales",
+            MaxRows = 10
+        };
+
+        var report = TestSqlGate.Create().Evaluate(request);
+
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.ReadOnly.Status.Should().NotBe(SqlGateStatus.Fail, "read-only enforcement is off; the boundary stage refuses it");
+        report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.CrossDatabase);
+        report.BlockReason.Should().Contain(reason);
+        SqlCrossDatabaseRule.ValidateIfParsed(sql, dialect, "Sales").Should().Contain(reason, "a query or step holding it is not saved either");
+    }
+
+    // Forms the parser cannot represent are refused as SQL whose names cannot be checked.
+    [TestCase("MSSQL", "EXEC('SELECT * FROM HR.dbo.t')")]
+    [TestCase("MSSQL", "EXEC (@sql)")]
+    [TestCase("MSSQL", "DECLARE @sql NVARCHAR(100) = N'USE HR'; EXEC(@sql)")]
+    [TestCase("MSSQL", "INSERT INTO dbo.t (a) EXEC('SELECT 1')")]
+    [TestCase("MSSQL", "SETUSER 'admin'")]
+    [TestCase("PostgreSQL", "DO $$ BEGIN EXECUTE 'SELECT 1'; END $$")]
+    [TestCase("PostgreSQL", "SET SESSION AUTHORIZATION admin")]
+    [TestCase("PostgreSQL", "SET role TO admin")]
+    [TestCase("MySQL", "PREPARE stmt FROM 'SELECT * FROM hr.salaries'")]
+    [TestCase("MySQL", "PREPARE stmt FROM @s")]
+    [TestCase("MySQL", "SET DEFAULT ROLE admin TO reader")]
+    [TestCase("Snowflake", "USE ROLE ACCOUNTADMIN")]
+    [TestCase("Snowflake", "USE SECONDARY ROLES ALL")]
+    [TestCase("Snowflake", "ALTER SESSION SET QUERY_TAG = 'x'")]
+    [TestCase("databricks", "SET CATALOG hive_metastore")]
+    [TestCase("databricks", "SET SCHEMA sales")]
+    [TestCase("bigquery", "SET @@dataset_project_id = 'acme-dev'")]
+    [TestCase("bigquery", "EXECUTE IMMEDIATE q USING 1 AS x")]
+    public void Gate_WithReadOnlyEnforcementOff_RefusesSwitchesAndDynamicSqlTheParserCannotRead(string dialect, string sql)
+    {
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        {
+            EnforceReadOnly = false,
+            ConfiguredDatabase = "Sales",
+            MaxRows = 10
+        };
+
+        var report = TestSqlGate.Create().Evaluate(request);
+
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.CrossDatabase);
+        report.BlockReason.Should().Contain("could not be parsed");
+    }
+
+    // With read-only enforcement off, writes, batches and settings that stay in the configured database still run, and so
+    // does a T-SQL EXEC of a procedure by name.
+    [TestCase("MSSQL", "Sales", "INSERT INTO dbo.t (a) VALUES (1); UPDATE Sales.dbo.t SET a = 2 WHERE a = 1; DELETE FROM t WHERE a = 3")]
+    [TestCase("MSSQL", "Sales", "EXEC dbo.refresh_totals 1, 2")]
+    [TestCase("AzureSynapse", "Sales", "UPDATE [Sales].[dbo].[t] SET a = 2; SELECT a FROM dbo.t")]
+    [TestCase("PostgreSQL", "sales", "SET search_path TO public; INSERT INTO t (a) VALUES (1); UPDATE sales.public.t SET a = 2")]
+    [TestCase("PostgreSQL", "sales", "SET statement_timeout = 1000; CALL public.refresh_totals()")]
+    [TestCase("MySQL", "sales", "SET @x = 1; INSERT INTO sales.t (a) VALUES (@x); UPDATE t SET a = 2")]
+    [TestCase("Snowflake", "SALES", "SET v = 'x'; INSERT INTO public.t (a) VALUES (1); UPDATE SALES.PUBLIC.T SET a = 2")]
+    [TestCase("databricks", "main", "SET ansi_mode = true; INSERT INTO main.sales.t (a) VALUES (1); UPDATE sales.t SET a = 2")]
+    [TestCase("bigquery", "acme-prod", "INSERT INTO sales.t (a) VALUES (1); UPDATE `acme-prod.sales.t` SET a = 2 WHERE true")]
+    [TestCase("SQLite", DataSourceConfiguredDatabase.SqliteMain, "INSERT INTO main.t (a) VALUES (1); UPDATE t SET a = 2")]
+    public void Gate_WithReadOnlyEnforcementOff_StillRunsAWriteBatchInTheConfiguredDatabase(string dialect, string configured, string sql)
+    {
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        {
+            EnforceReadOnly = false,
+            ConfiguredDatabase = configured
+        };
+
+        var report = TestSqlGate.Create().Evaluate(request);
+
+        report.Blocked.Should().BeFalse(report.BlockReason);
+        report.Verdicts.Schema.Code.Should().NotBe(SqlGateCodes.CrossDatabase);
+        SqlCrossDatabaseRule.Validate(sql, dialect, configured).Should().BeNull();
+    }
+
     // The T-SQL full-text and semantic rowset functions name the table they read as their first argument.
     [TestCase("SELECT * FROM CONTAINSTABLE(HR.dbo.docs, body, 'x') AS k", false)]
     [TestCase("SELECT * FROM dbo.a CROSS APPLY FREETEXTTABLE(HR.dbo.docs, *, 'x') AS k", false)]

@@ -358,7 +358,7 @@ public class AiActorOwnershipTests
     {
         var act = () => SetOwnerHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new SetAiActorOwnerCommand(404, 2), CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("AI actor 404 not found.");
+        await act.Should().ThrowAsync<BeaconNotFoundException>().WithMessage("AI actor 404 not found.");
     }
 
     private IEnumerable<Func<Task>> ChangesAndRuns(IBeaconActorAccessor caller)

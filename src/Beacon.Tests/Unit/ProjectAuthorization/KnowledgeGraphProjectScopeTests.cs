@@ -432,6 +432,7 @@ public class KnowledgeGraphProjectScopeTests
             Mock.Of<ISchemaGraphService>(),
             Mock.Of<IValueGroundingService>(),
             TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

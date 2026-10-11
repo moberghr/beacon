@@ -1,21 +1,29 @@
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.DataSources;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.MCP.Services;
+using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
 
@@ -24,8 +32,9 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// <summary>
 /// Grounding reads a data source's live values only for a caller allowed to query the project, and under the strictest
 /// guardrails of the live projects that link the source: value grounding and its probe budget, stored sample values and
-/// the custom PII patterns of the grounding screen. The real knowledge graph and value grounding run over in-memory sets
-/// (§4.7); the provider is a mock that records every probe it is sent.
+/// the custom PII patterns of the grounding screen, which stored sample values pass again whenever they are shown. The
+/// real knowledge graph and value grounding run over in-memory sets (§4.7); the provider is a mock that records every
+/// probe it is sent.
 /// </summary>
 [TestFixture]
 public class GroundingGuardrailsTests
@@ -38,6 +47,7 @@ public class GroundingGuardrailsTests
     private const string Question = "How many \"refunded\" orders ship to 'Berlin'?";
 
     private List<string> _probes = null!;
+    private IDbContextFactory<BeaconContext> _factory = null!;
 
     [SetUp]
     public void SetUp()
@@ -109,6 +119,93 @@ public class GroundingGuardrailsTests
         withoutSamples.Should().Contain("status").And.NotContain("REFUNDED");
     }
 
+    // Samples stored before a project with a stricter pattern linked the source, or before a pattern was added, are
+    // screened again with the patterns that apply now: the matching values are gone, the others stay, and the list no
+    // longer claims to hold every value of the column.
+    [Test]
+    public async Task ALinkingProjectsCustomPiiPattern_HidesTheMatchingStoredSampleValues_AndKeepsTheOthers()
+    {
+        var unscreened = await Service(Unshared()).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
+        var service = Service(Shared(new McpSettingsData { CustomPiiPatterns = ["^REFUND"] }));
+        var context = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
+        var tableSchemas = await service.GetTablesContextAsync(DataSourceId, ProjectId, ["orders"]);
+
+        unscreened.FullContext.Should().Contain("Values (all 2): [REFUNDED, PAID]").And.Contain("public.orders.status = 'REFUNDED'");
+        context.FullContext.Should().NotContain("REFUNDED").And.Contain("Examples: [PAID]").And.NotContain("Values (all");
+        tableSchemas.Should().NotContain("REFUNDED").And.Contain("Examples: [PAID]");
+    }
+
+    [Test]
+    public async Task ALinkingProjectsCustomPiiPatternOnTheColumnName_HidesAllItsStoredSampleValues()
+    {
+        var context = await Service(Shared(new McpSettingsData { CustomPiiPatterns = ["^status$"] })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
+
+        context.FullContext.Should().Contain("status").And.NotContain("REFUNDED").And.NotContain("PAID");
+    }
+
+    // The built-in screen of PII-shaped values applies to stored samples as it does when values are sampled.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task BuiltInPiiShapedStoredValues_AreNotShown(bool piiDetection)
+    {
+        var asker = AskerSettings();
+        asker.EnablePiiDetection = piiDetection;
+
+        var context = await Service(new SettingsWorld(new Dictionary<int, McpSettingsData> { [ProjectId] = asker })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
+
+        context.FullContext.Should().NotContain("ada@example.com").And.Contain("Examples: [call back]");
+    }
+
+    [Test]
+    public async Task GetQueryContext_ShowsOnlyTheStoredSampleValuesTheLinkingProjectsPatternsAllow()
+    {
+        var result = await QueryContextTool(Shared(new McpSettingsData { CustomPiiPatterns = ["^REFUND"] })).ExecuteAsync(
+            question: Question, datasource_id: DataSourceId, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        var text = result.Content.OfType<TextContentBlock>().Single().Text;
+        text.Should().NotContain("REFUNDED").And.NotContain("ada@example.com").And.Contain("Examples: [PAID]");
+    }
+
+    // The metadata read serves stored sample values under the same screen, with the settings of every live project that
+    // links the source; the cached snapshot keeps what was stored.
+    [Test]
+    public async Task TheMetadataRead_ScreensStoredSampleValues_WithTheLinkingProjectsPatterns()
+    {
+        var snapshot = new DatabaseMetadataSnapshot(
+            DataSourceId,
+            DatabaseEngineType.PostgreSQL,
+            [
+                new TableMetadataDto(
+                    "public",
+                    "orders",
+                    [
+                        new ColumnMetadataDto("status", "varchar", true, false, false, 1, null, null, null, 20, null, ["REFUNDED", "PAID"], SampleValuesComplete: true),
+                        new ColumnMetadataDto("note", "text", true, false, false, 2, null, null, null, null, null, ["ada@example.com", "call back"]),
+                        new ColumnMetadataDto("region", "varchar", true, false, false, 3, null, null, null, 20, null, ["Berlin"], SampleValuesComplete: true)
+                    ],
+                    [],
+                    null)
+            ],
+            DateTime.UtcNow);
+        var metadata = new Mock<IDatabaseMetadataService>();
+        metadata
+            .Setup(x => x.GetMetadataAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(snapshot);
+        var settings = Shared(new McpSettingsData { CustomPiiPatterns = ["^REFUND"] });
+        var handler = new GetDataSourceMetadataHandler(metadata.Object, settings.SharedSources(DataSourceId), new QueryGuardrailService());
+
+        var read = await handler.Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
+
+        var columns = read.Tables.Single().Columns;
+        columns[0].SampleValues.Should().Equal("PAID");
+        columns[0].SampleValuesComplete.Should().BeFalse();
+        columns[1].SampleValues.Should().Equal("call back");
+        columns[2].SampleValues.Should().Equal("Berlin");
+        columns[2].SampleValuesComplete.Should().BeTrue("nothing was withheld from region");
+        snapshot.Tables.Single().Columns[0].SampleValues.Should().Equal("REFUNDED", "PAID");
+    }
+
     private static McpSettingsData AskerSettings() => new()
     {
         EnableValueGrounding = true,
@@ -149,8 +246,9 @@ public class GroundingGuardrailsTests
             Columns =
             [
                 new ColumnMetadata { ColumnName = "id", DataType = "int", IsPrimaryKey = true },
-                new ColumnMetadata { ColumnName = "status", DataType = "varchar(20)", MaxLength = 20, SampleValues = "[\"REFUNDED\",\"PAID\"]" },
-                new ColumnMetadata { ColumnName = "region", DataType = "varchar(20)", MaxLength = 20 }
+                new ColumnMetadata { ColumnName = "status", DataType = "varchar(20)", MaxLength = 20, SampleValues = "[\"REFUNDED\",\"PAID\"]", SampleValuesComplete = true },
+                new ColumnMetadata { ColumnName = "region", DataType = "varchar(20)", MaxLength = 20 },
+                new ColumnMetadata { ColumnName = "note", DataType = "text", SampleValues = "[\"ada@example.com\",\"call back\"]" }
             ]
         };
         foreach (var column in orders.Columns)
@@ -174,6 +272,7 @@ public class GroundingGuardrailsTests
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
+        _factory = factory.Object;
 
         var provider = new Mock<IDataSourceProvider>();
         provider
@@ -207,7 +306,18 @@ public class GroundingGuardrailsTests
                 == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
             valueGrounding,
             TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
+    }
+
+    // A caller who may read the project but not query it: grounding from stored sample values alone.
+    private GetQueryContextTool QueryContextTool(SettingsWorld settings)
+    {
+        var knowledgeGraph = Service(settings);
+        var audit = new McpAuditService(_factory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+        var caller = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [] };
+
+        return new GetQueryContextTool(knowledgeGraph, _factory, caller, audit, NullLogger<GetQueryContextTool>.Instance);
     }
 
     // Every project of the map is live and links the data source.

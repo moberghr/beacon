@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
+using Beacon.Core.Models;
 
 namespace Beacon.Core.Handlers.AiActors;
 
@@ -34,7 +35,7 @@ internal sealed class SetAiActorOwnerHandler(
             .AnyAsync(cancellationToken);
         if (!exists)
         {
-            throw new InvalidOperationException($"AI actor {request.ActorId} not found.");
+            throw new BeaconNotFoundException($"AI actor {request.ActorId} not found.");
         }
 
         // Background think cycles run as the creator: a creator who may not work ad hoc with the actor's data source
@@ -55,7 +56,7 @@ internal sealed class SetAiActorOwnerHandler(
 /// Makes a Beacon user (<c>UserId</c>, the user's id in the user directory) the creator of an AI actor, the user who may
 /// then pause, resume, archive, refine and run it and whom its background think cycles run as (for instance an actor
 /// created before creators were recorded). Admin only; the user must be an existing, enabled user who may work ad hoc
-/// with the actor's data source (409 otherwise).
+/// with the actor's data source (409 otherwise); an AI actor that does not exist answers 404.
 /// </summary>
 [ProjectScopeExempt("admin-gated ownership transfer; the new owner's access is validated", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record SetAiActorOwnerCommand(int ActorId, int UserId) : IRequest;

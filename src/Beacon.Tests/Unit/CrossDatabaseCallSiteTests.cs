@@ -530,6 +530,7 @@ public class CrossDatabaseCallSiteTests
                 == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
             Mock.Of<IValueGroundingService>(),
             TestConfiguredDatabases.Of(Configured),
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

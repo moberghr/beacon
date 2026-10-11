@@ -203,7 +203,7 @@ internal static class SchemaContextFormatter
         return col.DataType;
     }
 
-    private static IReadOnlyList<string>? DeserializeSampleValues(string? json)
+    internal static IReadOnlyList<string>? DeserializeSampleValues(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {

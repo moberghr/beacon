@@ -8,9 +8,11 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 namespace Beacon.AI.Services.Knowledge;
 
@@ -22,6 +24,7 @@ internal sealed class KnowledgeGraphService(
     ISchemaGraphService schemaGraphService,
     IValueGroundingService valueGroundingService,
     IConfiguredDatabaseResolver configuredDatabases,
+    IQueryGuardrailService guardrail,
     ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
 {
     // Detailed-table budget for the smart-retrieval path. Kept as a named constant because the coverage
@@ -1819,14 +1822,29 @@ internal sealed class KnowledgeGraphService(
     }
 
     // Stored sample values are served only while sample-value collection is on for every live project that links the
-    // data source.
-    private static List<SchemaColumn> WithStoredSamples(List<SchemaColumn> columns, McpSettingsData settings)
+    // data source, and only those that pass the PII screen of those projects as it is now (StoredSampleScreen): samples
+    // stored before a stricter project linked the source, or before its patterns changed, are screened again here.
+    private List<SchemaColumn> WithStoredSamples(List<SchemaColumn> columns, McpSettingsData settings)
     {
-        return settings.EnableSampleValueCollection
-            ? columns
-            : columns
-                .Select(x => x with { SampleValuesJson = null, SampleValuesComplete = false })
-                .ToList();
+        return columns
+            .Select(x => WithStoredSamples(x, settings))
+            .ToList();
+    }
+
+    private SchemaColumn WithStoredSamples(SchemaColumn column, McpSettingsData settings)
+    {
+        var stored = SchemaContextFormatter.DeserializeSampleValues(column.SampleValuesJson);
+        var shown = StoredSampleScreen.Screen(guardrail, column.ColumnName, stored, settings);
+        if (shown?.Count == stored?.Count)
+        {
+            return column;
+        }
+
+        return column with
+        {
+            SampleValuesJson = shown == null ? null : JsonSerializer.Serialize(shown),
+            SampleValuesComplete = false
+        };
     }
 
     private static string? TruncateContent(string? content, int maxLength)
