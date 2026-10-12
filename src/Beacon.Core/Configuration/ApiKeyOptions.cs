@@ -24,6 +24,14 @@ public sealed class ApiKeyOptions
     /// warning once per process when it is used.
     /// </summary>
     public bool EnforceMaxLifetimeOnExistingKeys { get; set; }
+
+    /// <summary>
+    /// When set, a key stops working while its owner has not signed in to Beacon with their own identity (a password, a
+    /// single sign-on or an identity-provider token, never an API key) for this many days, counted from the owner's last
+    /// sign-in or, for an owner who never signed in, from the account's creation. It works again after the owner signs in.
+    /// Off by default (0); at most <see cref="ApiKeyOptionsValidator.UpperBoundDays"/>.
+    /// </summary>
+    public int MaxOwnerInactivityDays { get; set; }
 }
 
 internal sealed class ApiKeyOptionsValidator : IValidateOptions<ApiKeyOptions>
@@ -33,9 +41,19 @@ internal sealed class ApiKeyOptionsValidator : IValidateOptions<ApiKeyOptions>
 
     public ValidateOptionsResult Validate(string? name, ApiKeyOptions options)
     {
-        return options.MaxLifetimeDays is > 0 and <= UpperBoundDays
+        var failures = new List<string>();
+        if (options.MaxLifetimeDays is <= 0 or > UpperBoundDays)
+        {
+            failures.Add($"{ApiKeyOptions.SectionName}:{nameof(ApiKeyOptions.MaxLifetimeDays)} must be between 1 and {UpperBoundDays}.");
+        }
+
+        if (options.MaxOwnerInactivityDays is < 0 or > UpperBoundDays)
+        {
+            failures.Add($"{ApiKeyOptions.SectionName}:{nameof(ApiKeyOptions.MaxOwnerInactivityDays)} must be between 0 (off) and {UpperBoundDays}.");
+        }
+
+        return failures.Count == 0
             ? ValidateOptionsResult.Success
-            : ValidateOptionsResult.Fail(
-                $"{ApiKeyOptions.SectionName}:{nameof(ApiKeyOptions.MaxLifetimeDays)} must be between 1 and {UpperBoundDays}.");
+            : ValidateOptionsResult.Fail(failures);
     }
 }

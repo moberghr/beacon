@@ -105,12 +105,20 @@ internal sealed class ApiKeyService(
                 owner != null,
                 owner?.ArchivedTime != null,
                 owner?.IsEnabled == true,
-                owner?.ApiKeyGeneration == credential.OwnerGeneration),
+                owner?.ApiKeyGeneration == credential.OwnerGeneration,
+                owner?.LastLoginAt ?? owner?.CreatedTime),
             timeProvider.GetUtcNow().UtcDateTime,
             lifetimes);
         if (reason != null)
         {
             logger.LogWarning("API key {ApiKeyId} refused: {Reason}", credential.Id, reason);
+
+            // The one refusal the caller is told about: the key is genuine and works again once its owner signs in.
+            if (reason == ApiKeyStatus.OwnerInactive)
+            {
+                throw new ApiKeyOwnerInactiveException(lifetimes.MaxOwnerInactivityDays);
+            }
+
             return null;
         }
 

@@ -67,6 +67,7 @@ public class AdminGatedRoutesTests
         ["PUT /beacon/api/users/{id:int}"] = BeaconPermissions.UserAdminPolicy,
         ["POST /beacon/api/users/{id:int}/toggle-enabled"] = BeaconPermissions.UserAdminPolicy,
         ["PUT /beacon/api/users/{id:int}/roles"] = BeaconPermissions.UserAdminPolicy,
+        ["POST /beacon/api/users/{id:int}/sign-out-everywhere"] = BeaconPermissions.UserAdminPolicy,
         ["DELETE /beacon/api/api-keys/admin/{id:int}"] = BeaconPermissions.UserAdminPolicy,
         ["PUT /beacon/api/subscriptions/{id:int}/owner"] = BeaconPermissions.UserAdminPolicy,
         ["PUT /beacon/api/data-quality/contracts/{id:int}/owner"] = BeaconPermissions.UserAdminPolicy,

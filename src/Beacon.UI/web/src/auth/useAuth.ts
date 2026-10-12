@@ -19,6 +19,11 @@ export interface CurrentUser {
   realtimeEnabled: boolean;
   /** Server-advertised: set when the host owns sign-in, `null` when Beacon's login page is used. */
   externalLogin: ExternalLogin | null;
+  /**
+   * Server-advertised: this signed-in session can end every other session of its user (Beacon user management is on, and
+   * the caller is a session, not an API key). Without it "Sign out everywhere" is not offered.
+   */
+  signOutEverywhereEnabled?: boolean;
 }
 
 export function useAuth() {

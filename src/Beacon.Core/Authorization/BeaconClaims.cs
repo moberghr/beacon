@@ -27,8 +27,16 @@ public static class BeaconClaims
     public const string IdpPermissionsIssuedAt = "beacon:idp_permissions_issued_at";
 
     /// <summary>
-    /// The issuer of the claims Beacon's own sign-in adds for functional permissions. Claims of those types from any other
-    /// issuer grant nothing.
+    /// The user's security stamp when the cookie session was signed in (empty while the user had none), issued by
+    /// <see cref="Issuer"/>. A request whose session carries a stamp the stored user no longer has acts as nobody at once,
+    /// before the session's next revalidation signs it out: "sign out everywhere", a password reset and every other change
+    /// that renews the stamp take effect on the next request.
+    /// </summary>
+    public const string SessionStamp = "beacon:session_stamp";
+
+    /// <summary>
+    /// The issuer of the claims Beacon's own sign-in adds for functional permissions and the session stamp. Claims of those
+    /// types from any other issuer count for nothing.
     /// </summary>
     public const string Issuer = "urn:beacon:sign-in";
 }

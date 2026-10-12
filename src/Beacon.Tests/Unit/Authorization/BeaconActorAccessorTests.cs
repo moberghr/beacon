@@ -111,6 +111,55 @@ public class BeaconActorAccessorTests
         BeaconActor.Nobody.LogId.Should().BeNull();
     }
 
+    // The stamp Beacon's sign-in records in a cookie session: a session whose stamp the user no longer has (every session
+    // signed out, a password reset) acts as nobody at once, before its next revalidation signs it out.
+    [TestCase("stamp-1", "stamp-1", true)]
+    [TestCase("stamp-1", "stamp-2", false)]
+    [TestCase("", null, true)]
+    [TestCase("", "stamp-2", false)]
+    public async Task ASessionsStamp_MustBeTheStoredUsersStamp(string sessionStamp, string? storedStamp, bool isTheUser)
+    {
+        _users[0].SecurityStamp = storedStamp;
+        var principal = Interactive("ext-ana");
+        ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(BeaconClaims.SessionStamp, sessionStamp, ClaimValueTypes.String, BeaconClaims.Issuer));
+
+        var actor = await Resolve(principal);
+
+        if (isTheUser)
+        {
+            actor.BeaconUserId.Should().Be(1);
+            return;
+        }
+
+        actor.Should().Be(BeaconActor.Nobody);
+    }
+
+    [Test]
+    public async Task AStampClaimFromAnotherIssuer_OrASessionWithoutOne_IsLeftToTheRevalidation()
+    {
+        _users[0].SecurityStamp = "stamp-2";
+        var foreign = Interactive("ext-ana");
+        ((ClaimsIdentity)foreign.Identity!).AddClaim(new Claim(BeaconClaims.SessionStamp, "stamp-1", ClaimValueTypes.String, "https://idp.example.test"));
+
+        var withForeign = await Resolve(foreign);
+        var without = await Resolve(Interactive("ext-ana"));
+
+        withForeign.BeaconUserId.Should().Be(1);
+        without.BeaconUserId.Should().Be(1);
+    }
+
+    [Test]
+    public async Task AnApiKey_IsNeverJudgedByAStampClaim()
+    {
+        _users[0].SecurityStamp = "stamp-2";
+        var principal = ApiKey(nameIdentifier: "1", userName: "ana");
+        ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(BeaconClaims.SessionStamp, "stamp-1", ClaimValueTypes.String, BeaconClaims.Issuer));
+
+        var actor = await Resolve(principal);
+
+        actor.BeaconUserId.Should().Be(1, "a key is checked by its own revocation, not a session stamp");
+    }
+
     [Test]
     public async Task AnApiKeyOfAnUnknownOwner_IsNobody()
     {

@@ -54,6 +54,19 @@ public class OidcAuthenticationOptions
     public bool EnableFrontChannelLogout { get; set; }
 
     /// <summary>
+    /// Requires multi-factor authentication at SSO sign-in: the ID token's <c>amr</c> claim must contain <c>mfa</c>, or its
+    /// <c>acr</c> claim must be one of <see cref="AcceptedAcrValues"/>. A sign-in with neither is refused like a subject
+    /// that is not admitted. Default off. Check what your identity provider puts in the ID token before turning it on.
+    /// </summary>
+    public bool RequireMfa { get; set; }
+
+    /// <summary>
+    /// <c>acr</c> values (exact) that count as multi-factor authentication when <see cref="RequireMfa"/> is on. Empty by
+    /// default: only <c>amr</c> containing <c>mfa</c> counts.
+    /// </summary>
+    public IList<string> AcceptedAcrValues { get; set; } = new List<string>();
+
+    /// <summary>
     /// Fails startup when SSO is enabled without its required settings or without a tenant admission rule.
     /// </summary>
     public void Validate()

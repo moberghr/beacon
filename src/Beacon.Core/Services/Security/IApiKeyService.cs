@@ -27,6 +27,8 @@ public interface IApiKeyService
     /// credential has its <c>User</c> loaded with the user's <c>UserRoles</c> and their <c>Role</c>: the authentication
     /// middleware refuses a credential without its user and grants the Execute scope only while that user is a super
     /// admin or holds the Editor role or higher, and the authorization provider grants them write permission.
+    /// Throws <see cref="ApiKeyOwnerInactiveException"/> for an otherwise working key whose owner has not signed in for
+    /// <c>Beacon:ApiKeys:MaxOwnerInactivityDays</c> days (when that is set), so the caller can be told why.
     /// </summary>
     Task<ApiKeyCredential?> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default);
     Task<List<ApiKeyCredential>> GetApiKeysAsync(int? userId = null, CancellationToken ct = default);

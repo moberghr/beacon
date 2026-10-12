@@ -139,7 +139,9 @@ internal sealed class BeaconActorAccessor(
             };
         }
 
-        if (!user.IsActive)
+        // A disabled or archived user, or a cookie session signed in with a security stamp the user no longer has (every
+        // session signed out, a password reset): nobody, at once, before the session's next revalidation signs it out.
+        if (!user.IsActive || (kind == BeaconPrincipalKind.Session && HasStaleStamp(principal, user.SecurityStamp)))
         {
             return BeaconActor.Nobody;
         }
@@ -175,6 +177,7 @@ internal sealed class BeaconActorAccessor(
                     Id = x.Id,
                     ExternalId = x.ExternalId,
                     IsActive = x.IsEnabled && x.ArchivedTime == null,
+                    SecurityStamp = x.SecurityStamp,
                     IsLiveAdmin = x.IsSuperAdmin || x.UserRoles.Any(y => y.Role.Name == RoleService.RoleNames.Admin),
                     RoleLevel = x.IsSuperAdmin
                         ? RoleService.RoleLevels.Admin
@@ -183,6 +186,19 @@ internal sealed class BeaconActorAccessor(
                             .Max() ?? 0
                 })
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    // The session carries the stamp Beacon's sign-in recorded (BeaconClaims.SessionStamp) and the stored user has another.
+    // A session without that claim (signed in before it existed, or by a host) is left to its revalidation.
+    private static bool HasStaleStamp(ClaimsPrincipal principal, string? storedStamp)
+    {
+        var stamp = principal
+            .FindAll(BeaconClaims.SessionStamp)
+            .Where(x => x.Issuer == BeaconClaims.Issuer)
+            .Select(x => x.Value)
+            .FirstOrDefault();
+
+        return stamp != null && !string.Equals(stamp, storedStamp ?? string.Empty, StringComparison.Ordinal);
     }
 
     // The project restriction and scope a scoped caller carries.
@@ -251,6 +267,8 @@ internal sealed class BeaconActorAccessor(
         public string ExternalId { get; init; } = string.Empty;
 
         public bool IsActive { get; init; }
+
+        public string? SecurityStamp { get; init; }
 
         public bool IsLiveAdmin { get; init; }
 

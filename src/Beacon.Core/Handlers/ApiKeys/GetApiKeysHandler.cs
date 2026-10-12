@@ -68,7 +68,8 @@ internal sealed class GetApiKeysHandler(
                         Exists: true,
                         IsArchived: false,
                         user.IsEnabled,
-                        KeyGenerationIsCurrent: x.OwnerGeneration == user.ApiKeyGeneration),
+                        KeyGenerationIsCurrent: x.OwnerGeneration == user.ApiKeyGeneration,
+                        LastSignInAt: user.LastLoginAt ?? user.CreatedTime),
                     now,
                     options.Value) == null,
                 ApiKeyGrants.ReadProjectIds(x.AllowedProjectIds)));
@@ -104,8 +105,9 @@ public record GetApiKeysQuery : ListRequest, IRequest<PagedList<ApiKeyEntry>>;
 
 /// <summary>
 /// One API key. <see cref="Scopes"/> are the scopes it was issued with (a key stored with the retired Admin scope shows
-/// Execute). <see cref="IsActive"/> is whether it works now: not revoked, not expired, and its owner enabled and not
-/// archived. <see cref="AllowedProjectIds"/> is <c>null</c> when the key is not restricted to projects.
+/// Execute). <see cref="IsActive"/> is whether it works now: not revoked, not expired, its owner enabled and not
+/// archived, and (with <c>Beacon:ApiKeys:MaxOwnerInactivityDays</c> set) its owner signed in recently enough.
+/// <see cref="AllowedProjectIds"/> is <c>null</c> when the key is not restricted to projects.
 /// </summary>
 public record ApiKeyEntry(
     int Id,

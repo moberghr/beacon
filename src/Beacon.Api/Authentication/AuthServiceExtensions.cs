@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
@@ -15,7 +14,6 @@ using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
-using Beacon.Core.Data;
 
 namespace Beacon.Api.Authentication;
 
@@ -67,6 +65,11 @@ public static class AuthServiceExtensions
                 options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                 options.Cookie.SameSite = SameSiteMode.Lax;
                 options.SlidingExpiration = true;
+
+                // Session lifecycle: the start, the security stamp and the absolute lifetime recorded at sign-in, and the
+                // session checked against the user store (Beacon:Authentication:Session).
+                options.Events.OnSigningIn = BeaconSessionEvents.SigningInAsync;
+                options.Events.OnValidatePrincipal = BeaconSessionEvents.ValidatePrincipalAsync;
                 options.Events.OnRedirectToLogin = context =>
                 {
                     if (IsApiRequest(context))
@@ -89,10 +92,14 @@ public static class AuthServiceExtensions
                 };
             });
 
-        // Persist Data Protection keys to the database so cookies survive app restarts
-        services.AddDataProtection()
-            .SetApplicationName("Beacon")
-            .PersistKeysToDbContext<BeaconContext>();
+        // Data Protection, which protects the session cookie, is the host's: Beacon sets no application name and no key
+        // storage here (AddBeaconDataProtection is Beacon's default, for a host that asks for it). Outside Development the
+        // host fails to start when it persists the key ring without key encryption, keys stored without encryption are
+        // revoked and replaced at startup, and a host with no key repository is warned.
+        services.AddDataProtectionKeyEncryptionCheck();
+
+        // With local login off, startup fails when nobody could sign in, and warns about break-glass names no user has.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, LocalLoginStartupCheck>());
 
         return services;
     }

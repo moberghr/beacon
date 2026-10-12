@@ -62,6 +62,15 @@ internal static class OidcEventHandlers
 
         OidcAdmission.WarnOnceWhenGuestSignalMissing(principal, oidcOptions, logger);
 
+        // With RequireMfa, a sign-in the identity provider does not report as multi-factor is refused before anything is
+        // looked up or provisioned.
+        if (!OidcAdmission.MeetsMfaRequirement(principal, oidcOptions))
+        {
+            LogRefusal(logger, "MfaNotPerformed", principal, externalId);
+            context.Fail(new OidcMfaRequiredException());
+            return;
+        }
+
         var identityProvider = GetClaim(principal, "iss") ?? oidcOptions.Authority ?? string.Empty;
         var email = GetClaim(principal, "email");
         var displayName = GetClaim(principal, "name");
@@ -108,8 +117,16 @@ internal static class OidcEventHandlers
     public static Task HandleRemoteFailureAsync(RemoteFailureContext context)
     {
         var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<OpenIdConnectEvents>>();
-        // A subject Beacon refused (not admitted, disabled or archived) gets its own message on the login page; the
-        // exception carries no detail, so there is nothing to log beyond the reason already logged above.
+        // A sign-in refused for want of multi-factor authentication, and a subject Beacon refused (not admitted, disabled
+        // or archived), each get their own message on the login page; the exceptions carry no detail, so there is nothing
+        // to log beyond the reason already logged above.
+        if (context.Failure is OidcMfaRequiredException)
+        {
+            context.Response.Redirect("/beacon/login?ssoError=mfa_required");
+            context.HandleResponse();
+            return Task.CompletedTask;
+        }
+
         if (context.Failure is OidcNotAdmittedException)
         {
             context.Response.Redirect("/beacon/login?ssoError=not_admitted");
@@ -332,3 +349,9 @@ internal static class OidcEventHandlers
 /// Carries no detail: the reason is logged where the decision is made.
 /// </summary>
 internal sealed class OidcNotAdmittedException() : Exception("The signed-in account is not permitted to use Beacon.");
+
+/// <summary>
+/// The SSO sign-in did not show multi-factor authentication while <see cref="OidcAuthenticationOptions.RequireMfa"/> is on.
+/// Carries no detail: the refusal is logged where the decision is made.
+/// </summary>
+internal sealed class OidcMfaRequiredException() : Exception("The sign-in did not use multi-factor authentication.");

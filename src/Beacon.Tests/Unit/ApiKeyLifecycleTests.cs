@@ -43,8 +43,10 @@ namespace Beacon.Tests.Unit;
 /// API keys follow their owner's lifecycle: disabling or archiving a user revokes every key of theirs in the same
 /// save, re-enabling revokes whatever is still active instead of restoring anything, and the key of a disabled or
 /// archived owner no longer validates. Each of those changes also advances the owner's API-key generation in that save,
-/// so a key approved before the change and stored after it never validates. The listings call a key active by the same
-/// rule. Administrators list every key and revoke any of them, from a signed-in session only, and only while the user
+/// so a key approved before the change and stored after it never validates. With <c>MaxOwnerInactivityDays</c> set, a key
+/// whose owner has not signed in for that long is refused with its reason (401) until the owner signs in again. The
+/// listings call a key active by the same rule. Those user changes, and a password change or reset, also give the user a
+/// new security stamp, which ends their sign-in sessions. Administrators list every key and revoke any of them, from a signed-in session only, and only while the user
 /// store still has them as an administrator; nobody else can. No database: EF async operators run against mocked sets
 /// backed by the TestAsyncQueryable doubles (§4.7); the handlers' real SQL through SqlCapture.
 /// </summary>
@@ -661,6 +663,231 @@ public class ApiKeyLifecycleTests
         keptValid.Should().NotBeNull();
     }
 
+    // ── Owner inactivity (Beacon:ApiKeys:MaxOwnerInactivityDays) ─────────────
+
+    [TestCase(31, false)]
+    [TestCase(29, true)]
+    public async Task AKeyOfAnOwnerWhoHasNotSignedInForTooLong_IsRefusedWithItsReason_AndListedInactive(int daysSinceSignIn, bool works)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(1, userName: "admin", isSuperAdmin: true);
+        owner.LastLoginAt = Now.UtcDateTime.AddDays(-daysSinceSignIn);
+        store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(10));
+        var options = new ApiKeyOptions { MaxOwnerInactivityDays = 30 };
+        var logs = new LogRecorder();
+
+        var entry = (await AdminList(store, options).Handle(new GetAllApiKeysQuery(), CancellationToken.None)).Items.Single();
+        var validate = () => BuildApiKeys(store, options, logs).ValidateApiKeyAsync(PlainTextKey, CancellationToken.None);
+
+        entry.IsActive.Should().Be(works, "the listing and validation apply one rule");
+        if (works)
+        {
+            (await validate()).Should().NotBeNull();
+            return;
+        }
+
+        var refusal = await validate.Should().ThrowAsync<ApiKeyOwnerInactiveException>();
+        refusal.Which.Message.Should().Contain("has not signed in to Beacon for 30 days").And.NotContain("admin");
+        logs.Entries.Should().ContainSingle(x => x.Message == "API key 11 refused: owner_inactive");
+    }
+
+    [TestCase(40, false)]
+    [TestCase(1, true)]
+    public async Task AnOwnerWhoNeverSignedIn_CountsFromTheAccountsCreation(int accountAgeDays, bool works)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(1, userName: "admin", isSuperAdmin: true);
+        owner.CreatedTime = Now.UtcDateTime.AddDays(-accountAgeDays);
+        store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(10));
+        var options = new ApiKeyOptions { MaxOwnerInactivityDays = 30 };
+
+        var validate = () => BuildApiKeys(store, options).ValidateApiKeyAsync(PlainTextKey, CancellationToken.None);
+
+        if (works)
+        {
+            (await validate()).Should().NotBeNull();
+        }
+        else
+        {
+            await validate.Should().ThrowAsync<ApiKeyOwnerInactiveException>();
+        }
+    }
+
+    // The rule's boundary: a key stops working the instant the owner's last sign-in is MaxOwnerInactivityDays old.
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    public async Task AKeyStopsWorking_ExactlyMaxOwnerInactivityDaysAfterTheOwnersLastSignIn(int secondsLeft, bool works)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(1, userName: "admin", isSuperAdmin: true);
+        owner.LastLoginAt = Now.UtcDateTime.AddDays(-30).AddSeconds(secondsLeft);
+        store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(10));
+        var options = new ApiKeyOptions { MaxOwnerInactivityDays = 30 };
+
+        var entry = (await AdminList(store, options).Handle(new GetAllApiKeysQuery(), CancellationToken.None)).Items.Single();
+        var validate = () => BuildApiKeys(store, options).ValidateApiKeyAsync(PlainTextKey, CancellationToken.None);
+
+        entry.IsActive.Should().Be(works);
+        if (works)
+        {
+            (await validate()).Should().NotBeNull();
+        }
+        else
+        {
+            await validate.Should().ThrowAsync<ApiKeyOwnerInactiveException>();
+        }
+    }
+
+    // The caller's own key list applies the rule to the caller's last sign-in, or, without one, to the account's creation.
+    [TestCase(31, null, false)]
+    [TestCase(29, null, true)]
+    [TestCase(null, 40, false)]
+    [TestCase(null, 1, true)]
+    public async Task OwnList_CallsAKeyInactive_WhenItsOwnerHasNotSignedInForTooLong(int? daysSinceSignIn, int? accountAgeDays, bool active)
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(1, userName: "admin", isSuperAdmin: true);
+        store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(10));
+        var users = AdminUsers(
+            lastLoginAt: daysSinceSignIn == null ? null : Now.UtcDateTime.AddDays(-daysSinceSignIn.Value),
+            createdTime: Now.UtcDateTime.AddDays(-(accountAgeDays ?? 400)));
+        var handler = new GetApiKeysHandler(
+            BuildFactory(store),
+            Accessor(CookiePrincipal("admin")),
+            users.Object,
+            Options.Create(new ApiKeyOptions { MaxOwnerInactivityDays = 30 }),
+            new FakeTimeProvider(Now));
+
+        var page = await handler.Handle(new GetApiKeysQuery(), CancellationToken.None);
+
+        page.Items.Should().ContainSingle().Which.IsActive.Should().Be(active);
+    }
+
+    // The own list reads the caller through the user store: its lookup carries the last sign-in and the creation time.
+    [TestCase(false, "u.last_login_at", "u.created_time")]
+    [TestCase(true, "[u].[LastLoginAt]", "[u].[CreatedTime]")]
+    public async Task TheCallersLookup_ReadsTheirLastSignInAndCreation_Translates(bool sqlServer, string lastSignIn, string created)
+    {
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows();
+        var users = new UserManagementService(capture.Factory(), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now));
+
+        await users.GetUserByExternalIdAsync("ext-1", CancellationToken.None);
+
+        capture.Commands.Should().ContainSingle().Which.Should().Contain(lastSignIn).And.Contain(created);
+    }
+
+    [Test]
+    public async Task OwnerInactivity_IsOffByDefault()
+    {
+        var store = new FakeStore();
+        var owner = store.AddUser(1, userName: "admin", isSuperAdmin: true);
+        owner.CreatedTime = Now.UtcDateTime.AddDays(-1000);
+        store.AddKey(11, owner, expiresAt: Now.UtcDateTime.AddDays(10));
+
+        var validated = await BuildApiKeys(store).ValidateApiKeyAsync(PlainTextKey, CancellationToken.None);
+
+        validated.Should().NotBeNull();
+    }
+
+    [Test]
+    public async Task TheMiddleware_AnswersAnInactiveOwnersKeyWith401AndTheReason()
+    {
+        var apiKeys = new Mock<IApiKeyService>();
+        apiKeys
+            .Setup(x => x.ValidateApiKeyAsync(PlainTextKey, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ApiKeyOwnerInactiveException(30));
+        var context = new DefaultHttpContext { RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider() };
+        context.Request.Headers.Authorization = $"Bearer {PlainTextKey}";
+        context.Response.Body = new MemoryStream();
+        var reachedNext = false;
+        var middleware = new ApiKeyAuthMiddleware(_ =>
+        {
+            reachedNext = true;
+            return Task.CompletedTask;
+        });
+
+        await middleware.InvokeAsync(context, apiKeys.Object, NullLogger<ApiKeyAuthMiddleware>.Instance);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        context.Response.StatusCode.Should().Be(StatusCodes.Status401Unauthorized);
+        body.Should().Contain("has not signed in to Beacon for 30 days");
+        reachedNext.Should().BeFalse();
+        context.User.Identity?.IsAuthenticated.Should().NotBe(true);
+    }
+
+    [TestCase(false, "COALESCE(u.last_login_at, u.created_time)")]
+    [TestCase(true, "COALESCE([u].[LastLoginAt], [u].[CreatedTime])")]
+    public async Task AdminListQuery_ReadsTheOwnersLastSignIn_Translates(bool sqlServer, string expected)
+    {
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenScalar(1).ThenNoRows();
+        var handler = new GetAllApiKeysHandler(capture.Factory(), Accessor(CookiePrincipal("admin")), AdminUsers().Object, TestPermissions.None, Options.Create(new ApiKeyOptions()), Options.Create(new RoleMappingOptions()), new FakeTimeProvider(Now));
+
+        await handler.Handle(new GetAllApiKeysQuery(), CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2).And.Subject.Last().Should().Contain(expected);
+    }
+
+    // ── Sessions follow the user's lifecycle (security stamp) ────────────────
+
+    [Test]
+    public async Task DisablingEnablingResettingOrChangingThePasswordAndArchiving_EachSignOutEverySessionOfTheUser()
+    {
+        var store = new FakeStore();
+        store.AddUser(1, isSuperAdmin: true);
+        var user = store.AddUser(2);
+        user.IsInternalUser = true;
+        user.PasswordHash = "hash";
+        user.PasswordSalt = "salt";
+        var hasher = new Mock<IPasswordHasher>();
+        hasher.Setup(x => x.HashPassword(It.IsAny<string>())).Returns(("new-hash", "new-salt"));
+        hasher.Setup(x => x.VerifyPassword("current", It.IsAny<string>(), It.IsAny<string>())).Returns(true);
+        var users = new UserManagementService(BuildFactory(store), hasher.Object, Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now));
+        var stamps = new List<string?>();
+
+        (await users.ToggleUserEnabledAsync(2, CancellationToken.None)).Success.Should().BeTrue();
+        stamps.Add(user.SecurityStamp);
+        (await users.ToggleUserEnabledAsync(2, CancellationToken.None)).Success.Should().BeTrue();
+        stamps.Add(user.SecurityStamp);
+        (await users.ResetPasswordAsync(2, "Aa1!aaaaaaaa", CancellationToken.None)).Success.Should().BeTrue();
+        stamps.Add(user.SecurityStamp);
+        (await users.ChangePasswordAsync(2, "current", "Bb2@bbbbbbbb", CancellationToken.None)).Success.Should().BeTrue();
+        stamps.Add(user.SecurityStamp);
+        (await users.DeleteUserAsync(2, CancellationToken.None)).Success.Should().BeTrue();
+        stamps.Add(user.SecurityStamp);
+
+        stamps.Should().NotContainNulls().And.OnlyHaveUniqueItems("each change gives the user a new stamp");
+    }
+
+    [TestCase("display-name", false)]
+    [TestCase("same-email-written-empty", false)]
+    [TestCase("user-name", true)]
+    [TestCase("email", true)]
+    [TestCase("disable", true)]
+    public async Task UpdatingAUser_SignsOutTheirSessions_WhenWhatTheySignInWithOrWhetherTheyMayChanges(string change, bool signsOut)
+    {
+        var store = new FakeStore();
+        var user = store.AddUser(2);
+        user.SecurityStamp = "before";
+        var request = new Core.Models.UserManagement.UpdateUserRequest
+        {
+            UserId = 2,
+            UserName = change == "user-name" ? "renamed" : user.UserName,
+            Email = change switch
+            {
+                "same-email-written-empty" => string.Empty,
+                "email" => "ben@example.test",
+                _ => null
+            },
+            DisplayName = "Ben",
+            IsEnabled = change != "disable"
+        };
+
+        (await BuildUsers(store).UpdateUserAsync(request, CancellationToken.None)).Success.Should().BeTrue();
+
+        (user.SecurityStamp != "before").Should().Be(signsOut);
+    }
+
     [Test]
     public async Task AdminListQuery_KeepsArchivedOwners_Translates()
     {
@@ -776,7 +1003,11 @@ public class ApiKeyLifecycleTests
         new(BuildFactory(store), Accessor(CookiePrincipal("admin")), AdminUsers().Object, TestPermissions.None, Options.Create(options ?? new ApiKeyOptions()), Options.Create(new RoleMappingOptions()), new FakeTimeProvider(Now));
 
     // The signed-in administrator behind CookiePrincipal: Users.ExternalId "ext-1", Beacon user id 1.
-    private static Mock<IUserManagementService> AdminUsers(bool enabled = true, int apiKeyGeneration = 0)
+    private static Mock<IUserManagementService> AdminUsers(
+        bool enabled = true,
+        int apiKeyGeneration = 0,
+        DateTime? lastLoginAt = null,
+        DateTime createdTime = default)
     {
         var users = new Mock<IUserManagementService>();
         users
@@ -788,7 +1019,9 @@ public class ApiKeyLifecycleTests
                 UserName = "admin",
                 IsSuperAdmin = true,
                 IsEnabled = enabled,
-                ApiKeyGeneration = apiKeyGeneration
+                ApiKeyGeneration = apiKeyGeneration,
+                LastLoginAt = lastLoginAt,
+                CreatedTime = createdTime
             });
         return users;
     }

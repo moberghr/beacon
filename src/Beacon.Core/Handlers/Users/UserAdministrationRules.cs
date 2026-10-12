@@ -208,6 +208,16 @@ internal sealed class UserAdministrationRules(
             addedRoleIds,
             removedRoleIds,
             actor.LogId);
+
+        // A grant records who made it (AssignedByUserId); a caller without a user id leaves it empty, which is said here.
+        if (addedRoleIds.Count > 0 && actor.UserId == null)
+        {
+            logger.LogWarning(
+                ProjectAccessEvents.UserRolesChanged,
+                "Roles {AddedRoleIds} were granted to user {UserId} by a caller without a user id: who granted them is recorded as empty",
+                addedRoleIds,
+                userId);
+        }
     }
 
     // The Admin role and the functional roles are an Admin's to assign.

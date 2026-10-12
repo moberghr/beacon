@@ -18,6 +18,9 @@ public static class BeaconApiEndpoints
     public const string AuthPolicyName = "BeaconApi";
     public const string AdminPolicyName = "BeaconApiAdmin";
 
+    /// <summary>The realtime hub's route (negotiate and connect).</summary>
+    internal const string HubPath = "/beacon/api/hub";
+
     /// <summary>
     /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthMiddleware</c> and
     /// JWT callers on <c>/beacon/mcp</c> minted by <c>JwtBearerAuthMiddleware</c> (<c>auth_method=mcp_caller</c>, scope
@@ -27,6 +30,17 @@ public static class BeaconApiEndpoints
     /// <see cref="BeaconScopeEndpointFilter"/>, whether or not the endpoint names this policy.
     /// </summary>
     public const string ExecuteScopePolicyName = BeaconScopes.ExecuteScopePolicyName;
+
+    /// <summary>
+    /// The realtime hub's admission (<see cref="BeaconHubAccess"/>), required next to <see cref="AuthPolicyName"/>: a
+    /// caller without read permission and without a functional permission whose pages use hub events is refused (403).
+    /// Decided at the hub's negotiate and connect requests, where the resource is the request. A policy object rather than
+    /// a registered name, so a host mapping the hub needs no further registration.
+    /// </summary>
+    internal static AuthorizationPolicy HubAccessPolicy { get; } = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .RequireAssertion(async x => x.Resource is HttpContext httpContext && await BeaconHubAccess.AllowsAsync(httpContext))
+        .Build();
 
     public static IServiceCollection AddBeaconApiAuthorization(this IServiceCollection services)
     {
@@ -84,6 +98,9 @@ public static class BeaconApiEndpoints
 
         // Warns at startup about unlocked MCP safety settings and data sources whose engine does not refuse writes.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, ReadOnlyStartupWarnings>());
+
+        // Warns at startup about stored values still encrypted with a previous encryption key.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, EncryptionKeyStartupWarnings>());
 
         return services;
     }
@@ -165,10 +182,16 @@ public static class BeaconApiEndpoints
         // assuming realtime-on. Assuming on would call MapHub without AddSignalR and crash those
         // hosts at startup on a package bump. /auth/me reports realtimeEnabled=false in the same
         // case, so the server never advertises a hub it did not map.
+        // The hub also admits only callers who may use it (HubAccessPolicy), and a connection is closed when the
+        // expiry its request reported passes: for a cookie session the session's next check against the user store
+        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthMiddleware).
+        // The client then reconnects, and is checked again.
         var options = endpoints.ServiceProvider.GetService<BeaconApiOptions>();
         if (options?.Realtime == true)
         {
-            endpoints.MapHub<BeaconHub>("/beacon/api/hub").RequireAuthorization(AuthPolicyName);
+            endpoints.MapHub<BeaconHub>(HubPath, x => x.CloseOnAuthenticationExpiration = true)
+                .RequireAuthorization(AuthPolicyName)
+                .RequireAuthorization(HubAccessPolicy);
         }
 
         return endpoints;

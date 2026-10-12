@@ -42,10 +42,22 @@ public class AuthenticationResult
     public int? BeaconUserId { get; init; }
 
     /// <summary>
+    /// The credentials were right, but the user must choose a new password before signing in (an administrator set the
+    /// current one). <see cref="Success"/> is false, so no session is issued; <see cref="ErrorMessage"/> says what to do.
+    /// </summary>
+    public bool PasswordChangeRequired { get; init; }
+
+    /// <summary>
     /// Creates a failed authentication result with an error message.
     /// </summary>
     public static AuthenticationResult Failed(string message) =>
         new() { Success = false, ErrorMessage = message };
+
+    /// <summary>
+    /// Creates the result for a user who must choose a new password first: not signed in, with <paramref name="message"/>.
+    /// </summary>
+    public static AuthenticationResult PasswordChangeNeeded(string message) =>
+        new() { Success = false, PasswordChangeRequired = true, ErrorMessage = message };
 
     /// <summary>
     /// Creates a successful authentication result with user details.

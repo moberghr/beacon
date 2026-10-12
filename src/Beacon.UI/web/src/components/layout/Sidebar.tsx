@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { useAccess, useAuth, type Access, type BeaconPermission } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
@@ -185,12 +186,19 @@ export function Sidebar() {
     }
   };
 
-  const handleSignOut = async () => {
+  // "Everywhere" also ends every other session of this user (a new security stamp on the server). When the server could
+  // not do that it signs nothing out (409): say so, and stay signed in.
+  const handleSignOut = async (everywhere: boolean) => {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await beaconApi().logout();
+      await beaconApi().logout(everywhere ? true : undefined);
     } catch {
+      if (everywhere) {
+        setSigningOut(false);
+        toast.error('Your other sessions could not be signed out. You are still signed in here.');
+        return;
+      }
       // fall through — still navigate to login
     }
     setMenuOpen(false);
@@ -269,12 +277,26 @@ export function Sidebar() {
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
-                onClick={handleSignOut}
+                onClick={() => handleSignOut(false)}
                 disabled={signingOut}
                 className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
               >
                 <IconLogOut className="size-4 shrink-0 text-text-muted" />
                 <span>{signingOut ? 'Signing out…' : 'Sign out'}</span>
+              </button>
+            )}
+            {!user?.externalLogin && user?.signOutEverywhereEnabled && (
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => handleSignOut(true)}
+                disabled={signingOut}
+                title="Also ends your sessions in every other browser and device."
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
+              >
+                <IconLogOut className="size-4 shrink-0 text-text-muted" />
+                <span>Sign out everywhere</span>
               </button>
             )}
           </div>

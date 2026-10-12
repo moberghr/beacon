@@ -107,7 +107,7 @@ public class ExecutionLimitOptionsTests
     private static ServiceProvider Build(Dictionary<string, string?> settings)
     {
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-        settings["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]);
+        settings["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(settings)
             .Build();

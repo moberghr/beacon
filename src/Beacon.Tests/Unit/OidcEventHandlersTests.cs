@@ -659,6 +659,91 @@ public class OidcEventHandlersTests
         OidcAdmission.ResetWarnings();
     }
 
+    [TestCase(false, null, null, true)]
+    [TestCase(true, null, null, false)]
+    [TestCase(true, "pwd", null, false)]
+    [TestCase(true, "MFA", null, true)]
+    [TestCase(true, "pwd mfa", null, true)]
+    [TestCase(true, "pwd", "urn:example:mfa", true)]
+    [TestCase(true, "pwd", "urn:example:password", false)]
+    public void MeetsMfaRequirement_AmrMfaOrAnAcceptedAcr_WhenRequired(bool requireMfa, string? amr, string? acr, bool expected)
+    {
+        var claims = new List<Claim>();
+        foreach (var value in (amr ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            claims.Add(new Claim("amr", value));
+        }
+
+        if (acr != null)
+        {
+            claims.Add(new Claim("acr", acr));
+        }
+
+        var options = new OidcAuthenticationOptions { RequireMfa = requireMfa, AcceptedAcrValues = ["urn:example:mfa"] };
+
+        OidcAdmission.MeetsMfaRequirement(new ClaimsPrincipal(new ClaimsIdentity(claims, "oidc")), options)
+            .Should().Be(expected);
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_RequireMfa_WithoutMfa_RefusesBeforeProvisioning_AndLogsTheReason()
+    {
+        var userService = ProvisioningAs(Viewer("sub-mfa"));
+        var logs = new LogRecorder();
+        var context = BuildContext(
+            userService.Object,
+            sub: "sub-mfa",
+            iss: "https://login.example.com/",
+            email: "mfa@example.com",
+            name: "Mia",
+            preferredUsername: "mia",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("amr", "pwd")],
+            configure: x => x.RequireMfa = true,
+            logs: logs);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result!.Failure.Should().BeOfType<OidcMfaRequiredException>();
+        userService.Verify(
+            x => x.GetOrCreateExternalUserAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "nothing is looked up or provisioned for a refused sign-in");
+        logs.Entries.Should().ContainSingle(x => x.Message.Contains("MfaNotPerformed"))
+            .Which.Message.Should().NotContain("sub-mfa").And.NotContain("mfa@example.com");
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_RequireMfa_WithMfa_SignsIn()
+    {
+        var userService = ProvisioningAs(Viewer("sub-mfa"));
+        var context = BuildContext(
+            userService.Object,
+            sub: "sub-mfa",
+            iss: "https://login.example.com/",
+            email: "mfa@example.com",
+            name: "Mia",
+            preferredUsername: "mia",
+            existingRoleFromIdp: null,
+            extraClaims: [new Claim("amr", "pwd"), new Claim("amr", "mfa")],
+            configure: x => x.RequireMfa = true);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result.Should().BeNull();
+        context.Principal!.FindFirst(BeaconClaims.UserId)!.Value.Should().Be("sub-mfa");
+    }
+
+    [Test]
+    public async Task HandleRemoteFailureAsync_MfaRequired_SendsTheUserToTheMfaMessage()
+    {
+        var context = BuildRemoteFailureContext(new OidcMfaRequiredException());
+
+        await OidcEventHandlers.HandleRemoteFailureAsync(context);
+
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/login?ssoError=mfa_required");
+    }
+
     [Test]
     public async Task HandleRemoteFailureAsync_NotAdmitted_SendsTheUserToTheNotAdmittedMessage()
     {

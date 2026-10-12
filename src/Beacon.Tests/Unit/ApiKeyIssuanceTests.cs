@@ -477,6 +477,52 @@ public class ApiKeyIssuanceTests
         options.EnforceMaxLifetimeOnExistingKeys.Should().BeFalse();
     }
 
+    [TestCase(0, true)]
+    [TestCase(90, true)]
+    [TestCase(3650, true)]
+    [TestCase(-1, false)]
+    [TestCase(3651, false)]
+    public void MaxOwnerInactivityDays_IsValidated_AndOffByDefault(int days, bool valid)
+    {
+        var result = new ApiKeyOptionsValidator().Validate(null, new ApiKeyOptions { MaxOwnerInactivityDays = days });
+
+        result.Succeeded.Should().Be(valid);
+        new ApiKeyOptions().MaxOwnerInactivityDays.Should().Be(0);
+    }
+
+    [TestCase("Beacon:Authentication:Session:RevalidateMinutes", "-1")]
+    [TestCase("Beacon:Authentication:Session:RevalidateMinutes", "1441")]
+    [TestCase("Beacon:Authentication:Session:AbsoluteLifetimeHours", "0")]
+    [TestCase("Beacon:Authentication:Session:AbsoluteLifetimeHours", "8761")]
+    [TestCase("Beacon:ApiKeys:MaxOwnerInactivityDays", "-1")]
+    public void SessionAndKeyInactivitySettingsOutOfRange_FailTheHostAtStartup(string key, string value)
+    {
+        using var provider = BuildBeaconProvider(new Dictionary<string, string?> { [key] = value });
+
+        var act = () => provider.GetRequiredService<IStartupValidator>().Validate();
+
+        act.Should().Throw<OptionsValidationException>().WithMessage($"*{key}*");
+    }
+
+    [Test]
+    public void SessionSection_BindsFromConfiguration_AndDefaultsToFiveMinutesAndTwelveHours()
+    {
+        using var configured = BuildBeaconProvider(new Dictionary<string, string?>
+        {
+            ["Beacon:Authentication:Session:RevalidateMinutes"] = "0",
+            ["Beacon:Authentication:Session:AbsoluteLifetimeHours"] = "8"
+        });
+        using var defaults = BuildBeaconProvider([]);
+
+        var options = configured.GetRequiredService<IOptions<SessionLifetimeOptions>>().Value;
+        var fallback = defaults.GetRequiredService<IOptions<SessionLifetimeOptions>>().Value;
+
+        options.RevalidateMinutes.Should().Be(0);
+        options.AbsoluteLifetimeHours.Should().Be(8);
+        fallback.RevalidateMinutes.Should().Be(5);
+        fallback.AbsoluteLifetimeHours.Should().Be(12);
+    }
+
     [TestCase("0")]
     [TestCase("3651")]
     public void MaxLifetimeDaysOutOfRange_FailsTheHostAtStartup(string days)
@@ -491,7 +537,7 @@ public class ApiKeyIssuanceTests
     private static ServiceProvider BuildBeaconProvider(Dictionary<string, string?> settings)
     {
         // A throwaway encryption key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-        settings["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]);
+        settings["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
         services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>())

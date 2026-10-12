@@ -494,6 +494,24 @@ public class RestBearerUserBindingTests
         outcome.User!.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().Equal("Viewer");
     }
 
+    // RequireMfa is checked at the interactive SSO sign-in only: a bearer token on REST or MCP that shows no multi-factor
+    // authentication (no amr, no acr) is treated exactly as with RequireMfa off.
+    [TestCase("/beacon/api/projects")]
+    [TestCase("/beacon/mcp")]
+    public async Task RequireMfa_ChangesNothingForBearerTokens(string path)
+    {
+        var mfaRequired = Sso();
+        mfaRequired.RequireMfa = true;
+
+        var off = await RunAsync(path, MintToken(UserClaims()), CreateMapper(), Store(Row(External(UserSub, Issuer, "Viewer"))).Object, oidc: Sso());
+        var on = await RunAsync(path, MintToken(UserClaims()), CreateMapper(), Store(Row(External(UserSub, Issuer, "Viewer"))).Object, oidc: mfaRequired);
+
+        on.NextInvoked.Should().BeTrue();
+        off.NextInvoked.Should().BeTrue();
+        on.User!.Claims.Select(x => $"{x.Type}={x.Value}")
+            .Should().BeEquivalentTo(off.User!.Claims.Select(x => $"{x.Type}={x.Value}"));
+    }
+
     [Test]
     public async Task WithoutUserManagement_RestBearerTokensAreRefused()
     {
@@ -773,7 +791,8 @@ public class RestBearerUserBindingTests
             .ReturnsAsync(External(UserSub, Issuer, "Viewer", id: 42));
         var hybrid = new HybridAuthenticationProvider(
             users.Object,
-            CreateLoginProvider(MintToken(UserClaims()), users.Object));
+            CreateLoginProvider(MintToken(UserClaims()), users.Object),
+            new BeaconConfiguration());
 
         var result = await hybrid.AuthenticateAsync("ana", "secret");
 

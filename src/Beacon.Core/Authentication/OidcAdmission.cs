@@ -43,6 +43,28 @@ internal static class OidcAdmission
     }
 
     /// <summary>
+    /// True when <see cref="OidcAuthenticationOptions.RequireMfa"/> is off, or the token shows multi-factor authentication:
+    /// an <c>amr</c> value <c>mfa</c> (ignoring case), or an <c>acr</c> value listed in
+    /// <see cref="OidcAuthenticationOptions.AcceptedAcrValues"/>. Checked at the interactive SSO sign-in only.
+    /// </summary>
+    public static bool MeetsMfaRequirement(ClaimsPrincipal principal, OidcAuthenticationOptions options)
+    {
+        if (!options.RequireMfa)
+        {
+            return true;
+        }
+
+        if (GetClaimValues(principal, "amr").Contains("mfa"))
+        {
+            return true;
+        }
+
+        var acr = GetClaim(principal, "acr");
+
+        return acr != null && NonBlank(options.AcceptedAcrValues).Contains(acr, StringComparer.Ordinal);
+    }
+
+    /// <summary>
     /// An Entra token (it carries <c>tid</c>) whose subject is a guest of the signing tenant: <c>acct</c> is <c>1</c>
     /// (optional claim), or <c>idp</c> names an identity provider other than the signing tenant. A member's <c>idp</c>,
     /// when present at all, is exactly the token issuer or one of the tenant's own Entra issuers

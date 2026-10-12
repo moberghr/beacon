@@ -30,12 +30,36 @@ namespace Beacon.Core;
 public static class ServiceConfiguration
 {
     /// <summary>
-    /// The placeholder encryption key shipped in Beacon.SampleProject/appsettings.json for local dev.
-    /// The composition root rejects this value in Production (see Program.cs) so it can never protect
-    /// real secrets at rest.
+    /// The placeholder encryption key the sample host once shipped in its appsettings.json. It is publicly known, so
+    /// <see cref="AddBeaconServices"/> refuses it as <c>Beacon:EncryptionKey</c> in every environment; it can only be listed
+    /// in <c>Beacon:PreviousEncryptionKeys</c>, to keep reading values written with it.
     /// </summary>
     public const string DefaultEncryptionKey = "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
 
+    /// <summary>The configuration key of the keys values written earlier may be encrypted with (decrypt only).</summary>
+    public const string PreviousEncryptionKeysKey = "Beacon:PreviousEncryptionKeys";
+
+    /// <summary>
+    /// <c>Beacon:PreviousEncryptionKeys</c> lists at least one key: stored values may still be encrypted with it, and
+    /// <see cref="IStoredValueReEncryptionService"/> moves them to the current key.
+    /// </summary>
+    public static bool HasPreviousEncryptionKeys(IConfiguration configuration)
+    {
+        return PreviousEncryptionKeys(configuration).Any(x => !string.IsNullOrWhiteSpace(x));
+    }
+
+    /// <summary>
+    /// <c>Beacon:PreviousEncryptionKeys</c>: its list entries, or, when it is a single value instead of a list, that value.
+    /// </summary>
+    internal static string[] PreviousEncryptionKeys(IConfiguration configuration)
+    {
+        var section = configuration.GetSection(PreviousEncryptionKeysKey);
+        var listed = section.Get<string[]>() ?? [];
+
+        return listed.Length == 0 && !string.IsNullOrWhiteSpace(section.Value)
+            ? [section.Value]
+            : listed;
+    }
 
     /// <summary>
     /// Adds core Beacon services (without UI components).
@@ -84,21 +108,28 @@ public static class ServiceConfiguration
             cfg.AddOpenBehavior(typeof(Authorization.ProjectAccess.ProjectAuthorizationBehavior<,>));
         });
 
-        // Encryption service for sensitive data (e.g., connection strings)
-        var encryptionKey = configuration["Beacon:EncryptionKey"];
-        if (string.IsNullOrWhiteSpace(encryptionKey))
+        // Encryption service for sensitive data (e.g., connection strings). The key must be strong in every environment
+        // (base64 of at least 32 bytes, never a published or placeholder value); the message never contains it. Values
+        // written with a key that was replaced stay readable through Beacon:PreviousEncryptionKeys (decrypt only).
+        var encryptionKey = configuration["Beacon:EncryptionKey"] ?? string.Empty;
+        var encryptionKeyProblem = EncryptionKeyRequirements.Problem(encryptionKey);
+        if (encryptionKeyProblem != null)
         {
-            throw new InvalidOperationException(
-                "Beacon:EncryptionKey must be configured. " +
-                "Generate a secure key with: openssl rand -base64 32" +
-                Environment.NewLine +
-                "Then add to appsettings.json: { \"Beacon\": { \"EncryptionKey\": \"your-generated-key\" } }");
+            throw new InvalidOperationException(encryptionKeyProblem);
         }
 
-        services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
+        // A single value (Beacon__PreviousEncryptionKeys rather than Beacon__PreviousEncryptionKeys__0) binds to no list
+        // entry; it is read as the one previous key, and a startup warning names the list form.
+        var previousEncryptionKeys = PreviousEncryptionKeys(configuration);
+        services.AddSingleton<IEncryptionService>(x => new EncryptionService(
+            encryptionKey,
+            previousEncryptionKeys,
+            x.GetService<Microsoft.Extensions.Logging.ILogger<EncryptionService>>()));
+        services.TryAddTransient<IStoredValueReEncryptionService, StoredValueReEncryptionService>();
 
-        // Keyed hash for MCP caller audit identities; derives its own purpose-bound key from the encryption key.
-        services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(encryptionKey));
+        // Keyed hash for MCP caller audit identities: from Beacon:Mcp:CallerHashKey when set (so the hashes outlive a
+        // change of the encryption key), else from the encryption key, each through its own purpose-bound derivation.
+        services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(Mcp.McpCallerSubjectHasher.KeySource(configuration, encryptionKey)));
 
         // Notification channels (Beacon:Notifications): where recipients may point, the one outbound HTTP policy the
         // adapters use, and encryption of recipient secrets at rest. ValidateOnStart so a malformed allow-list entry
@@ -231,12 +262,21 @@ public static class ServiceConfiguration
             x.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostDocs.HostDocsSynchronizer>>()));
         services.TryAddTransient<HostDocs.IProjectBriefService, HostDocs.ProjectBriefService>();
 
-        // API-key issuance (Beacon:ApiKeys): every new key expires, within a configurable maximum lifetime.
-        // ValidateOnStart so a maximum out of range fails the host at boot.
+        // API-key issuance (Beacon:ApiKeys): every new key expires, within a configurable maximum lifetime, and keys of an
+        // owner who stopped signing in can be refused. ValidateOnStart so a value out of range fails the host at boot.
         services.AddOptions<Configuration.ApiKeyOptions>()
             .Bind(configuration.GetSection(Configuration.ApiKeyOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.ApiKeyOptions>, Configuration.ApiKeyOptionsValidator>();
+
+        // Sign-in sessions (Beacon:Authentication:Session): how often a session is checked against the user store and its
+        // absolute lifetime. ValidateOnStart so a value out of range fails the host at boot. The store reads the user a
+        // session names and changes a user's security stamp.
+        services.AddOptions<Configuration.SessionLifetimeOptions>()
+            .Bind(configuration.GetSection(Configuration.SessionLifetimeOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SessionLifetimeOptions>, Configuration.SessionLifetimeOptionsValidator>());
+        services.TryAddTransient<IUserSessionStore, UserSessionStore>();
 
         // Row cap of the statements Beacon runs for its own features (Beacon:Query). ValidateOnStart so a cap out of range
         // fails the host at boot.
@@ -262,6 +302,21 @@ public static class ServiceConfiguration
 
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
+
+        // Password sign-in through the login form (Beacon:UserManagement:LocalLogin), bound onto the code-configured
+        // options whether or not user management is on: the login endpoint and the password providers read it. Binding
+        // appends to a list, so a host that already bound the section onto its options would list every break-glass name
+        // twice: the names are de-duplicated (trimmed, case included, as they are compared) before they are validated.
+        var localLogin = configurationOptions.UserManagement.LocalLogin;
+        configuration.GetSection(LocalLoginOptions.SectionName).Bind(localLogin);
+        localLogin.BreakGlassUserNames = localLogin.BreakGlassUserNames
+            .DistinctBy(x => x?.Trim() ?? string.Empty, StringComparer.Ordinal)
+            .ToList();
+        localLogin.Validate();
+
+        // While local login is off, the last word on every password sign-in, whichever provider authenticated it: only a
+        // stored internal break-glass user passes.
+        services.TryAddScoped<PasswordSignInGate>();
 
         // User Management services (opt-in feature)
         if (configurationOptions.UserManagement.Enabled)

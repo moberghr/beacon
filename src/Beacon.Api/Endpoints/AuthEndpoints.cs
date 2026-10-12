@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Beacon.Api.Authentication;
+using Beacon.Api.Hubs;
+using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
@@ -17,7 +19,7 @@ internal static class AuthEndpoints
             .WithName("GetCurrentUser")
             .WithTags("Auth");
 
-        // Anonymous: the login page reads this pre-auth to decide whether to offer SSO.
+        // Anonymous: the login page reads this pre-auth to decide whether to offer SSO and the password form.
         group.MapGet("/auth/sso", GetSsoConfig)
             .AllowAnonymous()
             .DisableAntiforgery()
@@ -35,10 +37,20 @@ internal static class AuthEndpoints
         return group;
     }
 
-    private static SsoConfigResponse GetSsoConfig(IOptions<OidcAuthenticationOptions> oidcOptions)
-        => new(oidcOptions.Value.Enabled);
+    // LocalLoginEnabled is Beacon:UserManagement:LocalLogin:Enabled: when false the login page shows no password form (a
+    // break-glass account opens it with ?local=1). Without Beacon's configuration the password form is not offered.
+    internal static SsoConfigResponse GetSsoConfig(IOptions<OidcAuthenticationOptions> oidcOptions, HttpContext httpContext)
+    {
+        var configuration = httpContext.RequestServices.GetService<BeaconConfiguration>();
 
-    internal static CurrentUserResponse GetCurrentUser(
+        return new SsoConfigResponse(oidcOptions.Value.Enabled, configuration?.UserManagement.LocalLogin.Enabled ?? false);
+    }
+
+    // RealtimeEnabled is per caller once signed in: true only where the hub would admit them (BeaconHubAccess), so the
+    // shell never opens a connection the hub refuses. SignOutEverywhereEnabled: the caller is a signed-in session (no API
+    // key, no MCP caller) on a host whose sessions are checked against Beacon's user store (user management on), so
+    // "sign out everywhere" can end their other sessions.
+    internal static async Task<CurrentUserResponse> GetCurrentUser(
         IBeaconUserContext userContext,
         HttpContext httpContext,
         BeaconApiOptions? apiOptions)
@@ -64,8 +76,19 @@ internal static class AuthEndpoints
             Email: userContext.Email,
             IsAuthenticated: true,
             Roles: roles,
-            RealtimeEnabled: realtime,
-            ExternalLogin: externalLogin);
+            RealtimeEnabled: realtime && await BeaconHubAccess.AllowsAsync(httpContext),
+            ExternalLogin: externalLogin,
+            SignOutEverywhereEnabled: SignOutEverywhereEnabled(httpContext));
+    }
+
+    private static bool SignOutEverywhereEnabled(HttpContext httpContext)
+    {
+        var userManagement = httpContext.RequestServices?.GetService<BeaconConfiguration>()?.UserManagement.Enabled == true;
+
+        return userManagement
+            && !BeaconUserLookup.IsApiKey(httpContext.User)
+            && !BeaconUserLookup.IsMcpCaller(httpContext.User)
+            && !string.IsNullOrEmpty(httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value);
     }
 
     private static async Task<CurrentPermissionsResponse> GetCurrentPermissions(
@@ -100,7 +123,8 @@ internal sealed record CurrentUserResponse(
     bool IsAuthenticated,
     IReadOnlyList<string> Roles,
     bool RealtimeEnabled,
-    ExternalLoginResponse? ExternalLogin)
+    ExternalLoginResponse? ExternalLogin,
+    bool SignOutEverywhereEnabled = false)
 {
     /// <summary>
     /// The unauthenticated shape. Still carries <paramref name="realtimeEnabled"/> so the shell
@@ -130,4 +154,5 @@ internal sealed record CurrentPermissionsResponse(
     IReadOnlyList<string> Permissions,
     bool MigrationsEnabled);
 
-internal sealed record SsoConfigResponse(bool Enabled);
+/// <summary>Whether single sign-on is offered (<c>Enabled</c>), and whether password sign-in is open to everyone.</summary>
+internal sealed record SsoConfigResponse(bool Enabled, bool LocalLoginEnabled);

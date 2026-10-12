@@ -35,7 +35,7 @@ export default function LogoutPage() {
     let cancelled = false;
     (async () => {
       try {
-        await beaconApi().logout();
+        await beaconApi().logout(undefined);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Sign-out failed');
       } finally {

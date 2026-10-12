@@ -7,7 +7,8 @@ namespace Beacon.Core.Handlers.Users;
 
 internal sealed class CreateInternalUserHandler(
     IUserManagementService userService,
-    UserAdministrationRules rules)
+    UserAdministrationRules rules,
+    IBeaconActorAccessor actorAccessor)
     : IRequestHandler<CreateInternalUserCommand>
 {
     public async Task Handle(CreateInternalUserCommand request, CancellationToken cancellationToken)
@@ -17,6 +18,8 @@ internal sealed class CreateInternalUserHandler(
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);
         await rules.DemandMayAssignAsync(null, roles, roles, cancellationToken);
 
+        // Recorded on every role assignment as who assigned it.
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         var serviceRequest = new CreateInternalUserRequest
         {
             UserName = request.UserName,
@@ -24,6 +27,7 @@ internal sealed class CreateInternalUserHandler(
             DisplayName = request.DisplayName,
             Password = request.Password,
             RoleIds = request.RoleIds.ToList(),
+            AssignedByUserId = actor.UserId,
         };
 
         var response = await userService.CreateInternalUserAsync(serviceRequest, cancellationToken);
@@ -39,8 +43,9 @@ internal sealed class CreateInternalUserHandler(
 
 /// <summary>
 /// Creates an internal (password) user with <c>RoleIds</c>. For an Admin only (403 for a UserAdmin who is not one): whoever
-/// sets the password can sign in as the user. Separation of duties, when on, refuses a conflicting pair (400). The new user
-/// and the roles assigned are logged.
+/// sets the password can sign in as the user, so the user must choose a new password at their first sign-in. Separation of
+/// duties, when on, refuses a conflicting pair (400). Each role assignment records who made it; the new user and the roles
+/// assigned are logged.
 /// </summary>
 [ProjectScopeExempt("user management, gated by the UserAdmin permission and, by the handler, Admin-only; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record CreateInternalUserCommand(

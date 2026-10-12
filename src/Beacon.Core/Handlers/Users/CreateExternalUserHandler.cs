@@ -7,7 +7,8 @@ namespace Beacon.Core.Handlers.Users;
 
 internal sealed class CreateExternalUserHandler(
     IUserManagementService userService,
-    UserAdministrationRules rules)
+    UserAdministrationRules rules,
+    IBeaconActorAccessor actorAccessor)
     : IRequestHandler<CreateExternalUserCommand>
 {
     public async Task Handle(CreateExternalUserCommand request, CancellationToken cancellationToken)
@@ -16,6 +17,8 @@ internal sealed class CreateExternalUserHandler(
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);
         await rules.DemandMayAssignAsync(null, roles, roles, cancellationToken);
 
+        // Recorded on every role assignment as who assigned it.
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         var serviceRequest = new CreateExternalUserRequest
         {
             ExternalId = request.ExternalId,
@@ -23,6 +26,7 @@ internal sealed class CreateExternalUserHandler(
             Email = request.Email,
             DisplayName = request.DisplayName,
             RoleIds = request.RoleIds.ToList(),
+            AssignedByUserId = actor.UserId,
         };
 
         var response = await userService.CreateExternalUserAsync(serviceRequest, cancellationToken);

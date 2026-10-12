@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
 using NUnit.Framework;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -194,7 +195,7 @@ public class JwtIssuerAudienceValidationTests
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                ["Beacon:EncryptionKey"] = TestEncryptionKey.Value
             })
             .Build();
 

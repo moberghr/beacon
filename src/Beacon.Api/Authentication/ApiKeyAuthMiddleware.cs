@@ -1,8 +1,11 @@
 using System.Collections.Concurrent;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
@@ -30,7 +33,18 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         }
 
         var apiKey = authHeader["Bearer ".Length..].Trim();
-        var credential = await apiKeyService.ValidateApiKeyAsync(apiKey, context.RequestAborted);
+        ApiKeyCredential? credential;
+        try
+        {
+            credential = await apiKeyService.ValidateApiKeyAsync(apiKey, context.RequestAborted);
+        }
+        catch (ApiKeyOwnerInactiveException ex)
+        {
+            // A genuine key whose owner has not signed in for too long (Beacon:ApiKeys:MaxOwnerInactivityDays): the
+            // caller is told why, and the key works again after the owner signs in. Logged by the key store.
+            await RefuseAsync(context, ex.Message);
+            return;
+        }
 
         // The key store already refuses a key without an active owner; a key without an owner is refused here too, so a
         // replaced IApiKeyService can never make the key id stand in for a user id below.
@@ -102,7 +116,18 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         claims.Add(new Claim(McpCallerClaimTypes.UserNameClaim, credential.User.UserName));
 
         var identity = new ClaimsIdentity(claims, McpCallerClaimTypes.ApiKeyAuthenticationType);
-        context.User = new ClaimsPrincipal(identity);
+
+        // Recorded as the request's authentication result, with an expiry one session check away: a realtime hub
+        // connection opened with the key is closed then, and reconnecting presents the key again.
+        var lifetime = context.RequestServices?.GetService<IOptions<SessionLifetimeOptions>>()?.Value ?? new SessionLifetimeOptions();
+        var now = (context.RequestServices?.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow();
+        var properties = new AuthenticationProperties
+        {
+            IssuedUtc = now,
+            ExpiresUtc = now + lifetime.RealtimeConnectionLifetime
+        };
+        var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), properties, McpCallerClaimTypes.ApiKeyAuthenticationType);
+        BeaconAuthenticationFeatures.Set(context, AuthenticateResult.Success(ticket));
 
         await next(context);
     }
@@ -150,11 +175,11 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         return new ClaimsPrincipal(new ClaimsIdentity(claims, McpCallerClaimTypes.ApiKeyOwnerAuthenticationType));
     }
 
-    private static Task RefuseAsync(HttpContext context)
+    private static Task RefuseAsync(HttpContext context, string detail = "Invalid or expired API key.")
     {
         return Results.Problem(
                 title: "Unauthorized",
-                detail: "Invalid or expired API key.",
+                detail: detail,
                 statusCode: StatusCodes.Status401Unauthorized)
             .ExecuteAsync(context);
     }

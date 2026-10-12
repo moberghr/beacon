@@ -38,7 +38,8 @@
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
- * - admin: api-keys, users, users/roles, PUT users/:id/roles (no state kept), admin-settings, user-settings
+ * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
+ *   admin-settings, user-settings
  * - data-quality: overview, contracts
  * - catch-alls: 404 GET / 400 mutations / 503 hub negotiate
  */
@@ -96,6 +97,7 @@ const authHandlers = [
       isAuthenticated: true,
       roles: ['Admin'],
       realtimeEnabled: true,
+      signOutEverywhereEnabled: true,
     })),
   // An Admin holds every functional permission.
   http.get('/beacon/api/auth/permissions', () =>
@@ -106,7 +108,7 @@ const authHandlers = [
       permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'],
       migrationsEnabled: true,
     })),
-  http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
+  http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false, localLoginEnabled: true })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];
 
@@ -1372,6 +1374,7 @@ const adminHandlers = [
       ],
     })),
   http.put('/beacon/api/users/:id/roles', () => new HttpResponse(null, { status: 204 })),
+  http.post('/beacon/api/users/:id/sign-out-everywhere', () => new HttpResponse(null, { status: 204 })),
 
   // Admin (LLM provider) settings — no secrets are ever returned, only "*Set" booleans.
   http.get('/beacon/api/admin-settings', () =>

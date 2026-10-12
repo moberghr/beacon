@@ -83,11 +83,12 @@ options.BaseUrl = builder.Configuration["Beacon:BaseUrl"]; // from config
 ```json
 {
   "Beacon": {
-    "BaseUrl": "https://beacon.example.com",
-    "EncryptionKey": "your-secure-32-byte-base64-key"
+    "BaseUrl": "https://beacon.example.com"
   }
 }
 ```
+
+`Beacon:EncryptionKey` never goes into `appsettings.json`: see [Encryption Key Configuration](#encryption-key-configuration-required).
 
 :::note
 The SPA is served at the root `/`, so notification links resolve to paths like `{BaseUrl}/notifications/{id}` — no `/beacon` UI prefix.
@@ -117,19 +118,17 @@ Leave it empty and those URLs are derived from the incoming request's `Host` hea
 openssl rand -base64 32
 ```
 
-This produces a 32-byte key (base64-encoded) suitable for AES-256.
+This produces 32 random bytes, base64-encoded. Generate your own; never copy a key printed in a guide.
 
-### Configuration
+### What Beacon Accepts
 
-```json
-{
-  "Beacon": {
-    "EncryptionKey": "k8J3m9Lp2Nq5Rt8Vw1Yz4Bc7Df0Gh3Jk6Lm9No2Pq="
-  }
-}
-```
+The key is checked when the host starts, in **every** environment (Development included), and a refusal stops the host with a message that never contains the key:
 
-### Security Best Practices
+- it must be **base64 that decodes to at least 32 random bytes** — a passphrase or a short value is refused, and so is base64 of text (every decoded byte printable) or of a repeated pattern (fewer than 16 distinct byte values), which decodes to 32 bytes that are not random;
+- it may not be a **publicly known value**: the placeholder the sample host used to ship, or a key printed in earlier versions of this documentation;
+- it may not contain **`${`**: .NET configuration does not expand placeholders, so `"${BEACON_ENCRYPTION_KEY}"` in `appsettings.json` would make the text itself the key.
+
+### Supplying the Key
 
 :::caution
 Never commit the encryption key to source control.
@@ -140,25 +139,32 @@ Never commit the encryption key to source control.
 dotnet user-secrets set "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
 ```
 
-**Production — environment variable:**
+**Production — environment variable.** The variable name maps onto the configuration key with a double underscore; nothing goes into `appsettings.json`:
 ```bash
-export BEACON_ENCRYPTION_KEY="your-production-key-here"
-```
-```json
-{
-  "Beacon": {
-    "EncryptionKey": "${BEACON_ENCRYPTION_KEY}"
-  }
-}
+export Beacon__EncryptionKey="<the generated value>"
 ```
 
-**Production — Azure Key Vault:**
+**Production — a secrets provider**, for example Azure Key Vault through its configuration provider (a secret named `Beacon--EncryptionKey` becomes `Beacon:EncryptionKey`):
 ```csharp
-var keyVaultEndpoint = new Uri(Environment.GetEnvironmentVariable("VaultUri"));
-var secretClient = new SecretClient(keyVaultEndpoint, new DefaultAzureCredential());
-var secret = await secretClient.GetSecretAsync("BeaconEncryptionKey");
-builder.Configuration["Beacon:EncryptionKey"] = secret.Value.Value;
+builder.Configuration.AddAzureKeyVault(new Uri(builder.Configuration["KeyVaultUri"]!), new DefaultAzureCredential());
 ```
+
+### Replacing the Key
+
+Values are always written with `Beacon:EncryptionKey`. To replace a key (because it was refused at upgrade, or to rotate it), set the new one and list the old one in `Beacon:PreviousEncryptionKeys`. Previous keys are used **only to decrypt**: a value written with one keeps working and moves to the new key when it is saved again or re-encrypted (below). Previous keys are secrets too — supply them the same way, as a list (`Beacon__PreviousEncryptionKeys__0`, …; a single `Beacon__PreviousEncryptionKeys` value is read as one key, with a startup warning) — and remove them once no stored value uses them. They are not checked for strength (a weak or published value is accepted there, by design), since their purpose is to retire a weak key. The first value each previous key decrypts is logged once (Information, with the key's position in the list only).
+
+```bash
+export Beacon__EncryptionKey="<the new generated value>"
+export Beacon__PreviousEncryptionKeys__0="<the key configured until now>"
+```
+
+**Moving stored values to the new key.** `IStoredValueReEncryptionService` re-encrypts, with the current key, every stored value only a previous key decrypts: data-source connection data, repository access tokens, sensitive settings and recipient destinations and headers, archived rows included. Each write is conditional on the value being unchanged, so a concurrent save wins; values no configured key decrypts are logged by id and left alone. The sample host enqueues it once as a Warp job (`ReEncryptStoredValuesJob`) at **every startup while `Beacon:PreviousEncryptionKeys` lists a key**; a host with its own jobs does the same. While a previous key is configured, startup also logs (at Warning, best effort after the host has started) how many stored values are still under a previous key and how many no configured key decrypts. When that count, or the job's log, reports none left, remove the previous keys.
+
+**MCP caller hashes.** The keyed hash Beacon stores for MCP callers (`CallerHash`) is derived from `Beacon:Mcp:CallerHashKey` when it is set, else from the encryption key. Before changing the encryption key, set `Beacon:Mcp:CallerHashKey` to the encryption key in use now (as a secret, like the key itself): the derivation is the same, so the hashes stay the same and audit rows keep grouping together across the change. Without it, rows written before and after a key change no longer group together.
+
+### Key Derivation
+
+The AES-256 key is the SHA-256 of the configured key text — unchanged, so every stored value keeps decrypting. With a key of at least 32 random bytes (which is all Beacon accepts), one SHA-256 is a sound extraction step; a salted or stretched derivation only adds strength to low-entropy passphrases, which are refused. Changing the derivation would need a new ciphertext format that earlier Beacon versions cannot read, which makes a rollback lose every value written in between.
 
 ### What Gets Encrypted
 
@@ -168,13 +174,15 @@ builder.Configuration["Beacon:EncryptionKey"] = secret.Value.Value;
 
 API keys are **not** encrypted — they are SHA256-hashed, and the raw key is shown to the user once at creation.
 
-### Error if Missing
+### Startup Errors
 
-If the encryption key is not configured, Beacon throws on startup:
+A missing or refused key stops the host with an `InvalidOperationException` that says why, never the key itself:
 
 ```
-InvalidOperationException: Beacon:EncryptionKey must be configured.
-Generate a secure key with: openssl rand -base64 32
+Beacon:EncryptionKey must be configured. Generate one with `openssl rand -base64 32` and supply it through a secret store or the Beacon__EncryptionKey environment variable.
+Beacon:EncryptionKey must be base64 that decodes to at least 32 random bytes. …
+Beacon:EncryptionKey is a publicly known value (the sample placeholder or a key printed in the documentation), … 
+Beacon:EncryptionKey contains '${': .NET configuration does not expand placeholders, …
 ```
 
 ## Authentication
@@ -195,8 +203,90 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 // Login redirect target — the SPA serves the login form at /login
 builder.Services.AddBeaconCookieAuthentication("/");
 
+// Data Protection (protects the session cookie): Beacon's default, or your own setup — see below
+builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environment)
+    .ProtectKeysWithAzureKeyVault(new Uri(builder.Configuration["DataProtection:KeyUri"]!), new DefaultAzureCredential());
+
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
 ```
+
+#### Data Protection (the keys behind the session cookie)
+
+ASP.NET Core Data Protection signs and encrypts the `Beacon.Auth` cookie and the antiforgery tokens; whoever holds its key ring can issue a session cookie. It belongs to the **host**: `AddBeaconCookieAuthentication` sets no application name and no key storage, so a host that configures Data Protection itself keeps exactly its own setup.
+
+- **Beacon's default** — `AddBeaconDataProtection(configuration, environment)` stores the key ring in the Beacon database (`beacon.data_protection_keys`; `beacon.DataProtectionKeys` on SQL Server) under the application name `Beacon:DataProtection:ApplicationName`. Outside Development the name is **required** (startup fails without it): give each deployment its own (`beacon-production`, `beacon-uat`, …), so a cookie issued by one environment is never accepted by another. In Development it defaults to `Beacon`.
+- **Keys encrypted at rest** — outside Development the host **does not start** when the key ring is persisted to a configured repository without key encryption (no `ProtectKeysWith*` call, or the null encryptor). Protect it with a key or certificate that only that environment holds: `ProtectKeysWithAzureKeyVault` (Azure Key Vault key), `ProtectKeysWithCertificate` (a certificate from the machine store or a secret store), or DPAPI-NG on Windows. Development may keep the keys unencrypted. A host that protects the key store by other means (for example a directory only the service account can read) can acknowledge that with `Beacon:DataProtection:AllowUnencryptedKeys: true` instead: startup then logs a Warning rather than refusing.
+- **Keys written before encryption are revoked** — at every start outside Development, when the persisted key ring has key encryption, each key that is not revoked and is still stored **without** encryption (written before `ProtectKeysWith*` was added, or by a Development process pointed at the same store) is revoked and a new, encrypted key is created. The sessions those keys protected end once and their users sign in again; the Warning (`DataProtectionKeyRing`, 7121) names the key ids and the count, never key material. A host that does not generate keys itself (`AutoGenerateKeys` off), or whose repository refuses the write, does not start and is told which keys to revoke where the key ring is managed. Never point a Development host at a shared key store.
+- **No repository configured** — a host that leaves the key ring to the framework's default location (no `PersistKeysTo*`) gets a startup Warning outside Development: the keys may then live on one machine only, unencrypted, and sessions may end at every restart or not carry over between instances. With Beacon's default, `Beacon:DataProtection:ApplicationName` set to `Beacon` keeps the key ring an earlier version stored in the database, and its sessions.
+- **Your own setup** — call `AddDataProtection()` with your own `SetApplicationName`, `PersistKeysTo*` and `ProtectKeysWith*`, and do not call `AddBeaconDataProtection`. Several instances of a deployment must share one key ring.
+
+```json
+{
+  "Beacon": {
+    "DataProtection": {
+      "ApplicationName": "beacon-production"
+    }
+  }
+}
+```
+
+**Restoring a Beacon database into another environment.** A copy of the Beacon database (a restore into UAT, a DR test, a refresh of a test system) carries the users, and with Beacon's default the key ring rows too. Per-environment key encryption and application names keep a copied key ring useless elsewhere; on top of that, after every such restore:
+
+1. **Sign everyone out in the copy.** Give every user a new security stamp — a request of a session signed in before acts as nobody at once, and the session ends at its next revalidation (within `Beacon:Authentication:Session:RevalidateMinutes`):
+   - PostgreSQL (12 and later): `UPDATE beacon.users SET security_stamp = md5(random()::text || clock_timestamp()::text || id::text);`
+   - SQL Server: `UPDATE beacon.Users SET SecurityStamp = LOWER(REPLACE(CONVERT(nvarchar(36), NEWID()), '-', ''));`
+2. **Give the copy its own key ring.** Delete the copied key rows in the copy — `beacon.data_protection_keys` on PostgreSQL, `beacon.DataProtectionKeys` on SQL Server (or revoke every key with `IKeyManager.RevokeAllKeys`) — so it creates keys of its own, protected with that environment's key.
+3. **If a copy may have been exposed, rotate the source's keys too** — revoke every key of the source environment (`IKeyManager.RevokeAllKeys(DateTimeOffset.UtcNow, "reason")`) and sign everyone out there the same way.
+
+#### Local password sign-in
+
+Password sign-in through the login form is **on** by default, for compatibility. With single sign-on, turn it off so people sign in through the identity provider (and its multi-factor authentication and conditional access), and keep one emergency account:
+
+```json
+{
+  "Beacon": {
+    "UserManagement": {
+      "LocalLogin": {
+        "Enabled": false,
+        "BreakGlassUserNames": [ "superadmin" ]
+      }
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `Enabled` | Password sign-in through the login form for every account. `false`: `POST /beacon/api/auth/login` is not mapped, Beacon's password providers refuse every account (the hybrid provider does not fall back to its external login, and the external JWT login refuses too), and the login page shows no password form. | `true` |
+| `BreakGlassUserNames` | Up to 3 user names that may still sign in with a password while `Enabled` is `false` — for emergencies, when the identity provider is unavailable. Each is compared **exactly** (case included) with the user name the account is stored with, whether its holder types that name or an e-mail address. With at least one listed, the endpoint stays mapped; the login page shows the password form at `/login?local=1`. Every name gets the same password check, and whichever provider authenticated the password (Beacon's, the external JWT login, a host's, or `IBeaconAuthenticationService.SignInAsync`), only a stored internal user, enabled and not archived, whose stored user name is listed signs in. Each such sign-in is logged at Warning (`BreakGlassSignIn`, 7119); a password sign-in by any other account is refused with the generic answer and logged without the name typed (`PasswordSignInRefused`, 7120). | empty |
+
+The first-run super admin is a password account: list it as the break-glass account (or another Admin-held local account) before turning local login off, or nobody can sign in with a password at all. A blank entry or more than 3 names fails startup. With `Enabled` false, startup also fails when nobody could sign in at all (single sign-on off, no external login page and no break-glass account), and warns, by position in the list and never the name, about each break-glass name that matches no enabled internal user exactly.
+
+#### Session lifetime and revalidation
+
+A `Beacon.Auth` session is checked against the user store at most every `RevalidateMinutes` (with user management on: a missing, disabled or archived user, or a changed security stamp, signs it out; its roles become the stored ones), and ends `AbsoluteLifetimeHours` after its sign-in however often its cookie is renewed. See [User Management → Sign-in sessions](/features/user-management/#sign-in-sessions).
+
+```json
+{
+  "Beacon": {
+    "Authentication": {
+      "Session": {
+        "RevalidateMinutes": 5,
+        "AbsoluteLifetimeHours": 12
+      }
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `RevalidateMinutes` | How often, at most, a session is checked against the user store (0–1440; `0` checks every request). | `5` |
+| `AbsoluteLifetimeHours` | Hours after its sign-in at which a session ends, whatever sliding expiration or "remember me" would allow (1–8760). Also caps the session cookie's expiry — at sign-in and whenever the cookie is renewed (a check, or sliding expiration; a cookie scheme without sliding expiration keeps its expiry) — and the lifetime of a realtime connection. | `12` |
+
+A value out of range fails startup.
+
+A realtime (SignalR) connection is checked against the user store when it is opened and is closed by the server when the session's next check would be due (`RevalidateMinutes`, at least one minute); the shell reconnects, which checks the session again, so a revoked or demoted user loses the connection within that interval. The expiry is reported for the hub's requests only and never written to the cookie. API keys get no hub connection.
 
 ### Authentication Providers
 
@@ -220,13 +310,14 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
         "Enabled": true,
         "Authority": "https://login.microsoftonline.com/{YOUR_TENANT_ID}/v2.0",
         "ClientId": "{YOUR_CLIENT_ID}",
-        "ClientSecret": "${OIDC_CLIENT_SECRET}",
         "CallbackPath": "/signin-oidc",
         "Scopes": ["openid", "profile", "email"],
         "AllowedTenants": ["{YOUR_TENANT_ID}"],
         "BlockGuests": true,
         "RequiredRoles": [],
         "RequiredGroups": [],
+        "RequireMfa": false,
+        "AcceptedAcrValues": [],
         "DisplayName": "Microsoft",
         "McpJwksEndpoint": "https://login.microsoftonline.com/{YOUR_TENANT_ID}/discovery/v2.0/keys"
       }
@@ -234,6 +325,8 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
   }
 }
 ```
+
+Supply `ClientSecret` like the encryption key — the `Beacon__Authentication__Oidc__ClientSecret` environment variable or a secrets provider, never `appsettings.json` (a `${...}` placeholder there is not expanded).
 
 Beacon decides who may sign in **before** it provisions anything. A subject that is not admitted gets a "not permitted" message on the login page and no Beacon user is created for it.
 
@@ -245,6 +338,10 @@ Beacon decides who may sign in **before** it provisions anything. A subject that
 | `RequiredRoles` / `RequiredGroups` | App roles (`roles` claim) / group object ids (`groups` claim). When either is set, a user must hold at least one listed role or group (case-insensitive). An app role listed here must exist in the app registration and be assigned, or nobody is admitted. | empty |
 | `DefaultRoleName` | Role given to a user provisioned on first SSO sign-in. **Unset means no role**: the user can sign in but sees nothing until an administrator assigns one. | unset |
 | `EnableFrontChannelLogout` | Serve the OIDC front-channel sign-out path (`/signout-oidc`). Off by default: it is an anonymous `GET` that ends the session. | `false` |
+| `RequireMfa` | Refuse an SSO sign-in that the ID token does not show as multi-factor: its `amr` claim must contain `mfa`, or its `acr` claim must be one of `AcceptedAcrValues`. A refused sign-in is logged (reason `MfaNotPerformed`, with the tenant, the issuer and a hash of the subject) and the login page says that multi-factor authentication is required; nothing is provisioned. Check what your identity provider puts in the ID token before turning it on. With Microsoft Entra ID, add **`amr`** as an optional claim of the ID token in the app registration (Token configuration → Add optional claim → ID → `amr`, or `optionalClaims.idToken` in the manifest): a v2.0 ID token carries it only when it is requested, and it contains `mfa` only when the user completed multi-factor authentication. It applies to the interactive SSO sign-in only — see the boundary below. | `false` |
+| `AcceptedAcrValues` | `acr` values (exact) that count as multi-factor authentication when `RequireMfa` is on. | empty |
+
+**What `RequireMfa` covers.** Only the interactive SSO sign-in (`/beacon/api/auth/sso/challenge`) is checked. It does not apply to bearer tokens on the REST API or `/beacon/mcp` (an Entra caller's token is not checked for `amr` or `acr`; require MFA for those clients with Conditional Access on the token issuance), to API keys, to the login-form external JWT flow, or to password sign-in — turn local login off and keep only a break-glass account (see [Local password sign-in](#local-password-sign-in)), whose use bypasses the identity provider by design.
 
 For reliable guest detection, add `acct` as an optional claim (ID and access tokens) in the Entra app registration: `idp` alone only reveals guests whose home is another identity provider, and while `BlockGuests` is on Beacon logs a one-time Warning when a token carries neither claim. With `AllowAnyTenant` on and an Entra authority, Beacon logs a Warning at startup, since every tenant the authority accepts can then sign in.
 
@@ -407,9 +504,18 @@ options.UserManagement = new UserManagementOptions
 | `MinimumPasswordLength` | Minimum password length | `8` |
 | `RequirePasswordComplexity` | Require mixed case, numbers, symbols | `true` |
 | `SetupToken` | Secret the first-run setup page must present; at least 32 characters, or startup fails. Also read from `Beacon:UserManagement:SetupToken`. When unset, Beacon generates one per process and prints it once to the process console (standard error, never the log) while no super admin exists. Required when several replicas serve the setup page. | unset (generated) |
+| `LocalLogin` | Password sign-in through the login form, with break-glass accounts. Also bound from `Beacon:UserManagement:LocalLogin`. See [Local password sign-in](#local-password-sign-in). | on |
+
+A password an Admin sets (a new internal user, a password reset) must be replaced by the user at their first sign-in; see [User Management → Passwords set by an administrator](/features/user-management/#passwords-set-by-an-administrator).
 
 :::caution[Upgrading from 4.5]
 Identity and admission are tighter: first-run setup needs a setup token, SSO needs `AllowedTenants` (or `AllowAnyTenant`) and no longer gives new users a role by default, JWT issuer, audience and lifetime validation are mandatory, REST bearer tokens must name an existing external Beacon user, and `GET /beacon/api/auth/signout` is gone. See [User Management → Upgrading from 4.5](/features/user-management/#upgrading-from-45) for what to change.
+:::
+
+:::caution[Upgrading: credentials at rest and local login]
+- **`Beacon:EncryptionKey` is checked in every environment.** A passphrase, a short key, the sample placeholder, a key printed in these docs or a `${...}` value now stops the host. Set a new key (`openssl rand -base64 32`) and list the old one in `Beacon:PreviousEncryptionKeys` so stored values stay readable; see [Replacing the Key](#replacing-the-key). The sample host no longer ships a key: set one with User Secrets.
+- **Data Protection is the host's.** `AddBeaconCookieAuthentication` no longer stores the key ring in the Beacon database or sets the application name `Beacon`. To keep Beacon's storage, call `AddBeaconDataProtection` — and, outside Development, set `Beacon:DataProtection:ApplicationName` and protect the keys with `ProtectKeysWith*`, or the host does not start. A host that does neither falls back to the framework's default key storage (startup warns): sessions may not survive a restart or work across instances. Keys written before key encryption was turned on are revoked and replaced at startup. Either way everyone signs in again once after the upgrade. See [Data Protection](#data-protection-the-keys-behind-the-session-cookie).
+- **Local login stays on** (`Beacon:UserManagement:LocalLogin:Enabled` defaults to `true`). With SSO, turning it off and keeping a break-glass account is recommended.
 :::
 
 ## API Keys
@@ -421,7 +527,8 @@ Every new [API key](/features/api-keys/) expires. A key created without an expir
   "Beacon": {
     "ApiKeys": {
       "MaxLifetimeDays": 365,
-      "EnforceMaxLifetimeOnExistingKeys": false
+      "EnforceMaxLifetimeOnExistingKeys": false,
+      "MaxOwnerInactivityDays": 0
     }
   }
 }
@@ -431,6 +538,7 @@ Every new [API key](/features/api-keys/) expires. A key created without an expir
 |--------|-------------|---------|
 | `MaxLifetimeDays` | Longest lifetime a new key may be created with, in days (1–3650). The 90-day default is capped at this value. A value out of range fails startup. | `365` |
 | `EnforceMaxLifetimeOnExistingKeys` | When `true`, a key stored without an expiry (created before expiry became mandatory) expires `MaxLifetimeDays` days after it was created. Nothing stored changes, so turning it off again restores such keys. When `false`, they keep working and each logs a warning with its key id once per process. | `false` |
+| `MaxOwnerInactivityDays` | When set, a key stops working (`401`, logged as `owner_inactive`) while its owner has not signed in to Beacon with their own identity for that many days (a call to `/beacon/mcp` or the REST API with the owner's delegated token counts as a sign-in; an API key never does); it works again after the owner signs in. `0` turns the rule off (0–3650). | `0` |
 
 :::caution[Upgrading from 4.5]
 API-key scopes are enforced on every route, the `Admin` scope is retired, `Execute` follows the owner's current role, new keys must expire, keys are managed from a browser session only, a disabled or archived user's keys are revoked, and `/beacon/mcp` should be mapped with `app.MapBeaconMcp()`. See [API Keys → Upgrading from 4.5](/features/api-keys/#upgrading-from-45) for what to change.
@@ -622,14 +730,10 @@ The request queue caps concurrency and throughput:
 
 ### Production — Use Environment Variables
 
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "ApiKey": "${LLM_API_KEY}"
-    }
-  }
-}
+Keep the key out of `appsettings.json` (a `${...}` placeholder there is not expanded); the environment variable maps onto the configuration key with double underscores:
+
+```bash
+export Beacon__LLM__ApiKey="<your provider key>"
 ```
 
 ## Metadata Database Provider
@@ -1180,16 +1284,23 @@ User-supplied query text, connection strings, full row payloads, and auth tokens
     "BeaconContext": "Host=localhost;Database=beacon;Username=beacon;Password=secretpass;Pooling=true;MaxPoolSize=50"
   },
   "Beacon": {
-    "EncryptionKey": "your-secure-32-byte-base64-key",
     "Schema": "beacon",
     "BaseUrl": "https://beacon.example.com",
+    "DataProtection": {
+      "ApplicationName": "beacon-production"
+    },
+    "UserManagement": {
+      "LocalLogin": {
+        "Enabled": false,
+        "BreakGlassUserNames": [ "superadmin" ]
+      }
+    },
     "ForwardedHeaders": {
       "Enabled": false,
       "KnownProxies": []
     },
     "LLM": {
       "Provider": "OpenAI",
-      "ApiKey": "${LLM_API_KEY}",
       "Model": "gpt-4o",
       "FastModel": "gpt-4o-mini"
     }
@@ -1214,6 +1325,8 @@ User-supplied query text, connection strings, full row payloads, and auth tokens
 :::note
 LLM settings in `appsettings.json` are optional startup defaults. Once configured via [Admin Settings](/features/admin-settings/), database values take precedence.
 :::
+
+`Beacon:EncryptionKey` (required) and the other secrets are not in this file: supply them through environment variables (`Beacon__EncryptionKey`) or a secrets provider. .NET configuration does not expand `${...}` placeholders.
 
 ## Next Steps
 

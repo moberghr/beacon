@@ -703,7 +703,7 @@ public class FirstRunSetupTests
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]),
+                ["Beacon:EncryptionKey"] = TestEncryptionKey.Value,
                 ["Beacon:UserManagement:SetupToken"] = setupToken
             })
             .Build();

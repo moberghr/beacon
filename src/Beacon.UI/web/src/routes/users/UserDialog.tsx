@@ -14,6 +14,7 @@ import {
   useCreateInternalUser,
   useRolesQuery,
   useSetUserRoles,
+  useSignUserOutEverywhere,
   useUpdateUser,
   type RoleEntry,
   type UserEntry,
@@ -346,6 +347,7 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
 function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry; onClose: () => void }) {
   const update = useUpdateUser();
   const setRoles = useSetUserRoles();
+  const signOut = useSignUserOutEverywhere();
   const rolesQuery = useRolesQuery();
   const roles = rolesQuery.data?.entries ?? [];
   const { isAdmin } = useAccess();
@@ -419,6 +421,16 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
     onClose();
   });
 
+  // Ends every session the user holds (they sign in again); allowed by the same rules as any other change to the user.
+  const onSignOutEverywhere = async () => {
+    try {
+      await signOut.mutateAsync(user.id);
+      toast.success(`Signed out every session of '${user.userName}'`);
+    } catch {
+      // createSimpleMutation already surfaced the error toast.
+    }
+  };
+
   return (
     <Dialog
       open={open}
@@ -428,6 +440,15 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
       size="md"
       footer={
         <>
+          <Button
+            type="button"
+            className="mr-auto"
+            onClick={onSignOutEverywhere}
+            disabled={isSubmitting || signOut.isPending || blocked != null}
+            title="Ends every session of this user in every browser; they sign in again. Their API keys keep working."
+          >
+            {signOut.isPending ? 'Signing out…' : 'Sign out everywhere'}
+          </Button>
           <Button type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
           <Button type="submit" form="edit-user-form" variant="primary" disabled={isSubmitting || blocked != null}>
             {isSubmitting ? 'Saving…' : 'Save changes'}

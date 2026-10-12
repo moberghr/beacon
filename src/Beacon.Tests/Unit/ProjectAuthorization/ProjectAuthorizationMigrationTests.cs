@@ -12,6 +12,7 @@ using Beacon.Core.Data;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.SqlServer;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
 
@@ -20,8 +21,11 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// model has no pending changes against its snapshot, existing data sources stay reachable while unlinked
 /// (<c>open_when_unlinked</c> defaults to true for existing rows), existing projects stay open, and the recorded owner,
 /// linking user and change-history source are nullable columns that existing rows leave empty. The later contract-owner
-/// migration adds one nullable timestamp that existing contracts leave empty. The last one marks no data source as a
-/// migration write target: it adds one boolean that existing rows leave false, and its target model is the snapshot.
+/// migration adds one nullable timestamp that existing contracts leave empty. The migration-writes migration marks no data
+/// source as a migration write target: it adds one boolean that existing rows leave false. The last one adds the users'
+/// security stamp, one nullable column that existing users leave empty, and the flag that a user must choose a new
+/// password, which existing users leave false; its target model is the snapshot. Each earlier migration's target model
+/// differs from the next one's only by that next migration.
 /// </summary>
 [TestFixture]
 public class ProjectAuthorizationMigrationTests
@@ -46,8 +50,8 @@ public class ProjectAuthorizationMigrationTests
             .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
             .Skip(1)
             .Should().Equal(
-                [Ordered(migrations).Single(x => x.EndsWith("_AddContractOwnerNotAuthorized", StringComparison.Ordinal)), Ordered(migrations).Single(x => x.EndsWith("_AddDataSourceMigrationWrites", StringComparison.Ordinal))],
-                "it sorts after every earlier migration, and only the contract-owner and migration-writes migrations follow it");
+                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp")],
+                "it sorts after every earlier migration, and only the contract-owner, migration-writes and security-stamp migrations follow it");
     }
 
     [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
@@ -67,18 +71,19 @@ public class ProjectAuthorizationMigrationTests
         migration.DownOperations.Should().ContainSingle()
             .Which.Should().BeOfType<DropColumnOperation>()
             .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column }, x => x.ExcludingMissingMembers());
+        var next = MigrationNamed(context, migrations, "_AddDataSourceMigrationWrites");
         context.GetService<IMigrationsModelDiffer>()
-            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().ContainSingle("the snapshot differs from its target model only by the migration that follows it")
+            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Should().ContainSingle("the next migration's target model differs from its target model only by that migration")
             .Which.Should().BeOfType<AddColumnOperation>()
             .Which.Name.Should().Be(sqlServer ? "AllowMigrationWrites" : "allow_migration_writes");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).SkipLast(1).Last().Should().EndWith("_AddContractOwnerNotAuthorized", "it sorts after every earlier migration");
+        NextAfter(migrations, "_AddContractOwnerNotAuthorized").Should().EndWith("_AddDataSourceMigrationWrites", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "data_sources", "allow_migration_writes", "boolean")]
     [TestCase(true, "DataSources", "AllowMigrationWrites", "bit")]
-    public void TheMigrationWritesMigration_AddsOneBooleanThatExistingSourcesLeaveFalse_AndItsTargetModelIsTheSnapshot(bool sqlServer, string table, string column, string type)
+    public void TheMigrationWritesMigration_AddsOneBooleanThatExistingSourcesLeaveFalse_AndItsTargetModelIsTheOneBeforeTheNext(bool sqlServer, string table, string column, string type)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -93,11 +98,44 @@ public class ProjectAuthorizationMigrationTests
         migration.DownOperations.Should().ContainSingle()
             .Which.Should().BeOfType<DropColumnOperation>()
             .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column }, x => x.ExcludingMissingMembers());
+        var next = MigrationNamed(context, migrations, "_AddUserSecurityStamp");
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Should().AllBeOfType<AddColumnOperation>("the next migration's target model differs from its target model only by that migration")
+            .Which.Select(x => x.Name).Should().Equal(sqlServer ? new[] { "MustChangePassword", "SecurityStamp" } : new[] { "must_change_password", "security_stamp" });
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        NextAfter(migrations, "_AddDataSourceMigrationWrites").Should().EndWith("_AddUserSecurityStamp", "it sorts after every earlier migration");
+    }
+
+    [TestCase(false, "users", "security_stamp", "character varying(64)", "must_change_password", "boolean")]
+    [TestCase(true, "Users", "SecurityStamp", "nvarchar(64)", "MustChangePassword", "bit")]
+    public void TheSecurityStampMigration_AddsANullableStampThatExistingUsersLeaveEmpty_AndAPasswordChangeFlagTheyLeaveFalse_AndItsTargetModelIsTheSnapshot(
+        bool sqlServer,
+        string table,
+        string column,
+        string type,
+        string flagColumn,
+        string flagType)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+
+        var migration = MigrationNamed(context, migrations, "_AddUserSecurityStamp");
+
+        var added = migration.UpOperations.Should().HaveCount(2).And.AllBeOfType<AddColumnOperation>().Which.ToList();
+        added[0].Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = flagColumn, ColumnType = flagType, IsNullable = false, DefaultValue = (object?)false, DefaultValueSql = (string?)null }, x => x.ExcludingMissingMembers());
+        added[1].Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column, ColumnType = type, MaxLength = (int?)64, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null }, x => x.ExcludingMissingMembers());
+        migration.DownOperations.Should().AllBeOfType<DropColumnOperation>()
+            .Which.Should().BeEquivalentTo(
+                new[] { new { Schema = "beacon", Table = table, Name = flagColumn }, new { Schema = "beacon", Table = table, Name = column } },
+                x => x.ExcludingMissingMembers().WithStrictOrdering());
         context.GetService<IMigrationsModelDiffer>()
             .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).Last().Should().EndWith("_AddDataSourceMigrationWrites", "it sorts after every earlier migration");
+        Ordered(migrations).Last().Should().EndWith("_AddUserSecurityStamp", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]
@@ -137,6 +175,19 @@ public class ProjectAuthorizationMigrationTests
         return migrations.CreateMigration(migrations.Migrations[id], context.Database.ProviderName!);
     }
 
+    private static string IdEndingWith(IMigrationsAssembly migrations, string suffix)
+    {
+        return Ordered(migrations).Single(x => x.EndsWith(suffix, StringComparison.Ordinal));
+    }
+
+    private static string NextAfter(IMigrationsAssembly migrations, string suffix)
+    {
+        return Ordered(migrations)
+            .SkipWhile(x => !x.EndsWith(suffix, StringComparison.Ordinal))
+            .Skip(1)
+            .First();
+    }
+
     private static List<string> Ordered(IMigrationsAssembly migrations)
     {
         return migrations.Migrations.Keys
@@ -163,7 +214,7 @@ public class ProjectAuthorizationMigrationTests
         var services = new ServiceCollection();
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]) })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:EncryptionKey"] = TestEncryptionKey.Value })
             .Build();
         var builder = services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
         if (sqlServer)

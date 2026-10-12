@@ -81,7 +81,7 @@ internal sealed class ListHandlerHarness
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                ["Beacon:EncryptionKey"] = TestEncryptionKey.Value
             })
             .Build();
         services.AddLogging(x => x.ClearProviders());

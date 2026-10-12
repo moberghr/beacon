@@ -16,8 +16,9 @@ namespace Beacon.Core.Authentication.Providers;
 /// a REST bearer token (an access token, admitted by the SSO rules when the SSO authority issued it), and a login only
 /// succeeds for an existing, enabled Beacon user the token names (<see cref="BearerUserBinding.ScreenAndBindAsync"/>);
 /// the session carries that user's Beacon roles, never the token's. Without user management
-/// (<see cref="IUserManagementService"/>) every login fails. Every failure answers with the same message; the reason is
-/// logged without the user name.
+/// (<see cref="IUserManagementService"/>) every login fails. It is password sign-in, so while local login is off
+/// (<see cref="LocalLoginOptions.Enabled"/> false) every login fails without calling the external API. Every failure
+/// answers with the same message; the reason is logged without the user name.
 /// </summary>
 public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvider
 {
@@ -29,8 +30,10 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     private readonly JwksSigningKeyCache _keyCache;
     private readonly IUserManagementService? _userService;
     private readonly IOptions<OidcAuthenticationOptions>? _oidcOptions;
+    private readonly BeaconConfiguration? _configuration;
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
 
+    /// <summary>Without Beacon's configuration the local-login switch is not known here; prefer the overload that takes it.</summary>
     public JwtExternalApiAuthenticationProvider(
         HttpClient httpClient,
         JwtAuthenticationOptions options,
@@ -41,13 +44,26 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     {
     }
 
+    /// <param name="configuration">Beacon's configuration: while local login is off, every login fails.</param>
+    public JwtExternalApiAuthenticationProvider(
+        HttpClient httpClient,
+        JwtAuthenticationOptions options,
+        ILogger<JwtExternalApiAuthenticationProvider> logger,
+        BeaconConfiguration configuration,
+        IUserManagementService? userService = null,
+        IOptions<OidcAuthenticationOptions>? oidcOptions = null)
+        : this(httpClient, options, logger, JwksSigningKeyCache.Shared, userService, oidcOptions, configuration)
+    {
+    }
+
     internal JwtExternalApiAuthenticationProvider(
         HttpClient httpClient,
         JwtAuthenticationOptions options,
         ILogger<JwtExternalApiAuthenticationProvider> logger,
         JwksSigningKeyCache keyCache,
         IUserManagementService? userService = null,
-        IOptions<OidcAuthenticationOptions>? oidcOptions = null)
+        IOptions<OidcAuthenticationOptions>? oidcOptions = null,
+        BeaconConfiguration? configuration = null)
     {
         _httpClient = httpClient;
         _options = options;
@@ -55,6 +71,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         _keyCache = keyCache;
         _userService = userService;
         _oidcOptions = oidcOptions;
+        _configuration = configuration;
     }
 
     public async Task<AuthenticationResult> AuthenticateAsync(
@@ -63,6 +80,14 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         CancellationToken cancellationToken = default)
     {
         // Every failure answers the caller the same way; the reason goes to the log, without the user name (§1.11).
+        if (_configuration?.UserManagement.LocalLogin.Enabled == false)
+        {
+            _logger.LogInformation(
+                Authorization.ProjectAccess.ProjectAccessEvents.PasswordSignInRefused,
+                "JWT login refused: local login is off, and the external login is password sign-in.");
+            return AuthenticationResult.Failed(LoginFailed);
+        }
+
         if (string.IsNullOrWhiteSpace(_options.ExternalLoginEndpoint))
         {
             _logger.LogError("JWT login refused: the external login endpoint is not configured.");

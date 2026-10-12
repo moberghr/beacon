@@ -41,17 +41,9 @@ using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Fail fast if a production deployment is still using the placeholder encryption key shipped in
-// appsettings.json for local dev. With that publicly-known key, every secret encrypted at rest
-// (connection strings, API keys) would be trivially decryptable.
-if (builder.Environment.IsProduction()
-    && builder.Configuration["Beacon:EncryptionKey"] == Beacon.Core.ServiceConfiguration.DefaultEncryptionKey)
-{
-    throw new InvalidOperationException(
-        "Beacon:EncryptionKey is set to the built-in placeholder value in Production. " +
-        "Generate a unique key (openssl rand -base64 32) and supply it via an environment " +
-        "variable or secret store — never the committed appsettings.json default.");
-}
+// Beacon:EncryptionKey comes from user-secrets in Development and from a secret store or the Beacon__EncryptionKey
+// environment variable elsewhere — never from a committed file. AddBeaconServices refuses a missing, weak or published key
+// in every environment.
 
 // Configure Kestrel server limits for long-running AI operations
 builder.WebHost.ConfigureKestrel(serverOptions =>
@@ -168,6 +160,12 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 
 // Step 2: Cookie authentication (React shell at root)
 builder.Services.AddBeaconCookieAuthentication(BeaconUiEndpointRouteBuilderExtensions.BasePath);
+
+// Step 2a: Data Protection (protects the session cookie). Beacon's default: the key ring in the Beacon database under
+// Beacon:DataProtection:ApplicationName (required outside Development). Outside Development a host must also encrypt the
+// keys at rest, or it does not start — chain ProtectKeysWithAzureKeyVault(...) or ProtectKeysWithCertificate(...) here,
+// with a key or certificate only that environment holds. A host with its own Data Protection setup skips this call.
+builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environment);
 
 // Step 2b: OIDC authentication (SSO)
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
@@ -385,6 +383,16 @@ using (var warpStartupScope = app.Services.CreateScope())
     // EncryptRecipientSecretsJob (Warp/Jobs/NotificationJobs.cs) is deliberately not enqueued here: it rewrites stored
     // recipient secrets, which an older version cannot read, so an operator runs it once every node runs this version
     // (see "Notification Destinations" in the configuration docs).
+
+    // Retired encryption keys: while Beacon:PreviousEncryptionKeys lists a key, every start enqueues one run of the
+    // re-encryption job, which moves stored values still under a previous key to Beacon:EncryptionKey and logs how many
+    // there were. Once it reports none, remove the previous keys from the configuration.
+    if (Beacon.Core.ServiceConfiguration.HasPreviousEncryptionKeys(app.Configuration))
+    {
+        var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
+        await publisher.Enqueue(new ReEncryptStoredValuesJob());
+        await publisher.SaveChangesAsync();
+    }
 }
 
 app.Run();

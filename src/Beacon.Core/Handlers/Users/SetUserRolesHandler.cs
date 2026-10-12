@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -25,10 +26,10 @@ internal sealed class SetUserRolesHandler(
         var currentRoles = await context.UserRoles
             .Where(x => x.UserId == request.UserId)
             .ToListAsync(cancellationToken);
-        var userExists = await context.Users
+        var user = await context.Users
             .Where(x => x.Id == request.UserId)
-            .AnyAsync(cancellationToken);
-        if (!userExists)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (user == null)
         {
             throw new BeaconNotFoundException($"User {request.UserId} not found.");
         }
@@ -74,6 +75,8 @@ internal sealed class SetUserRolesHandler(
             context.UserRoles.Remove(row);
         }
 
+        // A role change signs out every session the user holds, in the same save.
+        user.SecurityStamp = SecurityStamps.New();
         foreach (var roleId in added)
         {
             context.UserRoles.Add(new BeaconUserRole
@@ -103,7 +106,8 @@ internal sealed class SetUserRolesHandler(
 /// holds neither the Admin role nor a functional role (another UserAdmin included), and only to roles other than those
 /// (403 otherwise). With separation
 /// of duties on, roles granting both permissions of a conflicting pair are refused (400). The change is logged with ids
-/// only. A user that does not exist answers 404, a role that does not exist 400.
+/// only, and signs out every session the user holds (a new security stamp). A user that does not exist answers 404, a role
+/// that does not exist 400.
 /// </summary>
 [ProjectScopeExempt("user management, gated by the UserAdmin permission; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record SetUserRolesCommand(int UserId, int[] RoleIds) : IRequest;

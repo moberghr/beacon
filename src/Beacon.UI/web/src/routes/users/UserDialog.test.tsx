@@ -324,3 +324,42 @@ describe('UserDialog roles query', () => {
     expect(await screen.findByText('No roles available.')).toBeInTheDocument();
   });
 });
+
+describe('UserDialog sign out everywhere', () => {
+  beforeEach(() => {
+    signedInAs('ada');
+  });
+
+  it('signs every session of the user out, and changes nothing else', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    const writes = serve();
+    let signOuts = 0;
+    mswServer.use(
+      http.post('*/beacon/api/users/7/sign-out-everywhere', () => {
+        signOuts += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const onClose = vi.fn();
+
+    await renderEdit(user(), onClose);
+    const button = screen.getByRole('button', { name: 'Sign out everywhere' });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    await waitFor(() => expect(signOuts).toBe(1));
+    expect(writes.account).toBe(0);
+    expect(writes.roles).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('is not offered to a UserAdmin for a user only an Admin may change', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    serve();
+
+    await renderEdit(user({ roles: [{ id: 10, name: 'Auditor', level: 0 }] }));
+
+    await screen.findByText(/only an admin can change the account of an admin/i);
+    expect(screen.getByRole('button', { name: 'Sign out everywhere' })).toBeDisabled();
+  });
+});

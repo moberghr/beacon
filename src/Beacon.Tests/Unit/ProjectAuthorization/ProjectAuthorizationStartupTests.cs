@@ -58,7 +58,7 @@ public class ProjectAuthorizationStartupTests
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]),
+            ["Beacon:EncryptionKey"] = TestEncryptionKey.Value,
             ["Beacon:Authorization:RequireProjectMembership"] = requireMembership ? "true" : "false"
         });
         builder.Services.AddBeaconServices(builder.Configuration, x =>

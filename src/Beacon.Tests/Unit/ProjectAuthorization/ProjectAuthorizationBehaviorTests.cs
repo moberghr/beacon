@@ -402,7 +402,7 @@ public class ProjectAuthorizationBehaviorTests
         var services = new ServiceCollection();
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]) })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:EncryptionKey"] = TestEncryptionKey.Value })
             .Build();
         services.AddLogging();
         services.AddMemoryCache();

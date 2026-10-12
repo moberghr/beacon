@@ -18,6 +18,9 @@ using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Authentication;
 using Beacon.Core;
+using Beacon.Core.Handlers.Users;
+using Beacon.Core.Models;
+using MediatR;
 using Beacon.UI;
 using AuthenticationOptions = Beacon.Core.AuthenticationOptions;
 
@@ -245,6 +248,58 @@ public class LoginEndpointsTests
         authProvider.Verify(x => x.SignOutAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [TestCase("?everywhere=true", 1)]
+    [TestCase("", 0)]
+    [TestCase("?everywhere=false", 0)]
+    public async Task Logout_SignsOutEverySessionOfTheCaller_ThroughTheOneCommand_OnlyWhenAskedTo(string query, int sent)
+    {
+        var mediator = new Mock<IMediator>();
+        await using var app = await StartSessionHostAsync(new Mock<IBeaconAuthenticationProvider>().Object, mediator.Object);
+        using var client = app.GetTestClient();
+        var session = await StartSessionAsync(client);
+
+        var response = await client.SendAsync(LogoutRequest(session, query));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.GetValues("Set-Cookie")
+            .Should().Contain(x => x.StartsWith($"{SessionCookieName}=;", StringComparison.Ordinal), "this session ends either way");
+        mediator.Verify(
+            x => x.Send(It.Is<SignUserOutEverywhereCommand>(y => y.UserId == null), It.IsAny<CancellationToken>()),
+            Times.Exactly(sent),
+            "the caller's own sessions, by the command the admin route sends too");
+    }
+
+    [Test]
+    public async Task Logout_Everywhere_ThatCannotBeDone_Answers409_AndSignsNothingOut()
+    {
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<SignUserOutEverywhereCommand>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new BeaconConflictException("Sessions are not checked against Beacon's user store on this host."));
+        var authProvider = new Mock<IBeaconAuthenticationProvider>();
+        await using var app = await StartSessionHostAsync(authProvider.Object, mediator.Object);
+        using var client = app.GetTestClient();
+        var session = await StartSessionAsync(client);
+
+        var response = await client.SendAsync(LogoutRequest(session, "?everywhere=true"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "the caller learns their other sessions are still open");
+        (await response.Content.ReadAsStringAsync()).Should().Contain("not checked against Beacon's user store");
+        response.Headers.Contains("Set-Cookie").Should().BeFalse("this session is not signed out either");
+        authProvider.Verify(x => x.SignOutAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static HttpRequestMessage LogoutRequest(Session session, string query)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, LogoutPath + query);
+        request.Headers.Add("Cookie", session.AllCookies);
+        request.Headers.Add(AntiforgeryEndpointFilter.SpaHeaderName, session.RequestToken);
+        request.Headers.Add("Origin", "http://localhost");
+        request.Headers.Add("Sec-Fetch-Site", "same-origin");
+
+        return request;
+    }
+
     private static async Task<WebApplication> StartHostAsync(bool useHostRateLimiter, bool registerLimiter)
     {
         var builder = WebApplication.CreateBuilder();
@@ -291,8 +346,9 @@ public class LoginEndpointsTests
 
     // The login endpoints over a real cookie scheme and the real antiforgery service (default header name, so the SPA
     // header is bridged). GET /test/session stands in for a completed sign-in: it issues the session cookie and the
-    // antiforgery pair minted for that session.
-    private static async Task<WebApplication> StartSessionHostAsync(IBeaconAuthenticationProvider authProvider)
+    // antiforgery pair minted for that session. With <paramref name="sessions"/>, Beacon user management is on and that is
+    // the user store behind the sessions.
+    private static async Task<WebApplication> StartSessionHostAsync(IBeaconAuthenticationProvider authProvider, IMediator? mediator = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -302,6 +358,10 @@ public class LoginEndpointsTests
         builder.Services.AddAntiforgery(x => x.Cookie.Name = ".Beacon.Antiforgery");
         builder.Services.AddSingleton(authProvider);
         builder.Services.AddSingleton(new LoginRateLimiter());
+        if (mediator != null)
+        {
+            builder.Services.AddSingleton(mediator);
+        }
 
         var app = builder.Build();
         app.UseAuthentication();

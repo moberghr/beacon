@@ -110,20 +110,39 @@ public interface IUserManagementService
 
     // Password management
     /// <summary>
-    /// Changes an internal user's password.
+    /// Changes an internal user's password; the user no longer has to choose a new one at sign-in.
     /// </summary>
     Task<BaseResponse> ChangePasswordAsync(int userId, string currentPassword, string newPassword, CancellationToken ct = default);
 
     /// <summary>
-    /// Resets an internal user's password (admin action).
+    /// Resets an internal user's password (admin action); the user must choose a new one at their next sign-in.
     /// </summary>
     Task<BaseResponse> ResetPasswordAsync(int userId, string newPassword, CancellationToken ct = default);
 
     // Authentication
     /// <summary>
-    /// Authenticates an internal user with username/password.
+    /// Authenticates an internal user with username/password. While local login is off
+    /// (<see cref="LocalLoginOptions"/>), only a break-glass account signs in. A user whose password an administrator set
+    /// gets <see cref="AuthenticationResult.PasswordChangeRequired"/> instead of a sign-in.
     /// </summary>
     Task<AuthenticationResult> AuthenticateInternalUserAsync(string username, string password, CancellationToken ct = default);
+
+    /// <summary>
+    /// Signs in an internal user who must choose a new password: checks the credentials as
+    /// <see cref="AuthenticateInternalUserAsync"/> does, applies the password rules to <paramref name="newPassword"/> (which
+    /// must differ from the current one), stores it and clears the requirement. A new password the rules refuse answers
+    /// <see cref="AuthenticationResult.PasswordChangeRequired"/> with the reason; wrong credentials, or a user with no
+    /// password change pending, the generic failure. A default member, so an existing implementation recompiles unchanged:
+    /// without an override it answers the generic failure, and nobody completes a required change through it.
+    /// </summary>
+    Task<AuthenticationResult> CompleteRequiredPasswordChangeAsync(
+        string username,
+        string currentPassword,
+        string newPassword,
+        CancellationToken ct = default)
+    {
+        return Task.FromResult(AuthenticationResult.Failed("Invalid username or password."));
+    }
 
     /// <summary>
     /// Updates the last login timestamp of the user with Beacon id <paramref name="userId"/>.

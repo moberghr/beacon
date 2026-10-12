@@ -4,19 +4,24 @@ namespace Beacon.Core.Authentication.Providers;
 
 /// <summary>
 /// Authentication provider that combines internal database authentication with external JWT authentication.
-/// Tries internal authentication first, then falls back to JWT if configured.
+/// Tries internal authentication first, then falls back to JWT if configured. The fallback is password sign-in too: it is
+/// off while local login is off (<see cref="LocalLoginOptions"/>), and never taken for an internal user who must choose a
+/// new password.
 /// </summary>
 public class HybridAuthenticationProvider : IBeaconAuthenticationProvider
 {
     private readonly IUserManagementService _userService;
     private readonly JwtExternalApiAuthenticationProvider? _jwtProvider;
+    private readonly BeaconConfiguration? _configuration;
 
     public HybridAuthenticationProvider(
         IUserManagementService userService,
-        JwtExternalApiAuthenticationProvider? jwtProvider = null)
+        JwtExternalApiAuthenticationProvider? jwtProvider = null,
+        BeaconConfiguration? configuration = null)
     {
         _userService = userService;
         _jwtProvider = jwtProvider;
+        _configuration = configuration;
     }
 
     public async Task<AuthenticationResult> AuthenticateAsync(
@@ -26,13 +31,14 @@ public class HybridAuthenticationProvider : IBeaconAuthenticationProvider
     {
         // Try internal authentication first
         var internalResult = await _userService.AuthenticateInternalUserAsync(username, password, cancellationToken);
-        if (internalResult.Success)
+        if (internalResult.Success || internalResult.PasswordChangeRequired)
         {
             return internalResult;
         }
 
-        // If JWT provider is configured, try external authentication
-        if (_jwtProvider != null)
+        // If JWT provider is configured, try external authentication: only while local login is known to be on (without
+        // Beacon's configuration it is not known, and the fallback is not taken).
+        if (_jwtProvider != null && _configuration?.UserManagement.LocalLogin.Enabled == true)
         {
             var jwtResult = await _jwtProvider.AuthenticateAsync(username, password, cancellationToken);
             if (!jwtResult.Success || jwtResult.User == null)

@@ -1,15 +1,20 @@
-import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { delay, http, HttpResponse } from 'msw';
+import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { Sidebar } from './Sidebar';
 import { renderWithProviders } from '@/test/render';
 import { functionalOnly, permissionsForRoles, permissionsHandler } from '@/test/permissions';
 
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
+
 /** The pages a functional permission opens, by sidebar name. */
 const PERMISSION_PAGES = ['Data Migration', 'MCP Settings', 'Approvals', 'User Management', 'Admin Settings'];
 
-function sessionOf(isAuthenticated: boolean, roles: string[], displayName: string) {
+function sessionOf(isAuthenticated: boolean, roles: string[], displayName: string, signOutEverywhereEnabled = true) {
   mswServer.use(
     http.get('*/beacon/api/auth/me', () =>
       HttpResponse.json({
@@ -20,13 +25,14 @@ function sessionOf(isAuthenticated: boolean, roles: string[], displayName: strin
         roles,
         realtimeEnabled: false,
         externalLogin: null,
+        signOutEverywhereEnabled,
       }),
     ),
   );
 }
 
-function signedInAs(roles: string[]) {
-  sessionOf(true, roles, 'Tester');
+function signedInAs(roles: string[], signOutEverywhereEnabled = true) {
+  sessionOf(true, roles, 'Tester', signOutEverywhereEnabled);
   mswServer.use(permissionsForRoles(roles));
 }
 
@@ -151,5 +157,78 @@ describe('Sidebar', () => {
     for (const name of PERMISSION_PAGES) {
       expect(screen.queryByText(name)).not.toBeInTheDocument();
     }
+  });
+
+  it.each([
+    ['Sign out', null],
+    ['Sign out everywhere', 'true'],
+  ])('"%s" asks the server to end this session, and every other one only when everywhere', async (item, everywhere) => {
+    signedInAs(['Editor']);
+    const logouts: (string | null)[] = [];
+    mswServer.use(
+      http.get('*/beacon/api/csrf', () => HttpResponse.json({ token: 'test-token' })),
+      http.post('*/beacon/api/auth/logout', ({ request }) => {
+        logouts.push(new URL(request.url).searchParams.get('everywhere'));
+        return HttpResponse.json({ success: true });
+      }),
+    );
+
+    renderWithProviders(<Sidebar />);
+    fireEvent.click(await screen.findByText('Tester'));
+    fireEvent.click(screen.getByRole('menuitem', { name: item }));
+
+    await waitFor(() => expect(logouts).toEqual([everywhere]));
+  });
+
+  it('offers "Sign out everywhere" only where the server says the session can end the others', async () => {
+    signedInAs(['Editor'], false);
+
+    renderWithProviders(<Sidebar />);
+    fireEvent.click(await screen.findByText('Tester'));
+
+    expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Sign out everywhere' })).not.toBeInTheDocument();
+  });
+
+  it('says so, and stays signed in, when the other sessions could not be signed out', async () => {
+    signedInAs(['Editor']);
+    vi.mocked(toast.error).mockClear();
+    mswServer.use(
+      http.get('*/beacon/api/csrf', () => HttpResponse.json({ token: 'test-token' })),
+      http.post('*/beacon/api/auth/logout', () =>
+        HttpResponse.json({ title: 'Conflict', status: 409, detail: 'Sessions are not checked against Beacon\'s user store.' }, { status: 409 }),
+      ),
+    );
+
+    renderWithProviders(<Sidebar />);
+    fireEvent.click(await screen.findByText('Tester'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sign out everywhere' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('could not be signed out')));
+    expect(screen.getByRole('menuitem', { name: 'Sign out everywhere' })).not.toBeDisabled();
+  });
+  it('offers neither sign-out to a user of a host that owns sign-in, even where the server could end the other sessions', async () => {
+    signedInAs(['Editor']);
+    mswServer.use(
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({
+          userId: 'u1',
+          displayName: 'Tester',
+          email: null,
+          isAuthenticated: true,
+          roles: ['Editor'],
+          realtimeEnabled: false,
+          externalLogin: { loginUrl: '/account/login', returnUrlParameter: 'returnUrl' },
+          signOutEverywhereEnabled: true,
+        }),
+      ),
+    );
+
+    renderWithProviders(<Sidebar />);
+    fireEvent.click(await screen.findByText('Tester'));
+
+    expect(screen.getByRole('menuitem', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Sign out everywhere' })).not.toBeInTheDocument();
   });
 });

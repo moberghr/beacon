@@ -111,7 +111,7 @@ public class ApiKeyProjectBoundaryTests
         builder.Logging.ClearProviders();
 
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-        builder.Configuration["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]);
+        builder.Configuration["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
         builder.Services.AddBeaconServices(builder.Configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<IBeaconUserContext, HttpContextUserContext>();

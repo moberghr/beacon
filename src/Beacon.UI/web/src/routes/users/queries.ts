@@ -143,3 +143,19 @@ export function useToggleUserEnabled() {
     }),
   );
 }
+
+/**
+ * Signs out every session of the user (`POST /users/{id}/sign-out-everywhere`): their security stamp changes, so each
+ * session ends at its next check against the user store. Their API keys keep working.
+ */
+export function useSignUserOutEverywhere() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) => beaconApi().signUserOutEverywhere(id),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Signing the user out failed',
+    }),
+  );
+}

@@ -156,13 +156,12 @@ See [Step 2](#step-2-generate-the-encryption-key) below.
 
 ### B3. Configure `appsettings.json`
 
+Keep `Beacon:EncryptionKey` out of this file: supply it through User Secrets, the `Beacon__EncryptionKey` environment variable or a secrets manager (see [Step 2](#step-2-generate-the-encryption-key)).
+
 ```json
 {
   "ConnectionStrings": {
     "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-  },
-  "Beacon": {
-    "EncryptionKey": "k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA="
   },
   "Logging": {
     "LogLevel": {
@@ -398,19 +397,13 @@ On first run Beacon applies EF Core migrations, creates the `beacon` schema, and
 
 ## Step 2: Generate the Encryption Key
 
-Beacon **requires** an encryption key (`Beacon:EncryptionKey`) to encrypt sensitive data — most importantly data-source connection strings — at rest with AES-256.
+Beacon **requires** an encryption key (`Beacon:EncryptionKey`) to encrypt sensitive data — most importantly data-source connection strings — at rest with AES-256. It must be base64 that decodes to at least 32 random bytes; generate one with:
 
 ```bash
 openssl rand -base64 32
 ```
 
-**Example output:**
-
-```
-k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA=
-```
-
-Store it via User Secrets, an environment variable, or a secrets manager — never commit it. See the [Configuration Guide](/getting-started/configuration/) for production patterns.
+Store it via User Secrets, the `Beacon__EncryptionKey` environment variable (double underscore), or a secrets manager — never commit it, and never copy a key printed in a guide. Beacon refuses at startup, in every environment, a missing or short key, a passphrase, a published sample value and a `${...}` placeholder (.NET configuration does not expand it). See the [Configuration Guide](/getting-started/configuration/#encryption-key-configuration-required) for production patterns and for replacing a key.
 
 ---
 
@@ -431,13 +424,15 @@ See the [Configuration Guide](/getting-started/configuration/#authentication) an
 
 ## Troubleshooting
 
-### "Beacon:EncryptionKey must be configured"
+### "Beacon:EncryptionKey must be configured" (or "must be base64…", "is a publicly known value")
 
-Generate and configure the key:
+Generate and configure a new key:
 
 ```bash
 openssl rand -base64 32
 ```
+
+If values were already encrypted with the key that was refused, list that key in `Beacon:PreviousEncryptionKeys` so they stay readable (see [Configuration → Replacing the key](/getting-started/configuration/#replacing-the-key)).
 
 ### "Cannot create database schema"
 

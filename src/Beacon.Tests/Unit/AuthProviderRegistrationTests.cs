@@ -8,6 +8,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -110,7 +111,7 @@ public class AuthProviderRegistrationTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                ["Beacon:EncryptionKey"] = TestEncryptionKey.Value
             })
             .Build();
 

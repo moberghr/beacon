@@ -23,7 +23,9 @@ The user management system provides:
 - Three predefined roles — Admin, Editor, Viewer with clear permission boundaries
 - Six functional roles — Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin, MigrationOperator — for one administrative duty each, without project data
 - Super admin — bypasses all authorization checks
-- Audit trail — tracks who assigned roles and when
+- Role provenance — every role assignment records when it was made and who made it (see [Who assigned a role](#who-assigned-a-role))
+- Local password sign-in can be turned off for single sign-on deployments, with break-glass accounts (see [Local password sign-in](#local-password-sign-in))
+- A password an administrator sets is replaced by the user at their first sign-in
 - Soft delete — archive users without losing history
 
 ## Quick Start
@@ -62,6 +64,10 @@ builder.Services.AddBeaconUI();
 // Add cookie authentication
 builder.Services.AddBeaconCookieAuthentication();
 
+// Data Protection keys for the session cookie (or configure your own). Outside Development: set
+// Beacon:DataProtection:ApplicationName and chain ProtectKeysWith*, or the host does not start.
+builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environment);
+
 var app = builder.Build();
 
 app.UseAuthentication();
@@ -92,8 +98,8 @@ Until the super admin exists, Beacon provisions **no other user**: an SSO sign-i
 
 After setup, an Admin or a [UserAdmin](#functional-roles) navigates to **Users** in the React UI (`/users`) to:
 
-- Create users: internal (password) users are an Admin's to create; a UserAdmin creates external users
-- Assign roles (a UserAdmin assigns neither the Admin role nor a functional role)
+- Create users: internal (password) users are an Admin's to create, and choose their own password at their first sign-in ([Passwords set by an administrator](#passwords-set-by-an-administrator)); a UserAdmin creates external users
+- Assign roles (a UserAdmin assigns neither the Admin role nor a functional role); each assignment records who made it
 - Enable/disable accounts (disabling or archiving an account revokes its [API keys](/features/api-keys/#when-the-owner-leaves), and re-enabling it revokes any key still active instead of restoring one)
 - View user details and login history
 
@@ -400,8 +406,10 @@ The `BeaconUser` entity stores user information:
 | `PasswordHash` | string? | Hashed password (null for external users) |
 | `IsSuperAdmin` | bool | Bypass all authorization checks |
 | `IsEnabled` | bool | Account enabled/disabled |
-| `LastLoginAt` | DateTime? | Last successful login timestamp |
-| `UserRoles` | list | Assigned roles with audit info |
+| `LastLoginAt` | DateTime? | Last successful sign-in with the user's own identity (password, SSO, an identity-provider token; never an API key) |
+| `SecurityStamp` | string? | Changes whenever every session of the user must end (see [Sign-in sessions](#sign-in-sessions)); empty until it first changes |
+| `MustChangePassword` | bool | The user must choose a new password before signing in: set when an Admin sets the password, cleared when the user sets their own (see [Passwords set by an administrator](#passwords-set-by-an-administrator)); false for existing users |
+| `UserRoles` | list | Assigned roles, each with when it was assigned (`AssignedAt`) and who assigned it (`AssignedByUserId`, see [Who assigned a role](#who-assigned-a-role)) |
 
 ## Cookie Authentication Options
 
@@ -419,15 +427,81 @@ builder.Services.AddBeaconCookieAuthentication(options =>
 The `Beacon.Auth` cookie is configured with `HttpOnly = true`, `SameSite = Lax`, and `SecurePolicy = SameAsRequest`.
 :::
 
+## Sign-in Sessions
+
+A `Beacon.Auth` session is checked on the server, not only by its cookie:
+
+- **Revalidation.** With user management on, a session is checked against the user store at most every `Beacon:Authentication:Session:RevalidateMinutes` (default `5`; `0` checks every request). The user must still exist, be enabled and not archived, and carry the security stamp the session was signed in with; otherwise the session is signed out (its cookie is deleted, the API answers `401`, and the user signs in again). The session's roles are replaced by the roles the user holds in the store at that check (and, while identity-provider role mapping is on, the roles that sign-in mapped, for `IdpRoles:ClaimLifetimeMinutes` after it). The sign-in itself reads the user once for both the stamp and the roles the session starts with, and a user disabled or archived by then gets no session. A session naming no stored user is logged at Warning with a fingerprint of the id it presented. A host without Beacon user management keeps its own principals: only the absolute lifetime applies to them.
+- **Security stamp.** Each user has a security stamp that every one of their sessions carries. It changes when their password is changed or reset, when they are disabled, re-enabled or archived, when their roles change, when their user name or e-mail address changes, and on **sign out everywhere**. A changed stamp ends every session of the user at its next revalidation; until then, a request of such a session already acts as nobody for project access (the session carries the stamp it was signed in with). Changing your own password keeps the session you changed it from (it is signed in again with the new stamp) and ends the others.
+- **Sign out everywhere.** An Admin, or a UserAdmin for a user they may change, ends every session of a user with **Sign out everywhere** in the user dialog (`POST /beacon/api/users/{id}/sign-out-everywhere`). A user ends all of their own sessions from the account menu (**Sign out everywhere**, `POST /beacon/api/auth/logout?everywhere=true`); the menu offers it only when `/auth/me` reports `signOutEverywhereEnabled` (a signed-in session, user management on). Both go through one command and one log entry. When the sessions cannot be signed out (user management is off, or the caller is an API key or MCP caller) nothing changes and the answer is `409`: the account menu says so and keeps you signed in. A plain sign-out ends the current session only. Neither affects the user's API keys.
+- **Absolute lifetime.** A session ends `Beacon:Authentication:Session:AbsoluteLifetimeHours` (default `12`) after its sign-in, however often sliding expiration or "remember me" renews its cookie; the cookie itself never outlives that. A realtime (SignalR) connection is checked against the user store when it is opened and closed when the session's next check would be due (`RevalidateMinutes`, at least one minute), never later than the absolute lifetime; the shell then reconnects through a new check.
+
+```json
+{
+  "Beacon": {
+    "Authentication": {
+      "Session": {
+        "RevalidateMinutes": 5,
+        "AbsoluteLifetimeHours": 12
+      }
+    }
+  }
+}
+```
+
+Both are validated at startup: `RevalidateMinutes` between 0 and 1440, `AbsoluteLifetimeHours` between 1 and 8760. Every session a check ends is logged with the user's id and the reason (`SessionEnded`; a session past its absolute lifetime usually just presents an expired cookie, which is refused without an entry), every sign-out everywhere with the user's id and who asked (`UserSessionsRevoked`).
+
+A host **without** Beacon user management keeps its own principals: Beacon does not call `IBeaconAuthenticationProvider.ValidateSessionAsync` on its sessions (a provider written before sessions were revalidated may not expect it), so only the absolute lifetime applies. Such a host revalidates in its own cookie events or claims transformation.
+
+The cookie itself is protected by ASP.NET Core Data Protection, which belongs to the host. See [Configuration → Data Protection](/getting-started/configuration/#data-protection-the-keys-behind-the-session-cookie) for the required setup outside Development and for what to do after restoring a Beacon database into another environment (give every user a new security stamp, give the copy its own key ring).
+
+## Local Password Sign-in
+
+Password sign-in through the login form (`POST /beacon/api/auth/login`) is **on** by default, for compatibility. A deployment where people sign in through single sign-on should turn it off, so every sign-in passes the identity provider's multi-factor authentication, conditional access and offboarding, and keep one emergency account:
+
+```json
+{
+  "Beacon": {
+    "UserManagement": {
+      "LocalLogin": {
+        "Enabled": false,
+        "BreakGlassUserNames": [ "superadmin" ]
+      }
+    }
+  }
+}
+```
+
+With `Enabled: false`:
+
+- `POST /beacon/api/auth/login` is **not mapped** — unless a break-glass account is listed. Then every name gets the same password check (so the answer and its timing tell no break-glass account from another), and whichever provider authenticated the password (Beacon's, the external JWT login, a host's provider, or `IBeaconAuthenticationService.SignInAsync`), only a stored internal user, enabled and not archived, whose own stored user name is on the list signs in. Any other account gets the generic "Invalid username or password.", and the attempt is logged (`PasswordSignInRefused`, 7120, without the name typed).
+- `DatabaseAuthenticationProvider` and `HybridAuthenticationProvider` refuse every account but a break-glass one (the hybrid provider does not fall back to its external login endpoint), and `JwtExternalApiAuthenticationProvider` refuses every login without calling its external API.
+- The login page shows no password form; it shows only the single sign-on button (or, without single sign-on, a note that password sign-in is off). A break-glass account opens the form at `/login?local=1`.
+- A break-glass sign-in is logged at **Warning** with the user's id (`BreakGlassSignIn`, 7119). Treat every one as an incident: the identity provider was bypassed.
+
+`BreakGlassUserNames` holds up to 3 user names, each compared exactly (case included) with the user name the account is stored with; its holder may sign in with that name or the account's e-mail address. A blank entry or a longer list fails startup; so does turning local login off with single sign-on off, no external login page and no break-glass account. A listed name that matches no enabled internal user is warned about at startup by its position in the list. The first-run super admin is a password account, so list it (or another internal Admin) before turning local login off. Give the break-glass account a long random password kept in a vault, and review its use.
+
+## Passwords Set by an Administrator
+
+Whoever sets a password can sign in with it. So when an Admin creates an internal user, or resets a password, the user must replace it at their first sign-in:
+
+- The right user name and password then answer `401` with `passwordChangeRequired: true` (no session); a wrong password answers as before, so only the holder of the right password learns that a change is pending.
+- The login page asks for a new password and sends the same sign-in again with `newPassword`. When the password rules accept it (and it differs from the one the Admin set), it becomes the user's password, the requirement is cleared, the user's security stamp changes and they are signed in. A refused new password answers `400` with the reason and `passwordChangeRequired: true`.
+- Changing your own password (`POST /beacon/api/user-settings/change-password`) also clears the requirement. The first-run super admin chooses their own password and is not affected, nor are users that existed before this version.
+
+## Who Assigned a Role
+
+Every row of `user_roles` records when the role was assigned (`AssignedAt`) and who assigned it (`AssignedByUserId`, the assigner's external id). It is recorded when an Admin or UserAdmin creates an internal or an external user, changes a user's roles (`PUT /beacon/api/users/{id}/roles`), and by `IUserManagementService.AssignRoleAsync`. It is empty (null) where Beacon grants the role itself, not a person: the configured default role at a user's first single sign-on or MCP sign-in, and the super admin's Admin role at first-run setup (granted through the setup token). Assignments made before this version have none either. Roles mapped from identity-provider app roles (`Beacon:Authorization:IdpRoles`) are never stored, so they have no row; the sign-in that mapped them is logged.
+
 ## Database Schema
 
 User management creates these tables in your Beacon schema:
 
 - **`users`** - User accounts (internal and external)
 - **`roles`** - System roles (Admin, Editor, Viewer, and the functional roles at level 0)
-- **`user_roles`** - Many-to-many join with audit fields (assigned_by, assigned_at)
+- **`user_roles`** - Many-to-many join with audit fields (assigned_by_user_id, assigned_at)
 
-These tables are created automatically by the EF Core migration `20260206112218_UserManagement`.
+These tables are created automatically by the EF Core migration `20260206112218_UserManagement`. The migration `AddUserSecurityStamp` adds the users' security stamp, a nullable column existing users leave empty, and `must_change_password`, a boolean existing users leave `false`.
 
 ## API Endpoints
 
@@ -437,8 +511,8 @@ These are part of Beacon's REST minimal-API surface under `/beacon/api/*` (OpenA
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/beacon/api/auth/login` | POST | Authenticate with username/password |
-| `/beacon/api/auth/logout` | POST | Clear session cookie; requires the antiforgery token (`X-XSRF-TOKEN` header), `400` without it (there is no `GET` sign-out) |
+| `/beacon/api/auth/login` | POST | Authenticate with username/password. `401` with `passwordChangeRequired: true` when an Admin set the password: send the same sign-in with `newPassword` (`400` with the reason when the new one is refused). Not mapped while [local login](#local-password-sign-in) is off and no break-glass account is listed |
+| `/beacon/api/auth/logout` | POST | Clear session cookie; requires the antiforgery token (`X-XSRF-TOKEN` header), `400` without it (there is no `GET` sign-out). `?everywhere=true` also ends every other session of the signed-in user; `409`, with nothing signed out, when that cannot be done |
 
 ### Users
 
@@ -452,7 +526,8 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for what 
 | `/beacon/api/users/external` | POST | Create an external user with roles |
 | `/beacon/api/users/{id}` | PUT | Change a user's name, e-mail, display name or enabled state; the user name and e-mail address are an Admin's to change (`403` for a UserAdmin who sends others than the stored ones) |
 | `/beacon/api/users/{id}/toggle-enabled` | POST | Enable or disable a user |
-| `/beacon/api/users/{id}/roles` | PUT | Replace a user's roles |
+| `/beacon/api/users/{id}/roles` | PUT | Replace a user's roles (ends the user's sessions when they change) |
+| `/beacon/api/users/{id}/sign-out-everywhere` | POST | End every session of the user (`204`; `404` for an unknown user; `409` when user management is off); their API keys keep working |
 
 ### First-Run Setup
 
@@ -510,7 +585,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for what 
 
 ## Single Sign-On Admission
 
-When OIDC SSO is enabled, Beacon admits only subjects that pass the configured rules — `AllowedTenants` (or an explicit `AllowAnyTenant`), `BlockGuests` (on by default) and the optional `RequiredRoles`/`RequiredGroups` — and provisions nothing for anyone else. A bearer token on the REST API, and a token returned to the login form, that the SSO authority issued passes the same rules before it is bound to a user. A refused sign-in is logged at Warning with the reason, the tenant, the issuer and a hash of the subject — never the subject, an e-mail or other claim values. See [Configuration → OIDC / SSO](/getting-started/configuration/#optional-oidc--sso) for the options.
+When OIDC SSO is enabled, Beacon admits only subjects that pass the configured rules — `AllowedTenants` (or an explicit `AllowAnyTenant`), `BlockGuests` (on by default) and the optional `RequiredRoles`/`RequiredGroups` — and provisions nothing for anyone else. A bearer token on the REST API, and a token returned to the login form, that the SSO authority issued passes the same rules before it is bound to a user. A refused sign-in is logged at Warning with the reason, the tenant, the issuer and a hash of the subject — never the subject, an e-mail or other claim values. With `RequireMfa: true` (off by default) an interactive SSO sign-in must also show multi-factor authentication in its ID token — `amr` containing `mfa`, or an `acr` listed in `AcceptedAcrValues` — or it is refused (reason `MfaNotPerformed`) and the login page says that multi-factor authentication is required. With Microsoft Entra ID, request `amr` as an optional ID-token claim in the app registration. `RequireMfa` covers the interactive SSO sign-in only: bearer tokens (REST and `/beacon/mcp`), API keys, the login-form JWT flow and password sign-in (including break-glass accounts) are not checked. See [Configuration → OIDC / SSO](/getting-started/configuration/#optional-oidc--sso) for the options.
 
 ## Upgrading from 4.5
 
@@ -535,7 +610,14 @@ Hosts upgrading from 4.5 must act on the following:
 - **Disabling, re-enabling and archiving revoke API keys.** Saving a user as disabled, archiving them, and re-enabling them each revoke every API key of theirs still active, in the same save. A re-enabled user starts without working keys. See [API Keys → When the owner leaves](/features/api-keys/#when-the-owner-leaves).
 - **SSO sessions never carry scoped-caller claims.** Sign-in removes the claim types Beacon uses for API keys and MCP callers (`auth_method`, `scope`, `allowed_projects`, `api_key_id`, `api_key_name`, `caller_kind`, `caller_hash`) from what the identity provider sent.
 - **Functional roles.** The Admin role's duties can be given separately through six new, optional roles (see [Functional roles](#functional-roles)); existing Admins keep every duty. Roles with these names are created at level 0 when roles are next listed: a role of your own that already has one of these names is left as it is and grants nothing (a warning names its id); rename it, or map the permission to another name. User administration is now open to UserAdmins, under the guards above.
+- **Sessions are checked on the server.** After the upgrade (and its migration `AddUserSecurityStamp`, which adds a nullable column), every existing session is checked against the user store at its next request: a session of a missing, disabled or archived user ends, and the session's roles become the stored ones. A session signed in before the upgrade counts its absolute lifetime (`Beacon:Authentication:Session:AbsoluteLifetimeHours`, default 12 hours) from its last renewal, so users signed in longer than that sign in again. "Remember me" no longer keeps a session beyond the absolute lifetime; raise it if you relied on longer sessions. Changing a password, disabling or re-enabling a user, changing their roles, user name or e-mail address now ends their other sessions. See [Sign-in sessions](#sign-in-sessions).
 - **Project membership.** Projects can be restricted to their members (see [Project roles and membership](#project-roles-and-membership)); existing projects stay open. For project access, a stored user is an Admin by their current roles, not by the session's claim, a disabled or archived user reaches no project, and a session without a stored user reaches no project while user management is on. Member search matches display names only. See [Authorization → Upgrading from 4.5: project access](/features/authorization/#upgrading-from-45-project-access).
+- **The encryption key is checked in every environment.** A missing or short `Beacon:EncryptionKey`, a passphrase, the sample placeholder, a key printed in the documentation, or a `${...}` value stops the host. Set a new key and list the old one in `Beacon:PreviousEncryptionKeys` to keep reading stored values (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
+- **Data Protection is the host's.** `AddBeaconCookieAuthentication` no longer keeps the key ring in the Beacon database or names the application `Beacon`. Call `AddBeaconDataProtection` to keep Beacon's storage (outside Development with `Beacon:DataProtection:ApplicationName` and `ProtectKeysWith*`), or configure your own; outside Development a key ring persisted without key encryption stops the host. Everyone signs in again once. See [Configuration → Data Protection](/getting-started/configuration/#data-protection-the-keys-behind-the-session-cookie).
+- **Local login stays on** by default (`Beacon:UserManagement:LocalLogin:Enabled: true`). With SSO, turn it off and list a break-glass account; see [Local password sign-in](#local-password-sign-in). Break-glass names match the stored user name exactly, case included.
+- **Passwords an Admin sets must be replaced at first sign-in.** New internal users and reset passwords are flagged (the migration `AddUserSecurityStamp` also adds `must_change_password`, `false` for existing users). A custom client of `POST /beacon/api/auth/login` must handle `passwordChangeRequired` and send `newPassword`.
+- **Role provenance.** Creating a user records the creator as who assigned each role (`AssignedByUserId`). `CreateInternalUserRequest` and `CreateExternalUserRequest` gain `AssignedByUserId`.
+- **`IUserManagementService` gains `CompleteRequiredPasswordChangeAsync`** as a default interface member (an implementation recompiles unchanged; without an override it answers the generic sign-in failure); `AuthenticateInternalUserAsync` answers `PasswordChangeRequired` (a new `AuthenticationResult` property) for a flagged user and sets `BeaconUserId`; `HybridAuthenticationProvider` takes an optional `BeaconConfiguration` (without it, it does not fall back to its external login); `LoginRequest` gains `NewPassword` and `LoginResponse` `PasswordChangeRequired` (see [Authorization → Upgrading: sign-in sessions](/features/authorization/#upgrading-sign-in-sessions) for the full public API list).
 
 ## See Also
 

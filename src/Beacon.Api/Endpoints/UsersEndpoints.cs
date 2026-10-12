@@ -54,6 +54,13 @@ internal static class UsersEndpoints
             return TypedResults.NoContent();
         }).WithName("SetUserRoles").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
+        // Signs out every session of the user (a new security stamp); their API keys are not affected.
+        users.MapPost("/{id:int}/sign-out-everywhere", async (int id, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new SignUserOutEverywhereCommand(id), ct);
+            return TypedResults.NoContent();
+        }).WithName("SignUserOutEverywhere").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
+
         return group;
     }
 }

@@ -177,7 +177,7 @@ Entra leaves out the `groups` claim when a user belongs to more than about 200 g
 Every MCP tool call writes an audit row, as before. For a JWT caller, the row also records:
 
 - `CallerKind`: `User` or `System`.
-- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{oid}` (or of `{tid}:{appid}` when there is no `oid`). It is stable per identity and never the raw value. The HMAC key is derived from `Beacon:EncryptionKey` for this purpose only, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Rotating the encryption key changes every caller's hash, so rows written before and after a rotation no longer group together.
+- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{oid}` (or of `{tid}:{appid}` when there is no `oid`). It is stable per identity and never the raw value. The HMAC key is derived for this purpose only from `Beacon:Mcp:CallerHashKey` when it is set, else from `Beacon:EncryptionKey`, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Without `CallerHashKey`, changing the encryption key changes every caller's hash, so rows written before and after the change no longer group together: before changing the encryption key, set `Beacon:Mcp:CallerHashKey` (a secret) to the key in use now, and the hashes stay the same (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 - `UserId`: the provisioned Beacon user, in user mode.
 
 Logs carry only the caller hash, never the raw `oid`, email or token.

@@ -62,6 +62,7 @@ public class ProjectAuthorizationCoverageTests
         ["ToggleUserEnabled"] = "UserAdmin: user management",
         ["UpdateUser"] = "UserAdmin: user management",
         ["SetUserRoles"] = "UserAdmin: user management",
+        ["SignUserOutEverywhere"] = "UserAdmin: user management",
         ["SetAiActorOwner"] = "UserAdmin: ownership transfer",
         ["SetDataContractOwner"] = "UserAdmin: ownership transfer",
         ["SetSubscriptionOwner"] = "UserAdmin: ownership transfer",

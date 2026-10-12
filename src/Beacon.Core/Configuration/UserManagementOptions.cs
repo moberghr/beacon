@@ -37,4 +37,11 @@ public class UserManagementOptions
     /// setup page, since each replica generates its own.
     /// </summary>
     public string? SetupToken { get; set; }
+
+    /// <summary>
+    /// Password sign-in through the login form: on by default; off (with optional break-glass accounts) for a deployment
+    /// where people sign in through single sign-on. Also bound from <c>Beacon:UserManagement:LocalLogin</c>. Applies to the
+    /// login form whether or not user management is on.
+    /// </summary>
+    public LocalLoginOptions LocalLogin { get; set; } = new();
 }

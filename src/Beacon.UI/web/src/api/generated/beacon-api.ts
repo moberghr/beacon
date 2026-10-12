@@ -27,7 +27,7 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  login(body: LoginRequest): Promise<void> {
+  login(body: LoginRequest): Promise<LoginResponse> {
     let url_ = this.baseUrl + "/beacon/api/auth/login";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -38,6 +38,7 @@ export class BeaconApiClient {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
     };
 
@@ -46,7 +47,7 @@ export class BeaconApiClient {
     });
   }
 
-  protected processLogin(response: Response): Promise<void> {
+  protected processLogin(response: Response): Promise<LoginResponse> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -54,7 +55,51 @@ export class BeaconApiClient {
     }
     if (status === 200) {
       return response.text().then((_responseText) => {
-        return;
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as LoginResponse);
+        return result200;
+      });
+    } else if (status === 400) {
+      return response.text().then((_responseText) => {
+        let result400: any = null;
+        result400 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as LoginResponse);
+        return throwException(
+          "Bad Request",
+          status,
+          _responseText,
+          _headers,
+          result400,
+        );
+      });
+    } else if (status === 401) {
+      return response.text().then((_responseText) => {
+        let result401: any = null;
+        result401 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as LoginResponse);
+        return throwException(
+          "Unauthorized",
+          status,
+          _responseText,
+          _headers,
+          result401,
+        );
       });
     } else if (status !== 200 && status !== 204) {
       return response.text().then((_responseText) => {
@@ -66,14 +111,19 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<void>(null as any);
+    return Promise.resolve<LoginResponse>(null as any);
   }
 
   /**
+   * @param everywhere (optional)
    * @return OK
    */
-  logout(): Promise<void> {
-    let url_ = this.baseUrl + "/beacon/api/auth/logout";
+  logout(everywhere: boolean | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/auth/logout?";
+    if (everywhere === null)
+      throw new Error("The parameter 'everywhere' cannot be null.");
+    else if (everywhere !== undefined)
+      url_ += "everywhere=" + encodeURIComponent("" + everywhere) + "&";
     url_ = url_.replace(/[?&]$/, "");
 
     let options_: RequestInit = {
@@ -10806,6 +10856,49 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return No Content
+   */
+  signUserOutEverywhere(id: number): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/users/{id}/sign-out-everywhere";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSignUserOutEverywhere(_response);
+    });
+  }
+
+  protected processSignUserOutEverywhere(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @return OK
    */
   statusGET(): Promise<void> {
@@ -17513,6 +17606,7 @@ export interface CurrentUserResponse {
   roles: string[];
   realtimeEnabled: boolean;
   externalLogin: ExternalLoginResponse | null;
+  signOutEverywhereEnabled?: boolean;
 
   [key: string]: any;
 }
@@ -18379,6 +18473,16 @@ export interface LoginRequest {
   username: string | null;
   password: string | null;
   rememberMe?: boolean;
+  newPassword?: string | null;
+
+  [key: string]: any;
+}
+
+export interface LoginResponse {
+  success?: boolean;
+  error?: string | null;
+  redirectUrl?: string | null;
+  passwordChangeRequired?: boolean;
 
   [key: string]: any;
 }
@@ -19768,6 +19872,7 @@ export interface SnoozeTaskBody {
 
 export interface SsoConfigResponse {
   enabled: boolean;
+  localLoginEnabled: boolean;
 
   [key: string]: any;
 }

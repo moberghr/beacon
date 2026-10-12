@@ -1012,6 +1012,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.DisplayName).HasMaxLength(200);
             entity.Property(e => e.PasswordHash).HasMaxLength(500);
             entity.Property(e => e.PasswordSalt).HasMaxLength(500);
+            entity.Property(e => e.SecurityStamp).HasMaxLength(64);
 
             // Unique constraint on ExternalId
             entity.HasIndex(e => e.ExternalId).IsUnique();

@@ -67,6 +67,7 @@ internal sealed class GetAllApiKeysHandler(
                     OwnerArchived = x.User != null && x.User.ArchivedTime != null,
                     OwnerEnabled = x.User != null && x.User.IsEnabled,
                     OwnerGenerationIsCurrent = x.User != null && x.User.ApiKeyGeneration == x.OwnerGeneration,
+                    OwnerLastSignInAt = x.User != null ? (DateTime?)(x.User.LastLoginAt ?? x.User.CreatedTime) : null,
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
 
@@ -88,7 +89,7 @@ internal sealed class GetAllApiKeysHandler(
             : new HashSet<int>();
 
         // Active by the rule key validation applies: not revoked, not expired, owner present, enabled, not archived,
-        // and still in the owner's API-key generation.
+        // still in the owner's API-key generation, and the owner not inactive for too long (when that rule is on).
         var now = timeProvider.GetUtcNow().UtcDateTime;
 
         return page.Map(x =>
@@ -106,7 +107,12 @@ internal sealed class GetAllApiKeysHandler(
                     x.IsRevoked,
                     x.ExpiresAt,
                     x.CreatedAt,
-                    new ApiKeyOwnerState(x.OwnerExists, x.OwnerArchived, x.OwnerEnabled, x.OwnerGenerationIsCurrent),
+                    new ApiKeyOwnerState(
+                        x.OwnerExists,
+                        x.OwnerArchived,
+                        x.OwnerEnabled,
+                        x.OwnerGenerationIsCurrent,
+                        x.OwnerLastSignInAt),
                     now,
                     options.Value) == null,
                 x.UserId,
@@ -147,6 +153,8 @@ internal sealed class GetAllApiKeysHandler(
         public bool OwnerEnabled { get; init; }
 
         public bool OwnerGenerationIsCurrent { get; init; }
+
+        public DateTime? OwnerLastSignInAt { get; init; }
     }
 }
 

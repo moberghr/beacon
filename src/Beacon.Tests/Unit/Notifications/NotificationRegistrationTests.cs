@@ -13,6 +13,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.Notifications;
 
@@ -149,7 +150,7 @@ public class NotificationRegistrationTests
     private static ServiceProvider BuildProvider(Dictionary<string, string?> settings)
     {
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-        settings["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]);
+        settings["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(settings)
             .Build();

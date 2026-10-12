@@ -6,6 +6,8 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core;
+using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
@@ -26,7 +28,8 @@ namespace Beacon.Tests.Unit.Authorization;
 /// user and changes no user's user name or e-mail address (403), so it cannot make an account it can sign in to. An Admin
 /// assigns any role and does all of these. Separation of duties, when on, refuses roles that would give one user both
 /// permissions of a conflicting pair (400), whoever assigns them. Every user created and every role change is logged with
-/// ids only.
+/// ids only. A role change, and "sign out everywhere" (by the same rules as any other change to the user), give the user a
+/// new security stamp, which ends every session they hold.
 /// </summary>
 [TestFixture]
 public class UserAdministrationRulesTests
@@ -195,6 +198,129 @@ public class UserAdministrationRulesTests
         _saved.Should().BeEmpty();
     }
 
+    [Test]
+    public async Task ARoleChange_SignsOutEverySessionOfTheUser_AndAnUnchangedSetDoesNot()
+    {
+        var ben = _users.First(x => x.Id == BenId);
+        ben.SecurityStamp = "before";
+
+        await SetRoles(UserAdmin(), BenId, ViewerRole);
+        var unchanged = ben.SecurityStamp;
+        await SetRoles(UserAdmin(), BenId, EditorRole);
+
+        unchanged.Should().Be("before", "the user holds the same roles");
+        ben.SecurityStamp.Should().NotBeNullOrEmpty().And.NotBe("before");
+    }
+
+    [Test]
+    public async Task EachAddedRole_RecordsWhoAssignedItAndWhen()
+    {
+        var at = new DateTimeOffset(2026, 10, 12, 9, 30, 0, TimeSpan.Zero);
+        var handler = new SetUserRolesHandler(Factory(), Rules(Admin(), false), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(at));
+
+        await handler.Handle(new SetUserRolesCommand(BenId, [ViewerRole, EditorRole, ApproverRole]), CancellationToken.None);
+
+        _saved.OfType<BeaconUserRole>().Should().HaveCount(2)
+            .And.OnlyContain(x => x.UserId == BenId && x.AssignedByUserId == "ext-ana" && x.AssignedAt == at.UtcDateTime);
+    }
+
+    [Test]
+    public async Task AUserAdmin_SignsAnotherUserOutEverywhere_AndItIsLoggedWithIdsOnly()
+    {
+        var ben = _users.First(x => x.Id == BenId);
+
+        await SignOutEverywhere(UserAdmin(), BenId);
+
+        ben.SecurityStamp.Should().NotBeNullOrEmpty();
+        var entry = _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("Every session of user", StringComparison.Ordinal)).Subject;
+        entry.Message.Should().Be($"Every session of user {BenId} signed out, by user {CallerId}");
+        _users.Where(x => x.Id != BenId).Should().OnlyContain(x => x.SecurityStamp == null, "only that user's sessions end");
+    }
+
+    [TestCase(AdminUserId)]
+    [TestCase(SuperAdminId)]
+    [TestCase(AuditorUserId)]
+    public async Task AUserAdmin_CannotSignOutAnAdminASuperAdminOrAFunctionalRoleHolder_ButAnAdminCan(int userId)
+    {
+        var act = () => SignOutEverywhere(UserAdmin(), userId);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UserAdministrationRules.ProtectedUserMessage);
+        _users.First(x => x.Id == userId).SecurityStamp.Should().BeNull();
+
+        await SignOutEverywhere(Admin(), userId);
+
+        _users.First(x => x.Id == userId).SecurityStamp.Should().NotBeNullOrEmpty();
+    }
+
+    [Test]
+    public async Task SigningOutEverywhere_IsRefusedToAUserAdminForThemself_AndToACallerWithoutThePermission()
+    {
+        var own = () => SignOutEverywhere(UserAdmin(), CallerId);
+        var none = () => SignOutEverywhere(TestPermissions.None, BenId);
+        var unknown = () => SignOutEverywhere(Admin(), 404);
+
+        await own.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UserAdministrationRules.OwnAccountMessage);
+        await none.Should().ThrowAsync<BeaconForbiddenException>();
+        await unknown.Should().ThrowAsync<BeaconNotFoundException>();
+        _users.Should().OnlyContain(x => x.SecurityStamp == null);
+    }
+
+    [Test]
+    public async Task ACaller_SignsOutTheirOwnSessionsEverywhere_WithoutAnyPermission_LoggedInTheSamePlace()
+    {
+        var caller = _users.First(x => x.Id == CallerId);
+
+        await SignOutEverywhere(TestPermissions.None, null);
+
+        caller.SecurityStamp.Should().NotBeNullOrEmpty();
+        _users.Where(x => x.Id != CallerId).Should().OnlyContain(x => x.SecurityStamp == null);
+        _logs.Entries.Should().ContainSingle(x => x.Message == $"Every session of user {CallerId} signed out, by user {CallerId}");
+    }
+
+    [Test]
+    public async Task SigningOutEverywhere_WithoutUserManagement_ChangesNothing_AndSaysSo()
+    {
+        var other = () => SignOutEverywhere(Admin(), BenId, userManagement: false);
+        var own = () => SignOutEverywhere(Admin(), null, userManagement: false);
+
+        await other.Should().ThrowAsync<BeaconConflictException>().WithMessage("*user management is off*");
+        await own.Should().ThrowAsync<BeaconConflictException>();
+        _users.Should().OnlyContain(x => x.SecurityStamp == null, "a stamp no session is checked against would end nothing");
+        _logs.Entries.Should().NotContain(x => x.Message.StartsWith("Every session of user", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task SigningOutOnesOwnSessionsEverywhere_IsRefusedToAnApiKeyAnMcpCallerAndNobody()
+    {
+        var apiKey = ActorOfKind(new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.ApiKey, BeaconUserId = CallerId, IsApiKey = true });
+        var mcpCaller = ActorOfKind(new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.McpCaller, BeaconUserId = CallerId });
+
+        var byKey = () => SignOutEverywhere(TestPermissions.None, null, actors: apiKey);
+        var byMcp = () => SignOutEverywhere(TestPermissions.None, null, actors: mcpCaller);
+        var byNobody = () => SignOutEverywhere(TestPermissions.None, null, actors: ActorOfKind(BeaconActor.Nobody));
+
+        await byKey.Should().ThrowAsync<BeaconConflictException>();
+        await byMcp.Should().ThrowAsync<BeaconConflictException>();
+        await byNobody.Should().ThrowAsync<BeaconConflictException>();
+        _users.Should().OnlyContain(x => x.SecurityStamp == null);
+    }
+
+    [Test]
+    public async Task AGrantByACallerWithoutAUserId_IsLoggedExplicitly()
+    {
+        var withoutUserId = ActorOfKind(new BeaconActor(null, true) { Kind = BeaconPrincipalKind.Session });
+        var handler = new SetUserRolesHandler(
+            Factory(),
+            Rules(Admin(), false, withoutUserId),
+            withoutUserId,
+            new FakeTimeProvider(DateTimeOffset.UtcNow));
+
+        await handler.Handle(new SetUserRolesCommand(BenId, [ViewerRole, EditorRole]), CancellationToken.None);
+
+        _saved.OfType<BeaconUserRole>().Should().ContainSingle().Which.AssignedByUserId.Should().BeNull();
+        _logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning && x.Message.Contains("by a caller without a user id", StringComparison.Ordinal));
+    }
+
     [TestCase(ApproverRole, SecurityAdminRole)]
     [TestCase(AuditorRole, SecurityAdminRole)]
     [TestCase(AuditorRole, UserAdminRole)]
@@ -272,6 +398,7 @@ public class UserAdministrationRulesTests
 
         users.Verify(x => x.CreateExternalUserAsync(It.Is<CreateExternalUserRequest>(y => y.RoleIds.SequenceEqual(new[] { ViewerRole })), It.IsAny<CancellationToken>()), Times.Once);
         users.Verify(x => x.CreateExternalUserAsync(It.Is<CreateExternalUserRequest>(y => y.RoleIds.SequenceEqual(new[] { AuditorRole }) && y.ExternalId == "ext-new"), It.IsAny<CancellationToken>()), Times.Once);
+        users.Verify(x => x.CreateExternalUserAsync(It.Is<CreateExternalUserRequest>(y => y.AssignedByUserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Exactly(2), "the creator is recorded as who assigned the roles");
     }
 
     [Test]
@@ -335,7 +462,7 @@ public class UserAdministrationRulesTests
 
         await CreateInternal(Admin(), users, EditorRole);
 
-        users.Verify(x => x.CreateInternalUserAsync(It.Is<CreateInternalUserRequest>(y => y.UserName == "newbie" && y.RoleIds.SequenceEqual(new[] { EditorRole })), It.IsAny<CancellationToken>()), Times.Once);
+        users.Verify(x => x.CreateInternalUserAsync(It.Is<CreateInternalUserRequest>(y => y.UserName == "newbie" && y.RoleIds.SequenceEqual(new[] { EditorRole }) && y.AssignedByUserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
         _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("User created", StringComparison.Ordinal))
             .Which.Message.Should().Be($"User created: user 42, internal True, by user {CallerId}");
     }
@@ -430,6 +557,30 @@ public class UserAdministrationRulesTests
         return handler.Handle(new SetUserRolesCommand(userId, roleIds), CancellationToken.None);
     }
 
+    private Task SignOutEverywhere(IBeaconPermissionAccessor permissions, int? userId, bool userManagement = true, IBeaconActorAccessor? actors = null)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.UserManagement.Enabled = userManagement;
+        var handler = new SignUserOutEverywhereHandler(
+            Rules(permissions, false),
+            new UserSessionStore(Factory()),
+            actors ?? TestProjectAccess.Actors(CallerId, "ext-ana"),
+            configuration,
+            _logs.For<SignUserOutEverywhereHandler>());
+
+        return handler.Handle(new SignUserOutEverywhereCommand(userId), CancellationToken.None);
+    }
+
+    private static IBeaconActorAccessor ActorOfKind(BeaconActor actor)
+    {
+        var accessor = new Mock<IBeaconActorAccessor>();
+        accessor
+            .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(actor);
+
+        return accessor.Object;
+    }
+
     // Keeps what the user signs in with, as stored.
     private Task Update(IBeaconPermissionAccessor permissions, int userId, Mock<IUserManagementService>? users = null)
     {
@@ -486,14 +637,14 @@ public class UserAdministrationRulesTests
 
     private Task CreateInternal(IBeaconPermissionAccessor permissions, Mock<IUserManagementService> users, params int[] roleIds)
     {
-        var handler = new CreateInternalUserHandler(users.Object, Rules(permissions, false));
+        var handler = new CreateInternalUserHandler(users.Object, Rules(permissions, false), TestProjectAccess.Actors(CallerId, "ext-ana"));
 
         return handler.Handle(new CreateInternalUserCommand("newbie", null, null, "a-long-password", roleIds), CancellationToken.None);
     }
 
     private Task CreateExternal(IBeaconPermissionAccessor permissions, Mock<IUserManagementService> users, bool separationOfDuties, params int[] roleIds)
     {
-        var handler = new CreateExternalUserHandler(users.Object, Rules(permissions, separationOfDuties));
+        var handler = new CreateExternalUserHandler(users.Object, Rules(permissions, separationOfDuties), TestProjectAccess.Actors(CallerId, "ext-ana"));
 
         return handler.Handle(new CreateExternalUserCommand("ext-new", "newbie", null, null, roleIds), CancellationToken.None);
     }
@@ -508,13 +659,13 @@ public class UserAdministrationRulesTests
         return users;
     }
 
-    private UserAdministrationRules Rules(IBeaconPermissionAccessor permissions, bool separationOfDuties)
+    private UserAdministrationRules Rules(IBeaconPermissionAccessor permissions, bool separationOfDuties, IBeaconActorAccessor? actors = null)
     {
         var mapping = new RoleMappingOptions { SeparationOfDuties = new SeparationOfDutiesOptions { Enabled = separationOfDuties } };
 
         return new UserAdministrationRules(
             Factory(),
-            TestProjectAccess.Actors(CallerId, "ext-ana"),
+            actors ?? TestProjectAccess.Actors(CallerId, "ext-ana"),
             permissions,
             Options.Create(mapping),
             _logs.For<UserAdministrationRules>());
