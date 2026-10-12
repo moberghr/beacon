@@ -100,6 +100,26 @@ public class QueryExecutionServicePiiMaskingTests
         StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
     }
 
+    // Each database engine caps the statement in its own dialect: MySQL reads `#` as a comment, so the cap goes on a new
+    // line after it; SQL Server has no LIMIT.
+    [TestCase(DatabaseEngineType.MySQL, "SELECT email AS contact, name FROM users # note", "SELECT email AS contact, name FROM users # note\nLIMIT 100")]
+    [TestCase(DatabaseEngineType.MSSQL, "SELECT email AS contact, name FROM users", "SELECT TOP 100 email AS contact, name FROM users")]
+    public async Task ExecuteAsync_DatabaseSource_CapsAndMasksInItsEnginesDialect(DatabaseEngineType engine, string sql, string capped)
+    {
+        var executed = new List<string>();
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
+            engine: engine,
+            executed: executed);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal(capped);
+        StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
+    }
+
     [Test]
     public async Task ExecuteAsync_PiiDetectionOff_ReturnsRawValues()
     {

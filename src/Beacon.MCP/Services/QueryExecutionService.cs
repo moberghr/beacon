@@ -46,7 +46,8 @@ internal sealed class QueryExecutionService(
                 {
                     ReadOnly = false,
                     DetectPii = true,
-                    CustomPiiPatterns = customPatterns
+                    CustomPiiPatterns = customPatterns,
+                    Dialect = DataSourceSqlDialect.Of(dataSource)
                 }).PiiColumns ?? []
                 : [];
 

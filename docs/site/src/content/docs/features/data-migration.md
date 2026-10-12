@@ -24,6 +24,68 @@ Data Migration allows you to:
 - **Data Distribution**: Distribute master data to multiple downstream systems
 - **Database Migration**: Migrate data between different database engines
 
+## Turning data migration on
+
+Data migration is the one Beacon feature that writes to a connected database, so it is **off unless the host turns it
+on**:
+
+```json
+{
+  "Beacon": {
+    "Migrations": {
+      "Enabled": true,
+      "MaxRows": 100000
+    }
+  }
+}
+```
+
+While `Beacon:Migrations:Enabled` is `false` (the default) it is a deployment lock, not a setting:
+
+- the `/beacon/api/migrations/*` endpoints are not mapped — every one answers `404` — and the shell shows no Data
+  Migration entry, page or Home card;
+- no job is created or run, whoever asks (an Admin included) and from any in-process caller (`409` from a handler);
+- no data source can be marked as a migration write target (`409`); an existing target can still be returned to a read
+  source.
+
+`MaxRows` is the migration's own row budget (see [Step 3](#step-3-configure-source-query)).
+
+:::note[Upgrading]
+A host that used data migration before must set `Beacon:Migrations:Enabled` to `true`, and an Admin must mark each
+destination as a migration write target. Until both are done its jobs do not run.
+:::
+
+### Migration write targets
+
+A migration writes only to a data source an Admin marked as a **migration write target** (data source page →
+**Migration writes** → **Mark as migration write target**, or `PUT /beacon/api/data-sources/{id}/migration-writes`;
+Admin only). Beacon never reads a write target: query steps, previews, subscriptions, data quality, MCP tools, AI
+grounding, documentation and metadata scans refuse it or leave it out, and only the migration writer connects with its
+credentials. Its connection may therefore use a login with the [grants a migration needs](#destination-privileges),
+while every data source Beacon reads keeps a login that can only read.
+
+- Only a PostgreSQL, MySQL or SQL Server database can be a write target — not a host-managed data source and not one
+  marked read-only, whatever its flag says.
+- A job's declared source and the data source of every step it runs may not be a write target. To copy within one
+  database, register it twice: with a read-only login (the source) and with the write login (the target).
+- The flag is checked when a job is created, again before every run, and once more by the writer before it decrypts the
+  destination's credentials. A run whose destination is not (or no longer) a write target, or that reads one, reads and
+  writes nothing: started from the page or the API it is refused with the reason (`400`); refused by the migration
+  service itself (a host calling `IMigrationService` in-process, or a flag changed between the two checks) it is recorded
+  in the job's history as failed, with the reason. A run refused because migrations are off, or of a job that is missing
+  or disabled, is answered to its caller only.
+- Every change is recorded in the settings history (`DataSource.{id}.AllowMigrationWrites`, the value before and after,
+  and who) and in the security log (`MigrationWritesChanged`, 7115, ids only).
+- Returning a write target to a read source asks for confirmation: Beacon reads it again with its login, so change that
+  login to one that can only read first.
+- Marking a source that live queries, subscriptions or data contracts read is refused (`409`, naming how many of each)
+  unless the Admin confirms it (`"force": true`; the page asks a second time): they fail once Beacon stops reading the
+  source. The security log records the counts of a confirmed mark.
+- While the host does not run migrations, the migration handlers refuse every request (`409`) — listing, showing and
+  deleting jobs and listing runs included — also for an in-process caller that does not go through the unmapped routes.
+
+See [Data Sources: migration write targets](/features/data-sources/#migration-write-targets).
+
 ## Creating a Migration Job
 
 ### Step 1: Navigate to Data Migration
@@ -41,7 +103,7 @@ Data Migration allows you to:
 
 ### Step 3: Configure Source Query
 
-The source query extracts data from one or more databases using multi-step queries.
+The source query extracts data from one or more databases using multi-step queries. It is read the way every query runs (see [How a query runs](/features/queries/#how-a-query-runs)): through the read-only execution gate and the source's read-only path, and within `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds) per statement. A migration has its own row budget, `Beacon:Migrations:MaxRows` (default 100,000, between 1 and 10,000,000; see [Data Migration](/getting-started/configuration/#data-migration)), in place of `Beacon:Query:MaxExecutionRows`: the cap is written into the source SQL and the read stops one row past it, and a larger source fails the run (with a message naming `Beacon:Migrations:MaxRows`) before anything is written rather than migrating part of it (so does a source read that fails or runs out of time in any step or in the final query: the run is recorded as failed and the destination is not opened, so a Truncate-mode job never empties its table on a failed read) — split it (for example by date range or key range across jobs) or raise the budget. A run holds every row it copies in memory, so size the budget to the host. No source may be a [migration write target](#migration-write-targets).
 
 #### Single-Step Query
 
@@ -118,9 +180,11 @@ LEFT JOIN user_analytics a ON r.user_id = a.user_id
 
 ### Step 4: Configure Destination
 
+The destination picker lists [migration write targets](#migration-write-targets) only.
+
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Destination Project** | Target database | Analytics Database |
+| **Destination data source** | A migration write target | Analytics Database (write) |
 | **Destination Table** | Target table name | `user_summary` or `schema.user_summary` |
 | **Migration Mode** | How to write data | See modes below |
 
@@ -187,7 +251,7 @@ Click **Save** to create the migration job.
 
 ## Managing Migration Jobs
 
-Data migration is a MigrationOperator's (and an Admin's, see [Functional permissions](/features/authorization/#functional-permissions)): creating, running and deleting jobs, and reading the job list, a job and its run history, need that permission. The **Data Migration** entry is hidden from other users. The Home page's migration summary shows Admins the totals of every job, MigrationOperators those of the jobs their list shows, and zeros to everyone else.
+Data migration is a MigrationOperator's (and an Admin's, see [Functional permissions](/features/authorization/#functional-permissions)): creating, running and deleting jobs, and reading the job list, a job and its run history, need that permission. The **Data Migration** entry is hidden from other users, and from everyone while the host does not run migrations ([Turning data migration on](#turning-data-migration-on)). The Home page's migration summary shows Admins the totals of every job, MigrationOperators those of the jobs their list shows, and zeros to everyone else.
 
 A MigrationOperator goes through project access like any other user, with no bypass. A job reads the source it declares and the data source of **every step** in its query text (a JSON list of steps, each naming its data source; plain SQL names none). Creating a job, every run of it and deleting it need:
 
@@ -615,16 +679,29 @@ Test connectivity before saving:
 - Column mismatch (count or names differ)
 - Data type incompatibility
 - Constraint violations (foreign key, unique, check)
-- Insufficient permissions (need INSERT/UPDATE/DELETE)
+- Insufficient permissions on the destination (see [Destination privileges](#destination-privileges))
+- The destination is not (or no longer) a [migration write target](#migration-write-targets)
 
 **Solutions:**
 - Verify destination table schema matches source query columns
-- Check destination project connection
-- Verify database user has appropriate permissions:
-  - Insert Only: INSERT permission
-  - Upsert: INSERT, UPDATE permissions
-  - Truncate: DELETE, INSERT permissions
-  - Sync with Delete: INSERT, UPDATE, DELETE permissions
+- Check the destination data source's connection
+- Verify its login has the [destination privileges](#destination-privileges) of the job's mode
+
+### Destination privileges
+
+Only a [migration write target](#migration-write-targets)'s login needs write grants; every data source Beacon reads,
+including a migration's source, keeps a login that can only read. Grant the target's login only what the job's mode
+uses, on the destination table only:
+
+| Mode | PostgreSQL | MySQL | SQL Server |
+|------|------------|-------|------------|
+| Insert | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy) |
+| Upsert | `INSERT`, `UPDATE`, and `TEMPORARY` on the database (rows are staged in a temporary table) | `INSERT`, `UPDATE`, `CREATE TEMPORARY TABLES` | `INSERT`, `UPDATE` (staged in a session temporary table) |
+| Truncate and Load | the `TRUNCATE` privilege, `INSERT` | `DROP` on the table (MySQL requires it to truncate), `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
+
+Every mode also reads `information_schema` to check that the table exists (and, for Upsert, its primary key), which a
+login with privileges on the table can do. Some of these grants are DDL-grade (`ALTER`, `DROP`, the `TRUNCATE`
+privilege), which is why such a login belongs on a write target that Beacon never reads, not on an ordinary data source.
 
 ### Partial Success Status
 
@@ -694,8 +771,8 @@ Test connectivity before saving:
 
 ### Security
 
-1. **Use Read-Only Users for Source**: Limit permissions to SELECT only
-2. **Limit Destination Permissions**: Grant only needed permissions (INSERT/UPDATE/DELETE)
+1. **Use Read-Only Users for Sources**: every data source Beacon reads, the source of a migration included, keeps a login that can only read
+2. **Write Grants on Write Targets Only**: only a [migration write target](#migration-write-targets)'s login holds the [destination privileges](#destination-privileges) its jobs' modes need, on the destination tables only
 3. **Avoid Sensitive Data**: Don't migrate passwords, tokens, or PII unless necessary
 4. **Audit Regularly**: Review job configurations and execution history
 

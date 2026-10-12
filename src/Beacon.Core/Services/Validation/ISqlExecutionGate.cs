@@ -57,6 +57,13 @@ public sealed record SqlGateRequest(
     public bool InMemoryJoin { get; init; }
 
     /// <summary>
+    /// True when the deployment lock <c>Beacon:Mcp:ForceReadOnly</c> turned read-only enforcement on over stored settings
+    /// that had it off (<see cref="McpSettingsData.ReadOnlyPinnedByLock"/>): a refusal only read-only enforcement causes then
+    /// names the lock.
+    /// </summary>
+    internal bool ReadOnlyPinnedByLock { get; init; }
+
+    /// <summary>
     /// Read-only / PII / lint flags copied from the effective MCP settings; catalog, lint context and row limit
     /// left unset so a caller adds only the stages it needs via a <c>with</c> expression.
     /// </summary>
@@ -72,7 +79,10 @@ public sealed record SqlGateRequest(
             BlockOnSchemaFailure: false,
             LintContext: null,
             settings.EnableSemanticLint,
-            MaxRows: null);
+            MaxRows: null)
+        {
+            ReadOnlyPinnedByLock = settings.ReadOnlyPinnedByLock
+        };
     }
 
     /// <summary>
@@ -113,6 +123,12 @@ public static class SqlGateCodes
     /// <summary>Read-only: the SQL is longer than <c>Beacon:Mcp:Ceilings:MaxSqlChars</c>, so no other stage ran.</summary>
     public const string SqlTooLong = "sql_too_long";
 
+    /// <summary>
+    /// Read-only: the SQL holds a control character other than tab, LF and CR, or a Unicode noncharacter, so no other stage
+    /// ran.
+    /// </summary>
+    public const string DisallowedCharacter = "disallowed_character";
+
     /// <summary>Read-only: the regex guardrail rejected the SQL.</summary>
     public const string Guardrail = "guardrail";
 
@@ -133,6 +149,15 @@ public static class SqlGateCodes
 
     /// <summary>Row limit: the outermost query already bounds its result.</summary>
     public const string AlreadyLimited = "already_limited";
+
+    /// <summary>
+    /// Row limit: the outermost query's own bound did not keep its result within the cap, so the bound was lowered to the
+    /// cap or the statement was wrapped in a capped derived table.
+    /// </summary>
+    public const string OwnBoundCapped = "own_bound_capped";
+
+    /// <summary>Row limit: the outermost query's own bound can neither be checked against the cap nor capped, so it is blocked.</summary>
+    public const string UncappableBound = "uncappable_bound";
 
     /// <summary>Row limit: the statement carries no result set to cap.</summary>
     public const string NotApplicable = "not_applicable";

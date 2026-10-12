@@ -48,6 +48,21 @@ internal static class DataSourcesEndpoints
             return TypedResults.NoContent();
         }).WithName("DeleteDataSource").RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
 
+        // Marks a data source as a migration write target (or returns it to a read source). Admin only: a write target may
+        // carry a login with write grants. Mapped whether or not migrations run, so a target can always be unmarked. A source
+        // that queries, subscriptions or data contracts read answers 409 with how many, unless the body confirms (force).
+        ds.MapPut("/{id:int}/migration-writes", async (int id, SetDataSourceMigrationWritesBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new SetDataSourceMigrationWritesCommand(id, body.AllowMigrationWrites, body.Force), ct);
+            return TypedResults.NoContent();
+        }).WithName("SetDataSourceMigrationWrites").RequireBeaconAdmin();
+
         return group;
     }
 }
+
+/// <summary>
+/// Whether the data source is a migration write target; <paramref name="Force"/> confirms marking one that queries,
+/// subscriptions or data contracts read.
+/// </summary>
+internal sealed record SetDataSourceMigrationWritesBody(bool AllowMigrationWrites, bool Force = false);

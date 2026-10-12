@@ -1,5 +1,6 @@
 using Beacon.Core.Data;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.SavedQueries;
@@ -172,6 +173,7 @@ internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> cont
     internal static IQueryable<ProjectDataSourceMembership> BuildAnyProjectMembershipQuery(BeaconContext context, List<int> dataSourceIds)
     {
         return context.ProjectDataSources
+            .WhereReadable()
             .Where(x => dataSourceIds.Contains(x.DataSourceId))
             .Where(x => x.DataSource.ArchivedTime == null)
             .Select(x =>
@@ -181,6 +183,7 @@ internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> cont
     internal static IQueryable<ProjectDataSourceMembership> BuildMembershipQuery(BeaconContext context, List<int> projectIds, List<int> dataSourceIds)
     {
         return context.ProjectDataSources
+            .WhereReadable()
             .Where(x => projectIds.Contains(x.ProjectId))
             .Where(x => dataSourceIds.Contains(x.DataSourceId))
             .Where(x => x.DataSource.ArchivedTime == null)

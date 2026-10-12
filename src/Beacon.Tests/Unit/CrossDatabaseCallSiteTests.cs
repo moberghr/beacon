@@ -17,6 +17,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
@@ -100,7 +101,10 @@ public class CrossDatabaseCallSiteTests
 
         await foreign.Should().ThrowAsync<InvalidOperationException>().WithMessage("*another database*");
         _connectionsOpened.Should().Be(0);
-        await matching.Should().ThrowAsync<ConnectionReachedException>();
+        // A failure on the data source ends the preview as a failed page, carrying the provider's message.
+        var page = await matching();
+        page.Success.Should().BeFalse();
+        page.ErrorMessage.Should().Contain(nameof(ConnectionReachedException));
         _connectionsOpened.Should().Be(1);
     }
 
@@ -112,7 +116,8 @@ public class CrossDatabaseCallSiteTests
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             AllowingHostGuard(),
             new ConfiguredDatabaseResolver(Connections(), NullLogger<ConfiguredDatabaseResolver>.Instance),
-            NullLogger<DatabaseProvider>.Instance);
+            NullLogger<DatabaseProvider>.Instance,
+            TestQueryServices.QueryOptions);
 
         var foreign = await provider.ValidateQueryAsync(Source(), Foreign);
         _connectionsOpened.Should().Be(0);
@@ -181,7 +186,7 @@ public class CrossDatabaseCallSiteTests
             knowledge.Object,
             llm.Object,
             new QueryGuardrailService(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(),
             TestConfiguredDatabases.Of(Configured),
             Providers(provider.Object),
             TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
@@ -190,13 +195,46 @@ public class CrossDatabaseCallSiteTests
 
         GeneratesSql(llm, Foreign);
         var foreign = await service.AskAsync(DataSourceId, ProjectId, "orders?");
-        provider.Verify(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never);
+        ProviderRan(provider).Should().BeFalse();
         GeneratesSql(llm, Matching);
         var matching = await service.AskAsync(DataSourceId, ProjectId, "orders?");
 
         foreign.Error.Should().Contain("another database");
         matching.Error.Should().BeNull();
-        provider.Verify(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("sales.public.orders")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Once);
+        provider.Verify(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("sales.public.orders")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Once);
+        provider.Verify(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never, "semantic search runs on the read-only path");
+    }
+
+    // Semantic search runs the shared gate in the source's dialect: a leading comment is prose, not a refusal, and the
+    // statement's own LIMIT above the cap is lowered in the SQL that runs.
+    [Test]
+    public async Task SemanticSearch_JudgesTheSqlInItsDialect_AndRunsTheGatesCappedSql()
+    {
+        var provider = ExecutingProvider();
+        var llm = new Mock<ILlmProvider>();
+        var knowledge = new Mock<IKnowledgeGraphService>();
+        knowledge
+            .Setup(x => x.GetContextForLlmAsync(DataSourceId, ProjectId, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync("schema");
+        var service = new SemanticSearchService(
+            Store().Factory(),
+            knowledge.Object,
+            llm.Object,
+            new QueryGuardrailService(),
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.Of(Configured),
+            Providers(provider.Object),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            TestProjectAccess.Actors(),
+            NullLogger<SemanticSearchService>.Instance);
+
+        GeneratesSql(llm, $"-- largest orders\n{Matching} LIMIT 5000");
+        var result = await service.AskAsync(DataSourceId, ProjectId, "orders?");
+
+        result.Error.Should().BeNull();
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), $"-- largest orders\n{Matching} LIMIT 100", It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Test]
@@ -479,20 +517,7 @@ public class CrossDatabaseCallSiteTests
 
     private QueryService QueryService()
     {
-        return new QueryService(
-            Store().Factory(),
-            Connections(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            new BeaconConfiguration(),
-            Mock.Of<IBeaconUserContext>(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            AllowingHostGuard(),
-            TestProjectAccess.Actors(),
-            TestProjectAccess.ExecutionAllowed(),
-            new ConfiguredDatabaseResolver(Connections(), NullLogger<ConfiguredDatabaseResolver>.Instance));
+        return TestQueryServices.QueryService(Store().Factory(), Connections(), configuredDatabases: new ConfiguredDatabaseResolver(Connections(), NullLogger<ConfiguredDatabaseResolver>.Instance));
     }
 
     private static DatabaseMetadata Table(string name)

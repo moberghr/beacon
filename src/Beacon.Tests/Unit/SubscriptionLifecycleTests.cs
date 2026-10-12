@@ -1,5 +1,6 @@
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Models.Subscriptions;
@@ -56,6 +57,29 @@ public class SubscriptionLifecycleTests
         await BuildService(context).CreateSubscription(NewSubscriptionData(query.Id), CancellationToken.None);
 
         context.Added.Should().ContainSingle().Which.OwnerUserId.Should().Be("ext-ada");
+    }
+
+    // Every statement stops at Beacon:Query:StatementTimeoutSeconds, so a subscription's own timeout above it is refused
+    // on create and on update instead of being cut to the limit unseen; one at the limit is kept.
+    [Test]
+    public async Task ATimeoutAboveTheStatementLimit_IsRefused_OnCreateAndUpdate()
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+        var service = BuildService(context, queryOptions: new QueryExecutionOptions { StatementTimeoutSeconds = 60 });
+        var tooLong = NewSubscriptionData(query.Id);
+        tooLong.TimeoutSeconds = 61;
+        var atTheLimit = NewSubscriptionData(query.Id);
+        atTheLimit.TimeoutSeconds = 60;
+
+        var create = () => service.CreateSubscription(tooLong, CancellationToken.None);
+        var update = () => service.UpdateSubscription(tooLong, CancellationToken.None);
+
+        await create.Should().ThrowAsync<InvalidOperationException>().WithMessage("*at most 60 seconds*Beacon:Query:StatementTimeoutSeconds*");
+        await update.Should().ThrowAsync<InvalidOperationException>().WithMessage("*at most 60 seconds*");
+        context.Added.Should().BeEmpty();
+        (await service.CreateSubscription(atTheLimit, CancellationToken.None)).Success.Should().BeTrue();
+        context.Added.Should().ContainSingle().Which.TimeoutSeconds.Should().Be(60);
     }
 
     [TestCase(true, false)]
@@ -165,7 +189,8 @@ public class SubscriptionLifecycleTests
     private SubscriptionService BuildService(
         SubscriptionContext context,
         IBeaconActorAccessor? actors = null,
-        BeaconConfiguration? configuration = null)
+        BeaconConfiguration? configuration = null,
+        QueryExecutionOptions? queryOptions = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -177,7 +202,8 @@ public class SubscriptionLifecycleTests
             _scheduler.Object,
             Mock.Of<IAnomalyDetectionService>(),
             actors ?? TestProjectAccess.Actors(),
-            configuration ?? new BeaconConfiguration());
+            configuration ?? new BeaconConfiguration(),
+            Microsoft.Extensions.Options.Options.Create(queryOptions ?? new QueryExecutionOptions()));
     }
 
     private static SubscriptionData NewSubscriptionData(int queryId) =>

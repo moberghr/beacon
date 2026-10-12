@@ -294,7 +294,8 @@ public class GroundingGuardrailsTests
         var valueGrounding = new ValueGroundingService(
             factory.Object,
             providers.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             NullLogger<ValueGroundingService>.Instance);
 
         return new KnowledgeGraphService(

@@ -14,10 +14,12 @@ namespace Beacon.Tests.Common;
 internal sealed class RecordingBeaconContext(IReadOnlyDictionary<Type, object> sets, List<object> saved, SqlCapture? offline = null)
     : BeaconContext(offline == null ? Options : OfflineOptions(offline), "beacon")
 {
+    // An unserved set is the real EF set: it never connects (SqlCapture.NeverConnects), so reading one fails at once.
     private static readonly DbContextOptions<RecordingBeaconContext> Options =
         new DbContextOptionsBuilder<RecordingBeaconContext>()
             .UseNpgsql("Host=localhost;Database=unused")
             .UseSnakeCaseNamingConvention()
+            .AddInterceptors(SqlCapture.NeverConnects)
             .Options;
 
     // For code that opens a transaction: the connection is never opened and the transaction is a stand-in the capture

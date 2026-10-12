@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -242,6 +243,32 @@ public class MetadataRefreshTests
         snapshot.Tables.Single(x => x.TableName == "orders").Description.Should().Be("Curated: one row per order", "the cached snapshot is what was stored");
     }
 
+    // Beacon builds SQL from catalog names, so a name that could end its quoting in some dialect is never stored.
+    [Test]
+    public async Task Refresh_LeavesOutNamesCarryingQuotesBracketsSemicolonsOrControlCharacters()
+    {
+        var world = new MetadataWorld();
+        world.Extracted =
+        [
+            Extracted("sales", "orders", null, ("id", null), ("status';SELECT 1;--", null), ("a]b", null), ("tab\tname", null), ("Order Date", null)),
+            Extracted("sales", "x\"y", null, ("id", null)),
+            Extracted("pg`temp", "events", null, ("id", null))
+        ];
+
+        var logs = new LogRecorder();
+
+        var snapshot = await world.Service(logs.For<DatabaseMetadataService>()).RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        var stored = world.Saved.OfType<DatabaseMetadata>().ToList();
+        stored.Should().ContainSingle().Which.TableName.Should().Be("orders");
+        stored[0].Columns.Select(x => x.ColumnName).Should().BeEquivalentTo(["id", "Order Date"]);
+        snapshot.SkippedNameCount.Should().Be(5, "two tables and three columns were left out");
+        var warning = logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Subject;
+        warning.Message.Should().Contain("sales.x\"y").And.Contain("sales.orders.a]b");
+        warning.Message.Should().Contain("sales.orders.tab\\u0009name", "a control character is written as an escape, never raw");
+        warning.Message.Should().NotContain("\t");
+    }
+
     [Test]
     public async Task Refresh_InvalidatesTheRelationshipGraph()
     {
@@ -399,7 +426,7 @@ public class MetadataRefreshTests
 
         public Mock<ISchemaGraphService> Graph { get; } = new();
 
-        public DatabaseMetadataService Service()
+        public DatabaseMetadataService Service(ILogger<DatabaseMetadataService>? logger = null)
         {
             var extractor = new Mock<IDatabaseMetadataExtractor>();
             extractor.SetupGet(x => x.SupportedEngineType).Returns(DatabaseEngineType.PostgreSQL);
@@ -415,7 +442,7 @@ public class MetadataRefreshTests
                 SettingsProviderMock.Unshared(SettingsProviderMock.Create(new McpSettingsData { EnableSampleValueCollection = false }).Object),
                 Cache,
                 Graph.Object,
-                NullLogger<DatabaseMetadataService>.Instance);
+                logger ?? NullLogger<DatabaseMetadataService>.Instance);
         }
 
         public IDataSourceService DataSourceService()
@@ -428,6 +455,7 @@ public class MetadataRefreshTests
                 Mock.Of<IBeaconUserContext>(),
                 Cache,
                 Graph.Object,
+                TestQueryServices.Runner(),
                 NullLogger<DataSourceService>.Instance);
         }
 

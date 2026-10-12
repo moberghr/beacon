@@ -8,12 +8,14 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Worker;
 using Beacon.Core.Worker.Services;
@@ -112,7 +114,8 @@ public class ScheduledWorkRunAsTests
 
         var act = () => RunSubscriptionAsync();
 
-        await act.Should().ThrowAsync<ExecutionReachedException>("a Viewer member may run saved SQL in the project");
+        // The run reached the data source's connection (which the test double refuses), so it was not skipped.
+        await act.Should().ThrowAsync<QueryExecutionFailedException>("a Viewer member may run saved SQL in the project");
         _connectionsOpened.Should().Be(1);
         History().Should().BeEmpty();
     }
@@ -124,7 +127,9 @@ public class ScheduledWorkRunAsTests
 
         var act = () => RunSubscriptionAsync();
 
-        await act.Should().ThrowAsync<ExecutionReachedException>();
+        await act.Should().ThrowAsync<QueryExecutionFailedException>();
+        _connectionsOpened.Should().Be(1, "the run reached the data source");
+        History().Should().BeEmpty();
     }
 
     [Test]
@@ -159,7 +164,8 @@ public class ScheduledWorkRunAsTests
 
         var act = () => RunSubscriptionAsync();
 
-        await act.Should().ThrowAsync<ExecutionReachedException>();
+        await act.Should().ThrowAsync<QueryExecutionFailedException>();
+        _connectionsOpened.Should().Be(1, "the run reached the data source");
         _logs.Entries.Should().ContainSingle(x => x.Message.Contains("Scheduled work of owner host-principal runs as the system"))
             .Which.Level.Should().Be(LogLevel.Warning, "the owner's access is not re-checked on such a host");
     }
@@ -503,6 +509,7 @@ public class ScheduledWorkRunAsTests
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
             sp.GetRequiredService<IRunAsScope>(),
             sp.GetRequiredService<IExecutionAccessCheck>(),
+            Mock.Of<IStepSqlSaveCheck>(),
             NullLogger<AiActorService>.Instance);
 
         await service.ExecuteThinkCycleBackgroundAsync(actor.Id);
@@ -515,20 +522,14 @@ public class ScheduledWorkRunAsTests
         services.AddSingleton<ILoggerProvider>(_logs);
         services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = request });
         services.AddScoped<IExecutionAccessCheck, ExecutionAccessCheck>();
-        services.AddScoped<IQueryService>(x => new QueryService(
+        services.AddScoped<IQueryService>(x => TestQueryServices.QueryService(
             x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
             _connections.Object,
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            x.GetRequiredService<BeaconConfiguration>(),
-            Mock.Of<IBeaconUserContext>(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new HostDataSourceGuard(new TestHostDataSources()),
-            x.GetRequiredService<IBeaconActorAccessor>(),
-            x.GetRequiredService<IExecutionAccessCheck>(),
-            new ConfiguredDatabaseResolver(_connections.Object, NullLogger<ConfiguredDatabaseResolver>.Instance)));
+            new ConfiguredDatabaseResolver(_connections.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
+            configuration: x.GetRequiredService<BeaconConfiguration>(),
+            actors: x.GetRequiredService<IBeaconActorAccessor>(),
+            executionAccess: x.GetRequiredService<IExecutionAccessCheck>()));
         services.AddScoped<IDataQualityEvaluationService>(x => new DataQualityEvaluationService(
             x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
             new DataQualitySqlGenerator(),
@@ -536,6 +537,8 @@ public class ScheduledWorkRunAsTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             x.GetRequiredService<IExecutionAccessCheck>(),
+            TestQueryServices.DefaultSettings(),
+            new QueryGuardrailService(),
             NullLogger<DataQualityEvaluationService>.Instance));
         services.AddScoped(x => new JobService(
             x.GetRequiredService<IDbContextFactory<BeaconContext>>(),

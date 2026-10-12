@@ -4,18 +4,28 @@ namespace Beacon.Core.Configuration;
 
 /// <summary>
 /// Deployment-level MCP guarantees bound from <c>Beacon:Mcp</c>. Locks pin a setting for the global row and
-/// every project regardless of what an admin stores (the UI hides the toggle, the API answers 409); ceilings
-/// bound the numeric settings — a stored value above a ceiling resolves to the ceiling. An absent section means
-/// no locks, no ceilings and the built-in SQL / question length caps.
+/// every project regardless of what an admin stores — an Admin included (the UI disables the switch, the API answers
+/// 409); only the host's configuration lifts one. Ceilings bound the numeric settings — a stored value above a ceiling
+/// resolves to the ceiling. An absent section means the read-only and PII-detection locks are on, content retention is
+/// not locked, and there are no ceilings beyond the built-in SQL / question length caps.
 /// </summary>
 public sealed class McpDeploymentOptions
 {
     public const string SectionName = "Beacon:Mcp";
 
-    /// <summary>Pins <c>EnforceReadOnly = true</c> everywhere (R2).</summary>
-    public bool ForceReadOnly { get; set; }
+    /// <summary>
+    /// Pins <c>EnforceReadOnly = true</c> everywhere, and makes the execution gate enforce read-only whatever a caller
+    /// asks for. On by default; set it to <c>false</c> to let an Admin turn read-only enforcement off at runtime.
+    /// </summary>
+    public bool ForceReadOnly { get; set; } = true;
 
-    /// <summary>Pins <c>RetainQueryContent = false</c> everywhere (R1).</summary>
+    /// <summary>
+    /// Pins <c>EnablePiiDetection = true</c> everywhere. On by default; set it to <c>false</c> to let an Admin turn PII
+    /// detection off at runtime.
+    /// </summary>
+    public bool ForcePiiDetection { get; set; } = true;
+
+    /// <summary>Pins <c>RetainQueryContent = false</c> everywhere.</summary>
     public bool ForceNoContentRetention { get; set; }
 
     public McpCeilingOptions Ceilings { get; set; } = new();

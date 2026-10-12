@@ -27,7 +27,7 @@ public class RecipientReadModelTests
     public async Task SubscriptionDetails_NeverSelectsDestinationsOrArchivedRecipients()
     {
         var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration());
+        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration(), TestQueryServices.QueryOptions);
 
         var act = () => service.GetSubscriptionDetails(5, CancellationToken.None);
 
@@ -41,7 +41,7 @@ public class RecipientReadModelTests
     public async Task SubscriptionList_NeverSelectsDestinations()
     {
         var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration());
+        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration(), TestQueryServices.QueryOptions);
 
         await service.GetSubscriptions(null, null, null, null!, CancellationToken.None);
 

@@ -4759,6 +4759,58 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
+  getMcpDeploymentLocks(): Promise<GetMcpDeploymentLocksResult> {
+    let url_ = this.baseUrl + "/beacon/api/mcp/settings/locks";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetMcpDeploymentLocks(_response);
+    });
+  }
+
+  protected processGetMcpDeploymentLocks(
+    response: Response,
+  ): Promise<GetMcpDeploymentLocksResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetMcpDeploymentLocksResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetMcpDeploymentLocksResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
   getMcpProjectSettings(
     projectId: number,
   ): Promise<GetMcpProjectSettingsResult> {
@@ -8526,6 +8578,7 @@ export class BeaconApiClient {
   /**
    * @param search (optional)
    * @param databaseOnly (optional)
+   * @param migrationTargets (optional)
    * @param page (optional)
    * @param pageSize (optional)
    * @param sort (optional)
@@ -8534,6 +8587,7 @@ export class BeaconApiClient {
   getDataSources(
     search: string | undefined,
     databaseOnly: boolean | undefined,
+    migrationTargets: boolean | undefined,
     page: number | undefined,
     pageSize: number | undefined,
     sort: string | undefined,
@@ -8547,6 +8601,11 @@ export class BeaconApiClient {
       throw new Error("The parameter 'databaseOnly' cannot be null.");
     else if (databaseOnly !== undefined)
       url_ += "DatabaseOnly=" + encodeURIComponent("" + databaseOnly) + "&";
+    if (migrationTargets === null)
+      throw new Error("The parameter 'migrationTargets' cannot be null.");
+    else if (migrationTargets !== undefined)
+      url_ +=
+        "MigrationTargets=" + encodeURIComponent("" + migrationTargets) + "&";
     if (page === null) throw new Error("The parameter 'page' cannot be null.");
     else if (page !== undefined)
       url_ += "Page=" + encodeURIComponent("" + page) + "&";
@@ -8928,6 +8987,59 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<DatabaseMetadataSnapshot>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  setDataSourceMigrationWrites(
+    id: number,
+    body: SetDataSourceMigrationWritesBody,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/data-sources/{id}/migration-writes";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processSetDataSourceMigrationWrites(_response);
+    });
+  }
+
+  protected processSetDataSourceMigrationWrites(
+    response: Response,
+  ): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
   }
 
   /**
@@ -17387,6 +17499,7 @@ export interface CurrentPermissionsResponse {
   canWrite: boolean;
   isAdmin: boolean;
   permissions: string[];
+  migrationsEnabled: boolean;
 
   [key: string]: any;
 }
@@ -17514,6 +17627,7 @@ export interface DatabaseMetadataSnapshot {
   databaseEngineType: DatabaseEngineType | null;
   tables: TableMetadataDto[];
   refreshedAt: Date;
+  skippedNameCount?: number;
 
   [key: string]: any;
 }
@@ -17652,8 +17766,10 @@ export interface DataSourceEntry {
   migrationJobsCount?: number;
   metadataLoadingEnabled?: boolean;
   openWhenUnlinked?: boolean;
+  allowMigrationWrites?: boolean;
   projects?: DataSourceProjectChip[];
   otherProjectCount?: number;
+  databaseReadOnlyEnforced?: boolean | null;
 
   [key: string]: any;
 }
@@ -17967,6 +18083,12 @@ export interface GetMcpAuditLogsResult {
   totalCount: number;
   page: number;
   pageSize: number;
+
+  [key: string]: any;
+}
+
+export interface GetMcpDeploymentLocksResult {
+  lockedFields: string[];
 
   [key: string]: any;
 }
@@ -19492,6 +19614,13 @@ export interface SetAiActorOwnerBody {
 
 export interface SetDataContractOwnerBody {
   userId: number;
+
+  [key: string]: any;
+}
+
+export interface SetDataSourceMigrationWritesBody {
+  allowMigrationWrites: boolean;
+  force?: boolean;
 
   [key: string]: any;
 }

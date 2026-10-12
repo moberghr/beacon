@@ -5,6 +5,7 @@ using System.Reflection;
 using SqlParser;
 using SqlParser.Ast;
 using SqlParser.Dialects;
+using SqlParser.Tokens;
 
 namespace Beacon.Core.Services.Validation;
 
@@ -28,6 +29,12 @@ internal static class SqlAst
     public static readonly string TooDeepMessage =
         "The SQL is nested too deeply to verify. Reduce nested parentheses and subqueries, or long UNION, AND/OR or arithmetic chains.";
 
+    public static readonly string DisallowedCharacterMessage =
+        "The SQL holds a control character or a Unicode noncharacter. Remove it: besides text, only tabs and line breaks are allowed.";
+
+    public static readonly string UnmatchedEndMessage =
+        "The SQL holds an END that closes no CASE, so it cannot be verified. Remove it, or quote the name END.";
+
     // The parser's own recursion budget reports exhaustion as an ordinary parse error with this text.
     private const string ParserRecursionLimitMessage = "Recursion limit exceeded";
 
@@ -45,8 +52,19 @@ internal static class SqlAst
 
     /// <exception cref="TooDeepException">The parser ran out of recursion budget, or the parsed tree is deeper than
     /// <see cref="MaxDepth"/>.</exception>
+    /// <exception cref="DisallowedCharacterException">The SQL holds a character <see cref="IndexOfDisallowedCharacter"/>
+    /// finds.</exception>
+    /// <exception cref="UnmatchedEndException">The SQL holds an unquoted END that closes no CASE.</exception>
     public static Sequence<Statement> Parse(string sql, Dialect dialect)
     {
+        // The tokenizer reads U+FFFF as the end of its input: whatever follows would never be parsed, so every caller — the
+        // read-only validator, the database-name rule, the row-cap and paging rewriters, the save checks — would judge a
+        // prefix of the statement that runs.
+        if (IndexOfDisallowedCharacter(sql) >= 0)
+        {
+            throw new DisallowedCharacterException();
+        }
+
         Sequence<Statement> statements;
         try
         {
@@ -62,7 +80,59 @@ internal static class SqlAst
             throw new TooDeepException();
         }
 
+        // After a statement the parser reads END as the end of a block and stops, returning what it read so far: the text
+        // after it would never be judged. In a query END only closes a CASE, so one more END than CASE is refused.
+        if (sql.Contains("END", StringComparison.OrdinalIgnoreCase) && HasUnmatchedEnd(sql, dialect))
+        {
+            throw new UnmatchedEndException();
+        }
+
         return statements;
+    }
+
+    /// <summary>
+    /// The position of the first character no SQL may hold, or -1: a control character other than tab, LF and CR, and every
+    /// Unicode noncharacter — U+FDD0 to U+FDEF and each code point ending in FFFE or FFFF, in every plane. The parser reads
+    /// U+FFFF as the end of its input; the others have no place in SQL text, and an engine may read them differently from
+    /// the parser. One linear pass.
+    /// </summary>
+    public static int IndexOfDisallowedCharacter(string? sql)
+    {
+        if (sql == null)
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < sql.Length; i++)
+        {
+            var c = sql[i];
+            if (char.IsControl(c) && c is not ('\t' or '\n' or '\r'))
+            {
+                return i;
+            }
+
+            if (c is >= '﷐' and <= '﷯' or '￾' or '￿')
+            {
+                return i;
+            }
+
+            // A noncharacter outside the basic plane is U+nFFFE or U+nFFFF, written as a surrogate pair.
+            if (char.IsHighSurrogate(c)
+                && i + 1 < sql.Length
+                && char.IsLowSurrogate(sql[i + 1])
+                && (char.ConvertToUtf32(c, sql[i + 1]) & 0xFFFE) == 0xFFFE)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>The caller-facing refusal for a character <see cref="IndexOfDisallowedCharacter"/> found at <paramref name="index"/>.</summary>
+    public static string DisallowedCharacterMessageAt(int index)
+    {
+        return $"The SQL holds a control character or a Unicode noncharacter at position {index + 1}. Remove it: besides text, only tabs and line breaks are allowed.";
     }
 
     /// <summary>
@@ -84,6 +154,30 @@ internal static class SqlAst
                 pending.Push(child);
             }
         }
+    }
+
+    private static bool HasUnmatchedEnd(string sql, Dialect dialect)
+    {
+        var cases = 0;
+        var ends = 0;
+        foreach (var token in new Tokenizer().Tokenize(sql, dialect))
+        {
+            if (token is not Word { QuoteStyle: null } word)
+            {
+                continue;
+            }
+
+            if (word.Keyword == Keyword.CASE)
+            {
+                cases++;
+            }
+            else if (word.Keyword == Keyword.END)
+            {
+                ends++;
+            }
+        }
+
+        return ends > cases;
     }
 
     private static bool IsWithinDepth(object root)
@@ -161,5 +255,20 @@ internal static class SqlAst
     /// The SQL parsed, but its tree is too deep to walk safely. Unlike a parse error it is never a reason to fall back to
     /// a textual heuristic: the statement must not run.
     /// </summary>
-    public sealed class TooDeepException() : InvalidOperationException(TooDeepMessage);
+    public sealed class TooDeepException() : UnverifiableSqlException(TooDeepMessage);
+
+    /// <summary>
+    /// The SQL holds a control character or a Unicode noncharacter (<see cref="IndexOfDisallowedCharacter"/>), which the
+    /// parser cannot be trusted to read past.
+    /// </summary>
+    public sealed class DisallowedCharacterException() : UnverifiableSqlException(DisallowedCharacterMessage);
+
+    /// <summary>The SQL holds an END that closes no CASE, where the parser stops reading.</summary>
+    public sealed class UnmatchedEndException() : UnverifiableSqlException(UnmatchedEndMessage);
+
+    /// <summary>
+    /// The SQL parsed — or would have — but cannot be verified as a whole. Unlike a parse error it is never a reason to fall
+    /// back to a textual heuristic: the statement must not run.
+    /// </summary>
+    public abstract class UnverifiableSqlException(string message) : InvalidOperationException(message);
 }

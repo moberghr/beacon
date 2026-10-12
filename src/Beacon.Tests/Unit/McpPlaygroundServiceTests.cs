@@ -518,10 +518,12 @@ public class McpPlaygroundServiceTests
     /// signals added — no DB, no UseInMemoryDatabase (§4.7). Mirrors DryRunToolTests.</summary>
     private sealed class PlaygroundTestContext : BeaconContext
     {
+        // A set it does not serve never connects: reading one fails at once (SqlCapture.NeverConnects).
         private static readonly DbContextOptions<PlaygroundTestContext> Options =
             new DbContextOptionsBuilder<PlaygroundTestContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
+                .AddInterceptors(SqlCapture.NeverConnects)
                 .Options;
 
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();

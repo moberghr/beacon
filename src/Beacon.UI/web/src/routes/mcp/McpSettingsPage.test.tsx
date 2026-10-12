@@ -346,12 +346,37 @@ describe('McpSettingsPage', () => {
       expect(screen.getByLabelText('Enable PII detection')).toBeDisabled();
     });
 
-    it('lets an Admin turn them off globally', async () => {
+    it('lets an Admin turn them off globally when the deployment does not lock them', async () => {
       await renderPage();
       fireEvent.click(screen.getByText('Guardrails'));
 
       expect(screen.getByLabelText('Enforce read-only queries')).toBeEnabled();
       expect(screen.getByLabelText('Enable PII detection')).toBeEnabled();
+      expect(screen.queryByText(/Locked on by the deployment/)).not.toBeInTheDocument();
+    });
+
+    it('stay on for an Admin too while the deployment locks them, with a note saying where they are unlocked', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      mswServer.use(
+        http.get('*/beacon/api/mcp/settings/locks', () =>
+          HttpResponse.json({ lockedFields: ['EnablePiiDetection', 'EnforceReadOnly'] })),
+        http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      await waitFor(() => expect(screen.getByLabelText('Enforce read-only queries')).toBeDisabled());
+      expect(screen.getByLabelText('Enable PII detection')).toBeDisabled();
+      expect(screen.getByLabelText(/Retain question and SQL text/)).toBeEnabled();
+      expect(screen.getByText(/Locked on by the deployment/)).toHaveTextContent(/only the host's configuration can/);
+      expect(screen.queryByText('Only an Admin can turn read-only enforcement or PII detection off.')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText('Save settings'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data).toMatchObject({ enforceReadOnly: true, enablePiiDetection: true });
     });
 
     it('keeps a SecurityAdmin from turning off or clearing a project override that would loosen them', async () => {

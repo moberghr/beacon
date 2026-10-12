@@ -6,11 +6,16 @@ using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class GetMigrationJobHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
+internal sealed class GetMigrationJobHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    MigrationWritePolicy writePolicy)
     : IRequestHandler<GetMigrationJobQuery, MigrationJobListItem?>
 {
     public async Task<MigrationJobListItem?> Handle(GetMigrationJobQuery request, CancellationToken cancellationToken)
     {
+        writePolicy.DemandEnabled();
+
         var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -39,5 +44,6 @@ internal sealed class GetMigrationJobHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
+/// <summary>One migration job, found only when the caller reads both of its data sources; only while the deployment runs migrations (409 otherwise).</summary>
 [ProjectScopeExempt("gated by the MigrationOperator permission; a job is found only when the caller reads both of its data sources", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record GetMigrationJobQuery(int Id) : IRequest<MigrationJobListItem?>;

@@ -44,10 +44,12 @@ public class ProjectQueryToolSchemaGateTests
     private DataSourceType _warehouseType;
     private DatabaseEngineType? _warehouseEngine;
     private Beacon.Core.Services.Validation.IConfiguredDatabaseResolver _configuredDatabases = null!;
+    private Beacon.Core.Configuration.McpDeploymentOptions? _deployment;
 
     [SetUp]
     public void SetUp()
     {
+        _deployment = null;
         _provider = new Mock<IDataSourceProvider>();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(
@@ -116,6 +118,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         _warehouseEngine = DatabaseEngineType.MSSQL;
         _configuredDatabases = TestConfiguredDatabases.Of("Sales");
+        _deployment = TestSqlGate.Unlocked;
         WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
 
@@ -135,6 +138,52 @@ public class ProjectQueryToolSchemaGateTests
         _provider.Verify(
             x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), batch, It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    // Under the default deployment lock (Beacon:Mcp:ForceReadOnly) the tool judges SQL read-only whatever the settings it
+    // is handed say, so the same write batch never reaches the provider.
+    [Test]
+    public async Task UnderTheDefaultReadOnlyLock_AWriteBatch_IsRefusedEvenWhenTheSettingsSayReadOnlyIsOff()
+    {
+        _warehouseEngine = DatabaseEngineType.MSSQL;
+        _configuredDatabases = TestConfiguredDatabases.Of("Sales");
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
+        const string batch = "UPDATE Sales.dbo.Customers SET tier = 'gold' WHERE id = 1; SELECT id FROM dbo.Customers";
+
+        var refused = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: batch, cancellationToken: CancellationToken.None);
+
+        (refused.IsError ?? false).Should().BeTrue();
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // The parser reads U+FFFF as the end of its input; the tool refuses SQL holding one (or any noncharacter or control
+    // character) before the provider, with read-only enforcement on or off, and the refusal is audited.
+    [TestCase(DatabaseEngineType.PostgreSQL, "SELECT 1 /* x */￿; COMMIT; BEGIN READ WRITE; DELETE FROM t; SELECT 1", false)]
+    [TestCase(DatabaseEngineType.MSSQL, "SELECT 1 --￿\nCOMMIT; DELETE FROM dbo.t; SELECT 1", false)]
+    [TestCase(DatabaseEngineType.MSSQL, "SELECT 1 /* x */￿ COMMIT", true)]
+    [TestCase(DatabaseEngineType.MySQL, "SELECT 1 -- x￿\n; COMMIT; DELETE FROM t; SELECT 1", true)]
+    public async Task ANoncharacterInTheSql_IsRefusedBeforeTheProvider(DatabaseEngineType engine, string sql, bool readOnlyOff)
+    {
+        _warehouseEngine = engine;
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        Mock<IMcpSettingsProvider>? settingsProvider = null;
+        if (readOnlyOff)
+        {
+            _deployment = TestSqlGate.Unlocked;
+            settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
+        }
+
+        var result = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("noncharacter");
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Contain("noncharacter");
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [TestCase(DataSourceType.BigQuery, "bigquery")]
@@ -346,7 +395,7 @@ public class ProjectQueryToolSchemaGateTests
 
         var projectContext = new McpProjectContext { UserId = CallerUserId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
         var guardrail = new QueryGuardrailService();
-        _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail));
+        _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail, deployment: _deployment));
 
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);

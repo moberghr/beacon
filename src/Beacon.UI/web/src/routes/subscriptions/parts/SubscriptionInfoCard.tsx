@@ -90,7 +90,7 @@ export function SubscriptionInfoCard({ subscription }: SubscriptionInfoCardProps
                 <span className="mono">
                   {subscription.timeoutSeconds != null
                     ? `${subscription.timeoutSeconds} seconds`
-                    : 'no timeout'}
+                    : 'deployment limit'}
                 </span>
               }
             />

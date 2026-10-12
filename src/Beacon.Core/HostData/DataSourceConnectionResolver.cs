@@ -10,7 +10,8 @@ namespace Beacon.Core.HostData;
 /// The one place a database data source's stored connection data becomes a live connection string. Ordinary
 /// data sources decrypt their stored string; host-managed ones decrypt a REFERENCE
 /// (<c>{"hostConnectionStringName":"BeaconReadOnly"}</c>) and resolve the real string from the host's
-/// <see cref="IConfiguration"/> at call time, so no host secret is ever persisted (§1.1).
+/// <see cref="IConfiguration"/> at call time, so no host secret is ever persisted (§1.1). A migration write target is
+/// refused here (<see cref="MigrationWriteTargets"/>): its login may write, and only the migration writer connects with it.
 /// </summary>
 public interface IDataSourceConnectionResolver
 {
@@ -23,6 +24,8 @@ internal sealed class DataSourceConnectionResolver(
 {
     public string GetConnectionString(DataSource dataSource)
     {
+        MigrationWriteTargets.EnsureReadable(dataSource);
+
         var decrypted = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
         if (dataSource.HostManagedKey == null)
         {

@@ -82,6 +82,9 @@ public static class BeaconApiEndpoints
         // Notes the active permission mapping and separation of duties at startup.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconPermissionStartupNote>());
 
+        // Warns at startup about unlocked MCP safety settings and data sources whose engine does not refuse writes.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, ReadOnlyStartupWarnings>());
+
         return services;
     }
 
@@ -135,7 +138,14 @@ public static class BeaconApiEndpoints
         group.MapAiActorsEndpoints();
         group.MapNotificationsEndpoints();
         group.MapControlTowerEndpoints();
-        group.MapMigrationsEndpoints();
+
+        // Data migration is the one feature that writes to a connected database: its endpoints exist only on a host that
+        // turned it on (Beacon:Migrations:Enabled). Unmapped, every migration route answers 404.
+        if (endpoints.ServiceProvider.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true)
+        {
+            group.MapMigrationsEndpoints();
+        }
+
         group.MapRecipientsEndpoints();
         group.MapSubscriptionsEndpoints();
         group.MapDataSourcesEndpoints();

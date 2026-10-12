@@ -8,7 +8,9 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 /// stored credential (scans) or change that credential; and for refused access: an action refused on a resource the
 /// caller may see (403), a resource answered as not found (404), and scheduled work skipped because its owner may no
 /// longer run it; a project created open because its creator could not be its member; a user created; and a user's
-/// roles assigned or removed. Ids only (§1.11). Public so every Beacon assembly logs them with the same ids.
+/// roles assigned or removed; a data source marked or unmarked as a migration write target; and a read-only query on SQL
+/// Server that ended the transaction it ran in. Ids only (§1.11). Public so every Beacon assembly logs them with the same
+/// ids.
 /// </summary>
 public static class ProjectAccessEvents
 {
@@ -26,4 +28,6 @@ public static class ProjectAccessEvents
     public static readonly EventId ProjectCreatedOpen = new(7112, nameof(ProjectCreatedOpen));
     public static readonly EventId UserRolesChanged = new(7113, nameof(UserRolesChanged));
     public static readonly EventId UserCreated = new(7114, nameof(UserCreated));
+    public static readonly EventId MigrationWritesChanged = new(7115, nameof(MigrationWritesChanged));
+    public static readonly EventId ReadOnlyTransactionEnded = new(7116, nameof(ReadOnlyTransactionEnded));
 }

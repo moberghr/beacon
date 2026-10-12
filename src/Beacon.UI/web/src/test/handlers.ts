@@ -21,6 +21,8 @@ export const handlers = [
   ),
   // A user with a role can read and write, and holds no functional permission.
   permissionsHandler(),
+  // No MCP setting pinned by the deployment unless a test says so.
+  http.get('*/beacon/api/mcp/settings/locks', () => HttpResponse.json({ lockedFields: [] })),
   // Match any origin so we don't have to mirror jsdom's default (currently 'http://localhost:3000').
   http.get('*/beacon/api/projects', () =>
     HttpResponse.json({

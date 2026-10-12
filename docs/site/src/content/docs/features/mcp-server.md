@@ -330,7 +330,7 @@ The MCP server enforces several safety measures:
 |---------|-------------|---------|
 | **Read-only enforcement** | Only `SELECT` queries are allowed | Enabled |
 | **Database names** | SQL may name only its data source's configured database (catalog, project); other qualifiers are refused | Always on |
-| **Database boundary** | Functions and procedures that reach other servers, files or storage, Databricks file paths and four-part names are refused | Always on |
+| **Database boundary** | Functions and procedures that reach other servers, files or storage, SQL-text extension functions, PostgreSQL `COPY … PROGRAM` / server-file `COPY`, Databricks file paths and four-part names are refused | Always on |
 | **Shared data sources** | A source several live projects link runs, and is grounded, with the strictest guardrails among them | Always on |
 | **Row limits** | Maximum rows returned per query | 100 (single), 500 (cross-source), max 1000 |
 | **PII detection** | Automatically detects and flags sensitive data patterns | Enabled |
@@ -339,7 +339,7 @@ The MCP server enforces several safety measures:
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 | **Content retention** | Whether questions, SQL, and error text are persisted at all — per project, lockable deployment-wide | Retained |
 
-**Database names.** `ask`, `query`, `dry_run` and the saved-query tools refuse SQL that names another database than the data source's own — `database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery — with the gate code `cross_database`, also when read-only enforcement is off. The allowed database is the one the data source's connection configures; a source without one — or whose connection settings cannot be read — accepts no database qualifier. Unqualified and schema-qualified names always pass. The same always-on stage refuses `dblink…`, `lo_…`, `xp_…`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `EXTERNAL_QUERY` and the other functions that reach other servers, files or storage, Databricks file paths and SQL Server four-part names, so turning read-only enforcement off never opens them. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+**Database names.** `ask`, `query`, `dry_run` and the saved-query tools refuse SQL that names another database than the data source's own — `database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery — with the gate code `cross_database`, also when read-only enforcement is off. The allowed database is the one the data source's connection configures; a source without one — or whose connection settings cannot be read — accepts no database qualifier. Unqualified and schema-qualified names always pass. The same always-on stage refuses `dblink…`, `lo_…`, `xp_…`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `EXTERNAL_QUERY` and the other functions that reach other servers, files or storage — on Databricks also `http_request`, `read_kafka` and the other stream readers, `reflect` and `java_method` — the PostgreSQL extension functions that run SQL text (`pg_background_…`, pgRouting's `pgr_…`), PostgreSQL `COPY … TO/FROM PROGRAM` and `COPY` to or from a server file, Databricks file paths and SQL Server four-part names, so turning read-only enforcement off never opens them. See [Database names in SQL](/features/authorization/#database-names-in-sql).
 
 **Shared data sources.** The guardrails a tool applies are the data source's: when several live projects link it, read-only enforcement and PII detection are on if any of them turns them on, value grounding and sample values are off if any of them turns them off, all their custom PII patterns apply, and the lowest row limit, statement timeout, result size, plan-cost limit and value-grounding probe budget win — whichever project the caller works in. `ask` applies them over every data source it routes to, and grounding (`ask`, `get_query_context`) applies the value-grounding, sample-value and PII settings. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
 
@@ -392,7 +392,9 @@ Natural-language questions through the `ask` tool don't go through a naive promp
 
 1. **Grounded context** — before generation, Beacon assembles an M-Schema rendering (column name, type, nullability, description) *including real sample values* so filters match actual data formats (`'shipped'` vs `'SHIPPED'`), plus curated join paths, matching business-glossary terms, human-verified query examples, and lessons mined from past usage. See the [Knowledge Base guide](/features/knowledge-base/) for what goes in and how you curate it.
 2. **AST read-only validation** — generated SQL is parsed into an abstract syntax tree in the data source's own dialect (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks); SQL for a source whose dialect is unknown is refused. DML/DDL statements, stacked queries, comment-hidden writes, row-locking clauses, functions that read files, reach other servers or sleep, linked-server (four-part) names and file path references are rejected before anything reaches your database — defense-in-depth beyond the regex guardrail.
-3. **Database read-only backstop** — on PostgreSQL and MySQL, MCP-executed SQL additionally runs inside a `READ ONLY` transaction (on MySQL also with a read-only session default and statement batches turned off), so a write that somehow slipped past both parsers is still refused by the database itself. SQL Server, Azure Synapse, Snowflake, BigQuery and Databricks rely on the parser gates and the read-only login you connect with.
+3. **Database read-only backstop** — on PostgreSQL and MySQL, MCP-executed SQL additionally runs inside a `READ ONLY` transaction (on PostgreSQL as a batch of exactly one command, which the driver and the server refuse to split into several statements; on MySQL also with a read-only session default and statement batches turned off), so a write that somehow slipped past both parsers is still refused by the database itself — defence in depth, not a replacement for a read-only login. BigQuery and Databricks have no read-only session: their connectors refuse, on the read-only path, anything their own dialect's parser does not read as a single `SELECT` in the configured project or catalog, and BigQuery additionally runs only what a dry run reports as a `SELECT`. SQL Server, Azure Synapse and Snowflake rely on the parser gates (SQL Server also runs the statement in a transaction that is always rolled back, and fails the run when the statement ends that transaction itself). On all five, the read-only login you connect with is the database-level boundary; on PostgreSQL and MySQL it is still required.
+
+The same gate and read-only path run every query Beacon executes outside MCP too — previews, subscriptions, data-quality rules, AI actors, migration reads; see [How a query runs](/features/queries/#how-a-query-runs).
 4. **Dry-run repair loop** — if execution fails, the SQL is retried with the database error and a refreshed schema context; truncated or degenerate repairs are rejected rather than executed.
 5. **Row limits & PII masking** — results are capped and sensitive values (emails, phone numbers, SSNs, credit cards, tokens, and custom regex patterns) are masked (`a***z`) before leaving the server.
 
@@ -433,20 +435,21 @@ The tabs:
 
 **Guardrails**
 - **Max row limit** — the ceiling on rows returned (default: 1000)
-- **Read-only enforcement** — toggle the SELECT-only restriction
-- **PII detection** — enable/disable, plus custom PII regex patterns
+- **Read-only enforcement** — the SELECT-only restriction; locked on by default (see below)
+- **PII detection** — enable/disable, plus custom PII regex patterns; detection is locked on by default (see below)
 - **Execution** — statement timeout (default 30s), max result size (default 256 KB), max EXPLAIN cost (blank = no limit), max concurrent queries per API key (default 4), and the two retention switches: **Retain query content** and **Allow the feedback tool to store question and SQL text**
 - **Learning** — master switch, auto-approve threshold, injection budget, and signal retention window
 
 ### Deployment locks and ceilings
 
-Some deployments need a setting to be non-negotiable no matter what an administrator clicks. The `Beacon:Mcp` configuration section pins values at the host level:
+Some settings must be non-negotiable no matter what an administrator clicks. The `Beacon:Mcp` configuration section pins values at the host level. Read-only enforcement and PII detection are pinned **by default**: `ForceReadOnly` and `ForcePiiDetection` are `true` unless the host's configuration sets them to `false`.
 
 ```json
 {
   "Beacon": {
     "Mcp": {
       "ForceReadOnly": true,
+      "ForcePiiDetection": true,
       "ForceNoContentRetention": true,
       "Ceilings": {
         "MaxRowLimit": 1000,
@@ -461,11 +464,21 @@ Some deployments need a setting to be non-negotiable no matter what an administr
 }
 ```
 
-- A **lock** (`ForceReadOnly`, `ForceNoContentRetention`) pins the effective value. The UI hides locked fields and names them in a banner; an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
+- A **lock** (`ForceReadOnly` and `ForcePiiDetection`, both on by default; `ForceNoContentRetention`, off by default) pins the effective value for the global settings and every project. Nobody can change a locked setting at runtime — an Admin included; only the host's configuration lifts the lock. The global page shows a locked switch disabled with a note, the project scope hides locked fields and names them in a banner, `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`), and an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
+- With `ForceReadOnly` on, the SQL execution gate also judges every statement read-only whatever the settings a caller hands it — the `ask`, `query` and `dry_run` tools and the in-memory join of a cross-source query alike. Only a deployment that sets `ForceReadOnly: false` lets an Admin turn read-only enforcement off (globally or per project), and only there does the setting reach the gate. The host logs a warning at startup for each of these two locks that is off.
 - A **ceiling** clamps a numeric value downward only — it can lower what an administrator configured, never raise it. Clamped fields are flagged in the UI.
-- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section there are no locks and no deployment-set ceilings, but these two length caps still hold.
+- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section, read-only enforcement and PII detection are locked on, content retention is not locked, there are no deployment-set ceilings, and these two length caps hold.
 - Settings resolve as **lock → project override → global value → built-in default**, then ceilings are applied.
 - Saving the global page never bakes a locked or clamped value into the stored row, so lifting a lock or raising a ceiling restores what was configured underneath.
+- **Every change is recorded.** Each setting a save changes — globally or for a project — is written to the settings history the [Admin Settings](/features/admin-settings/) page keeps: key `Mcp.{Setting}` or `Mcp.Project.{projectId}.{Setting}`, the value before and after (an empty override is "inherit"; a long prompt or description is cut to 2,000 characters), when, and who (the caller's Beacon user id). The log notes the change by setting name and ids only.
+
+:::caution[Upgrading]
+Read-only enforcement and PII detection can no longer be turned off at runtime unless the deployment unlocks them. A
+deployment that had either switched off globally or for a project runs with it on after the upgrade; the stored value is
+kept, and takes effect again only if the host sets `Beacon:Mcp:ForceReadOnly` (or `ForcePiiDetection`) to `false`. The
+host logs one warning after startup listing the stored rows a lock overrides (the global row and project ids), and a
+statement refused only because the lock turned read-only enforcement on names `Beacon:Mcp:ForceReadOnly` in its reason.
+:::
 
 The per-project settings have their own endpoints: `GET` / `PUT /beacon/api/mcp/projects/{projectId}/settings` (admin only). The `GET` returns the project's overrides, the resolved effective values, and the names of any locked or clamped fields.
 

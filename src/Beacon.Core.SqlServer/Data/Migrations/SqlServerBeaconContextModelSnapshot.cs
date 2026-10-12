@@ -1564,6 +1564,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowMigrationWrites")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 

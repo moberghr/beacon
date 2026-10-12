@@ -454,6 +454,60 @@ A forced [metadata refresh](/features/data-sources/#refreshing-metadata) re-read
 |--------|-------------|---------|
 | `ForcedRefreshCooldownMinutes` | Minutes after a successful forced refresh of a data source before the next one is accepted (0–1440; `0` turns the cooldown off). A failed refresh does not start it, changing the data source clears it, and a changed value applies to the next request. Kept per Beacon process, so each instance of a multi-instance host keeps its own. An Admin or a DataSourceAdmin is not held to it (one refresh of a data source still runs at a time). A value out of range fails startup. | `15` |
 
+## Query Execution Row Cap
+
+Every statement Beacon runs for one of its own features — a query preview, a subscription run, an AI actor's check —
+returns at most this many rows, and runs at most this long. The cap is written into the SQL (a statement's own larger
+`LIMIT` / `TOP` / `FETCH` is lowered to it). On PostgreSQL, MySQL, SQL Server, Azure Synapse and Snowflake the read also
+stops one row past the cap; BigQuery and Databricks read the capped statement's result whole, which the cap in the SQL
+keeps to one row past it. A larger result fails the run instead of being cut short, with a message that names
+`Beacon:Query:MaxExecutionRows`. A data migration's read has its own budget instead, `Beacon:Migrations:MaxRows` (see
+[Data Migration](#data-migration)).
+
+```json
+{
+  "Beacon": {
+    "Query": {
+      "MaxExecutionRows": 100000,
+      "StatementTimeoutSeconds": 120
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `MaxExecutionRows` | The most rows one statement may return (1–10,000,000). Every row is held in memory while a result is processed, so raise it only as far as the host's memory allows. A value out of range fails startup. | `100000` |
+| `StatementTimeoutSeconds` | How long one statement may run before it is cancelled (1–3,600): a query step, a final query on the in-memory join, a migration read. A subscription's own timeout may only be shorter: saving one above this value is refused, and a stored one above it runs with this value. Metadata samples stop sooner (30 seconds), and the MCP tools keep their own `statementTimeoutSeconds` setting. A value out of range fails startup. | `120` |
+
+## Data Migration
+
+Data migration is the one feature that writes to a connected database, and it is **off unless the host turns it on**.
+While it is off, the migration endpoints are not mapped (`404`), the shell hides the feature, no job is created or run
+(by anyone, an Admin included), and no data source can be marked as a migration write target. It is a deployment lock:
+nothing changes it at runtime. See [Data Migration](/features/data-migration/#turning-data-migration-on).
+
+```json
+{
+  "Beacon": {
+    "Migrations": {
+      "Enabled": true,
+      "MaxRows": 100000
+    }
+  }
+}
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `Enabled` | Maps the migration endpoints and lets migrations run, into the data sources an Admin marks as migration write targets (which Beacon never reads). | `false` |
+| `MaxRows` | The most rows one migration run may read and write (1–10,000,000), in place of `Beacon:Query:MaxExecutionRows`. The cap is written into the source SQL; a larger source fails the run before anything is written. A run holds every row in memory. A value out of range fails startup. | `100000` |
+
+:::note[Upgrading]
+A host that used data migration before must set `Beacon:Migrations:Enabled` to `true`, and an Admin must mark each
+destination as a migration write target; until then its jobs do not run.
+:::
+
 ## AI / LLM Configuration (Optional — Experimental)
 
 :::caution[Experimental]
@@ -901,15 +955,16 @@ Notification URLs are secrets (a Slack webhook's token is in its path). If the h
 
 Other APM agents (Application Insights auto-collection, Datadog, Dynatrace, …) may record full outgoing URLs, vendor webhook paths included; configure them to exclude or redact notification calls the same way.
 
-## MCP Deployment Locks (Optional)
+## MCP Deployment Locks
 
-Most MCP behaviour is configured at runtime on the **MCP Settings** page, per project. A deployment that must guarantee a setting regardless of what an administrator clicks pins it here instead:
+Most MCP behaviour is configured at runtime on the **MCP Settings** page, per project. A setting that must hold regardless of what an administrator clicks is pinned here instead — and read-only enforcement and PII detection are pinned **by default**:
 
 ```json
 {
   "Beacon": {
     "Mcp": {
       "ForceReadOnly": true,
+      "ForcePiiDetection": true,
       "ForceNoContentRetention": false,
       "Ceilings": {
         "MaxRowLimit": 1000,
@@ -927,7 +982,8 @@ Most MCP behaviour is configured at runtime on the **MCP Settings** page, per pr
 
 | Key | Effect |
 |---|---|
-| `ForceReadOnly` | Pins read-only enforcement on. Attempts to disable it are refused with HTTP 409. |
+| `ForceReadOnly` | **Default `true`.** Pins read-only enforcement on, globally and for every project, and makes the SQL execution gate judge every statement read-only whatever the caller's settings say (the `ask`, `query` and `dry_run` tools and the in-memory join included). Attempts to disable it are refused with HTTP 409 — an Admin's too. Set it to `false` only to let an Admin turn read-only enforcement off at runtime; the host then logs a warning at startup. |
+| `ForcePiiDetection` | **Default `true`.** Pins PII detection on, globally and for every project; attempts to disable it are refused with HTTP 409, an Admin's too. Set it to `false` only to let an Admin turn PII detection off at runtime; the host then logs a warning at startup. |
 | `ForceNoContentRetention` | Pins the content lock on for every project — questions, SQL, and free-text errors are never persisted. See [Content retention](/features/mcp-server/#content-retention). |
 | `Ceilings.*` | Clamp a numeric setting **downward only**. A ceiling can lower what an administrator configured; it can never raise it. |
 | `Ceilings.MaxSqlChars` | Maximum length of SQL accepted by the MCP query tools. Default `100000`. |
@@ -935,9 +991,15 @@ Most MCP behaviour is configured at runtime on the **MCP Settings** page, per pr
 
 `MaxSqlChars` and `MaxQuestionChars` **always apply**: they use their defaults even when the `Ceilings` section is absent, and you can only tune them, not switch them off.
 
-The whole section is optional — omit it and there are no locks and no deployment-set ceilings; the SQL and question length caps always apply. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
+The whole section is optional — omit it and read-only enforcement and PII detection are locked on, content retention is not locked, and there are no deployment-set ceilings; the SQL and question length caps always apply. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
 
-Settings resolve as **lock → project override → global value → built-in default**, with ceilings applied last. Locked fields are hidden in the UI and named in a banner; clamped fields are flagged.
+Settings resolve as **lock → project override → global value → built-in default**, with ceilings applied last. On the global settings page a locked switch is shown disabled with a note; in project scope locked fields are hidden and named in a banner; clamped fields are flagged. `GET /beacon/api/mcp/settings/locks` lists the locked settings.
+
+:::caution[Upgrading]
+Read-only enforcement and PII detection can no longer be turned off at runtime unless the deployment unlocks them
+(`ForceReadOnly: false`, `ForcePiiDetection: false`). A deployment that had either switched off runs with it on after the
+upgrade; the stored value is kept and applies again once the lock is lifted.
+:::
 
 ## Schema Configuration
 
@@ -1039,7 +1101,11 @@ GRANT ALL PRIVILEGES ON DATABASE beacon TO beacon;
 GRANT ALL ON SCHEMA beacon TO beacon;
 ```
 
-**Monitored data sources (read-only recommended):**
+**Monitored data sources (read-only):** connect every data source Beacon reads with a login that can only read. Only
+PostgreSQL and MySQL also refuse writes in Beacon's read-only session, as defence in depth; on SQL Server, Azure Synapse,
+Snowflake, BigQuery and Databricks the read-only login is the only database-side guarantee (see [Read-only guarantees per engine](/features/data-sources/#read-only-guarantees-per-engine)). The one exception is a
+[migration write target](/features/data-sources/#migration-write-targets), which Beacon never reads; its login holds the
+[destination privileges](/features/data-migration/#destination-privileges) its migrations need.
 ```sql
 CREATE USER beacon_readonly WITH PASSWORD 'strong-password';
 GRANT CONNECT ON DATABASE your_database TO beacon_readonly;

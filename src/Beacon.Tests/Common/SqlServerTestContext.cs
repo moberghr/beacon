@@ -19,6 +19,7 @@ public sealed class SqlServerTestContext : BeaconContext
     {
         var options = new DbContextOptionsBuilder<SqlServerTestContext>()
             .UseSqlServer("Server=localhost;Database=test_does_not_exist;Trusted_Connection=True;TrustServerCertificate=True")
+            .AddInterceptors(SqlCapture.NeverConnects)
             .Options;
 
         return new SqlServerTestContext(options);

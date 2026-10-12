@@ -71,6 +71,8 @@ public class LearnedPatternProjectScopingTests
             new Mock<IKnowledgeGraphService>().Object,
             new Mock<ILlmProvider>().Object,
             new Mock<IDataSourceProviderFactory>().Object,
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.None,
             NullLogger<ProjectDocumentationService>.Instance);
     }
 

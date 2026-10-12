@@ -10,13 +10,16 @@ namespace Beacon.Core.Handlers.DataMigration;
 internal sealed class GetMigrationExecutionsHandler(
     IMigrationService migrationService,
     IProjectAccessEvaluator projectAccess,
-    MigrationJobAccess access)
+    MigrationJobAccess access,
+    MigrationWritePolicy writePolicy)
     : IRequestHandler<GetMigrationExecutionsQuery, PagedList<MigrationExecutionDto>>
 {
     public async Task<PagedList<MigrationExecutionDto>> Handle(
         GetMigrationExecutionsQuery request,
         CancellationToken cancellationToken)
     {
+        writePolicy.DemandEnabled();
+
         var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         var serviceRequest = new GetMigrationExecutionsRequest
         {
@@ -55,7 +58,8 @@ internal sealed class GetMigrationExecutionsHandler(
 /// <summary>
 /// Newest first unless <c>sort</c> names <c>startedAt</c>, <c>completedAt</c>, <c>status</c> or
 /// <c>sourceRowsRead</c> (optionally <c>-</c> prefixed). Only the runs of jobs whose data sources the caller reads; a run's
-/// error text only where the caller also reads the data source of every step the job runs.
+/// error text only where the caller also reads the data source of every step the job runs. Only while the deployment runs
+/// migrations (409 otherwise).
 /// </summary>
 [ProjectScopeExempt("gated by the MigrationOperator permission; the list is filtered to runs of jobs whose data sources the caller reads", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record GetMigrationExecutionsQuery : ListRequest, IRequest<PagedList<MigrationExecutionDto>>

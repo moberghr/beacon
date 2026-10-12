@@ -60,6 +60,12 @@ public class McpSettingsData
     public bool AllowExplicitFeedbackContent { get; set; } = true;
 
     /// <summary>
+    /// True when the deployment lock <c>Beacon:Mcp:ForceReadOnly</c> turned <see cref="EnforceReadOnly"/> on over a stored
+    /// value that had it off, so a refusal can name the lock. Set at resolution; never serialized.
+    /// </summary>
+    internal bool ReadOnlyPinnedByLock { get; set; }
+
+    /// <summary>
     /// Shallow copy with an independent pattern list — the effective-settings resolver and grounding mutate the copy, never
     /// the cached row.
     /// </summary>

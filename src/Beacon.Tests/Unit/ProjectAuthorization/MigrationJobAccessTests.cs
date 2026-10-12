@@ -4,10 +4,12 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
@@ -28,7 +30,8 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// people than any of those sources (every live project linking the destination links each source; an openly reachable
 /// destination needs openly reachable sources). An Admin is not checked. A refused job is neither created, run nor
 /// deleted, a failed run's error is shown only to callers who read every source, and a temporary preview runs no step on a
-/// source its caller may not query.
+/// source its caller may not query. Migrations are on here and each job that passes writes into a migration write target
+/// (see <see cref="MigrationWritePolicyTests"/> for those rules).
 /// </summary>
 [TestFixture]
 public class MigrationJobAccessTests
@@ -81,6 +84,8 @@ public class MigrationJobAccessTests
     [Test]
     public async Task AJob_IntoADestinationNoMoreWidelyReachable_IsCreated()
     {
+        WriteTarget(RestrictedSource);
+
         // The destination is linked to the restricted project only; the source to it and to another one.
         var result = await CreateAsync("ext-op", SharedSource, RestrictedSource);
 
@@ -128,6 +133,8 @@ public class MigrationJobAccessTests
     [Test]
     public async Task AnAdmin_IsNotChecked()
     {
+        WriteTarget(OpenSource);
+
         var result = await CreateAsync("ext-root", RestrictedSource, OpenSource);
 
         result.MigrationJobId.Should().Be(77);
@@ -136,6 +143,7 @@ public class MigrationJobAccessTests
     [Test]
     public async Task RunningAJob_IsCheckedAgain_AndARefusedRunNeverStarts()
     {
+        WriteTarget(RestrictedSource);
         _world.Serve(new List<MigrationJob>
         {
             Job(1, SharedSource, RestrictedSource),
@@ -160,14 +168,10 @@ public class MigrationJobAccessTests
             Job(3, OpenSource, OpenSource)
         });
 
-        var operatorList = await SendAsync("ext-op", sp => new GetMigrationJobsHandler(_world.Factory(), sp.GetRequiredService<IProjectAccessEvaluator>())
-            .Handle(new GetMigrationJobsQuery(), CancellationToken.None));
-        var adminList = await SendAsync("ext-root", sp => new GetMigrationJobsHandler(_world.Factory(), sp.GetRequiredService<IProjectAccessEvaluator>())
-            .Handle(new GetMigrationJobsQuery(), CancellationToken.None));
-        var hidden = await SendAsync("ext-op", sp => new GetMigrationJobHandler(_world.Factory(), sp.GetRequiredService<IProjectAccessEvaluator>())
-            .Handle(new GetMigrationJobQuery(2), CancellationToken.None));
-        var delete = () => SendAsync("ext-op", sp => new DeleteMigrationJobHandler(_migrations.Object, sp.GetRequiredService<MigrationJobAccess>())
-            .Handle(new DeleteMigrationJobCommand(2), CancellationToken.None));
+        var operatorList = await SendAsync("ext-op", sp => Jobs(sp).Handle(new GetMigrationJobsQuery(), CancellationToken.None));
+        var adminList = await SendAsync("ext-root", sp => Jobs(sp).Handle(new GetMigrationJobsQuery(), CancellationToken.None));
+        var hidden = await SendAsync("ext-op", sp => JobDetail(sp).Handle(new GetMigrationJobQuery(2), CancellationToken.None));
+        var delete = () => SendAsync("ext-op", sp => Removal(sp).Handle(new DeleteMigrationJobCommand(2), CancellationToken.None));
 
         operatorList.Items.Select(x => x.Id).Should().BeEquivalentTo([1, 3]);
         adminList.Items.Select(x => x.Id).Should().BeEquivalentTo([1, 2, 3]);
@@ -207,8 +211,9 @@ public class MigrationJobAccessTests
     public async Task ADestinationMoreWidelyReachableThanAStepSource_IsForbidden_EvenWhenTheDeclaredSourceIsTheDestination()
     {
         // Another restricted project links the destination (and the declared source) but not the step's source.
+        WriteTarget(RestrictedSource);
         var act = () => CreateAsync("ext-op", SharedSource, SharedSource, StepsOn(RestrictedSource));
-        var allowed = await CreateAsync("ext-op", SharedSource, RestrictedSource, StepsOn(RestrictedSource, SharedSource));
+        var allowed = await CreateAsync("ext-op", SharedSource, RestrictedSource, StepsOn(SharedSource));
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(MigrationJobAccess.WiderDestinationMessage);
         allowed.MigrationJobId.Should().Be(77, "the destination is linked only where every step source is");
@@ -226,10 +231,8 @@ public class MigrationJobAccessTests
             .Setup(x => x.DeleteMigrationJob(It.IsAny<int>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
             .ReturnsAsync(new BaseResponse { Success = true });
 
-        await SendAsync("ext-op", sp => new DeleteMigrationJobHandler(_migrations.Object, sp.GetRequiredService<MigrationJobAccess>())
-            .Handle(new DeleteMigrationJobCommand(1), CancellationToken.None));
-        var refused = () => SendAsync("ext-op", sp => new DeleteMigrationJobHandler(_migrations.Object, sp.GetRequiredService<MigrationJobAccess>())
-            .Handle(new DeleteMigrationJobCommand(2), CancellationToken.None));
+        await SendAsync("ext-op", sp => Removal(sp).Handle(new DeleteMigrationJobCommand(1), CancellationToken.None));
+        var refused = () => SendAsync("ext-op", sp => Removal(sp).Handle(new DeleteMigrationJobCommand(2), CancellationToken.None));
 
         await refused.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(MigrationJobAccess.WiderDestinationMessage);
         _migrations.Verify(x => x.DeleteMigrationJob(1, It.IsAny<CancellationToken>(), false), Times.Once);
@@ -367,7 +370,10 @@ public class MigrationJobAccessTests
     {
         await using var provider = Services(externalId);
         await using var scope = provider.CreateAsyncScope();
-        var handler = new CreateMigrationJobHandler(_migrations.Object, scope.ServiceProvider.GetRequiredService<MigrationJobAccess>());
+        var handler = new CreateMigrationJobHandler(
+            _migrations.Object,
+            scope.ServiceProvider.GetRequiredService<MigrationJobAccess>(),
+            scope.ServiceProvider.GetRequiredService<MigrationWritePolicy>());
 
         return await handler.Handle(
             new CreateMigrationJobCommand("copy", "copy rows", source, queryText, destination, "target"),
@@ -398,7 +404,23 @@ public class MigrationJobAccessTests
         return new GetMigrationExecutionsHandler(
             _migrations.Object,
             services.GetRequiredService<IProjectAccessEvaluator>(),
-            services.GetRequiredService<MigrationJobAccess>());
+            services.GetRequiredService<MigrationJobAccess>(),
+            services.GetRequiredService<MigrationWritePolicy>());
+    }
+
+    private GetMigrationJobsHandler Jobs(IServiceProvider services)
+    {
+        return new GetMigrationJobsHandler(_world.Factory(), services.GetRequiredService<IProjectAccessEvaluator>(), services.GetRequiredService<MigrationWritePolicy>());
+    }
+
+    private GetMigrationJobHandler JobDetail(IServiceProvider services)
+    {
+        return new GetMigrationJobHandler(_world.Factory(), services.GetRequiredService<IProjectAccessEvaluator>(), services.GetRequiredService<MigrationWritePolicy>());
+    }
+
+    private DeleteMigrationJobHandler Removal(IServiceProvider services)
+    {
+        return new DeleteMigrationJobHandler(_migrations.Object, services.GetRequiredService<MigrationJobAccess>(), services.GetRequiredService<MigrationWritePolicy>());
     }
 
     private GetHomeMigrationSummaryHandler Summary(IServiceProvider services)
@@ -438,7 +460,10 @@ public class MigrationJobAccessTests
     {
         await using var provider = Services(externalId);
         await using var scope = provider.CreateAsyncScope();
-        var handler = new RunMigrationJobHandler(_migrations.Object, scope.ServiceProvider.GetRequiredService<MigrationJobAccess>());
+        var handler = new RunMigrationJobHandler(
+            _migrations.Object,
+            scope.ServiceProvider.GetRequiredService<MigrationJobAccess>(),
+            scope.ServiceProvider.GetRequiredService<MigrationWritePolicy>());
 
         return await handler.Handle(new RunMigrationJobCommand(jobId), CancellationToken.None);
     }
@@ -460,8 +485,15 @@ public class MigrationJobAccessTests
         services.AddScoped<IProjectResourceResolver, ProjectResourceResolver>();
         services.AddScoped<ProjectRequestAuthorizer>();
         services.AddScoped<MigrationJobAccess>();
+        services.AddSingleton(Options.Create(new MigrationOptions { Enabled = true }));
+        services.AddScoped<MigrationWritePolicy>();
 
         return services.BuildServiceProvider();
+    }
+
+    private void WriteTarget(int dataSourceId)
+    {
+        _world.DataSources.First(x => x.Id == dataSourceId).AllowMigrationWrites = true;
     }
 
     private MigrationJob Job(int id, int source, int destination, string queryText = "SELECT 1")

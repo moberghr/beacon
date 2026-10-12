@@ -7,6 +7,7 @@ using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
@@ -54,20 +55,7 @@ public class QueryServiceReadOnlyGateTests
 
         var validator = new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance);
 
-        return new QueryService(
-            factory.Object,
-            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            versionService ?? Mock.Of<IQueryVersionService>(),
-            new BeaconConfiguration(),
-            Mock.Of<IBeaconUserContext>(),
-            validator,
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors(),
-            TestProjectAccess.ExecutionAllowed(),
-            TestConfiguredDatabases.None);
+        return TestQueryServices.QueryService(factory.Object, versions: versionService);
     }
 
     [Test]
@@ -273,7 +261,18 @@ public class QueryServiceReadOnlyGateTests
     /// <summary>What the service did to its contexts: the stored queries it reads and the saves it attempted.</summary>
     private sealed class ContextSpy
     {
-        public List<DataSource> DataSources { get; } = [];
+        // The data source the queries' steps read; a step's SQL is checked in its dialect before it is saved.
+        public List<DataSource> DataSources { get; } =
+        [
+            new DataSource
+            {
+                Id = 1,
+                Name = "warehouse",
+                DataSourceType = DataSourceType.Database,
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                EncryptedConnectionData = "encrypted"
+            }
+        ];
 
         public List<Query> Queries { get; } = [];
 
@@ -281,7 +280,7 @@ public class QueryServiceReadOnlyGateTests
     }
 
     /// <summary>
-    /// A BeaconContext whose <c>DataSources</c> resolves to an empty async sequence and whose <c>Queries</c>
+    /// A BeaconContext whose <c>DataSources</c> resolves to <see cref="ContextSpy.DataSources"/>, whose metadata is empty and whose <c>Queries</c>
     /// resolves to <see cref="ContextSpy.Queries"/>, with no DB round-trip. <c>SaveChangesAsync</c> only counts.
     /// </summary>
     private sealed class SpyContext : BeaconContext
@@ -309,6 +308,11 @@ public class QueryServiceReadOnlyGateTests
             if (typeof(TEntity) == typeof(Query))
             {
                 return (DbSet<TEntity>)(object)BuildSet(_spy.Queries);
+            }
+
+            if (typeof(TEntity) == typeof(DatabaseMetadata))
+            {
+                return (DbSet<TEntity>)(object)BuildSet(new List<DatabaseMetadata>());
             }
 
             return base.Set<TEntity>();

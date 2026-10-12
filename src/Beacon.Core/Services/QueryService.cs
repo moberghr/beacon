@@ -3,8 +3,10 @@ using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Adapters;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -15,6 +17,7 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Beacon.Core.SavedQueries;
@@ -39,6 +42,11 @@ public interface IQueryService
 
     // ===== ENHANCED METHODS FOR CROSS-DATA-SOURCE FUNCTIONALITY =====
     Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default);
+
+    /// <summary><see cref="ExecuteQueryAdvanced(int, string?, List{ParameterValue}?, CancellationToken)"/> within a row limit of the caller's own.</summary>
+    /// <param name="maxRows">The most rows one statement may return before the run fails, in place of
+    /// <c>Beacon:Query:MaxExecutionRows</c> (a migration's own budget, <c>Beacon:Migrations:MaxRows</c>).</param>
+    Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken);
 
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
 
@@ -209,8 +217,36 @@ public record GetQueriesRequest : ListRequest
     public string? SearchTerm { get; init; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard, IBeaconActorAccessor actorAccessor, IExecutionAccessCheck executionAccess, IConfiguredDatabaseResolver configuredDatabases) : IQueryService
+/// <summary>
+/// Stored and drafted queries. Every statement it runs on a data source — previews, subscription runs, the AI actor's and
+/// migrations' reads — goes through <see cref="GatedSqlRunner"/> (the shared execution gate, then the provider's read-only
+/// path), capped in the SQL at <see cref="ExecutionRowCeiling"/> rows; a final query joins the step results in Beacon's
+/// in-memory SQLite store behind the same gate. A step's SQL passes <see cref="IStepSqlSaveCheck"/> before it is stored.
+/// </summary>
+internal partial class QueryService(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IManualQueryExecutionLogger queryExecutionLogger,
+    ILogger<QueryService> logger,
+    ILoggerFactory loggerFactory,
+    IQueryVersionService queryVersionService,
+    BeaconConfiguration beaconConfiguration,
+    IBeaconUserContext userContext,
+    SqlReadOnlyAstValidator readOnlyAstValidator,
+    IBeaconActorAccessor actorAccessor,
+    IExecutionAccessCheck executionAccess,
+    ISqlExecutionGate gate,
+    GatedSqlRunner sqlRunner,
+    IStepSqlSaveCheck saveCheck,
+    IQueryGuardrailService guardrail,
+    ISharedSourceSettings sharedSourceSettings,
+    IOptions<QueryExecutionOptions> queryOptions) : IQueryService
 {
+    /// <summary>The most rows one statement may return before its run fails (<c>Beacon:Query:MaxExecutionRows</c>). Settable for tests.</summary>
+    internal int ExecutionRowCeiling { get; init; } = queryOptions.Value.MaxExecutionRows;
+
+    /// <summary>How long a final query may run on the in-memory join store (<c>Beacon:Query:StatementTimeoutSeconds</c>). Settable for tests.</summary>
+    internal int FinalQueryTimeoutSeconds { get; init; } = queryOptions.Value.StatementTimeoutSeconds;
+
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
         // Ensure backward compatibility - if no steps, create one from the legacy properties
@@ -254,9 +290,9 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await EnsureStepsPassTheGateAsync(queryData.Steps, cancellationToken);
 
-        await EnsureStepsNameTheirOwnDatabaseAsync(context, queryData.Steps, cancellationToken);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Build the full object graph (query + steps + parameters via navigation
         // collections) so EF assigns the generated keys in a single SaveChanges.
@@ -481,12 +517,12 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
     }
 
     /// <summary>
-    /// A saved final query runs against the in-memory SQLite join store, so it must pass the read-only gate (§1.5)
-    /// in the form that runs — after <c>@resultN</c> translation — before it is persisted. Empty means "no final
-    /// query", the same test both execution paths use. A nested block comment is refused first: SQLite ends a block
-    /// comment at its first <c>*/</c> while the gate's parser nests them, so such text can hide a second statement
-    /// from the gate. SQLite's own single-statement check needs the tables, which do not exist at save time; it runs
-    /// again, with the nested-comment check, when the query executes.
+    /// A saved final query runs against the in-memory SQLite join store, so it must pass the execution gate (§1.5) in the
+    /// form that runs — after <c>@resultN</c> translation — before it is persisted. Empty means "no final query", the same
+    /// test both execution paths use. A nested block comment is refused first: SQLite ends a block comment at its first
+    /// <c>*/</c> while the gate's parser nests them, so such text can hide a second statement from the gate. SQLite's own
+    /// single-statement check needs the tables, which do not exist at save time; it runs again, with the nested-comment
+    /// check, when the query executes.
     /// </summary>
     private void ValidateFinalQuery(string? finalQuery)
     {
@@ -501,10 +537,49 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
             throw new InvalidOperationException($"Final query rejected: {InMemoryDatabaseManager.NestedBlockCommentRejection}");
         }
 
-        var rejection = readOnlyAstValidator.Validate(translated, nameof(DatabaseEngineType.SQLite));
-        if (rejection != null)
+        var report = gate.Evaluate(JoinGateRequest(translated, null));
+        if (report.Blocked)
         {
-            throw new InvalidOperationException($"Final query rejected: {rejection}");
+            throw new InvalidOperationException($"Final query rejected: {report.BlockReason}");
         }
+    }
+
+    // Every step's SQL passes the save check (IStepSqlSaveCheck) before anything is written.
+    private async Task EnsureStepsPassTheGateAsync(IEnumerable<QueryStepData> steps, CancellationToken cancellationToken)
+    {
+        foreach (var step in steps)
+        {
+            var placeholders = step.Parameters
+                .Select(x => x.Placeholder)
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Select(x => x!)
+                .ToList();
+            var rejection = await saveCheck.RejectionAsync(step.DataSourceId, step.SqlValue, placeholders, cancellationToken);
+            if (rejection != null)
+            {
+                throw new InvalidOperationException(rejection);
+            }
+        }
+    }
+
+    // The statement that joins step results on the in-memory SQLite store: the gate's read-only stages and the run's row
+    // cap (rowCeiling, a migration's own budget, else ExecutionRowCeiling) plus one, no cross-database rule (it reaches
+    // nothing else), PII detected in its text when a run masks.
+    private SqlGateRequest JoinGateRequest(string sql, McpSettingsData? pii, int? rowCeiling = null)
+    {
+        return new SqlGateRequest(
+            sql,
+            nameof(DatabaseEngineType.SQLite),
+            EnforceReadOnly: true,
+            DetectPii: pii?.EnablePiiDetection ?? false,
+            CustomPiiPatterns: pii is { CustomPiiPatterns.Count: > 0 } ? pii.CustomPiiPatterns : null,
+            Catalog: null,
+            BlockOnSchemaFailure: false,
+            LintContext: null,
+            EnableSemanticLint: false,
+            MaxRows: (rowCeiling ?? ExecutionRowCeiling) + 1)
+        {
+            InMemoryJoin = true
+        };
     }
 }

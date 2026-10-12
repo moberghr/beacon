@@ -249,7 +249,7 @@ public class SharedSourceGuardrailsTests
     private static SharedSourceSettings Provider(params (int ProjectId, McpProjectSettings Row)[] rows)
     {
         var world = World(projectSettings: rows.Select(x => x.Row).ToList());
-        var settingsProvider = new McpSettingsProvider(world, new MemoryCache(new MemoryCacheOptions()), Options.Create(new McpDeploymentOptions()), NullLogger<McpSettingsProvider>.Instance);
+        var settingsProvider = new McpSettingsProvider(world, new MemoryCache(new MemoryCacheOptions()), Options.Create(new McpDeploymentOptions { ForceReadOnly = false, ForcePiiDetection = false }), NullLogger<McpSettingsProvider>.Instance);
 
         return new SharedSourceSettings(world, settingsProvider);
     }

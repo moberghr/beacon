@@ -20,10 +20,23 @@ public sealed class SqlReadOnlyAstValidator(
     ILogger<SqlReadOnlyAstValidator> logger,
     IOptions<McpDeploymentOptions>? deploymentOptions = null)
 {
-    // T-SQL table hints that take update or exclusive locks — the T-SQL counterpart of FOR UPDATE.
+    // T-SQL table hints that take update, exclusive or table locks, or hold shared locks until the transaction ends — the
+    // T-SQL counterpart of FOR UPDATE / FOR SHARE.
     private static readonly HashSet<string> TSqlLockingHints = new(StringComparer.OrdinalIgnoreCase)
     {
-        "UPDLOCK", "XLOCK", "TABLOCKX"
+        "UPDLOCK", "XLOCK", "TABLOCKX", "TABLOCK", "HOLDLOCK", "SERIALIZABLE"
+    };
+
+    // T-SQL needs no `;` between statements, so where the parser reads one of these words as an unquoted alias
+    // (`SELECT 1 COMMIT`, `FROM dbo.t SHUTDOWN`) SQL Server may read it as the start of the next statement. Each is reserved
+    // on SQL Server or starts a statement there, so a quoted alias ([COMMIT]) is the way to use one as a name.
+    private static readonly HashSet<string> TSqlStatementKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "COMMIT", "ROLLBACK", "SAVE", "SHUTDOWN", "RECONFIGURE", "CHECKPOINT", "REVERT", "KILL", "BEGIN", "END", "GO",
+        "EXEC", "EXECUTE", "USE", "DENY", "GRANT", "REVOKE", "BACKUP", "RESTORE", "DBCC", "WAITFOR", "OPEN", "CLOSE",
+        "FETCH", "DEALLOCATE", "PRINT", "RAISERROR", "THROW", "DECLARE", "SET", "IF", "WHILE", "RETURN", "BREAK",
+        "CONTINUE", "GOTO", "TRAN", "TRANSACTION", "INSERT", "UPDATE", "DELETE", "MERGE", "TRUNCATE", "CREATE", "ALTER",
+        "DROP", "BULK", "SETUSER"
     };
 
     private static readonly HashSet<string> FileFormats = new(StringComparer.OrdinalIgnoreCase)
@@ -100,8 +113,15 @@ public sealed class SqlReadOnlyAstValidator(
     // engine that differs on any of these runs a different statement than the one validated here, so SQL relying on
     // such a difference is refused. Every scan is linear and ignores quoting on purpose: a quote-aware scan could be
     // steered by the very escapes it judges.
-    private static string? RejectLexicalDifferences(string sql, string? dialect, Dialect parserDialect)
+    internal static string? RejectLexicalDifferences(string sql, string? dialect, Dialect parserDialect)
     {
+        // First, so no later scan reasons about a character the parser reads as the end of its input (U+FFFF).
+        var disallowed = SqlAst.IndexOfDisallowedCharacter(sql);
+        if (disallowed >= 0)
+        {
+            return SqlAst.DisallowedCharacterMessageAt(disallowed);
+        }
+
         if (HasUnusualWhitespace(sql))
         {
             return "Only spaces, tabs and LF or CRLF line breaks may separate SQL: an engine may read other whitespace differently from the parser.";
@@ -110,6 +130,11 @@ public sealed class SqlReadOnlyAstValidator(
         if (!SqlDialects.NestsBlockComments(dialect) && OpensCommentInsideComment(sql))
         {
             return "Nested block comments are not allowed. Remove the inner /* ... */ comment.";
+        }
+
+        if (SqlDialects.NestsBlockComments(dialect) && HasSharedCommentMarker(sql))
+        {
+            return "A block comment marker may not share its * or / with another one (/*/ or */*). Put a space between them.";
         }
 
         // The parser applies backslash escapes in some literals (N'...', X'...', MySQL and BigQuery strings) where an
@@ -193,6 +218,10 @@ public sealed class SqlReadOnlyAstValidator(
                 // PostgreSQL and SQL Server — reject it (§1.5 read-only).
                 Select { Into: not null } => "SELECT ... INTO is not allowed because it creates a table. Submit a read-only SELECT.",
                 Query { Locks.Count: > 0 } => "Row-locking clauses (FOR UPDATE / FOR SHARE) are not allowed in read-only SQL.",
+                SelectItem.ExpressionWithAlias aliased when dialect is MsSqlDialect && IsTSqlStatementKeyword(aliased.Alias) =>
+                    TSqlKeywordAliasMessage(aliased.Alias.Value),
+                TableAlias alias when dialect is MsSqlDialect && IsTSqlStatementKeyword(alias.Name) =>
+                    TSqlKeywordAliasMessage(alias.Name.Value),
                 Expression.Function function => RejectFunction(function.Name, dialect),
                 TableFactor.Function function => RejectFunction(function.Name, dialect),
                 TableFactor.Table table => RejectTable(table, dialect),
@@ -215,6 +244,16 @@ public sealed class SqlReadOnlyAstValidator(
         }
 
         return null;
+    }
+
+    private static bool IsTSqlStatementKeyword(Ident ident)
+    {
+        return ident.QuoteStyle == null && TSqlStatementKeywords.Contains(ident.Value);
+    }
+
+    private static string TSqlKeywordAliasMessage(string keyword)
+    {
+        return $"{keyword.ToUpperInvariant()} cannot be an unquoted alias on SQL Server, where it can start a new statement. Quote it ([{keyword}]) or choose another alias.";
     }
 
     // Snowflake's seq.NEXTVAL (also database.schema.seq.NEXTVAL) is a column-like reference that advances the sequence.
@@ -282,7 +321,7 @@ public sealed class SqlReadOnlyAstValidator(
             .OfType<Expression.Identifier>();
 
         return hints.Any(x => TSqlLockingHints.Contains(x.Ident.Value))
-            ? "Locking table hints (UPDLOCK, XLOCK, TABLOCKX) are not allowed in read-only SQL."
+            ? "Locking table hints (UPDLOCK, XLOCK, TABLOCK, TABLOCKX, HOLDLOCK, SERIALIZABLE) are not allowed in read-only SQL."
             : null;
     }
 
@@ -335,6 +374,14 @@ public sealed class SqlReadOnlyAstValidator(
         }
 
         return false;
+    }
+
+    // Inside a nested comment the parser lets one character serve two markers: in `/*/` the `*` opens a comment and then
+    // closes it, in `*/*` the `/` closes one and opens the next. PostgreSQL reads each marker as two characters of its own,
+    // so the two would disagree about where the comment ends — and about what runs after it.
+    private static bool HasSharedCommentMarker(string sql)
+    {
+        return sql.Contains("/*/", StringComparison.Ordinal) || sql.Contains("*/*", StringComparison.Ordinal);
     }
 
     // Space, tab, LF and CRLF only. A lone CR ends a -- comment on some engines but not for the parser; other Unicode

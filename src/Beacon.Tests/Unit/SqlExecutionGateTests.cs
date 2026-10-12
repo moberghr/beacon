@@ -22,10 +22,14 @@ public class SqlExecutionGateTests
 {
     private SqlExecutionGate _gate = null!;
 
+    // A deployment that lets read-only enforcement be switched off (Beacon:Mcp:ForceReadOnly = false).
+    private SqlExecutionGate _unlocked = null!;
+
     [SetUp]
     public void SetUp()
     {
         _gate = TestSqlGate.Create();
+        _unlocked = TestSqlGate.Create(deployment: TestSqlGate.Unlocked);
     }
 
     private static Dictionary<string, HashSet<string>> Catalog() => new(StringComparer.OrdinalIgnoreCase)
@@ -178,7 +182,7 @@ public class SqlExecutionGateTests
     [Test]
     public void Evaluate_UnparseableSqlWithReadOnlyOff_LintIsSkippedNotPassed()
     {
-        var report = _gate.Evaluate(Request("SELECT FROM WHERE", "SQLite") with
+        var report = _unlocked.Evaluate(Request("SELECT FROM WHERE", "SQLite") with
         {
             EnforceReadOnly = false,
             InMemoryJoin = true,
@@ -214,7 +218,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("  ", "PostgreSQL", settings));
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("  ", "PostgreSQL", settings));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be("empty");
@@ -226,7 +230,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("SELECT email FROM customers", "PostgreSQL", settings));
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("SELECT email FROM customers", "PostgreSQL", settings));
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.ReadOnly.Code.Should().Be("disabled");
@@ -239,11 +243,58 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
 
-        // Read-only disabled is the legacy admin mode the R2 lock removes; the gate must honour it today.
+        // Read-only enforcement switched off is honoured only where the deployment unlocks it.
         report.Blocked.Should().BeFalse();
         report.Verdicts.ReadOnly.Code.Should().Be("disabled");
+    }
+
+    [Test]
+    public void Evaluate_UnderTheDefaultReadOnlyLock_ACallerTurningReadOnlyOff_IsStillJudgedReadOnly()
+    {
+        var settings = TestSqlGate.DefaultSettings();
+        settings.EnforceReadOnly = false;
+
+        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
+
+        report.Blocked.Should().BeTrue("Beacon:Mcp:ForceReadOnly is on unless the deployment turns it off");
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        report.BlockReason.Should().Contain("deployment lock Beacon:Mcp:ForceReadOnly");
+    }
+
+    [Test]
+    public void Evaluate_ARefusalTheReadOnlyLockCausesOverStoredSettings_NamesTheLock_AndNoOtherRefusalDoes()
+    {
+        var stored = new McpSettingsData { EnforceReadOnly = false };
+        var resolved = Beacon.Core.Services.McpSettingsProvider.Resolve(stored, null, new McpDeploymentOptions()).Effective;
+
+        var write = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", resolved));
+        var empty = _gate.Evaluate(SqlGateRequest.FromSettings("   ", "PostgreSQL", resolved));
+        var enforcedAnyway = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", TestSqlGate.DefaultSettings()));
+
+        resolved.EnforceReadOnly.Should().BeTrue();
+        resolved.ReadOnlyPinnedByLock.Should().BeTrue();
+        write.Blocked.Should().BeTrue();
+        write.BlockReason.Should().Contain("deployment lock Beacon:Mcp:ForceReadOnly");
+        empty.Blocked.Should().BeTrue();
+        empty.BlockReason.Should().NotContain("deployment lock", "a blank statement is refused whatever read-only says");
+        enforcedAnyway.Blocked.Should().BeTrue();
+        enforcedAnyway.BlockReason.Should().NotContain("deployment lock", "the stored settings enforce read-only themselves");
+    }
+
+    [Test]
+    public void Evaluate_UnderTheDefaultReadOnlyLock_TheInMemoryJoin_IsJudgedReadOnly()
+    {
+        var settings = TestSqlGate.DefaultSettings();
+        settings.EnforceReadOnly = false;
+
+        var locked = _gate.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT * FROM result1; ATTACH DATABASE '/tmp/x.db' AS x", settings));
+        var unlocked = _unlocked.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT * FROM result1; ATTACH DATABASE '/tmp/x.db' AS x", settings));
+
+        locked.Blocked.Should().BeTrue();
+        locked.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        unlocked.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.Disabled, "only an unlocked deployment lets the settings switch it off");
     }
 
     [Test]
@@ -310,7 +361,7 @@ public class SqlExecutionGateTests
         settings.EnforceReadOnly = false;
 
         // The in-memory SQLite join skips the cross-database stage, which would block SQL it cannot parse.
-        var report = _gate.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT ??? FROM", settings) with { MaxRows = 100 });
+        var report = _unlocked.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT ??? FROM", settings) with { MaxRows = 100 });
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.RowLimit.Status.Should().Be(SqlGateStatus.Pass);
@@ -363,7 +414,7 @@ public class SqlExecutionGateTests
     public void Evaluate_SqlOverDefaultCap_FailsSqlTooLong_BeforeAnyRegexRuns(bool enforceReadOnly)
     {
         var guardrail = new Mock<IQueryGuardrailService>();
-        var gate = TestSqlGate.Create(guardrail.Object);
+        var gate = TestSqlGate.Create(guardrail.Object, deployment: TestSqlGate.Unlocked);
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = enforceReadOnly;
         var sql = "SELECT " + new string('1', 100_001 - "SELECT ".Length);

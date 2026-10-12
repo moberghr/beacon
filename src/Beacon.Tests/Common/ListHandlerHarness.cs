@@ -25,10 +25,13 @@ namespace Beacon.Tests.Common;
 internal sealed class ListHandlerHarness
 {
     private readonly ProjectAccessScope _scope;
+    private readonly bool _sqlServer;
 
-    public ListHandlerHarness(ProjectAccessScope scope)
+    /// <param name="sqlServer">Capture on the SQL Server provider instead of Npgsql, for a translation's SQL Server twin.</param>
+    public ListHandlerHarness(ProjectAccessScope scope, bool sqlServer = false)
     {
         _scope = scope;
+        _sqlServer = sqlServer;
     }
 
     /// <summary>Why the last request stopped early (no row to read), if it did.</summary>
@@ -42,7 +45,7 @@ internal sealed class ListHandlerHarness
     /// <summary>As <see cref="SendAsync"/>, with each command's parameters.</summary>
     public async Task<SqlCapture> CaptureAsync(object request)
     {
-        var capture = new SqlCapture().AnsweringCountsWithOne();
+        var capture = (_sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).AnsweringCountsWithOne();
         await using var provider = Build(capture.Factory());
         await using var scope = provider.CreateAsyncScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();

@@ -48,6 +48,53 @@ describe('DataSourcesListPage project chips', () => {
   });
 });
 
+describe('DataSourcesListPage read-only enforcement', () => {
+  it('marks only the sources whose engine does not refuse writes', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/data-sources', () =>
+        HttpResponse.json({
+          items: [
+            source({ id: 1, name: 'ledger-db', databaseReadOnlyEnforced: true }),
+            source({ id: 2, name: 'crm-db', databaseEngineType: 'MSSQL', databaseReadOnlyEnforced: false }),
+            source({ id: 3, name: 'logs', dataSourceType: 'CloudWatch', databaseEngineType: null, databaseReadOnlyEnforced: null }),
+          ],
+          totalCount: 3,
+          pageCount: 1,
+        }),
+      ),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const crm = (await screen.findByText('crm-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(crm).getByText('Read-only login required')).toHaveAttribute('title', expect.stringMatching(/login that can only read/));
+    const ledger = screen.getByText('ledger-db').closest('[role="row"]') as HTMLElement;
+    expect(within(ledger).queryByText('Read-only login required')).not.toBeInTheDocument();
+    const logs = screen.getByText('logs').closest('[role="row"]') as HTMLElement;
+    expect(within(logs).queryByText('Read-only login required')).not.toBeInTheDocument();
+  });
+
+  it('labels a migration write target as one instead of asking for a read-only login', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/data-sources', () =>
+        HttpResponse.json({
+          items: [
+            source({ id: 4, name: 'reporting-db', databaseEngineType: 'MSSQL', databaseReadOnlyEnforced: false, allowMigrationWrites: true }),
+          ],
+          totalCount: 1,
+          pageCount: 1,
+        }),
+      ),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const reporting = (await screen.findByText('reporting-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(reporting).getByText('Migration write target')).toHaveAttribute('title', expect.stringMatching(/never reads from it/));
+    expect(within(reporting).queryByText('Read-only login required')).not.toBeInTheDocument();
+  });
+});
+
 describe('DataSourcesListPage and the DataSourceAdmin permission', () => {
   const oneSource = http.get('*/beacon/api/data-sources', () =>
     HttpResponse.json({ items: [source({ id: 1, name: 'ledger-db' })], totalCount: 1, pageCount: 1 }),

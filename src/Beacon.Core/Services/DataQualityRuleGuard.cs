@@ -61,7 +61,7 @@ internal static class DataQualityRuleGuard
             return $"Rule SQL was rejected: {report.BlockReason ?? "it failed validation."}";
         }
 
-        if (report.Verdicts.RowLimit.Code == SqlGateCodes.AlreadyLimited)
+        if (report.Verdicts.RowLimit.Code is SqlGateCodes.AlreadyLimited or SqlGateCodes.OwnBoundCapped)
         {
             return OwnRowLimitMessage;
         }

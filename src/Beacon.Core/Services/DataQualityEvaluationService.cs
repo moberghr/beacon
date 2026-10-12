@@ -10,8 +10,10 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
+using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services;
@@ -38,6 +40,8 @@ internal class DataQualityEvaluationService(
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
     IExecutionAccessCheck executionAccess,
+    ISharedSourceSettings sharedSourceSettings,
+    IQueryGuardrailService guardrail,
     ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
 {
     /// <summary>What a rule result says when its query fails on an ordinary data source.</summary>
@@ -48,6 +52,9 @@ internal class DataQualityEvaluationService(
 
     /// <summary>What a rule result says when its row lacks a column the rule reads, or holds a value of the wrong type.</summary>
     public const string UnexpectedResultMessage = "Rule result did not have the expected columns or types.";
+
+    // The text columns of a CustomSql rule's result, carried into the rule result's value and message.
+    private static readonly HashSet<string> CustomSqlTextColumns = new(StringComparer.OrdinalIgnoreCase) { "actual_value", "message" };
 
     /// <summary>How long one rule's query may run. Settable for tests.</summary>
     internal TimeSpan RuleTimeout { get; init; } = TimeSpan.FromSeconds(60);
@@ -95,12 +102,16 @@ internal class DataQualityEvaluationService(
         // Rule SQL may name the source's own database only (the one its connection is configured for).
         var configuredDatabase = configuredDatabases.Resolve(contract.DataSource);
 
+        // A rule's result reaches its history and the contract's alerts: masked as the strictest live project that links
+        // the data source asks (§1.6).
+        var pii = await sharedSourceSettings.GetDataSourceSettingsAsync(contract.DataSourceId, cancellationToken);
+
         var totalStopwatch = Stopwatch.StartNew();
         var ruleResults = new List<DataQualityRuleResult>();
 
         foreach (var rule in enabledRules)
         {
-            var result = await EvaluateRuleAsync(rule, contract, catalog, provider, engineType, configuredDatabase, cancellationToken);
+            var result = await EvaluateRuleAsync(rule, contract, catalog, provider, engineType, configuredDatabase, pii, cancellationToken);
             ruleResults.Add(result);
         }
 
@@ -200,6 +211,7 @@ internal class DataQualityEvaluationService(
         IDataSourceProvider provider,
         DatabaseEngineType engineType,
         string? configuredDatabase,
+        McpSettingsData pii,
         CancellationToken cancellationToken)
     {
         var ruleStopwatch = Stopwatch.StartNew();
@@ -241,7 +253,13 @@ internal class DataQualityEvaluationService(
 
             try
             {
-                return InterpretResult(rule, result.Rows.FirstOrDefault(), ruleStopwatch.Elapsed.TotalMilliseconds);
+                var row = result.Rows.FirstOrDefault();
+                if (row != null && rule.RuleType == DataContractRuleType.CustomSql)
+                {
+                    row = MaskCustomSqlText(row, query.Sql, pii, engineType);
+                }
+
+                return InterpretResult(rule, row, ruleStopwatch.Elapsed.TotalMilliseconds);
             }
             catch (Exception ex) when (ex is KeyNotFoundException or InvalidCastException or FormatException or OverflowException)
             {
@@ -339,6 +357,26 @@ internal class DataQualityEvaluationService(
         query = generated with { Sql = report.FinalSql };
         rejection = null;
         return true;
+    }
+
+    // A CustomSql rule's own text columns (actual_value, message) become the rule result's value and message, which its
+    // history and alerts carry, so a PII column read into them — by its own name, by an alias over it or by a custom
+    // pattern — is masked before the result is built (§1.6/§1.11). The numeric columns (passed, score) are read as numbers.
+    private Dictionary<string, object?> MaskCustomSqlText(Dictionary<string, object?> row, string sql, McpSettingsData pii, DatabaseEngineType engineType)
+    {
+        var piiColumns = PiiRowMasker.ResolvePiiColumns(
+            guardrail,
+            row.Keys,
+            [],
+            pii.EnablePiiDetection,
+            pii.CustomPiiPatterns.Count > 0 ? pii.CustomPiiPatterns : null,
+            sql,
+            engineType.ToString());
+        var textColumns = piiColumns
+            .Where(x => CustomSqlTextColumns.Contains(x))
+            .ToList();
+
+        return textColumns.Count == 0 ? row : guardrail.MaskPiiValues(row, textColumns);
     }
 
     private void LogRejection(DataContractRule rule, DataContract contract, string reason)

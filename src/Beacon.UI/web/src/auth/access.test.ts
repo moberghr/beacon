@@ -83,7 +83,10 @@ describe('pagesOpenedBy', () => {
   };
 
   it.each(BEACON_PERMISSIONS.map(x => [x] as const))('opens for a %s exactly the pages its routes admit', permission => {
-    const access = accessOf({ canRead: false, canWrite: false, isAdmin: false, permissions: [permission] }, false);
+    const access = accessOf(
+      { canRead: false, canWrite: false, isAdmin: false, permissions: [permission], migrationsEnabled: true },
+      false,
+    );
 
     expect(pagesOpenedBy(access).map(x => x.path)).toEqual(expected[permission]);
   });
@@ -97,10 +100,27 @@ describe('pagesOpenedBy', () => {
   });
 
   it('opens a new migration job and a job of its own to a MigrationOperator', () => {
-    const access = accessOf({ canRead: false, canWrite: false, isAdmin: false, permissions: ['MigrationOperator'] }, false);
+    const access = accessOf(
+      { canRead: false, canWrite: false, isAdmin: false, permissions: ['MigrationOperator'], migrationsEnabled: true },
+      false,
+    );
 
     expect(opensWithoutProjectData(access, '/migration-jobs/new')).toBe(true);
     expect(opensWithoutProjectData(access, '/migration-jobs/3')).toBe(true);
     expect(opensWithoutProjectData(access, '/recipients')).toBe(false);
+    expect(access.opensMigrations).toBe(true);
+  });
+
+  it('opens no migration page while the deployment does not run migrations, to an Admin either', () => {
+    const operator = accessOf({ canRead: false, canWrite: false, isAdmin: false, permissions: ['MigrationOperator'] }, false);
+    const admin = accessOf({ canRead: true, canWrite: true, isAdmin: true, permissions: [], migrationsEnabled: false }, false);
+
+    expect(pagesOpenedBy(operator)).toEqual([]);
+    expect(opensWithoutProjectData(operator, '/migration-jobs')).toBe(false);
+    expect(operator.migrationsEnabled).toBe(false);
+    expect(operator.opensMigrations).toBe(false);
+    expect(admin.hasPermission('MigrationOperator')).toBe(true);
+    expect(admin.opensMigrations).toBe(false);
+    expect(pagesOpenedBy(admin).map(x => x.path)).not.toContain('/migration-jobs');
   });
 });

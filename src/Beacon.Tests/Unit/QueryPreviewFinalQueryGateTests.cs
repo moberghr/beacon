@@ -26,8 +26,6 @@ public class QueryPreviewFinalQueryGateTests
 {
     private const string Marker = "final_query_gate_marker";
 
-    private static readonly SqlReadOnlyAstValidator Validator = new(NullLogger<SqlReadOnlyAstValidator>.Instance);
-
     private readonly List<string> _tempFiles = new();
 
     [TearDown]
@@ -61,7 +59,7 @@ public class QueryPreviewFinalQueryGateTests
 
         var act = () => manager.ExecuteFinalQueryPagedAsync(
             $"VACUUM INTO '{path}'",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             new Paging { Page = 0, PageSize = 10 },
             CancellationToken.None);
@@ -125,20 +123,7 @@ public class QueryPreviewFinalQueryGateTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new SingleQueryContext(stored));
 
-        return new QueryService(
-            factory.Object,
-            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            null!,
-            Mock.Of<IBeaconUserContext>(),
-            Validator,
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors(),
-            TestProjectAccess.ExecutionAllowed(),
-            TestConfiguredDatabases.None);
+        return TestQueryServices.QueryService(factory.Object);
     }
 
     private sealed record Paging : ListRequest;

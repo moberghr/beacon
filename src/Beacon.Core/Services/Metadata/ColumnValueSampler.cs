@@ -1,9 +1,10 @@
-using System.Data;
-using Dapper;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
-using Beacon.Core.Helpers;
+using Beacon.Core.Exceptions;
+using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Services.Metadata;
@@ -15,11 +16,12 @@ public interface IColumnValueSampler
     /// (one query per table) and returns the tables with enriched <c>SampleValues</c>. Also probes up
     /// to 8 short string columns per table for their complete value domain (bounded DISTINCT); a domain
     /// of <see cref="MaxCompleteDomainValues"/> or fewer values replaces the sample and is marked
-    /// <c>SampleValuesComplete</c>. Sampling failures are logged and never fail the metadata refresh.
+    /// <c>SampleValuesComplete</c>. Every sampling statement passes the shared execution gate and runs through the
+    /// provider's read-only path (<see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>) on the data source's own
+    /// connection, with a row cap and a statement timeout. Sampling failures are logged and never fail the metadata refresh.
     /// </summary>
     Task<IReadOnlyList<TableMetadataDto>> EnrichWithSampleValuesAsync(
-        DatabaseEngineType engineType,
-        string connectionString,
+        DataSource dataSource,
         IReadOnlyList<TableMetadataDto> tables,
         IReadOnlyList<string>? customPiiPatterns,
         CancellationToken cancellationToken = default);
@@ -31,13 +33,20 @@ public interface IColumnValueSampler
 
 internal sealed class ColumnValueSampler(
     IQueryGuardrailService guardrailService,
+    GatedSqlRunner sqlRunner,
     ILogger<ColumnValueSampler> logger) : IColumnValueSampler
 {
     private const int SampleRowCount = 5;
-    private const int CommandTimeoutSeconds = 30;
+    private static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
     private const int MaxCandidateColumnsPerTable = 8;
     private const int DomainProbeInnerScanRowCount = 1000;
     private const int MaxDomainCandidateLength = 100;
+
+    // Why a table or column was not sampled, as the log names it — never the exception's message.
+    private const string RefusedByTheGate = "the execution gate refused the sampling statement";
+    private const string FailedOnTheDataSource = "the sampling statement failed on the data source";
+    private const string TimedOut = "the sampling statement timed out";
+    private const string NotAPlainIdentifier = "a name is not a plain identifier";
 
     private static readonly HashSet<string> BinaryDataTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -51,14 +60,19 @@ internal sealed class ColumnValueSampler(
     ];
 
     public async Task<IReadOnlyList<TableMetadataDto>> EnrichWithSampleValuesAsync(
-        DatabaseEngineType engineType,
-        string connectionString,
+        DataSource dataSource,
         IReadOnlyList<TableMetadataDto> tables,
         IReadOnlyList<string>? customPiiPatterns,
         CancellationToken cancellationToken = default)
     {
         var enriched = new List<TableMetadataDto>(tables.Count);
+        if (dataSource.DatabaseEngineType is not { } engineType)
+        {
+            return tables;
+        }
 
+        var candidates = 0;
+        var sampled = 0;
         foreach (var table in tables)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -69,10 +83,12 @@ internal sealed class ColumnValueSampler(
                 continue;
             }
 
+            candidates++;
             try
             {
-                var (samples, completeDomainColumns) = await SampleTableAsync(engineType, connectionString, table, customPiiPatterns, cancellationToken);
+                var (samples, completeDomainColumns) = await SampleTableAsync(dataSource, engineType, table, customPiiPatterns, cancellationToken);
                 enriched.Add(table with { Columns = ApplySamples(table.Columns, samples, customPiiPatterns, completeDomainColumns) });
+                sampled++;
             }
             catch (OperationCanceledException)
             {
@@ -80,43 +96,39 @@ internal sealed class ColumnValueSampler(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Sample-value collection failed for table {Schema}.{Table}; leaving samples empty",
-                    table.SchemaName, table.TableName);
+                // The table and why, never the exception's message, which can quote row values (§1.11).
+                logger.LogWarning(
+                    "Sample-value collection skipped table {Table} of data source {DataSourceId} ({Reason}); its samples are left empty",
+                    SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}"),
+                    dataSource.Id,
+                    ReasonOf(ex));
                 enriched.Add(table);
             }
         }
+
+        logger.LogInformation(
+            "Sample-value collection of data source {DataSourceId}: {SampledCount} of {TableCount} tables sampled",
+            dataSource.Id,
+            sampled,
+            candidates);
 
         return enriched;
     }
 
     private async Task<(Dictionary<string, List<string>> Samples, HashSet<string> CompleteDomainColumns)> SampleTableAsync(
+        DataSource dataSource,
         DatabaseEngineType engineType,
-        string connectionString,
         TableMetadataDto table,
         IReadOnlyList<string>? customPiiPatterns,
         CancellationToken cancellationToken)
     {
         var sql = BuildSampleQuery(engineType, table.SchemaName, table.TableName);
-
-        await using var connection = DbConnectionFactory.CreateConnection(engineType, connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        var commandDefinition = new CommandDefinition(
-            sql,
-            cancellationToken: cancellationToken,
-            commandTimeout: CommandTimeoutSeconds);
-
-        var rows = (await connection.QueryAsync(commandDefinition)).AsList();
+        var rows = await ReadAsync(dataSource, sql, SampleRowCount, cancellationToken);
         var samples = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in rows)
         {
-            if (row is not IDictionary<string, object> rowDict)
-            {
-                continue;
-            }
-
-            foreach (var kvp in rowDict)
+            foreach (var kvp in row)
             {
                 if (kvp.Value == null)
                 {
@@ -142,13 +154,46 @@ internal sealed class ColumnValueSampler(
             }
         }
 
-        var completeDomainColumns = await ProbeTableDomainsAsync(connection, engineType, table, samples, customPiiPatterns, cancellationToken);
+        var completeDomainColumns = await ProbeTableDomainsAsync(dataSource, engineType, table, samples, customPiiPatterns, cancellationToken);
 
         return (samples, completeDomainColumns);
     }
 
+    // Runs one sampling statement through GatedSqlRunner: the shared execution gate in the source's dialect (the names are
+    // quoted catalog identifiers, but the gate also holds them to the source's own configured database and the host
+    // policy), then the provider's read-only path (a READ ONLY transaction where the engine has one), capped one row past
+    // the statement's own bound — so the read ends on its own — and within the sampler's statement timeout. A failure's
+    // message can quote row values, so it is not passed on (§1.11); the provider has logged its type and error code. Each
+    // failure is thrown with the class of its reason, which the caller logs.
+    private async Task<List<Dictionary<string, object?>>> ReadAsync(
+        DataSource dataSource,
+        string sql,
+        int statementBound,
+        CancellationToken cancellationToken)
+    {
+        GatedSqlRun run;
+        try
+        {
+            run = await sqlRunner.RunAsync(
+                new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), statementBound + 1, Timeout: StatementTimeout),
+                cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            throw new SamplingSkippedException(RefusedByTheGate);
+        }
+        catch (QueryExecutionFailedException)
+        {
+            throw new SamplingSkippedException(FailedOnTheDataSource);
+        }
+
+        return run.TimedOut
+            ? throw new SamplingSkippedException(TimedOut)
+            : run.Rows;
+    }
+
     private async Task<HashSet<string>> ProbeTableDomainsAsync(
-        IDbConnection connection,
+        DataSource dataSource,
         DatabaseEngineType engineType,
         TableMetadataDto table,
         Dictionary<string, List<string>> samples,
@@ -164,7 +209,7 @@ internal sealed class ColumnValueSampler(
 
             try
             {
-                var values = await ProbeDomainAsync(connection, engineType, table, column, cancellationToken);
+                var values = await ProbeDomainAsync(dataSource, engineType, table, column, cancellationToken);
                 if (!IsCompleteDomain(values))
                 {
                     continue;
@@ -184,8 +229,11 @@ internal sealed class ColumnValueSampler(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Domain probe failed for column {Schema}.{Table}.{Column}; keeping row sample",
-                    table.SchemaName, table.TableName, column.ColumnName);
+                logger.LogWarning(
+                    "Domain probe skipped column {Column} of data source {DataSourceId} ({Reason}); keeping its row sample",
+                    SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{column.ColumnName}"),
+                    dataSource.Id,
+                    ReasonOf(ex));
             }
         }
 
@@ -204,31 +252,20 @@ internal sealed class ColumnValueSampler(
         return values.Count > 0 && values.Count <= IColumnValueSampler.MaxCompleteDomainValues;
     }
 
-    private static async Task<List<string>> ProbeDomainAsync(
-        IDbConnection connection,
+    private async Task<List<string>> ProbeDomainAsync(
+        DataSource dataSource,
         DatabaseEngineType engineType,
         TableMetadataDto table,
         ColumnMetadataDto column,
         CancellationToken cancellationToken)
     {
         var sql = BuildDistinctProbeQuery(engineType, table.SchemaName, table.TableName, column.ColumnName);
-
-        var commandDefinition = new CommandDefinition(
-            sql,
-            cancellationToken: cancellationToken,
-            commandTimeout: CommandTimeoutSeconds);
-
-        var rows = (await connection.QueryAsync(commandDefinition)).AsList();
+        var rows = await ReadAsync(dataSource, sql, IColumnValueSampler.MaxCompleteDomainValues + 1, cancellationToken);
         var values = new List<string>();
 
         foreach (var row in rows)
         {
-            if (row is not IDictionary<string, object> rowDict)
-            {
-                continue;
-            }
-
-            var value = rowDict.Values.FirstOrDefault();
+            var value = row.Values.FirstOrDefault();
             if (value == null)
             {
                 continue;
@@ -403,4 +440,19 @@ internal sealed class ColumnValueSampler(
         var parenIndex = dataType.IndexOf('(');
         return (parenIndex > 0 ? dataType[..parenIndex] : dataType).Trim();
     }
+
+    // The class of a sampling failure for the log: the reason a statement was not run or did not finish, or the exception
+    // type for anything else.
+    private static string ReasonOf(Exception exception)
+    {
+        return exception switch
+        {
+            SamplingSkippedException skipped => skipped.Message,
+            InvalidOperationException => NotAPlainIdentifier,
+            _ => exception.GetType().Name
+        };
+    }
+
+    // A sampling statement that was not run or did not finish, with the class of its reason as the message.
+    private sealed class SamplingSkippedException(string reason) : Exception(reason);
 }

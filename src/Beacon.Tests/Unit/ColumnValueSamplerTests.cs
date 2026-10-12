@@ -2,10 +2,15 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.Models.Providers;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
+using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -425,9 +430,129 @@ public class ColumnValueSamplerTests
         ColumnValueSampler.IsCompleteDomain([]).Should().BeFalse();
     }
 
-    private static ColumnValueSampler CreateSampler(Mock<IQueryGuardrailService> guardrail)
+    // Sampling runs on the provider's read-only path (a READ ONLY transaction where the engine has one), with the
+    // identifiers quoted as the dialect quotes them; it never takes the plain execution path.
+    [Test]
+    public async Task EnrichWithSampleValues_RunsEveryStatementOnTheReadOnlyPath_WithQuotedIdentifiers()
     {
-        return new ColumnValueSampler(guardrail.Object, NullLogger<ColumnValueSampler>.Instance);
+        var guardrail = new Mock<IQueryGuardrailService>();
+        var provider = new Mock<IDataSourceProvider>(MockBehavior.Strict);
+        var statements = new List<string>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => statements.Add(sql))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "PAID" }] });
+        var sampler = CreateSampler(guardrail, provider.Object);
+        var table = new TableMetadataDto("sales", "Orders", [CreateColumn("status", "varchar", 10)], [], null);
+
+        var enriched = await sampler.EnrichWithSampleValuesAsync(Source(DatabaseEngineType.MSSQL), [table], null);
+
+        statements.Should().Equal(
+            "SELECT TOP 5 * FROM [sales].[Orders]",
+            "SELECT DISTINCT TOP 13 [status] FROM (SELECT TOP 1000 [status] FROM [sales].[Orders] WHERE [status] IS NOT NULL) x");
+        enriched.Single().Columns.Single().SampleValues.Should().Equal("PAID");
+        enriched.Single().Columns.Single().SampleValuesComplete.Should().BeTrue();
+    }
+
+    // Every engine samples with its own quoting through the gate (on MySQL the schema is the configured database).
+    [TestCase(
+        DatabaseEngineType.PostgreSQL,
+        "SELECT * FROM \"sales\".\"orders\" LIMIT 5",
+        "SELECT DISTINCT \"status\" FROM (SELECT \"status\" FROM \"sales\".\"orders\" WHERE \"status\" IS NOT NULL LIMIT 1000) x LIMIT 13")]
+    [TestCase(
+        DatabaseEngineType.MySQL,
+        "SELECT * FROM `sales`.`orders` LIMIT 5",
+        "SELECT DISTINCT `status` FROM (SELECT `status` FROM `sales`.`orders` WHERE `status` IS NOT NULL LIMIT 1000) x LIMIT 13")]
+    [TestCase(
+        DatabaseEngineType.Snowflake,
+        "SELECT * FROM \"sales\".\"orders\" LIMIT 5",
+        "SELECT DISTINCT \"status\" FROM (SELECT \"status\" FROM \"sales\".\"orders\" WHERE \"status\" IS NOT NULL LIMIT 1000) x LIMIT 13")]
+    public async Task EnrichWithSampleValues_OnEachEngine_RunsItsOwnQuotingOnTheReadOnlyPath(DatabaseEngineType engine, string sample, string probe)
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        var provider = new Mock<IDataSourceProvider>(MockBehavior.Strict);
+        var statements = new List<string>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => statements.Add(sql))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "PAID" }] });
+        var sampler = CreateSampler(guardrail, provider.Object, configuredDatabases: TestConfiguredDatabases.Of("sales"));
+        var table = new TableMetadataDto("sales", "orders", [CreateColumn("status", "varchar", 10)], [], null);
+
+        var enriched = await sampler.EnrichWithSampleValuesAsync(Source(engine), [table], null);
+
+        statements.Should().Equal(sample, probe);
+        enriched.Single().Columns.Single().SampleValues.Should().Equal("PAID");
+    }
+
+    [Test]
+    public async Task EnrichWithSampleValues_AFailedStatement_LeavesTheTableWithoutSamples()
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        var provider = new Mock<IDataSourceProvider>(MockBehavior.Strict);
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = "permission denied for table orders" });
+        var logs = new LogRecorder();
+        var sampler = CreateSampler(guardrail, provider.Object, logs.For<ColumnValueSampler>());
+        var table = new TableMetadataDto("public", "orders", [CreateColumn("status", "text")], [], null);
+        var empty = new TableMetadataDto("public", "no_columns", [], [], null);
+
+        var enriched = await sampler.EnrichWithSampleValuesAsync(Source(DatabaseEngineType.PostgreSQL), [table, empty], null);
+
+        enriched[0].Should().BeSameAs(table);
+        var skipped = logs.Entries.Should().ContainSingle(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Warning).Subject;
+        skipped.Message.Should().Contain("public.orders").And.Contain("failed on the data source");
+        skipped.Message.Should().NotContain("permission denied", "the server's message can quote values (§1.11)");
+        logs.Entries.Should().ContainSingle(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Information)
+            .Which.Message.Should().Contain("0 of 1 tables sampled");
+    }
+
+    // Sampling statements pass the shared execution gate before the provider: on MySQL a schema is a database, so a table
+    // in a database other than the source's configured one is never read.
+    [Test]
+    public async Task EnrichWithSampleValues_ATableTheGateRefuses_IsNotRead()
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        var provider = new Mock<IDataSourceProvider>();
+        var sampler = CreateSampler(guardrail, provider.Object);
+        var table = new TableMetadataDto("hr", "salaries", [CreateColumn("grade", "varchar", 10)], [], null);
+
+        var enriched = await sampler.EnrichWithSampleValuesAsync(Source(DatabaseEngineType.MySQL), [table], null);
+
+        enriched.Single().Should().BeSameAs(table);
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    private static DataSource Source(DatabaseEngineType engine)
+    {
+        return new DataSource
+        {
+            Id = 4,
+            Name = "warehouse",
+            DataSourceType = DataSourceType.Database,
+            DatabaseEngineType = engine,
+            EncryptedConnectionData = "encrypted"
+        };
+    }
+
+    private static ColumnValueSampler CreateSampler(
+        Mock<IQueryGuardrailService> guardrail,
+        IDataSourceProvider? provider = null,
+        Microsoft.Extensions.Logging.ILogger<ColumnValueSampler>? logger = null,
+        Beacon.Core.Services.Validation.IConfiguredDatabaseResolver? configuredDatabases = null)
+    {
+        var providers = new Mock<IDataSourceProviderFactory>();
+        providers
+            .Setup(x => x.GetProvider(It.IsAny<DataSourceType>()))
+            .Returns(provider ?? Mock.Of<IDataSourceProvider>(MockBehavior.Strict));
+
+        return new ColumnValueSampler(
+            guardrail.Object,
+            new GatedSqlRunner(TestSqlGate.Create(), providers.Object, configuredDatabases ?? TestConfiguredDatabases.None, TestQueryServices.QueryOptions),
+            logger ?? NullLogger<ColumnValueSampler>.Instance);
     }
 
     private static ColumnMetadataDto CreateColumn(string name, string dataType, int? maxLength = null)

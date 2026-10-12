@@ -159,20 +159,7 @@ public class StoredQueryPreviewAuthorizationTests
             int moveTo)
         {
             var factory = Factory();
-            var queryService = new QueryService(
-                factory,
-                connections,
-                Mock.Of<IManualQueryExecutionLogger>(),
-                NullLogger<QueryService>.Instance,
-                NullLoggerFactory.Instance,
-                Mock.Of<IQueryVersionService>(),
-                null!,
-                Mock.Of<IBeaconUserContext>(),
-                new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-                guard,
-                TestProjectAccess.Actors(),
-                TestProjectAccess.ExecutionAllowed(),
-                new ConfiguredDatabaseResolver(connections, NullLogger<ConfiguredDatabaseResolver>.Instance));
+            var queryService = TestQueryServices.QueryService(factory, connections, guard, new ConfiguredDatabaseResolver(connections, NullLogger<ConfiguredDatabaseResolver>.Instance));
             var resolver = new MovingResolver(this, moveAfter, () => _query.Steps = [Step(moveTo)]);
 
             return new QueryExecutionPreviewService(

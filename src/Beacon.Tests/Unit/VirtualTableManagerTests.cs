@@ -6,6 +6,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -27,8 +28,6 @@ public class VirtualTableManagerTests
     // "nothing loaded"; ExecuteFinalQueryPaged_SuccessfulLoad_LogsTheTableLoadMessage keeps that absence meaningful.
     private const string TableLoadedLogPrefix = "Created table";
 
-    private static readonly SqlReadOnlyAstValidator Validator = new(NullLogger<SqlReadOnlyAstValidator>.Instance);
-
     [Test]
     public async Task ExecuteFinalQuery_NestedCommentSmuggle_IsRejected()
     {
@@ -37,7 +36,7 @@ public class VirtualTableManagerTests
 
         var act = () => manager.ExecuteFinalQueryWithInMemoryDatabase(
             NestedCommentSmuggle,
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             CancellationToken.None);
 
@@ -52,7 +51,7 @@ public class VirtualTableManagerTests
 
         var act = () => manager.ExecuteFinalQueryPagedAsync(
             NestedCommentSmuggle,
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             new Paging(),
             CancellationToken.None);
@@ -77,7 +76,7 @@ public class VirtualTableManagerTests
         var result = await manager.ExecuteFinalQueryWithInMemoryDatabase(
             "WITH totals AS (SELECT customer_id, SUM(total) AS total FROM @result2 GROUP BY customer_id) "
             + "SELECT c.name, t.total, RANK() OVER (ORDER BY t.total DESC) AS position FROM @result1 c JOIN totals t ON t.customer_id = c.id",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             CancellationToken.None);
 
@@ -96,7 +95,7 @@ public class VirtualTableManagerTests
 
         var act = () => manager.ExecuteFinalQueryWithInMemoryDatabase(
             $"ATTACH '{attachPath}' AS x",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             CancellationToken.None);
 
@@ -113,7 +112,7 @@ public class VirtualTableManagerTests
 
         var result = await manager.ExecuteFinalQueryWithInMemoryDatabase(
             "SELECT c.name, o.total FROM @result1 c JOIN @result2 o ON o.customer_id = c.id",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             CancellationToken.None);
 
@@ -137,7 +136,7 @@ public class VirtualTableManagerTests
 
         var act = () => manager.ExecuteFinalQueryPagedAsync(
             $"ATTACH '{attachPath}' AS x; CREATE TABLE x.loot AS SELECT * FROM @result1; SELECT * FROM @result1",
-            Validator,
+            TestQueryServices.JoinGate(),
             inMemoryLogger,
             new Paging(),
             CancellationToken.None);
@@ -160,7 +159,7 @@ public class VirtualTableManagerTests
 
         await manager.ExecuteFinalQueryPagedAsync(
             "SELECT * FROM @result1",
-            Validator,
+            TestQueryServices.JoinGate(),
             inMemoryLogger,
             new Paging(),
             CancellationToken.None);
@@ -176,7 +175,7 @@ public class VirtualTableManagerTests
 
         var act = () => manager.ExecuteFinalQueryPagedAsync(
             $"ATTACH '{attachPath}' AS x; CREATE TABLE x.loot (id INTEGER); SELECT 1",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             new Paging(),
             CancellationToken.None);
@@ -198,7 +197,7 @@ public class VirtualTableManagerTests
 
         var page = await manager.ExecuteFinalQueryPagedAsync(
             "SELECT * FROM @result1",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             new Paging { Page = 1, PageSize = 2, Sort = "id" },
             CancellationToken.None);
@@ -221,7 +220,7 @@ public class VirtualTableManagerTests
 
         var result = await manager.ExecuteFinalQueryWithInMemoryDatabase(
             "SELECT * FROM @result1",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             CancellationToken.None);
 
@@ -239,7 +238,7 @@ public class VirtualTableManagerTests
 
         var page = await manager.ExecuteFinalQueryPagedAsync(
             "SELECT * FROM @result1",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             new Paging(),
             CancellationToken.None);
@@ -257,7 +256,7 @@ public class VirtualTableManagerTests
 
         var result = await manager.ExecuteFinalQueryWithInMemoryDatabase(
             "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
-            Validator,
+            TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
             CancellationToken.None);
 

@@ -22,7 +22,6 @@ using Beacon.Core.Services.Shared;
 using Beacon.Core.Services.Validation;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Worker;
-using Beacon.Core.Worker.Repositories;
 using Beacon.Core.Worker.Services;
 using Beacon.Core.SavedQueries;
 
@@ -131,7 +130,6 @@ public static class ServiceConfiguration
         services.TryAddSingleton<AdapterFactory>();
 
         // Shared services (for use by Query and Migration features)
-        services.TryAddTransient<QueryExecutionOrchestrator>();
         services.TryAddTransient<ParameterResolver>();
         services.TryAddTransient<SchedulingService>();
 
@@ -140,8 +138,12 @@ public static class ServiceConfiguration
         services.AddTransient<Services.Providers.IDataSourceProvider, Services.Providers.DatabaseProvider>();
         services.TryAddTransient<Services.Providers.IDataSourceProviderFactory, Services.Providers.DataSourceProviderFactory>();
 
+        // The one way Beacon's own features run a statement on a data source (the execution gate, then the read-only
+        // provider path), and the check a query step's SQL passes before it is stored.
+        services.TryAddTransient<GatedSqlRunner>();
+        services.TryAddTransient<IStepSqlSaveCheck, StepSqlSaveCheck>();
+
         // Domain services
-        services.TryAddTransient<IJobRepository, JobRepository>();
         services.TryAddTransient<IJobService, JobService>();
         services.TryAddTransient<INotificationService, NotificationService>();
         services.TryAddTransient<IDataSourceService, DataSourceService>();
@@ -235,6 +237,20 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.ApiKeyOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.ApiKeyOptions>, Configuration.ApiKeyOptionsValidator>();
+
+        // Row cap of the statements Beacon runs for its own features (Beacon:Query). ValidateOnStart so a cap out of range
+        // fails the host at boot.
+        services.AddOptions<Configuration.QueryExecutionOptions>()
+            .Bind(configuration.GetSection(Configuration.QueryExecutionOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.QueryExecutionOptions>, Configuration.QueryExecutionOptionsValidator>());
+
+        // Data migrations (Beacon:Migrations): off unless the host turns them on, and their own row budget. ValidateOnStart
+        // so a budget out of range fails the host at boot.
+        services.AddOptions<Configuration.MigrationOptions>()
+            .Bind(configuration.GetSection(Configuration.MigrationOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MigrationOptions>, Configuration.MigrationOptionsValidator>());
 
         // Forced metadata refreshes (Beacon:Metadata): a per-source cooldown. ValidateOnStart so a cooldown out of range
         // fails the host at boot.
@@ -364,6 +380,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<BeaconPermissionLog>();
         services.TryAddScoped<Handlers.Users.UserAdministrationRules>();
         services.TryAddScoped<Handlers.DataMigration.MigrationJobAccess>();
+        services.TryAddScoped<Handlers.DataMigration.MigrationWritePolicy>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 

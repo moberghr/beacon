@@ -9,6 +9,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostDocs;
+using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -175,6 +176,7 @@ internal sealed class ProjectGetDocumentationTool(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var projectDsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);

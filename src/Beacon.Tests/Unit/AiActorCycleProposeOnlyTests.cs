@@ -258,6 +258,7 @@ public class AiActorCycleProposeOnlyTests
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
             Mock.Of<IRunAsScope>(),
             TestProjectAccess.ExecutionAllowed(),
+            Mock.Of<IStepSqlSaveCheck>(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

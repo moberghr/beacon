@@ -159,20 +159,7 @@ public class SqlReadOnlyValidatorRemoteAccessTests
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
-        var service = new QueryService(
-            factory.Object,
-            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            null!,
-            Mock.Of<IBeaconUserContext>(),
-            _validator,
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors(),
-            TestProjectAccess.ExecutionAllowed(),
-            TestConfiguredDatabases.None);
+        var service = TestQueryServices.QueryService(factory.Object);
         var stepData = new QueryStepData
         {
             Name = "step",

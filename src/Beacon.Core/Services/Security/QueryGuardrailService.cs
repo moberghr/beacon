@@ -56,20 +56,24 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
 
         if (options.ReadOnly)
         {
+            // Judged without its comments when the dialect is known, so a leading "-- note" or a "/* delete old rows */"
+            // remark does not read as a write; executable comments and hints stay and are judged like any other text.
+            var statement = SqlCommentStripper.Strip(trimmedSql, options.Dialect).Trim();
+
             // Check for write operations
-            if (IsMatchFailClosed(WriteOperationPattern, trimmedSql))
+            if (IsMatchFailClosed(WriteOperationPattern, statement))
             {
                 return new QueryValidationResult(false, "Write operations are not allowed. Only SELECT queries are permitted.", false);
             }
 
             // Check for dangerous patterns (stacked queries with writes, comments hiding writes)
-            if (IsMatchFailClosed(DangerousPattern, trimmedSql) || IsMatchFailClosed(CommentHiddenWritePattern, trimmedSql))
+            if (IsMatchFailClosed(DangerousPattern, statement) || IsMatchFailClosed(CommentHiddenWritePattern, statement))
             {
                 return new QueryValidationResult(false, "Query contains potentially dangerous patterns.", false);
             }
 
             // Must start with SELECT, WITH, or EXPLAIN
-            if (IsMatchFailClosed(NonReadOnlyPrefixPattern, trimmedSql))
+            if (IsMatchFailClosed(NonReadOnlyPrefixPattern, statement))
             {
                 return new QueryValidationResult(false, "Query must start with SELECT, WITH, or EXPLAIN.", false);
             }
@@ -116,9 +120,9 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         // literal or a subquery no longer reads as "already bounded" and leaves the outer result uncapped.
         var result = SqlRowLimitRewriter.Apply(sql, maxRows, databaseEngine);
 
-        // A statement too deep to cap must not run uncapped.
+        // A statement too deep to cap, or holding a character the parser cannot read past, must not run uncapped.
         return result.Outcome == SqlRowLimitOutcome.Refused
-            ? throw new InvalidOperationException(SqlAst.TooDeepMessage)
+            ? throw new InvalidOperationException(result.RefusalMessage ?? SqlAst.TooDeepMessage)
             : result.Sql;
     }
 

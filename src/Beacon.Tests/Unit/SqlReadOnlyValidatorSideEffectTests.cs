@@ -51,6 +51,17 @@ public class SqlReadOnlyValidatorSideEffectTests
     [TestCase("SELECT [xp_dirtree]('x')", "MSSQL")]
     [TestCase("SELECT * FROM sys.dm_os_enumerate_filesystem('D:/', '*')", "MSSQL")]
     [TestCase("SELECT table_to_xml('t', true, true, '')", "PostgreSQL")]
+    [TestCase("SELECT gin_clean_pending_list('orders_tags_idx')", "PostgreSQL")]
+    [TestCase("SELECT brin_summarize_new_values('orders_created_idx')", "PostgreSQL")]
+    [TestCase("SELECT brin_summarize_range('orders_created_idx', 0)", "PostgreSQL")]
+    [TestCase("SELECT pg_background_launch('SELECT 1')", "PostgreSQL")]
+    [TestCase("SELECT * FROM pgr_dijkstra('SELECT id, source, target, cost FROM edges', 1, 2)", "PostgreSQL")]
+    [TestCase("SELECT sys_get('x')", "MySQL")]
+    [TestCase("SELECT sys_bineval('x')", "MySQL")]
+    [TestCase("SELECT keyring_key_generate('k', 'AES', 32)", "MySQL")]
+    [TestCase("SELECT audit_log_filter_flush()", "MySQL")]
+    [TestCase("SELECT service_get_write_locks('ns', 'lock', 10)", "MySQL")]
+    [TestCase("SELECT version_tokens_set('t=1')", "MySQL")]
     public void Validate_SideEffectFunction_IsRejected(string sql, string dialect)
     {
         _validator.Validate(sql, dialect).Should().StartWith("The function ");
@@ -67,8 +78,8 @@ public class SqlReadOnlyValidatorSideEffectTests
     {
         var dialects = new (string Dialect, IEnumerable<string> Names, IEnumerable<string> Prefixes)[]
         {
-            ("PostgreSQL", SqlDeniedFunctions.PostgreSql, SqlDeniedFunctions.PostgreSqlPrefixes),
-            ("MySQL", SqlDeniedFunctions.MySql, []),
+            ("PostgreSQL", SqlDeniedFunctions.PostgreSql, SqlDeniedFunctions.PostgreSqlPrefixes.Concat(SqlDeniedFunctions.PostgreSqlSqlTextPrefixes)),
+            ("MySQL", SqlDeniedFunctions.MySql, SqlDeniedFunctions.MySqlPrefixes),
             ("MSSQL", SqlDeniedFunctions.TSql, SqlDeniedFunctions.TSqlPrefixes),
             ("Snowflake", SqlDeniedFunctions.Snowflake, SqlDeniedFunctions.SnowflakePrefixes),
             ("databricks", SqlDeniedFunctions.Databricks, []),
@@ -139,6 +150,10 @@ public class SqlReadOnlyValidatorSideEffectTests
     [TestCase("SELECT * FROM t (UPDLOCK)")]
     [TestCase("SELECT * FROM t with (updlock)")]
     [TestCase("SELECT * FROM a INNER JOIN b WITH (UPDLOCK) ON a.id = b.id")]
+    [TestCase("SELECT * FROM t WITH (TABLOCK)")]
+    [TestCase("SELECT * FROM t WITH (HOLDLOCK)")]
+    [TestCase("SELECT * FROM t WITH (SERIALIZABLE)")]
+    [TestCase("SELECT * FROM t (holdlock)")]
     public void Validate_TSqlLockingHint_IsRejected(string sql)
     {
         _validator.Validate(sql, "MSSQL").Should().StartWith("Locking table hints");

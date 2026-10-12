@@ -451,6 +451,52 @@ public class ValueGroundingServiceTests
             Times.Never);
     }
 
+    // On MySQL a schema is a database: a probe of a table in a database other than the one the source is configured for is
+    // refused by the gate and never sent; the same table in the configured database is probed.
+    [TestCase("hr", false)]
+    [TestCase("shop", true)]
+    public async Task BuildValueMatchesBlockAsync_ATableInAnotherDatabase_IsNeverProbed(string schema, bool probed)
+    {
+        var tables = new[] { new ValueGroundingTable(schema, "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }) };
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "REFUNDED" }] });
+        var (service, _) = BuildService(provider, engine: DatabaseEngineType.MySQL, configuredDatabase: "shop");
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains($"`{schema}`.`orders`")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            probed ? Times.Once() : Times.Never());
+        if (probed)
+        {
+            block.Should().Contain("shop.orders.status = 'REFUNDED'");
+        }
+        else
+        {
+            block.Should().BeEmpty();
+        }
+    }
+
+    // A host data source exposes only what the host allows: a probe of a table it does not expose is refused by the gate.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_AHostDataSourceTableTheHostDoesNotExpose_IsNeverProbed()
+    {
+        var tables = new[] { new ValueGroundingTable("public", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }) };
+        var provider = new Mock<IDataSourceProvider>();
+        var (service, _) = BuildService(provider, hostManagedKey: "host-app");
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty();
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Test]
     public async Task BuildValueMatchesBlockAsync_NoTables_ReturnsEmpty()
     {
@@ -476,7 +522,11 @@ public class ValueGroundingServiceTests
     }
 
     private static (ValueGroundingService Service, Mock<IDbContextFactory<BeaconContext>> Factory) BuildService(
-        Mock<IDataSourceProvider> provider, DataSourceType dataSourceType = DataSourceType.Database)
+        Mock<IDataSourceProvider> provider,
+        DataSourceType dataSourceType = DataSourceType.Database,
+        DatabaseEngineType engine = DatabaseEngineType.PostgreSQL,
+        string? configuredDatabase = null,
+        string? hostManagedKey = null)
     {
         var dataSource = new DataSource
         {
@@ -484,7 +534,8 @@ public class ValueGroundingServiceTests
             Name = "ds",
             DataSourceType = dataSourceType,
             EncryptedConnectionData = "encrypted",
-            DatabaseEngineType = dataSourceType == DataSourceType.Api ? null : DatabaseEngineType.PostgreSQL
+            DatabaseEngineType = dataSourceType == DataSourceType.Api ? null : engine,
+            HostManagedKey = hostManagedKey
         };
 
         var context = new ValueGroundingTestContext(
@@ -504,7 +555,8 @@ public class ValueGroundingServiceTests
         var service = new ValueGroundingService(
             factory.Object,
             providerFactory.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(hostGuard: new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources())),
+            TestConfiguredDatabases.Of(configuredDatabase),
             NullLogger<ValueGroundingService>.Instance);
 
         return (service, factory);

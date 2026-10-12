@@ -66,11 +66,12 @@ internal sealed class UpdateMcpProjectSettingsHandler(
 
         // Turning read-only enforcement or PII detection off for the project is an Admin's; a SecurityAdmin turns them
         // on. An override left empty inherits the global value, read only when that decides it.
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         if (await LoosensSafetyAsync(context, entity, data, cancellationToken))
         {
             McpSafetySettings.DemandAdmin(
                 await permissionAccessor.GetCurrentAsync(cancellationToken),
-                await actorAccessor.GetCurrentAsync(cancellationToken),
+                actor,
                 logger,
                 request.ProjectId);
         }
@@ -80,6 +81,9 @@ internal sealed class UpdateMcpProjectSettingsHandler(
             entity = new McpProjectSettings { ProjectId = request.ProjectId };
             context.McpProjectSettings.Add(entity);
         }
+
+        // A project without a row inherited every value (all overrides empty).
+        var before = McpSettingsChangeAudit.Snapshot(entity);
 
         entity.MaxRowLimit = data.MaxRowLimit;
         entity.EnforceReadOnly = data.EnforceReadOnly;
@@ -127,8 +131,21 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         entity.MaxConcurrentQueriesPerKey = data.MaxConcurrentQueriesPerKey;
         entity.AllowExplicitFeedbackContent = data.AllowExplicitFeedbackContent;
 
+        // Every change is kept in the settings history: who, which override, the value before and after (empty = inherit).
+        var changes = McpSettingsChangeAudit.Changes(
+            McpSettingsChangeAudit.ProjectKeyPrefix(request.ProjectId),
+            before,
+            McpSettingsChangeAudit.Snapshot(entity),
+            actor.LogId,
+            DateTime.UtcNow);
+        foreach (var change in changes)
+        {
+            context.AppSettingHistory.Add(change);
+        }
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
+        McpSettingsChangeAudit.Log(logger, changes, actor.LogId, request.ProjectId);
     }
 
     private static async Task<bool> LoosensSafetyAsync(
@@ -166,7 +183,9 @@ internal sealed class UpdateMcpProjectSettingsHandler(
 /// <summary>
 /// Saves a project's MCP setting overrides (null inherits the global value). For an Admin or a SecurityAdmin; only an
 /// Admin turns read-only enforcement or PII detection off for the project, or pins either off (403,
-/// <see cref="McpSafetySettings"/>). An override of a field a deployment lock pins is refused (409).
+/// <see cref="McpSafetySettings"/>), and only while the deployment does not lock them on. An override of a field a
+/// deployment lock pins is refused (409), an Admin's included. Every change is recorded in the settings history
+/// (<see cref="McpSettingsChangeAudit"/>).
 /// </summary>
 [ProjectScopeExempt("security configuration, gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateMcpProjectSettingsCommand(int ProjectId, McpProjectSettingsData Data) : IRequest;

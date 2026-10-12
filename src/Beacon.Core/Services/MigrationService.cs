@@ -5,8 +5,10 @@ using Dapper;
 using EFCore.BulkExtensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
@@ -25,20 +27,34 @@ public interface IMigrationService
     Task<PagedList<MigrationJobDto>> GetMigrationJobs(GetMigrationJobsRequest request, CancellationToken cancellationToken);
     Task<MigrationJobDetailsDto?> GetMigrationJob(int id, CancellationToken cancellationToken);
     Task<PagedList<MigrationExecutionDto>> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken);
-    Task<BaseResponse> UpdateMigrationJob(int id, CreateMigrationJobRequest request, CancellationToken cancellationToken);
     Task<BaseResponse> DeleteMigrationJob(int id, CancellationToken cancellationToken, bool forceDelete = false);
 }
 
+/// <summary>
+/// Migration jobs and their runs. A run reads its source through the temporary-query path (the execution gate and the
+/// read-only provider path), within its own row budget (<see cref="MigrationOptions.MaxRows"/>), and writes only to a
+/// migration write target (<see cref="MigrationWriteTargets"/>), connecting with that data source's credentials — the only
+/// place Beacon connects with them. Nothing is created or run while the deployment does not run migrations
+/// (<see cref="MigrationOptions.Enabled"/>).
+/// </summary>
 internal partial class MigrationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     IQueryService queryService,
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
-    ILogger<MigrationService> logger) : IMigrationService
+    ILogger<MigrationService> logger,
+    IOptions<MigrationOptions> migrationOptions) : IMigrationService
 {
+    private readonly MigrationOptions _options = migrationOptions.Value;
+
     public async Task<CreateMigrationJobResponse> CreateMigrationJob(CreateMigrationJobRequest request, CancellationToken cancellationToken)
     {
+        if (!_options.Enabled)
+        {
+            return new CreateMigrationJobResponse(0, false, MigrationWriteTargets.DisabledMessage);
+        }
+
         try
         {
             // Validate request
@@ -85,6 +101,13 @@ internal partial class MigrationService(
 
     public async Task<ExecuteMigrationJobResponse> ExecuteMigrationJob(ExecuteMigrationJobRequest request, CancellationToken cancellationToken)
     {
+        // The deployment lock holds for every caller, before anything is read or recorded: a run refused by it, or of a job
+        // that does not exist or is disabled, is answered to the caller only, with no history row.
+        if (!_options.Enabled)
+        {
+            return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: MigrationWriteTargets.DisabledMessage);
+        }
+
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -103,6 +126,29 @@ internal partial class MigrationService(
             if (!migrationJob.IsEnabled)
             {
                 return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: "Migration job is disabled");
+            }
+
+            // Writes only into a write target, from sources that are not one; a refused run never starts, and is recorded as a
+            // failed run so the job's history shows why it did not copy anything.
+            var targetRefusal = await TargetRefusalAsync(context, migrationJob, cancellationToken);
+            if (targetRefusal != null)
+            {
+                logger.LogWarning("Migration job {MigrationJobId} was not run: its destination is not a migration write target, or a source it reads is one", migrationJob.Id);
+                var refusedAt = DateTime.UtcNow;
+                var refused = new MigrationExecutionHistory
+                {
+                    MigrationJobId = migrationJob.Id,
+                    StartedAt = refusedAt,
+                    CompletedAt = refusedAt,
+                    Status = MigrationStatus.Failed,
+                    ExecutedQuery = migrationJob.QueryText,
+                    QueryParameters = request.Parameters != null ? System.Text.Json.JsonSerializer.Serialize(request.Parameters) : null,
+                    ErrorMessage = targetRefusal
+                };
+                context.MigrationExecutions.Add(refused);
+                await context.SaveChangesAsync(cancellationToken);
+
+                return new ExecuteMigrationJobResponse(refused.Id, MigrationStatus.Failed, ErrorMessage: targetRefusal);
             }
 
             // Create execution record
@@ -320,48 +366,6 @@ internal partial class MigrationService(
             .ToPagedListPreservingOrderAsync(request, cancellationToken);
     }
 
-    public async Task<BaseResponse> UpdateMigrationJob(int id, CreateMigrationJobRequest request, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-            var migrationJob = await context.MigrationJobs.FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
-            if (migrationJob == null)
-            {
-                return new BaseResponse { Success = false, Message = "Migration job not found" };
-            }
-
-            // Update properties
-            migrationJob.Name = request.Name;
-            migrationJob.Description = request.Description;
-            migrationJob.DataSourceId = request.DataSourceId;
-            migrationJob.QueryText = request.QueryText;
-            migrationJob.DestinationDataSourceId = request.DestinationDataSourceId;
-            migrationJob.DestinationTable = request.DestinationTable;
-            migrationJob.Mode = request.Mode;
-            migrationJob.IsEnabled = request.IsEnabled;
-            migrationJob.Schedule = request.Schedule;
-            migrationJob.MaxRetries = request.MaxRetries;
-            migrationJob.TimeoutMinutes = request.TimeoutMinutes;
-            migrationJob.ValidateBeforeExecution = request.ValidateBeforeExecution;
-            migrationJob.TransformationScript = request.TransformationScript;
-            migrationJob.ChangedBy = userContext.UserId ?? userContext.UserName ?? "system";
-            migrationJob.ChangedOn = DateTime.UtcNow;
-
-            await context.SaveChangesAsync(cancellationToken);
-
-            logger.LogInformation("Updated migration job {Id} ({Name})", id, request.Name);
-
-            return new BaseResponse { Success = true };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error updating migration job {Id}", id);
-            return new BaseResponse { Success = false, Message = ex.Message };
-        }
-    }
-
     public async Task<BaseResponse> DeleteMigrationJob(int id, CancellationToken cancellationToken, bool forceDelete = false)
     {
         try
@@ -394,5 +398,29 @@ internal partial class MigrationService(
             logger.LogError(ex, "Error deleting migration job {Id}", id);
             return new BaseResponse { Success = false, Message = ex.Message };
         }
+    }
+
+    // Why the job may not run as stored: its destination is not a write target (or no longer exists), or a source it
+    // reads is one. Null when it may.
+    private static async Task<string?> TargetRefusalAsync(BeaconContext context, MigrationJob migrationJob, CancellationToken cancellationToken)
+    {
+        if (migrationJob.DestinationDataSource == null)
+        {
+            return "Destination data source not found.";
+        }
+
+        var refusal = MigrationWriteTargets.DestinationRefusal(migrationJob.DestinationDataSource);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
+        var sourceIds = MigrationQuerySteps.SourceIds(migrationJob.DataSourceId, migrationJob.QueryText);
+        var readsWriteTarget = await context.DataSources
+            .Where(x => sourceIds.Contains(x.Id))
+            .Where(x => x.AllowMigrationWrites)
+            .AnyAsync(cancellationToken);
+
+        return readsWriteTarget ? MigrationWriteTargets.ReadRefusedMessage : null;
     }
 }

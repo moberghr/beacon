@@ -66,15 +66,66 @@ public class SqlRowLimitRewriterTests
         result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
     }
 
-    [Test]
-    public void Apply_TSql_Union_UsesOrderByOffsetFetch()
+    // A leading TOP would cap the first arm only, and SQL Server refuses ORDER BY (SELECT NULL) after a set operation (an
+    // ORDER BY item must be in its select list): the whole statement becomes a derived table capped by TOP.
+    [TestCase("MSSQL", "SELECT a FROM t UNION SELECT b FROM u")]
+    [TestCase("MSSQL", "SELECT a FROM t UNION ALL SELECT b FROM u")]
+    [TestCase("MSSQL", "SELECT a FROM t EXCEPT SELECT b FROM u")]
+    [TestCase("AzureSynapse", "SELECT a FROM t INTERSECT SELECT b FROM u")]
+    [TestCase("MSSQL", "(SELECT a FROM t)")]
+    public void Apply_TSql_SetOperation_IsWrappedInACappedDerivedTable(string dialect, string sql)
     {
-        // A leading TOP would cap the first UNION arm and leave the combined result unbounded.
-        var result = SqlRowLimitRewriter.Apply("SELECT a FROM t UNION SELECT b FROM u", 100, "MSSQL");
+        var result = SqlRowLimitRewriter.Apply(sql, 100, dialect);
 
-        result.Sql.Should().EndWith("ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY");
-        result.Sql.Should().NotContain("TOP");
         result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+        result.Sql.Should().Be($"SELECT TOP 100 * FROM (\n{sql}\n) AS beacon_rows");
+        result.Sql.Should().NotContain("(SELECT NULL)");
+        ShouldParseAsTSql(result.Sql);
+    }
+
+    [Test]
+    public void Apply_TSql_SetOperationAfterACteList_WrapsOnlyTheBody()
+    {
+        // A CTE cannot sit inside a derived table, so the CTE list stays in front and the body is wrapped.
+        const string ctes = "WITH x AS (SELECT a FROM t), y (b) AS (SELECT b FROM u) ";
+        const string body = "SELECT a FROM x UNION ALL SELECT b FROM y";
+
+        var result = SqlRowLimitRewriter.Apply(ctes + body, 100, "MSSQL");
+
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+        result.Sql.Should().Be($"{ctes}SELECT TOP 100 * FROM (\n{body}\n) AS beacon_rows");
+        ShouldParseAsTSql(result.Sql);
+    }
+
+    [Test]
+    public void Apply_TSql_OrderedSetOperation_KeepsItsOrderAndUsesOffsetFetch()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT a FROM t UNION SELECT b FROM u ORDER BY a", 100, "MSSQL");
+
+        result.Sql.Should().Be("SELECT a FROM t UNION SELECT b FROM u ORDER BY a OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY");
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+    }
+
+    [Test]
+    public void Apply_Postgres_SetOperation_AppendsLimitToTheWholeResult()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT a FROM t UNION SELECT b FROM u", 100, "PostgreSQL");
+
+        result.Sql.Should().Be("SELECT a FROM t UNION SELECT b FROM u LIMIT 100");
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+    }
+
+    [Test]
+    public void Apply_TSql_TheEnumDiscoveryStatement_IsCappedAsAWhole()
+    {
+        var sql = Beacon.AI.Services.Documentation.ProjectDocumentationService.BuildEnumDiscoveryQuery(
+            Beacon.Core.Data.Enums.DatabaseEngineType.MSSQL, "dbo", "orders", ["status", "kind"]);
+
+        var result = SqlRowLimitRewriter.Apply(sql, 100, "MSSQL");
+
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Applied);
+        result.Sql.Should().StartWith("SELECT TOP 100 * FROM (\n").And.EndWith("\n) AS beacon_rows");
+        ShouldParseAsTSql(result.Sql);
     }
 
     [Test]
@@ -206,5 +257,12 @@ public class SqlRowLimitRewriterTests
 
         result.FallbackReason.Should().NotBeNullOrWhiteSpace();
         result.FallbackReason.Should().NotContain("???", "the fallback reason is an exception type, never SQL text (§1.11)");
+    }
+
+    private static void ShouldParseAsTSql(string sql)
+    {
+        var act = () => new SqlParser.Parser().ParseSql(sql, new SqlParser.Dialects.MsSqlDialect());
+
+        act.Should().NotThrow($"`{sql}` must be valid T-SQL");
     }
 }

@@ -4,6 +4,7 @@ using Beacon.Api.Endpoints;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
@@ -17,6 +18,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Beacon.Tests.Common;
@@ -66,6 +68,8 @@ internal static class BeaconApiRoutes
         builder.Services.AddSingleton(Mock.Of<IUserManagementService>());
         builder.Services.AddSingleton(Mock.Of<IDbContextFactory<BeaconContext>>());
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false });
+        // The whole surface, the migration routes included (they are mapped only on a host that runs migrations).
+        builder.Services.AddSingleton(Options.Create(new MigrationOptions { Enabled = true }));
         builder.Services.AddAntiforgery();
         builder.Services.AddRouting();
         builder.Services.AddBeaconApiAuthorization();

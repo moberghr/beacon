@@ -20,7 +20,8 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// model has no pending changes against its snapshot, existing data sources stay reachable while unlinked
 /// (<c>open_when_unlinked</c> defaults to true for existing rows), existing projects stay open, and the recorded owner,
 /// linking user and change-history source are nullable columns that existing rows leave empty. The later contract-owner
-/// migration adds one nullable timestamp that existing contracts leave empty, and its target model is the snapshot.
+/// migration adds one nullable timestamp that existing contracts leave empty. The last one marks no data source as a
+/// migration write target: it adds one boolean that existing rows leave false, and its target model is the snapshot.
 /// </summary>
 [TestFixture]
 public class ProjectAuthorizationMigrationTests
@@ -44,13 +45,14 @@ public class ProjectAuthorizationMigrationTests
         Ordered(migrations)
             .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
             .Skip(1)
-            .Should().ContainSingle("it sorts after every earlier migration, and only the contract-owner migration follows it")
-            .Which.Should().EndWith("_AddContractOwnerNotAuthorized");
+            .Should().Equal(
+                [Ordered(migrations).Single(x => x.EndsWith("_AddContractOwnerNotAuthorized", StringComparison.Ordinal)), Ordered(migrations).Single(x => x.EndsWith("_AddDataSourceMigrationWrites", StringComparison.Ordinal))],
+                "it sorts after every earlier migration, and only the contract-owner and migration-writes migrations follow it");
     }
 
     [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
     [TestCase(true, "DataContracts", "OwnerNotAuthorizedSince", "datetime2")]
-    public void TheContractOwnerMigration_AddsOneNullableTimestamp_AndItsTargetModelIsTheSnapshot(bool sqlServer, string table, string column, string type)
+    public void TheContractOwnerMigration_AddsOneNullableTimestamp_AndItsTargetModelIsTheSnapshotBeforeTheNextOne(bool sqlServer, string table, string column, string type)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -67,9 +69,35 @@ public class ProjectAuthorizationMigrationTests
             .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column }, x => x.ExcludingMissingMembers());
         context.GetService<IMigrationsModelDiffer>()
             .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
+            .Should().ContainSingle("the snapshot differs from its target model only by the migration that follows it")
+            .Which.Should().BeOfType<AddColumnOperation>()
+            .Which.Name.Should().Be(sqlServer ? "AllowMigrationWrites" : "allow_migration_writes");
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        Ordered(migrations).SkipLast(1).Last().Should().EndWith("_AddContractOwnerNotAuthorized", "it sorts after every earlier migration");
+    }
+
+    [TestCase(false, "data_sources", "allow_migration_writes", "boolean")]
+    [TestCase(true, "DataSources", "AllowMigrationWrites", "bit")]
+    public void TheMigrationWritesMigration_AddsOneBooleanThatExistingSourcesLeaveFalse_AndItsTargetModelIsTheSnapshot(bool sqlServer, string table, string column, string type)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+
+        var migration = MigrationNamed(context, migrations, "_AddDataSourceMigrationWrites");
+
+        migration.UpOperations.Should().ContainSingle()
+            .Which.Should().BeOfType<AddColumnOperation>()
+            .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column, ColumnType = type, IsNullable = false, DefaultValue = (object?)false, DefaultValueSql = (string?)null }, x => x.ExcludingMissingMembers());
+        migration.DownOperations.Should().ContainSingle()
+            .Which.Should().BeOfType<DropColumnOperation>()
+            .Which.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column }, x => x.ExcludingMissingMembers());
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).Last().Should().EndWith("_AddContractOwnerNotAuthorized", "it sorts after every earlier migration");
+        Ordered(migrations).Last().Should().EndWith("_AddDataSourceMigrationWrites", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]

@@ -462,6 +462,7 @@ public class HostDataSourceSynchronizerTests
             Mock.Of<Beacon.Core.Authorization.IBeaconUserContext>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
+            TestQueryServices.Runner(),
             NullLogger<DataSourceService>.Instance);
 
         var update = () => service.UpdateDataSource(new Beacon.Core.Models.DataSources.DataSourceData

@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api;
@@ -18,6 +19,7 @@ using Beacon.Api.Endpoints;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
@@ -162,6 +164,33 @@ public class FunctionalRoleReachTests
     }
 
     [Test]
+    public async Task OverTheApi_AMigrationOperator_ReachesTheMigrationRoutes_OnlyOnAHostThatRunsMigrations()
+    {
+        await using var running = await StartAsync(BeaconPermissions.MigrationOperator);
+        await using var off = await StartAsync(BeaconPermissions.MigrationOperator, migrationsEnabled: false);
+
+        (await SendAsync(running, HttpMethod.Get, "/beacon/api/migrations/jobs")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await (await SendAsync(running, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync())
+            .Should().Contain("\"migrationsEnabled\":true");
+        foreach (var (method, path) in new[]
+        {
+            (HttpMethod.Get, "/beacon/api/migrations/jobs"),
+            (HttpMethod.Get, "/beacon/api/migrations/jobs/1"),
+            (HttpMethod.Post, "/beacon/api/migrations/jobs"),
+            (HttpMethod.Post, "/beacon/api/migrations/jobs/1/run"),
+            (HttpMethod.Delete, "/beacon/api/migrations/jobs/1"),
+            (HttpMethod.Get, "/beacon/api/migrations/executions")
+        })
+        {
+            (await SendAsync(off, method, path, method == HttpMethod.Post ? "{}" : null)).StatusCode
+                .Should().Be(HttpStatusCode.NotFound, $"{method} {path} is not mapped while migrations are off");
+        }
+
+        (await (await SendAsync(off, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync())
+            .Should().Contain("\"migrationsEnabled\":false");
+    }
+
+    [Test]
     public async Task OverTheApi_ARoleClaimWithoutThePermissionNow_IsRefused()
     {
         // The session still carries the Auditor role claim (the policy passes), but the user no longer holds it.
@@ -219,8 +248,9 @@ public class FunctionalRoleReachTests
     }
 
     // MapBeaconApi over a test server, for a signed-in user with the role claim of <paramref name="permission"/> and no
-    // Viewer or Editor role, who holds <paramref name="holds"/> now (default: that permission).
-    private static async Task<WebApplication> StartAsync(string permission, string[]? holds = null)
+    // Viewer or Editor role, who holds <paramref name="holds"/> now (default: that permission), on a host that runs data
+    // migrations unless <paramref name="migrationsEnabled"/> is false.
+    private static async Task<WebApplication> StartAsync(string permission, string[]? holds = null, bool migrationsEnabled = true)
     {
         var configuration = new BeaconConfiguration();
         configuration.UserManagement.Enabled = true;
@@ -234,6 +264,7 @@ public class FunctionalRoleReachTests
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(configuration);
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false });
+        builder.Services.AddSingleton(Options.Create(new MigrationOptions { Enabled = migrationsEnabled }));
         builder.Services.AddSingleton(Mock.Of<IMediator>());
         builder.Services.AddSingleton(authorization.Object);
         builder.Services.AddSingleton(TestPermissions.Holding(holds ?? [permission]));

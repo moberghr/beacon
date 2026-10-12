@@ -168,6 +168,7 @@ export interface RunMcpToolResult {
 
 
 export const MCP_SETTINGS_KEY = ['mcp', 'settings'] as const;
+export const MCP_DEPLOYMENT_LOCKS_KEY = ['mcp', 'settings', 'locks'] as const;
 export const mcpProjectSettingsKey = (projectId: number) =>
   ['mcp', 'project-settings', projectId] as const;
 export const MCP_TOOLS_KEY = ['mcp', 'tools'] as const;
@@ -179,6 +180,15 @@ export function useMcpSettings() {
   return useQuery({
     queryKey: MCP_SETTINGS_KEY,
     queryFn: async () => unwrap<McpSettingsData>(await beaconApi().getMcpSettings()),
+  });
+}
+
+/** The settings the deployment pins (Beacon:Mcp locks), as server field names (e.g. 'EnforceReadOnly'). */
+export function useMcpDeploymentLocks() {
+  return useQuery({
+    queryKey: MCP_DEPLOYMENT_LOCKS_KEY,
+    queryFn: async () =>
+      unwrap<{ lockedFields: string[] }>(await beaconApi().getMcpDeploymentLocks()).lockedFields,
   });
 }
 

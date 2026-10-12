@@ -92,7 +92,7 @@ public class SqlNestingBoundsTests
             MaxRows = 10
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.TooDeep);
@@ -108,7 +108,7 @@ public class SqlNestingBoundsTests
             MaxRows = 10
         };
 
-        var report = TestSqlGate.Create().Evaluate(request);
+        var report = TestSqlGate.Create(deployment: TestSqlGate.Unlocked).Evaluate(request);
 
         report.Blocked.Should().BeTrue();
         report.BlockReason.Should().Be(SqlAst.TooDeepMessage);

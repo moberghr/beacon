@@ -172,6 +172,14 @@ internal sealed class SqlCapture
     }
 
     /// <summary>
+    /// For a context that must never reach a database server (§4.7) — the translation contexts, the recording context's
+    /// unserved sets: opening its connection is suppressed, so a command it runs by mistake fails at once with "connection
+    /// is not open" instead of connecting to whatever listens on localhost (and a test never waits on a port that accepts
+    /// but does not answer).
+    /// </summary>
+    internal static IInterceptor NeverConnects { get; } = new NoConnection();
+
+    /// <summary>
     /// The interceptors that keep a context offline without capturing its commands: opening a connection is suppressed and
     /// transactions are stand-ins recorded in <see cref="TransactionIsolationLevels"/>.
     /// </summary>

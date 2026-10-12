@@ -7,7 +7,9 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.Documentation;
 
@@ -16,6 +18,8 @@ internal sealed class ProjectDocumentationService(
     IKnowledgeGraphService knowledgeGraphService,
     ILlmProvider llmProvider,
     IDataSourceProviderFactory dataSourceProviderFactory,
+    ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
 {
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
@@ -172,6 +176,7 @@ internal sealed class ProjectDocumentationService(
 
         // Append learned patterns from usage
         var dsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == doc.ProjectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -266,6 +271,7 @@ internal sealed class ProjectDocumentationService(
 
         // Get data source IDs and info
         var dataSources = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => new DataSourceInfo(
                 pds.DataSourceId,
@@ -970,6 +976,9 @@ internal sealed class ProjectDocumentationService(
 
     // --- Enum/Status Discovery ---
 
+    /// <summary>The most frequent values discovery reads per column; a statement reads at most this many per column.</summary>
+    internal const int EnumValuesPerColumn = 50;
+
     private static readonly HashSet<string> EnumNameHints = new(StringComparer.OrdinalIgnoreCase)
     {
         "status", "type", "kind", "category", "level", "state", "role",
@@ -1056,95 +1065,175 @@ internal sealed class ProjectDocumentationService(
         return results.SelectMany(x => x).ToList();
     }
 
+    /// <summary>
+    /// Samples the distinct values of each table's likely enum columns. The SQL is built from the stored catalog, whose names
+    /// come from the connected database: a table or column whose name carries quote, bracket, semicolon or control
+    /// characters is skipped, every name is quoted in the engine's own way, and a column is identified in the result by its
+    /// position, never by a literal of its name. Each statement passes the read-only execution gate — capped at
+    /// <see cref="EnumValuesPerColumn"/> rows per column — and runs through the provider's read-only path (§1.5/§1.10). A
+    /// table that is skipped is logged by name with the reason, and every run ends with how many tables were discovered.
+    /// </summary>
     private async Task<List<EnumColumnValues>> DiscoverEnumValuesForDataSourceAsync(
         DataSource dataSource, List<TableInfo> tables, CancellationToken ct)
     {
         var provider = dataSourceProviderFactory.GetProvider(dataSource.DataSourceType);
         var engineType = dataSource.DatabaseEngineType!.Value;
-        var dsTables = tables.Where(x => x.DataSourceId == dataSource.Id).ToList();
+        var dialect = DataSourceSqlDialect.Of(dataSource);
+        var configuredDatabase = configuredDatabases.Resolve(dataSource);
+        var sourceTables = tables
+            .Where(x => x.DataSourceId == dataSource.Id)
+            .ToList();
         var result = new List<EnumColumnValues>();
+        var attempted = 0;
+        var discovered = 0;
 
-        foreach (var table in dsTables)
+        try
         {
-            var candidates = table.Columns
-                .Where(IsEnumCandidate)
-                .OrderByDescending(x => HasEnumNameHint(x.Name))
-                .Take(5)
-                .ToList();
-
-            if (candidates.Count == 0)
+            foreach (var table in sourceTables)
             {
-                continue;
-            }
+                if (SqlIdentifierGuard.HasUnsafeCharacters(table.SchemaName) || SqlIdentifierGuard.HasUnsafeCharacters(table.TableName))
+                {
+                    LogEnumDiscoverySkip(dataSource, table, "its name carries a quote, bracket, semicolon or control character");
+                    continue;
+                }
 
-            var sql = BuildEnumDiscoveryQuery(engineType, table.SchemaName, table.TableName, candidates);
-
-            var queryResult = await provider.ExecuteQueryAsync(
-                dataSource, sql, new Dictionary<string, object?>(), ct);
-
-            if (!queryResult.Success)
-            {
-                logger.LogWarning(
-                    "Enum discovery query failed for {Schema}.{Table}: {Error}",
-                    table.SchemaName, table.TableName, queryResult.ErrorMessage);
-
-                continue;
-            }
-
-            var grouped = queryResult.Rows
-                .Where(x => x.GetValueOrDefault("val") != null)
-                .GroupBy(x => x.GetValueOrDefault("col")?.ToString() ?? "")
-                .Where(x => x.Key.Length > 0)
-                .Where(x => x.Count() <= 25);
-
-            foreach (var group in grouped)
-            {
-                var values = group
-                    .Select(x =>
-                    {
-                        var rawVal = x.GetValueOrDefault("val")?.ToString() ?? "NULL";
-                        var val = rawVal.Length > 100 ? rawVal[..100] + "..." : rawVal;
-                        var cnt = long.TryParse(x.GetValueOrDefault("cnt")?.ToString(), out var c) ? c : 0;
-
-                        return new EnumValueCount(val, cnt);
-                    })
-                    .OrderByDescending(x => x.Count)
+                var candidates = table.Columns
+                    .Where(IsEnumCandidate)
+                    .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.Name))
+                    .OrderByDescending(x => HasEnumNameHint(x.Name))
+                    .Take(5)
+                    .Select(x => x.Name)
                     .ToList();
 
-                result.Add(new EnumColumnValues(
-                    dataSource.Id, table.SchemaName, table.TableName, group.Key, values));
+                if (candidates.Count == 0)
+                {
+                    continue;
+                }
+
+                attempted++;
+                var sql = BuildEnumDiscoveryQuery(engineType, table.SchemaName, table.TableName, candidates);
+                var report = gate.Evaluate(new SqlGateRequest(
+                    sql,
+                    dialect,
+                    EnforceReadOnly: true,
+                    DetectPii: false,
+                    CustomPiiPatterns: null,
+                    Catalog: null,
+                    BlockOnSchemaFailure: false,
+                    LintContext: null,
+                    EnableSemanticLint: false,
+                    MaxRows: candidates.Count * EnumValuesPerColumn)
+                {
+                    HostManagedKey = dataSource.HostManagedKey,
+                    ConfiguredDatabase = configuredDatabase
+                });
+
+                if (report.Blocked)
+                {
+                    LogEnumDiscoverySkip(dataSource, table, "the execution gate refused its statement");
+                    continue;
+                }
+
+                var queryResult = await provider.ExecuteReadOnlyQueryAsync(
+                    dataSource, report.FinalSql, new Dictionary<string, object?>(), ct);
+
+                if (!queryResult.Success)
+                {
+                    // The server's error text can quote values (§1.11): the table and the reason class only.
+                    LogEnumDiscoverySkip(dataSource, table, "its statement failed on the data source");
+                    continue;
+                }
+
+                discovered++;
+                var grouped = queryResult.Rows
+                    .Where(x => x.GetValueOrDefault("val") != null)
+                    .GroupBy(x => ColumnAt(candidates, x.GetValueOrDefault("col")))
+                    .Where(x => x.Key != null)
+                    .Where(x => x.Count() <= 25);
+
+                foreach (var group in grouped)
+                {
+                    var values = group
+                        .Select(x =>
+                        {
+                            var rawVal = x.GetValueOrDefault("val")?.ToString() ?? "NULL";
+                            var val = rawVal.Length > 100 ? rawVal[..100] + "..." : rawVal;
+                            var cnt = long.TryParse(x.GetValueOrDefault("cnt")?.ToString(), out var c) ? c : 0;
+
+                            return new EnumValueCount(val, cnt);
+                        })
+                        .OrderByDescending(x => x.Count)
+                        .ToList();
+
+                    result.Add(new EnumColumnValues(
+                        dataSource.Id, table.SchemaName, table.TableName, group.Key!, values));
+                }
             }
+        }
+        finally
+        {
+            logger.LogInformation(
+                "Enum discovery of data source {DataSourceId}: {DiscoveredCount} of {TableCount} tables discovered",
+                dataSource.Id,
+                discovered,
+                attempted);
         }
 
         return result;
     }
 
-    private static string BuildEnumDiscoveryQuery(
-        DatabaseEngineType engineType, string schemaName, string tableName,
-        List<ColumnDetail> columns)
+    private void LogEnumDiscoverySkip(DataSource dataSource, TableInfo table, string reason)
     {
-        var qualifiedTable = $"\"{schemaName}\".\"{tableName}\"";
+        logger.LogWarning(
+            "Enum discovery skipped table {Table} of data source {DataSourceId}: {Reason}",
+            SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}"),
+            dataSource.Id,
+            reason);
+    }
+
+    /// <summary>
+    /// The discovery statement for <paramref name="columnNames"/> of one table: per column, its
+    /// <see cref="EnumValuesPerColumn"/> most frequent values
+    /// (<c>col</c> is the column's position in <paramref name="columnNames"/>), each branch a derived table so the
+    /// branches' own ORDER BY and LIMIT/TOP are valid inside UNION ALL. Names are quoted for the engine
+    /// (<see cref="SqlIdentifierGuard.Quote"/>); callers pass only names without quote, bracket, semicolon or control
+    /// characters. Internal for unit tests.
+    /// </summary>
+    internal static string BuildEnumDiscoveryQuery(
+        DatabaseEngineType engineType, string schemaName, string tableName, IReadOnlyList<string> columnNames)
+    {
+        var dialect = engineType.ToString();
+        var qualifiedTable = $"{SqlIdentifierGuard.Quote(schemaName, dialect)}.{SqlIdentifierGuard.Quote(tableName, dialect)}";
         var usesTop = engineType is DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse;
         var castType = engineType switch
         {
             DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse => "VARCHAR(MAX)",
+            DatabaseEngineType.MySQL => "CHAR",
             _ => "TEXT"
         };
 
-        var parts = columns.Select(col =>
+        var parts = columnNames.Select((name, index) =>
         {
-            var colName = $"\"{col.Name}\"";
-            var selectClause = usesTop ? "SELECT TOP 50" : "SELECT";
+            var column = SqlIdentifierGuard.Quote(name, dialect);
+            var selectClause = usesTop ? $"SELECT TOP {EnumValuesPerColumn}" : "SELECT";
+            var branch = $"{selectClause} {index} AS col, CAST({column} AS {castType}) AS val, COUNT(*) AS cnt " +
+                         $"FROM {qualifiedTable} " +
+                         $"GROUP BY {column} " +
+                         $"ORDER BY cnt DESC" +
+                         (usesTop ? "" : $" LIMIT {EnumValuesPerColumn}");
 
-            return $"{selectClause} '{col.Name}' AS col, CAST({colName} AS {castType}) AS val, COUNT(*) AS cnt " +
-                   $"FROM {qualifiedTable} " +
-                   $"GROUP BY {colName} " +
-                   $"HAVING COUNT(DISTINCT {colName}) <= 25 " +
-                   $"ORDER BY cnt DESC" +
-                   (usesTop ? "" : " LIMIT 50");
+            return $"SELECT * FROM ({branch}) AS enum_{index}";
         });
 
         return string.Join(" UNION ALL ", parts);
+    }
+
+    // The candidate a result row's position marker names, or null for a marker that is not one of them.
+    private static string? ColumnAt(IReadOnlyList<string> candidates, object? marker)
+    {
+        return int.TryParse(marker?.ToString(), out var index) && index >= 0 && index < candidates.Count
+            ? candidates[index]
+            : null;
     }
 
     // --- HTML Conversion ---

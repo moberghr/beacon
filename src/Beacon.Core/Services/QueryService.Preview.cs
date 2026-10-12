@@ -215,7 +215,7 @@ internal partial class QueryService : IStoredQueryPreview
 
         foreach (var step in steps)
         {
-            var stepResult = await ExecuteStep(step, null);
+            var (stepResult, _) = await ExecuteStep(step, null, null, null, cancellationToken);
             totalExecutionTime += stepResult.ExecutionTimeMs;
             summaries.Add(ToSummary(stepResult, stepResult.PreviewResults.Take(IntermediatePreviewRows).ToList()));
 
@@ -242,7 +242,7 @@ internal partial class QueryService : IStoredQueryPreview
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var page = await virtualTableManager.ExecuteFinalQueryPagedAsync(
                 finalQuery,
-                readOnlyAstValidator,
+                x => gate.Evaluate(JoinGateRequest(x, null) with { MaxRows = null }),
                 loggerFactory.CreateLogger<InMemoryDatabaseManager>(),
                 paging,
                 cancellationToken);
@@ -265,9 +265,10 @@ internal partial class QueryService : IStoredQueryPreview
     }
 
     /// <summary>
-    /// <see cref="ExecuteStep"/>'s gates (read-only AST validation, the source's own database, host policy, masking) around one page. The
-    /// rewritten page and count statements are re-validated too; a rejected rewrite falls back to streaming
-    /// the original, already-approved statement.
+    /// One page of a step, every statement through <see cref="GatedSqlRunner"/> (the execution gate, then the provider's
+    /// read-only path): the page and count rewrites when the SQL shape allows them and they pass the gate too; otherwise
+    /// the original statement capped at <see cref="ExecutionRowCeiling"/> + 1 rows in the SQL, paged in memory — a result
+    /// above the ceiling then cannot be previewed. The original must pass the gate before anything runs.
     /// </summary>
     private async Task<(QueryPreviewStep Summary, SqlResultPage? Page)> ExecuteStepPaged(
         QueryStep step,
@@ -280,57 +281,31 @@ internal partial class QueryService : IStoredQueryPreview
             throw new BeaconException($"Data source {step.DataSourceId} is not a database type");
         }
 
-        var engine = step.DataSource.DatabaseEngineType.Value;
         var dialect = DataSourceSqlDialect.Of(step.DataSource);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, ExtractStepParameters(step, parameters));
-        var executedSql = FlattenSql(parameterizedSql);
+        var executedSql = StoredSql.Flatten(parameterizedSql, dialect);
 
-        var rejection = readOnlyAstValidator.Validate(executedSql, dialect);
-        if (rejection != null)
+        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1);
+        var report = sqlRunner.Evaluate(original);
+        if (report.Blocked)
         {
-            throw new InvalidOperationException(rejection);
+            throw new InvalidOperationException(report.BlockReason ?? "The SQL was rejected.");
         }
 
-        var hostCheck = hostGuard.Check(step.DataSource, executedSql);
-        var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(sqlParameters) : hostCheck.Error;
-        if (hostError != null)
-        {
-            throw new InvalidOperationException(hostError);
-        }
-
-        var connectionString = connectionResolver.GetConnectionString(step.DataSource);
-        var configuredDatabase = configuredDatabases.Resolve(step.DataSource);
-        var crossDatabaseError = SqlCrossDatabaseRule.Validate(executedSql, dialect, configuredDatabase);
-        if (crossDatabaseError != null)
-        {
-            throw new InvalidOperationException(crossDatabaseError);
-        }
-
-        // Ordering by a masked column would leak the order of the values it hides.
+        // Ordering by a masked column would leak the order of the values it hides; on this path the gate reports only the
+        // host data source's masked columns.
         var sort = paging.SortCriteria().FirstOrDefault();
-        if (sort != null && hostCheck.MaskedOutputColumns.Contains(sort.SortColumn, StringComparer.OrdinalIgnoreCase))
+        if (sort != null && report.PiiColumns.Contains(sort.SortColumn, StringComparer.OrdinalIgnoreCase))
         {
             paging = new PreviewPaging { Page = paging.Page, PageSize = paging.PageSize };
+            sort = null;
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        await using var connection = DbConnectionFactory.CreateConnection(engine, connectionString);
-        await connection.OpenAsync(cancellationToken);
-
         SqlResultPage page;
         try
         {
-            page = await SqlPageExecutor.ExecuteAsync(
-                connection,
-                executedSql,
-                sqlParameters,
-                dialect,
-                paging,
-                x => readOnlyAstValidator.Validate(x, dialect) == null
-                    && SqlCrossDatabaseRule.Validate(x, dialect, configuredDatabase) == null
-                    && hostGuard.Check(step.DataSource, x).Allowed,
-                null,
-                cancellationToken);
+            page = await ReadPageAsync(step, original, dialect, paging, sort, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -340,21 +315,63 @@ internal partial class QueryService : IStoredQueryPreview
 
         stopwatch.Stop();
 
-        if (hostCheck.MaskedOutputColumns.Count > 0)
+        return (StepSummary(step, true, null, stopwatch.Elapsed.TotalMilliseconds, page.TotalCount, page.Rows), page);
+    }
+
+    private async Task<SqlResultPage> ReadPageAsync(
+        QueryStep step,
+        GatedSqlRequest original,
+        string? dialect,
+        ListRequest paging,
+        SortCriterion? sort,
+        CancellationToken cancellationToken)
+    {
+        var limit = paging.PageSizeOrDefault;
+        var offset = paging.PageOrDefault * limit;
+        var plan = SqlPageRewriter.Plan(original.Sql, dialect, offset, limit, sort);
+        // The page carries its own LIMIT / FETCH of one page and the count returns one row; each is capped one row past
+        // that, so the read ends on its own instead of being cancelled at the cap.
+        var pageRequest = plan.PageSql == null ? null : original with { Sql = plan.PageSql, MaxRows = limit + 1 };
+        var countRequest = plan.CountSql == null ? null : original with { Sql = plan.CountSql, MaxRows = 2 };
+
+        if (pageRequest != null && countRequest != null && !sqlRunner.Evaluate(pageRequest).Blocked && !sqlRunner.Evaluate(countRequest).Blocked)
         {
-            page = page with
+            var pageRun = await sqlRunner.RunAsync(pageRequest, cancellationToken);
+            var countRun = await sqlRunner.RunAsync(countRequest, cancellationToken);
+            if (pageRun.TimedOut || countRun.TimedOut)
             {
-                Rows = hostGuard.Mask(
-                        page.Rows
-                            .Select(x => new Dictionary<string, object?>(x))
-                            .ToList(),
-                        hostCheck.MaskedOutputColumns)
+                throw new TimeoutException("Step execution timed out");
+            }
+
+            var count = countRun.Rows.FirstOrDefault()?.Values.FirstOrDefault();
+
+            return new SqlResultPage(
+                pageRun.Rows
                     .Select(x => (IDictionary<string, object?>)x)
-                    .ToList()
-            };
+                    .ToList(),
+                (int)Math.Min(Convert.ToInt64(count ?? 0L), int.MaxValue),
+                plan.SortApplied);
         }
 
-        return (StepSummary(step, true, null, stopwatch.Elapsed.TotalMilliseconds, page.TotalCount, page.Rows), page);
+        var run = await sqlRunner.RunAsync(original, cancellationToken);
+        if (run.TimedOut)
+        {
+            throw new TimeoutException("Step execution timed out");
+        }
+
+        if (run.Rows.Count > ExecutionRowCeiling)
+        {
+            throw new BeaconException($"Step {step.StepOrder} returned more than {ExecutionRowCeiling} rows (the {RowLimitSetting(null)} limit) and its SQL cannot be paged; filter or aggregate it to preview it.");
+        }
+
+        return new SqlResultPage(
+            run.Rows
+                .Skip(offset)
+                .Take(limit)
+                .Select(x => (IDictionary<string, object?>)x)
+                .ToList(),
+            run.Rows.Count,
+            false);
     }
 
     private static QueryPreviewStep StepSummary(

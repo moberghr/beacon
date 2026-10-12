@@ -171,6 +171,30 @@ public class DatabricksProvider(
         }
     }
 
+    /// <summary>
+    /// The Statement Execution API offers no read-only session, so the connector's own verdict binds before anything is sent:
+    /// <see cref="ValidateQueryAsync"/> (the Databricks-dialect read-only parser and the configured-catalog rule) must pass,
+    /// which leaves a single SELECT, or the statement is refused without reaching the warehouse.
+    /// <see cref="SupportsDatabaseReadOnlyEnforcement"/> stays false: the token's Unity Catalog grants remain the
+    /// workspace's own boundary.
+    /// </summary>
+    public async Task<ProviderQueryResult> ExecuteReadOnlyQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    {
+        var validation = await ValidateQueryAsync(dataSource, query, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return new ProviderQueryResult
+            {
+                Rows = [],
+                TotalRows = 0,
+                Success = false,
+                ErrorMessage = string.Join("; ", validation.Errors)
+            };
+        }
+
+        return await ExecuteQueryAsync(dataSource, query, parameters, cancellationToken);
+    }
+
     public Task<DataSourceMetadata> GetMetadataAsync(DataSource dataSource, CancellationToken cancellationToken = default)
     {
         return Task.FromResult(new DataSourceMetadata

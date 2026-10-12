@@ -39,6 +39,23 @@ public class WarehouseDialectCallSiteTests
         result.GeneratedSql.Should().Be("SELECT id FROM orders");
     }
 
+    // Semantic search judges the generated SQL in the data source's dialect on every engine — never without one.
+    [TestCase(DataSourceType.Database, DatabaseEngineType.PostgreSQL, "PostgreSQL")]
+    [TestCase(DataSourceType.Database, DatabaseEngineType.MySQL, "MySQL")]
+    [TestCase(DataSourceType.Database, DatabaseEngineType.MSSQL, "MSSQL")]
+    [TestCase(DataSourceType.Database, DatabaseEngineType.Snowflake, "Snowflake")]
+    [TestCase(DataSourceType.BigQuery, null, "bigquery")]
+    [TestCase(DataSourceType.Databricks, null, "databricks")]
+    public async Task SemanticSearch_PassesTheDataSourcesDialectToTheGate(DataSourceType type, DatabaseEngineType? engine, string dialect)
+    {
+        var gate = new RecordingSqlGate(TestSqlGate.Create());
+
+        var result = await SemanticSearch(type, "-- ids\nSELECT id FROM orders", engine, gate).AskAsync(WarehouseId, ProjectId, "ids?", execute: false);
+
+        result.Error.Should().BeNull("a statement that starts with a comment passes once the gate knows the dialect");
+        gate.Dialects.Should().Equal(dialect);
+    }
+
     [Test]
     public async Task SemanticSearch_BackslashBeforeQuote_IsRejected()
     {
@@ -69,7 +86,7 @@ public class WarehouseDialectCallSiteTests
         (await AlertGeneration(DataSourceType.BigQuery).ValidateQuerySyntaxAsync(99, "SELECT id FROM orders")).Should().BeFalse();
     }
 
-    private static SemanticSearchService SemanticSearch(DataSourceType type, string generatedSql)
+    private static SemanticSearchService SemanticSearch(DataSourceType type, string generatedSql, DatabaseEngineType? engine = null, ISqlExecutionGate? gate = null)
     {
         var llm = new Mock<ILlmProvider>();
         llm
@@ -77,11 +94,11 @@ public class WarehouseDialectCallSiteTests
             .ReturnsAsync(new LlmResponse { Content = $"```sql\n{generatedSql}\n```\nExplanation: test" });
 
         return new SemanticSearchService(
-            Factory(type).Object,
+            Factory(type, engine).Object,
             Mock.Of<IKnowledgeGraphService>(),
             llm.Object,
             new QueryGuardrailService(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            gate ?? TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Mock.Of<IDataSourceProviderFactory>(),
             TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
@@ -99,18 +116,18 @@ public class WarehouseDialectCallSiteTests
             NullLogger<AiAlertGenerationService>.Instance);
     }
 
-    private static Mock<IDbContextFactory<BeaconContext>> Factory(DataSourceType type)
+    private static Mock<IDbContextFactory<BeaconContext>> Factory(DataSourceType type, DatabaseEngineType? engine = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new WarehouseContext(type));
+            .ReturnsAsync(() => new WarehouseContext(type, engine));
 
         return factory;
     }
 
-    /// <summary>One warehouse data source over the async-queryable doubles — no DB (§4.7).</summary>
-    private sealed class WarehouseContext(DataSourceType type) : BeaconContext(Options, "beacon")
+    /// <summary>One data source over the async-queryable doubles — no DB (§4.7).</summary>
+    private sealed class WarehouseContext(DataSourceType type, DatabaseEngineType? engine) : BeaconContext(Options, "beacon")
     {
         private static readonly DbContextOptions<WarehouseContext> Options =
             new DbContextOptionsBuilder<WarehouseContext>()
@@ -127,7 +144,7 @@ public class WarehouseDialectCallSiteTests
 
             var data = new List<DataSource>
             {
-                new() { Id = WarehouseId, Name = "lake", DataSourceType = type, EncryptedConnectionData = "encrypted" }
+                new() { Id = WarehouseId, Name = "lake", DataSourceType = type, DatabaseEngineType = engine, EncryptedConnectionData = "encrypted" }
             }.AsQueryable();
             var set = new Mock<DbSet<DataSource>>();
             set.As<IAsyncEnumerable<DataSource>>()

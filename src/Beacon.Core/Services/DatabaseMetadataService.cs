@@ -27,6 +27,7 @@ public class DatabaseMetadataService(
     : IDatabaseMetadataService
 {
     private const string CacheKeyPrefix = "DbMetadata_";
+    private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
     // Lock per data source to prevent concurrent refresh operations
@@ -70,6 +71,9 @@ public class DatabaseMetadataService(
                     "Metadata for a host data source comes from the host's EF model and is refreshed when the host starts (SyncBeaconHostDataSourcesAsync).");
             }
 
+            // A migration write target is never read: its login may write, and only the migration writer connects with it.
+            MigrationWriteTargets.EnsureReadable(dataSource);
+
             // Extract metadata based on database type using registered extractors
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             var extractor = metadataExtractors.FirstOrDefault(e => e.SupportedEngineType == dataSource.DatabaseEngineType.Value)
@@ -78,6 +82,7 @@ public class DatabaseMetadataService(
 
             // Apply per-datasource filters
             tables = ApplyMetadataFilters(tables, dataSource);
+            (tables, var skippedNames) = SkipUnsafeNames(tables, dataSourceId);
 
             // Enrich with representative sample values for LLM grounding (failure-tolerant): only while every live project
             // that links the source allows it, screened with every such project's custom PII patterns.
@@ -85,8 +90,7 @@ public class DatabaseMetadataService(
             if (mcpSettings.EnableSampleValueCollection)
             {
                 tables = await columnValueSampler.EnrichWithSampleValuesAsync(
-                    dataSource.DatabaseEngineType.Value,
-                    connectionString,
+                    dataSource,
                     tables,
                     mcpSettings.CustomPiiPatterns,
                     cancellationToken);
@@ -96,7 +100,10 @@ public class DatabaseMetadataService(
             var stored = await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
             // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, stored, DateTime.UtcNow);
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, stored, DateTime.UtcNow)
+            {
+                SkippedNameCount = skippedNames
+            };
             cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
             schemaGraphService.Invalidate(dataSourceId);
 
@@ -135,8 +142,9 @@ public class DatabaseMetadataService(
         if (!dataSource.DatabaseEngineType.HasValue)
             throw new BeaconException($"Data source {dataSourceId} is not a database type");
 
-        // Check if metadata loading is disabled for this data source
-        if (!dataSource.MetadataLoadingEnabled)
+        // Check if metadata loading is disabled for this data source; a migration write target has no catalog in Beacon
+        // (it is never read, so neither its stored tables nor a scan are offered to anyone).
+        if (!dataSource.MetadataLoadingEnabled || dataSource.AllowMigrationWrites)
         {
             logger.LogDebug("Metadata loading is disabled for data source {DataSourceId}", dataSourceId);
             return new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, new List<TableMetadataDto>(), DateTime.UtcNow);
@@ -339,6 +347,51 @@ public class DatabaseMetadataService(
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// Leaves out every table, and every column, whose name carries a quote, bracket, semicolon or control character
+    /// (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>). Beacon builds SQL from catalog names (documentation enum
+    /// discovery, value probes, sampling), and such a name could end its quoting in some dialect, so it is never stored —
+    /// nor its description, a curated one included. The names left out are logged (identifiers only, made safe for the log
+    /// by <see cref="SqlIdentifierGuard.ForLog"/>, at most <see cref="MaxLoggedSkippedNames"/> of them) and counted.
+    /// </summary>
+    private (IReadOnlyList<TableMetadataDto> Kept, int SkippedNames) SkipUnsafeNames(IReadOnlyList<TableMetadataDto> tables, int dataSourceId)
+    {
+        var kept = new List<TableMetadataDto>(tables.Count);
+        var skippedTables = new List<string>();
+        var skippedColumns = new List<string>();
+        foreach (var table in tables)
+        {
+            if (SqlIdentifierGuard.HasUnsafeCharacters(table.SchemaName) || SqlIdentifierGuard.HasUnsafeCharacters(table.TableName))
+            {
+                skippedTables.Add(SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}"));
+                continue;
+            }
+
+            var columns = table.Columns
+                .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
+                .ToList();
+            skippedColumns.AddRange(table.Columns
+                .Where(x => SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
+                .Select(x => SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{x.ColumnName}")));
+            kept.Add(columns.Count == table.Columns.Count ? table : table with { Columns = columns });
+        }
+
+        if (skippedTables.Count > 0 || skippedColumns.Count > 0)
+        {
+            logger.LogWarning(
+                "Metadata refresh of data source {DataSourceId} left out {TableCount} tables and {ColumnCount} columns whose names carry quote, bracket, semicolon or control characters: {SkippedNames}",
+                dataSourceId,
+                skippedTables.Count,
+                skippedColumns.Count,
+                skippedTables
+                    .Concat(skippedColumns)
+                    .Take(MaxLoggedSkippedNames)
+                    .ToList());
+        }
+
+        return (kept, skippedTables.Count + skippedColumns.Count);
     }
 
     /// <summary>

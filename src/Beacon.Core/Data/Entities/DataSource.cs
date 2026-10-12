@@ -63,5 +63,14 @@ public class DataSource : ArchivableBaseEntity
     /// </summary>
     public bool OpenWhenUnlinked { get; set; }
 
+    /// <summary>
+    /// An Admin's mark that the data source is a destination for data migrations, and nothing else
+    /// (<see cref="Services.MigrationWriteTargets"/>). Its connection may carry a login with write grants, so Beacon never
+    /// reads through it: query steps, previews, subscriptions, data quality, MCP tools, AI grounding, documentation and
+    /// metadata scans refuse it or leave it out, and only the migration writer connects with its credentials. Off for
+    /// every data source until an Admin turns it on, which the deployment must allow (<c>Beacon:Migrations:Enabled</c>).
+    /// </summary>
+    public bool AllowMigrationWrites { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

@@ -17,6 +17,7 @@ import {
 } from './queries';
 import { AddDataSourceDialog } from './AddDataSourceDialog';
 import { ProjectChips } from './ProjectChips';
+import { ReadOnlyEnforcementBadge } from './ReadOnlyEnforcementBadge';
 
 const GRID_TEMPLATE = '0.6fr 1.6fr 0.8fr 0.9fr 1.6fr 0.7fr 0.7fr 60px';
 
@@ -53,9 +54,14 @@ export default function DataSourcesListPage() {
     {
       key: 'engine',
       header: 'Engine',
-      render: r => r.databaseEngineType
-        ? <span className="mono text-text-muted">{r.databaseEngineType}</span>
-        : <span className="text-text-muted">—</span>,
+      render: r => (
+        <span className="inline-flex items-center gap-2">
+          {r.databaseEngineType
+            ? <span className="mono text-text-muted">{r.databaseEngineType}</span>
+            : <span className="text-text-muted">—</span>}
+          <ReadOnlyEnforcementBadge enforced={r.databaseReadOnlyEnforced} writeTarget={r.allowMigrationWrites} />
+        </span>
+      ),
     },
     {
       key: 'projects',

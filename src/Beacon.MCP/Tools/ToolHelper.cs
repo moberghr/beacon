@@ -10,6 +10,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
+using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -63,6 +64,7 @@ internal static class ToolHelper
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var belongs = await context.ProjectDataSources
+            .WhereReadable()
             .AnyAsync(pds => pds.ProjectId == projectId && pds.DataSourceId == dataSourceId, ct);
 
         return belongs ? null : $"Data source {dataSourceId} is not part of project {projectId}.";
@@ -76,6 +78,7 @@ internal static class ToolHelper
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         return await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -89,6 +92,7 @@ internal static class ToolHelper
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var ds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Where(pds => pds.DataSource.Name.ToLower() == dataSourceName.ToLower())
             .Select(pds => new { pds.DataSourceId })

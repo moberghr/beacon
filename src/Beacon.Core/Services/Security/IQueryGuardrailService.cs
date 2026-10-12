@@ -16,6 +16,13 @@ public class QueryGuardrailOptions
     public bool DetectPii { get; set; } = true;
     public bool RequireApproval { get; set; } = false;
     public List<string>? CustomPiiPatterns { get; set; }
+
+    /// <summary>
+    /// The target's dialect name (<c>DataSourceSqlDialect.Of</c>). When it is known, the read-only patterns judge the SQL
+    /// with its comments removed as that dialect's tokenizer reads them (<see cref="SqlCommentStripper"/>); null judges the
+    /// text as written.
+    /// </summary>
+    public string? Dialect { get; set; }
 }
 
 public record QueryValidationResult(bool IsValid, string? Error = null, bool IsReadOnly = true, List<string>? PiiColumns = null);

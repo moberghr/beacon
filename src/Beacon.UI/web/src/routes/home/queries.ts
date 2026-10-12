@@ -75,12 +75,13 @@ export interface GetHomeMigrationSummaryResult {
   errored: number;
 }
 
-export function useHomeMigrationSummaryQuery() {
+export function useHomeMigrationSummaryQuery(enabled = true) {
   return useQuery({
     queryKey: ['home', 'migration-summary'],
     queryFn: async () =>
       unwrap<GetHomeMigrationSummaryResult>(await beaconApi().getHomeMigrationSummary()),
     retry: false,
+    enabled,
   });
 }
 

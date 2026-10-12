@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, Database, GitFork, Key, Layers, RefreshCw, X } from 'lucide-react';
 import {
   PageHeader,
+  Banner,
   Button,
   Card,
   CardBody,
@@ -18,6 +19,8 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { describeError, httpErrorInfo, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { useAccess } from '@/auth/useAuth';
 import { ProjectChips } from './ProjectChips';
+import { ENGINE_READ_ONLY_HINT, READ_ONLY_LOGIN_HINT, ReadOnlyEnforcementBadge, WRITE_TARGET_HINT } from './ReadOnlyEnforcementBadge';
+import { MigrationWritesControl } from './MigrationWritesControl';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourceQuery,
@@ -145,12 +148,21 @@ export default function DataSourceDetailPage() {
             >
               Relationships
             </Button>
-            <Button
+            {/* A migration write target is never read, so it has no catalog to refresh. */}
+            {!entry.allowMigrationWrites && <Button
               type="button"
               onClick={async () => {
                 try {
-                  await refreshMetadata.mutateAsync(entry.id);
-                  toast.success('Metadata refreshed from source');
+                  const snapshot = await refreshMetadata.mutateAsync(entry.id);
+                  const skipped = snapshot.skippedNameCount ?? 0;
+                  if (skipped > 0) {
+                    // Names with quote, bracket, semicolon or control characters are not stored; the server logs them.
+                    toast.warning(
+                      `Metadata refreshed from source; ${skipped} table or column ${skipped === 1 ? 'name was' : 'names were'} left out because ${skipped === 1 ? 'it carries' : 'they carry'} quote, bracket, semicolon or control characters (listed in the server log).`,
+                    );
+                  } else {
+                    toast.success('Metadata refreshed from source');
+                  }
                 } catch (err) {
                   // 429: refreshed within the cooldown; the server says how long it is.
                   if (httpErrorInfo(err)?.status === 429) {
@@ -164,7 +176,7 @@ export default function DataSourceDetailPage() {
               icon={<RefreshCw />}
             >
               Refresh metadata
-            </Button>
+            </Button>}
             {canDelete && (
               <Button
                 variant="danger"
@@ -216,8 +228,27 @@ interface OverviewProps {
 }
 
 function OverviewTab({ entry, metadataLoading }: OverviewProps) {
+  const isWriteTarget = entry.allowMigrationWrites === true;
   return (
     <CardBody>
+      {isWriteTarget && (
+        <Banner
+          tone="info"
+          icon={<Database />}
+          title="Migration write target"
+          sub={WRITE_TARGET_HINT}
+          className="mb-4"
+        />
+      )}
+      {!isWriteTarget && entry.databaseReadOnlyEnforced === false && (
+        <Banner
+          tone="warn"
+          icon={<AlertTriangle />}
+          title="No database-level read-only enforcement"
+          sub={READ_ONLY_LOGIN_HINT}
+          className="mb-4"
+        />
+      )}
       <dl className="grid grid-cols-[180px_1fr] gap-x-3 gap-y-2 m-0 text-sm">
         <dt className="text-text-muted">Identifier</dt>
         <dd className="mono">#{entry.id}</dd>
@@ -231,6 +262,17 @@ function OverviewTab({ entry, metadataLoading }: OverviewProps) {
             ? <span className="mono">{entry.databaseEngineType}</span>
             : <span className="text-text-muted">—</span>}
         </dd>
+        <dt className="text-text-muted">Read-only</dt>
+        <dd>
+          {isWriteTarget && <span className="text-text-muted">Not read by Beacon</span>}
+          {!isWriteTarget && entry.databaseReadOnlyEnforced === true && (
+            <Pill tone="ok" title={ENGINE_READ_ONLY_HINT}>Enforced by the engine — still use a read-only login</Pill>
+          )}
+          {!isWriteTarget && entry.databaseReadOnlyEnforced === false && <ReadOnlyEnforcementBadge enforced={false} />}
+          {!isWriteTarget && entry.databaseReadOnlyEnforced == null && <span className="text-text-muted">—</span>}
+        </dd>
+        <dt className="text-text-muted">Migration writes</dt>
+        <dd><MigrationWritesControl entry={entry} /></dd>
         <dt className="text-text-muted">Metadata loading</dt>
         <dd>{entry.metadataLoadingEnabled
           ? <Pill tone="ok">Enabled</Pill>

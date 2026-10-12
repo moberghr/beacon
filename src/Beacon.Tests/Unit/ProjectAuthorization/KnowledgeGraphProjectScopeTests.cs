@@ -414,7 +414,7 @@ public class KnowledgeGraphProjectScopeTests
             knowledge.Object,
             llm.Object,
             Mock.Of<IQueryGuardrailService>(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Mock.Of<IDataSourceProviderFactory>(),
             TestProjectAccess.Evaluator(scope),

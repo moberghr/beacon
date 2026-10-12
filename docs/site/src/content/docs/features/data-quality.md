@@ -67,6 +67,8 @@ A Custom SQL rule runs your query and reads the first row of the result. The que
 | `actual_value` | No | Shown as the observed value in results |
 | `message` | No | Shown as the result message |
 
+`actual_value` and `message` reach the evaluation history and the contract's alerts, so a PII column read into them — by a PII name such as `email`, an alias over one (`MAX(email) AS actual_value`) or a project's custom PII pattern — is masked before the result is stored, following the PII detection setting of the projects that link the data source (the strictest applies). `passed` and `score` are read as numbers.
+
 If you already maintain reusable checks as saved [queries](/features/queries/), a Custom SQL rule is the natural way to fold the same logic into a quality score.
 
 :::caution[Upgrading]

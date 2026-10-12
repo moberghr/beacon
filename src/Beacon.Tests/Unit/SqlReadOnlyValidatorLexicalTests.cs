@@ -62,7 +62,6 @@ public class SqlReadOnlyValidatorLexicalTests
     [TestCase("SELECT 1--1")]
     [TestCase("SELECT 1 --")]
     [TestCase("SELECT 'a--b' AS dashes_inside_a_literal")]
-    [TestCase("SELECT 1 --\u0080; DELETE FROM t")]
     public void Validate_MySqlDoubleDashWithoutAsciiSpace_IsRejected(string sql)
     {
         _validator.Validate(sql, "MySQL").Should().StartWith(DoubleDashRejection);
@@ -97,9 +96,6 @@ public class SqlReadOnlyValidatorLexicalTests
     [TestCase("MSSQL", "SELECT 1 -- note\r; DELETE FROM t")]
     [TestCase("PostgreSQL", "SELECT 1\r")]
     [TestCase("MySQL", "SELECT 1 # note\u2028; DELETE FROM t")]
-    [TestCase("Snowflake", "SELECT 1 // note\u0085; DELETE FROM t")]
-    [TestCase("SQLite", "SELECT 1\v")]
-    [TestCase("MSSQL", "SELECT\f1")]
     [TestCase("MySQL", "SELECT 1 --\u00A0; DELETE FROM t")]
     [TestCase("MySQL", "SELECT 1 --\u3000; DELETE FROM t")]
     [TestCase("PostgreSQL", "SELECT\u00A01")]
@@ -107,6 +103,17 @@ public class SqlReadOnlyValidatorLexicalTests
     public void Validate_WhitespaceOtherThanSpaceTabLfOrCrLf_IsRejected(string dialect, string sql)
     {
         _validator.Validate(sql, dialect).Should().StartWith(WhitespaceRejection);
+    }
+
+    // A control character is refused before any other lexical rule — also one an engine reads as whitespace or as the end
+    // of a MySQL comment marker.
+    [TestCase("MySQL", "SELECT 1 --\u0080; DELETE FROM t")]
+    [TestCase("Snowflake", "SELECT 1 // note\u0085; DELETE FROM t")]
+    [TestCase("SQLite", "SELECT 1\v")]
+    [TestCase("MSSQL", "SELECT\f1")]
+    public void Validate_AControlCharacter_IsRejectedBeforeTheWhitespaceRule(string dialect, string sql)
+    {
+        _validator.Validate(sql, dialect).Should().StartWith("The SQL holds a control character or a Unicode noncharacter");
     }
 
     [TestCase("SELECT U&'d\\0061t' AS x")]

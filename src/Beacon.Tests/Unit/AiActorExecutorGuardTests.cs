@@ -24,6 +24,7 @@ public class AiActorExecutorGuardTests
 {
     private const int ActorId = 5;
     private const int OtherActorId = 6;
+    private const int DataSourceId = 9;
 
     private Mock<IQueryService> _queryService = null!;
     private Mock<ISubscriptionService> _subscriptionService = null!;
@@ -141,6 +142,43 @@ public class AiActorExecutorGuardTests
         _queriesSet.Verify(x => x.Add(It.IsAny<Query>()), Times.Never);
     }
 
+    [Test]
+    public async Task CreateQuery_SqlTheSaveCheckRefuses_IsNeverStored()
+    {
+        var saveCheck = RefusingSaveCheck("Only SELECT queries are permitted.");
+        var service = BuildService(saveCheck: saveCheck.Object);
+
+        var action = await service.ExecuteOrProposeAsync(Actor(), Plan("CREATE_QUERY", ("name", "n"), ("sql", "DELETE FROM accounts")), [], CancellationToken.None);
+
+        AssertDenied(action, "Query validation failed: Only SELECT queries are permitted.");
+        _queriesSet.Verify(x => x.Add(It.IsAny<Query>()), Times.Never);
+        saveCheck.Verify(x => x.RejectionAsync(DataSourceId, "DELETE FROM accounts", It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task RefineQuery_SqlTheSaveCheckRefuses_LeavesTheStoredStepUntouched()
+    {
+        var step = new QueryStep { Id = 3, QueryId = 1, StepOrder = 1, DataSourceId = DataSourceId, SqlValue = "SELECT id FROM accounts" };
+        var query = new Query { Id = 1, AiActorId = ActorId, Steps = [step] };
+        var saveCheck = RefusingSaveCheck("The table ghosts does not exist.");
+        var service = BuildService(queries: [query], saveCheck: saveCheck.Object);
+
+        var action = await service.ExecuteOrProposeAsync(Actor(), Plan("REFINE_QUERY", ("queryId", 1), ("newSql", "SELECT id FROM ghosts")), [], CancellationToken.None);
+
+        AssertDenied(action, "Refined query validation failed: The table ghosts does not exist.");
+        step.SqlValue.Should().Be("SELECT id FROM accounts");
+    }
+
+    private static Mock<IStepSqlSaveCheck> RefusingSaveCheck(string reason)
+    {
+        var saveCheck = new Mock<IStepSqlSaveCheck>();
+        saveCheck
+            .Setup(x => x.RejectionAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reason);
+
+        return saveCheck;
+    }
+
     private void AssertDenied(AiActorAction action, string reasonFragment)
     {
         action.Success.Should().BeFalse();
@@ -154,6 +192,7 @@ public class AiActorExecutorGuardTests
         new()
         {
             Id = ActorId,
+            DataSourceId = DataSourceId,
             RequiresApproval = false,
             MaxQueries = maxQueries,
             MaxSubscriptionsPerQuery = maxSubscriptionsPerQuery
@@ -170,7 +209,7 @@ public class AiActorExecutorGuardTests
         return plan;
     }
 
-    private AiActorService BuildService(IReadOnlyList<Query>? queries = null, IReadOnlyList<Subscription>? subscriptions = null)
+    private AiActorService BuildService(IReadOnlyList<Query>? queries = null, IReadOnlyList<Subscription>? subscriptions = null, IStepSqlSaveCheck? saveCheck = null)
     {
         _queriesSet = BuildSet(queries ?? []);
         _subscriptionsSet = BuildSet(subscriptions ?? []);
@@ -189,6 +228,7 @@ public class AiActorExecutorGuardTests
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
             Mock.Of<IRunAsScope>(),
             TestProjectAccess.ExecutionAllowed(),
+            saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

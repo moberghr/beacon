@@ -14,6 +14,7 @@ using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Validation;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
@@ -34,8 +35,6 @@ public interface IDataSourceService
     Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
 
     Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken);
-
-    Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken);
 }
 
 internal class DataSourceService(
@@ -46,6 +45,7 @@ internal class DataSourceService(
     IBeaconUserContext userContext,
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
+    GatedSqlRunner sqlRunner,
     ILogger<DataSourceService> logger) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
@@ -75,6 +75,7 @@ internal class DataSourceService(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+        DataSourceReadOnlyEnforcement.WarnIfNotEnforced(logger, providerFactory, dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType);
 
         // For API data sources, import endpoint metadata from OpenAPI spec
         if (dataSourceData.DataSourceType == DataSourceType.Api)
@@ -270,6 +271,7 @@ internal class DataSourceService(
         dataSource.MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
 
         await context.SaveChangesAsync(cancellationToken);
+        DataSourceReadOnlyEnforcement.WarnIfNotEnforced(logger, providerFactory, dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType);
 
         // The connection or the metadata options may have changed: the cached metadata described the old ones.
         EvictMetadata(dataSource.Id);
@@ -288,34 +290,33 @@ internal class DataSourceService(
 
         try
         {
-            // Add LIMIT/TOP clause to query if not already present (prevents fetching millions of rows)
-            var limitedQuery = query;
-            if (dataSource.DataSourceType == DataSourceType.Database && dataSource.DatabaseEngineType.HasValue)
-            {
-                limitedQuery = QueryLimitHelper.AddLimitIfMissing(
-                    query,
-                    dataSource.DatabaseEngineType.Value,
-                    Constants.Query.MaxUiDisplayRows);
-
-                if (limitedQuery != query)
-                {
-                    logger.LogInformation(
-                        "Added automatic LIMIT clause to ad-hoc query for data source {DataSourceId} (engine: {Engine})",
-                        dataSourceId, dataSource.DatabaseEngineType.Value);
-                }
-            }
-
-            // Use provider factory to execute query for any data source type
-            var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-
             logger.LogInformation("Executing ad-hoc query on data source {DataSourceId} ({DataSourceType})",
                 dataSourceId, dataSource.DataSourceType);
 
-            var result = await provider.ExecuteQueryAsync(
-                dataSource,
-                limitedQuery,  // Use limited query
-                new Dictionary<string, object?>(),
-                cancellationToken);
+            // SQL goes through the execution gate and the read-only provider path, capped one row past the display limit in
+            // the SQL itself (§1.5), so a result larger than the display is reported as cut short; a source without SQL (an
+            // API or log source) takes its own query language to its provider.
+            var limitedQuery = query;
+            ProviderQueryResult result;
+            if (DataSourceSqlDialect.Of(dataSource) != null)
+            {
+                var run = await sqlRunner.RunAsync(
+                    new GatedSqlRequest(dataSource, query, new Dictionary<string, object?>(), Constants.Query.MaxUiDisplayRows + 1),
+                    cancellationToken);
+                limitedQuery = run.Report.FinalSql;
+                result = run.TimedOut
+                    ? new ProviderQueryResult { Success = false, ErrorMessage = "The query timed out.", ExecutionTimeMs = run.ExecutionTimeMs }
+                    : new ProviderQueryResult { Success = true, Rows = run.Rows, TotalRows = run.Rows.Count, ExecutionTimeMs = run.ExecutionTimeMs };
+            }
+            else
+            {
+                var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+                result = await provider.ExecuteQueryAsync(
+                    dataSource,
+                    query,
+                    new Dictionary<string, object?>(),
+                    cancellationToken);
+            }
 
             if (!result.Success)
             {
@@ -323,7 +324,7 @@ internal class DataSourceService(
                     dataSourceId, result.ErrorMessage);
             }
 
-            // Additional in-memory safety check (should not be needed if LIMIT worked)
+            // The display limit; a row past it says the result was larger than what is shown.
             var displayRows = result.Rows.Take(Constants.Query.MaxUiDisplayRows).ToList();
             var totalRows = result.TotalRows;
 
@@ -344,7 +345,8 @@ internal class DataSourceService(
                 Success = result.Success,
                 Columns = result.Success ? ExtractColumns(displayRows) : new List<string>(),
                 Rows = displayRows,
-                RowCount = totalRows,
+                RowCount = displayRows.Count,
+                Truncated = result.Rows.Count > displayRows.Count,
                 ExecutionTime = TimeSpan.FromMilliseconds(result.ExecutionTimeMs),
                 Error = result.ErrorMessage
             };
@@ -461,18 +463,6 @@ internal class DataSourceService(
             .ToList();
 
         return (columns, rows);
-    }
-
-    public async Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var dataSource = await context.DataSources
-            .Where(x => x.Id == dataSourceId)
-            .SingleOrDefaultAsync(cancellationToken)
-            ?? throw new BeaconException($"Data source with ID {dataSourceId} not found");
-
-        return encryptionService.Decrypt(dataSource.EncryptedConnectionData);
     }
 
     // Cached metadata and the relationship graph are rebuilt on their next read; an archived source's reads are refused.

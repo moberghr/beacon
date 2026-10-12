@@ -8,13 +8,18 @@ using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
+internal sealed class GetMigrationJobsHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    MigrationWritePolicy writePolicy)
     : IRequestHandler<GetMigrationJobsQuery, PagedList<MigrationJobListItem>>
 {
     public async Task<PagedList<MigrationJobListItem>> Handle(
         GetMigrationJobsQuery request,
         CancellationToken cancellationToken)
     {
+        writePolicy.DemandEnabled();
+
         var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -45,7 +50,7 @@ internal sealed class GetMigrationJobsHandler(IDbContextFactory<BeaconContext> c
 
 /// <summary>
 /// Newest first unless <c>sort</c> says otherwise; <c>search</c> matches the job name. Only the jobs whose source and
-/// destination data sources the caller reads.
+/// destination data sources the caller reads. Only while the deployment runs migrations (409 otherwise).
 /// </summary>
 [ProjectScopeExempt("gated by the MigrationOperator permission; the list is filtered to jobs whose data sources the caller reads", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record GetMigrationJobsQuery : ListRequest, IRequest<PagedList<MigrationJobListItem>>

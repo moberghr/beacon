@@ -43,6 +43,7 @@ public class ProjectAuthorizationCoverageTests
         ["AddWidget"] = "dashboards carry their own access list",
         ["UpdateDashboard"] = "dashboards carry their own access list",
         ["DeleteDataSource"] = "DataSourceAdmin: data-source administration",
+        ["SetDataSourceMigrationWrites"] = "Admin: marking a data source as a migration write target",
         ["DeleteGlossaryTerm"] = "Admin: glossary curation",
         ["UpdateGlossaryTerm"] = "Admin: glossary curation",
         ["GetEvalResults"] = "Admin: eval curation",

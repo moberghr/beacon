@@ -23,7 +23,7 @@ public class SubscriptionOwnerDetailTests
     public async Task SubscriptionDetailsWithOwner_Translates()
     {
         var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration());
+        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration(), TestQueryServices.QueryOptions);
 
         var act = () => service.GetSubscriptionDetails(5, CancellationToken.None);
 

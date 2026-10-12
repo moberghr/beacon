@@ -2,6 +2,7 @@ using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
@@ -172,6 +173,7 @@ public class QueryVersionLifecycleTests
                         Id = 3,
                         Name = "warehouse",
                         DataSourceType = DataSourceType.Database,
+                        DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                         EncryptedConnectionData = "unused",
                     },
                     StepOrder = 1,
@@ -186,20 +188,10 @@ public class QueryVersionLifecycleTests
         public QueryApprovalService ApprovalService() => new(Factory(), VersionService());
 
         public QueryService QueryService(IQueryVersionService versions) =>
-            new(
+            TestQueryServices.QueryService(
                 Factory(),
-                Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-                Mock.Of<IManualQueryExecutionLogger>(),
-                NullLogger<QueryService>.Instance,
-                NullLoggerFactory.Instance,
-                versions,
-                new BeaconConfiguration(),
-                UserContext(),
-                new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-                Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-                TestProjectAccess.Actors(),
-                TestProjectAccess.ExecutionAllowed(),
-                TestConfiguredDatabases.None);
+                versions: versions,
+                userContext: UserContext());
 
         /// <summary>A save as it happens now: the stored state becomes the Active version, which history then holds.</summary>
         public async Task ActivateCurrentState()
@@ -216,6 +208,7 @@ public class QueryVersionLifecycleTests
                 [typeof(Query)] = RecordingBeaconContext.MemorySet<Query>([Query], Saved),
                 [typeof(DataSource)] = RecordingBeaconContext.MemorySet<DataSource>([Query.Steps[0].DataSource], Saved),
                 [typeof(QueryVersion)] = RecordingBeaconContext.MemorySet(Versions, Saved),
+                [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), Saved),
                 [typeof(QueryApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, Saved),
             };
 

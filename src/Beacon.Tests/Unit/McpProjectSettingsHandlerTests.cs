@@ -30,6 +30,7 @@ public class McpProjectSettingsHandlerTests
     private List<Project> _projects = null!;
     private List<McpProjectSettings> _rows = null!;
     private List<McpSettings> _global = null!;
+    private List<AppSettingHistory> _history = null!;
     private Mock<IMcpSettingsProvider> _provider = null!;
     private int _saveCalls;
 
@@ -39,6 +40,7 @@ public class McpProjectSettingsHandlerTests
         _projects = [new Project { Id = ProjectId, Name = "warehouse" }];
         _rows = [];
         _global = [];
+        _history = [];
         _provider = SettingsProviderMock.Create(new McpSettingsData { MaxRowLimit = 500 });
         _saveCalls = 0;
     }
@@ -215,7 +217,7 @@ public class McpProjectSettingsHandlerTests
             _rows.Add(new McpProjectSettings { ProjectId = ProjectId, EnforceReadOnly = stored, MaxRowLimit = 10 });
         }
 
-        var act = () => CreateUpdateHandler(permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+        var act = () => CreateUpdateHandler(Unlocked(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
             .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = requested, MaxRowLimit = 99 }), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(McpSafetySettings.AdminOnlyMessage);
@@ -230,7 +232,7 @@ public class McpProjectSettingsHandlerTests
         _global.Add(new McpSettings { EnablePiiDetection = globalOn });
         _rows.Add(new McpProjectSettings { ProjectId = ProjectId, EnablePiiDetection = true });
 
-        var act = () => CreateUpdateHandler(permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+        var act = () => CreateUpdateHandler(Unlocked(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
             .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnablePiiDetection = null }), CancellationToken.None);
 
         if (forbidden)
@@ -247,17 +249,51 @@ public class McpProjectSettingsHandlerTests
     [Test]
     public async Task ASecurityAdmin_PinsThemOn_AndAnAdminTurnsThemOff()
     {
-        await CreateUpdateHandler(permissions: TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
+        await CreateUpdateHandler(Unlocked(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin))
             .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = true, EnablePiiDetection = true }), CancellationToken.None);
         var pinnedOn = (_rows[0].EnforceReadOnly, _rows[0].EnablePiiDetection);
 
-        await CreateUpdateHandler()
+        await CreateUpdateHandler(Unlocked())
             .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = false, EnablePiiDetection = false }), CancellationToken.None);
 
         pinnedOn.Should().Be((true, true));
         _rows[0].EnforceReadOnly.Should().BeFalse();
         _rows[0].EnablePiiDetection.Should().BeFalse();
     }
+
+    // The default deployment locks read-only enforcement and PII detection on: no project may override them, an Admin's
+    // request included.
+    [TestCase(false, null, "EnforceReadOnly")]
+    [TestCase(null, false, "EnablePiiDetection")]
+    public async Task UnderTheDefaultLocks_AnAdminOverridingReadOnlyEnforcementOrPiiDetectionForAProject_IsRefused(bool? readOnly, bool? pii, string field)
+    {
+        var act = () => CreateUpdateHandler(new McpDeploymentOptions(), TestPermissions.Admin)
+            .Handle(new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { EnforceReadOnly = readOnly, EnablePiiDetection = pii, MaxRowLimit = 99 }), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<SettingLockedException>()).Which.FieldName.Should().Be(field);
+        _rows.Should().BeEmpty();
+        _saveCalls.Should().Be(0);
+        _history.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task AProjectSettingsChange_IsRecordedInTheSettingsHistory_WithWhoAndBeforeAndAfter()
+    {
+        _rows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, MaxRowLimit = 50, EnablePiiDetection = false });
+
+        await CreateUpdateHandler(Unlocked()).Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = 75 }),
+            CancellationToken.None);
+
+        _history.Select(x => (x.SettingKey, x.OldValue, x.NewValue)).Should().BeEquivalentTo(
+        [
+            ("Mcp.Project.42.EnablePiiDetection", "false", (string?)null),
+            ("Mcp.Project.42.MaxRowLimit", "50", "75")
+        ]);
+        _history.Should().OnlyContain(x => x.ChangedByUserId == "3");
+    }
+
+    private static McpDeploymentOptions Unlocked() => new() { ForceReadOnly = false, ForcePiiDetection = false };
 
     private UpdateMcpProjectSettingsHandler CreateUpdateHandler(McpDeploymentOptions? options = null, IBeaconPermissionAccessor? permissions = null)
     {
@@ -269,7 +305,7 @@ public class McpProjectSettingsHandlerTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new ProjectSettingsTestContext(_projects, _rows, _global, () => _saveCalls++));
+            .ReturnsAsync(() => new ProjectSettingsTestContext(_projects, _rows, _global, _history, () => _saveCalls++));
 
         return factory.Object;
     }
@@ -286,13 +322,15 @@ public class McpProjectSettingsHandlerTests
         private readonly List<Project> _projects;
         private readonly List<McpProjectSettings> _rows;
         private readonly List<McpSettings> _global;
+        private readonly List<AppSettingHistory> _history;
         private readonly Action _onSave;
 
-        public ProjectSettingsTestContext(List<Project> projects, List<McpProjectSettings> rows, List<McpSettings> global, Action onSave) : base(Options, "beacon")
+        public ProjectSettingsTestContext(List<Project> projects, List<McpProjectSettings> rows, List<McpSettings> global, List<AppSettingHistory> history, Action onSave) : base(Options, "beacon")
         {
             _projects = projects;
             _rows = rows;
             _global = global;
+            _history = history;
             _onSave = onSave;
         }
 
@@ -311,6 +349,11 @@ public class McpProjectSettingsHandlerTests
             if (typeof(TEntity) == typeof(McpSettings))
             {
                 return (DbSet<TEntity>)(object)BuildSet(_global, null);
+            }
+
+            if (typeof(TEntity) == typeof(AppSettingHistory))
+            {
+                return (DbSet<TEntity>)(object)BuildSet(_history, x => _history.Add(x));
             }
 
             return base.Set<TEntity>();

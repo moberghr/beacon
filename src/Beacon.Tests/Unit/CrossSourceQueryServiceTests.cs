@@ -93,6 +93,25 @@ public class CrossSourceQueryServiceTests
         _gate.Dialects.Where(x => x != "SQLite").Should().HaveCountGreaterThan(1).And.OnlyContain(x => x == dialect);
     }
 
+    // The schema pre-check parses in the dialect the source's grounding context names; the execution gates parse in the
+    // data source's own dialect, and the join in SQLite's.
+    [Test]
+    public async Task SchemaPreCheck_UsesTheGroundingContextsDialect_AndExecutionTheSourcesOwn()
+    {
+        _warehouseDialect = "Snowflake";
+        Generates("SELECT id FROM orders");
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        _gate.Dialects[0].Should().Be("Snowflake");
+        _gate.Dialects
+            .Skip(1)
+            .Where(x => x != "SQLite")
+            .Should().NotBeEmpty().And.OnlyContain(x => x == "PostgreSQL");
+    }
+
     [Test]
     public async Task WriteStatement_IsBlockedBeforeProviderDryRun_AndNeverExecuted()
     {

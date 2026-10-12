@@ -3,6 +3,7 @@ using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
@@ -155,20 +156,11 @@ public class QueryApprovalSubmissionTests
         };
 
     private static QueryService BuildService(Query stored, List<object> saved, IQueryVersionService versions) =>
-        new(
+        TestQueryServices.QueryService(
             Factory(saved, stored),
-            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            versions,
-            new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
-            UserContext(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>(),
-            TestProjectAccess.Actors(),
-            TestProjectAccess.ExecutionAllowed(),
-            TestConfiguredDatabases.None);
+            versions: versions,
+            configuration: new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            userContext: UserContext());
 
     private static IBeaconUserContext UserContext() =>
         Mock.Of<IBeaconUserContext>(x => x.UserId == "u1" && x.DisplayName == "Ana Admin");
@@ -180,6 +172,7 @@ public class QueryApprovalSubmissionTests
             Id = DataSourceId,
             Name = "warehouse",
             DataSourceType = DataSourceType.Database,
+            DatabaseEngineType = DatabaseEngineType.PostgreSQL,
             EncryptedConnectionData = "unused",
         };
         var sets = new Dictionary<Type, object>
@@ -187,6 +180,7 @@ public class QueryApprovalSubmissionTests
             [typeof(Query)] = RecordingBeaconContext.MemorySet(stored == null ? new List<Query>() : [stored], saved),
             [typeof(DataSource)] = RecordingBeaconContext.MemorySet<DataSource>([warehouse], saved),
             [typeof(QueryVersion)] = RecordingBeaconContext.MemorySet(new List<QueryVersion>(), saved),
+            [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), saved),
         };
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();

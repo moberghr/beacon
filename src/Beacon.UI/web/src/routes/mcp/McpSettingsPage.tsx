@@ -21,6 +21,7 @@ import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { ProjectPicker } from '@/routes/projects/ProjectPicker';
 import {
+  useMcpDeploymentLocks,
   useMcpProjectSettings,
   useMcpSettings,
   useUpdateMcpProjectSettings,
@@ -166,6 +167,9 @@ function McpSettingsShell() {
 function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode; readOnly: boolean }) {
   const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpSettings();
+  // Settings the deployment pins: their switches stay as pinned, for every role.
+  const locked = new Set((useMcpDeploymentLocks().data ?? []).map(lowerFirst));
+  const safetyLocked = locked.has('enforceReadOnly') || locked.has('enablePiiDetection');
   const updateMutation = useUpdateMcpSettings();
   const [tab, setTab] = useState<TabKey>('prompt');
 
@@ -348,20 +352,32 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
               <label className="flex gap-2 items-center text-sm">
                 <input
                   type="checkbox"
-                  disabled={!isAdmin && data?.enforceReadOnly === true}
+                  disabled={locked.has('enforceReadOnly') || (!isAdmin && data?.enforceReadOnly === true)}
                   {...form.register('enforceReadOnly')}
                 />
                 Enforce read-only queries
+                {locked.has('enforceReadOnly') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
               <label className="flex gap-2 items-center text-sm">
                 <input
                   type="checkbox"
-                  disabled={!isAdmin && data?.enablePiiDetection === true}
+                  disabled={locked.has('enablePiiDetection') || (!isAdmin && data?.enablePiiDetection === true)}
                   {...form.register('enablePiiDetection')}
                 />
                 Enable PII detection
+                {locked.has('enablePiiDetection') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
-              {!readOnly && !isAdmin && (
+              {safetyLocked && (
+                <p className="m-0 text-xs text-text-muted">
+                  Locked on by the deployment (<span className="mono">Beacon:Mcp:ForceReadOnly</span>,{' '}
+                  <span className="mono">Beacon:Mcp:ForcePiiDetection</span>): nobody can turn{' '}
+                  {locked.has('enforceReadOnly') && locked.has('enablePiiDetection')
+                    ? 'them'
+                    : locked.has('enforceReadOnly') ? 'read-only enforcement' : 'PII detection'}{' '}
+                  off here or per project, an Admin included; only the host&apos;s configuration can.
+                </p>
+              )}
+              {!readOnly && !isAdmin && !(locked.has('enforceReadOnly') && locked.has('enablePiiDetection')) && (
                 <p className="text-xs text-text-muted">Only an Admin can turn read-only enforcement or PII detection off.</p>
               )}
               <Field label="Custom PII patterns (one per line)">
@@ -379,8 +395,13 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
                 over these values; a save that contradicts a lock is refused.
               </p>
               <label className="flex gap-2 items-center text-sm">
-                <input type="checkbox" {...form.register('retainQueryContent')} />
+                <input
+                  type="checkbox"
+                  disabled={locked.has('retainQueryContent')}
+                  {...form.register('retainQueryContent')}
+                />
                 Retain question and SQL text in signals and audit
+                {locked.has('retainQueryContent') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
               <Field
                 label="Statement timeout (s)"

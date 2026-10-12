@@ -157,6 +157,8 @@ The data source details page shows the metadata loading status in the Overview s
 
 - **Cooldown.** A data source's metadata is force-refreshed at most once per `Beacon:Metadata:ForcedRefreshCooldownMinutes` (default `15`; `0` turns the cooldown off; at most `1440`), whoever asks (but an Admin or a DataSourceAdmin, who are not held to it) and from whichever project: the cooldown belongs to the data source, so a refresh asked for in one project linking it also holds back a refresh asked for in another. A second refresh inside the cooldown, or while one is running, answers `429`. The cooldown counts from the last refresh that succeeded, so a failed refresh can be retried at once; it starts over when the data source is changed (for example its connection fixed), and a changed setting applies to the next request. It is kept in memory per Beacon process: on a host running several instances, each instance keeps its own, so the data source can be refreshed once per cooldown on each instance.
 - **Curated descriptions are kept.** A table or column description set by applying a documentation patch stays as it is; every other description is taken from the database catalog again (and is cleared when the catalog has none).
+- **Names that cannot be quoted safely are left out.** A table or column whose name carries a quote, backtick, bracket, semicolon or control character is not stored, because Beacon builds SQL from catalog names. The refresh answers `skippedNameCount` (the page says how many were left out), and the server log lists their names — control characters written as `\uXXXX`, at most 50 names. A table left out loses its stored description, a curated one included; the applied documentation patch stays in the patch history.
+- **Sampling is logged per table.** With sample-value collection on, each table that could not be sampled is logged by name with the reason (refused by the execution gate, failed on the data source, timed out, or a name that is not a plain identifier — never the database's own error text), and every refresh ends with how many of its tables were sampled. Documentation enum discovery logs the same way.
 - **Caches.** The refresh replaces the cached metadata, and the relationship graph is rebuilt on its next read.
 
 ```json
@@ -208,11 +210,70 @@ A data source is reached through the projects that link it ([Project access](/fe
 - **Shared guardrails.** A data source several live projects link runs MCP SQL, and is grounded and sampled, with the strictest guardrails among those projects (read-only enforcement, PII detection and patterns, row, timeout, size and plan-cost limits, value grounding and its probe budget, sample-value collection); an Admin sees them per source on the project page. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
 - **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the login can read: use a login per data source that sees only what its projects should see, rather than one broad login shared by several boundaries. A login that can read several boundaries defeats project separation — Beacon refuses names in another database, but a view, synonym or function in the source's own database still reads whatever the login may.
 
+## Read-only guarantees per engine
+
+Every statement Beacon runs on a data source first passes its SQL checks (a regex guardrail, a read-only parser check in
+the engine's dialect, the configured-database rule and a row cap) and then runs on the provider's read-only path. What
+that path adds at the database differs by engine, and on every engine it is defence in depth, not a replacement for the
+data source's own permissions: **connect every data source Beacon reads with a login that can only read.**
+
+| Engine | What the database itself does on Beacon's read-only path | Data-source badge |
+|---|---|---|
+| PostgreSQL | Session `default_transaction_read_only = on` plus a `READ ONLY` transaction, and the statement is sent as a batch of exactly one command, so the driver and the server refuse a second statement (one that would end the transaction and open a writable one): the server refuses any write. | Enforced by the engine — still use a read-only login |
+| MySQL / MariaDB | `SET SESSION TRANSACTION READ ONLY` plus `START TRANSACTION READ ONLY` on a connection without statement batches, rolled back afterwards: the server refuses any write. | Enforced by the engine — still use a read-only login |
+| SQL Server | No read-only session or transaction mode exists. The statement runs inside a transaction that is always rolled back, so a write the SQL checks missed is undone rather than committed — but it is not refused, and work outside the transaction (a sequence value, a call to another server) is not undone. A statement that ends that transaction itself (a `COMMIT` or `ROLLBACK` in the batch) fails the run: its result is discarded and the security log records `ReadOnlyTransactionEnded` (7116, the data source id) — what it did after that point was not undone. | **Read-only login required** |
+| Azure Synapse | No read-only mode; dedicated and serverless pools differ in what transactions they allow, so the statement runs plainly. | **Read-only login required** |
+| Snowflake | No read-only session (DDL commits on its own); the statement runs plainly. | **Read-only login required** |
+| BigQuery | No read-only session; the connector also requires a dry run to report statement type `SELECT`. | **Read-only login required** |
+| Databricks | No read-only session; the connector re-checks the SQL with its own parser and the configured catalog. | **Read-only login required** |
+
+On every engine without a database-level guarantee, Beacon's SQL checks are the only thing between a statement and the
+data source's own permissions, so a **login (role, service account, token) that can only read** is the boundary. The data
+source list and detail pages mark such sources, and Beacon logs a warning (naming the data source by id only) when one is
+saved and when the host starts — except a [migration write target](#migration-write-targets), which Beacon never reads and
+labels as one instead. The `databaseReadOnlyEnforced` field of `GET /beacon/api/data-sources` and
+`GET /beacon/api/data-sources/{id}` reports it: `true` (the engine refuses writes), `false` (it does not — use a read-only
+login) or `null` (the source runs no SQL, such as CloudWatch or an API source).
+
+A SQL Server query over memory-optimized tables runs inside that rolled-back transaction, which such tables accept only
+under snapshot isolation: if it fails with error 41368, turn on `MEMORY_OPTIMIZED_ELEVATE_TO_SNAPSHOT` for the database.
+
+The column sample values collected during a metadata refresh are read on the same read-only path.
+
+## Migration write targets
+
+The one exception to read-only logins is a **migration write target**: a data source an Admin marked as the destination
+of [data migrations](/features/data-migration/#migration-write-targets) (data source page → **Migration writes**, or
+`PUT /beacon/api/data-sources/{id}/migration-writes` with `{ "allowMigrationWrites": true }`; Admin only, and only while
+the host runs migrations, `Beacon:Migrations:Enabled`). Beacon never reads a write target — query steps, previews,
+subscriptions, data quality, MCP tools, AI grounding, documentation and metadata scans refuse it or leave it out, and its
+catalog is not offered — so its login may hold the grants a migration needs to write
+([destination privileges](/features/data-migration/#destination-privileges)). The data source list and page label it
+**Migration write target** instead of asking for a read-only login, and `allowMigrationWrites` in
+`GET /beacon/api/data-sources` and `GET /beacon/api/data-sources/{id}` reports it; `?migrationTargets=true` lists only
+write targets, `false` only the sources Beacon reads.
+
+- Only a PostgreSQL, MySQL or SQL Server database can be marked, and not a host-managed data source or one marked
+  read-only.
+- A data source that live queries, subscriptions or data contracts read is marked only when the Admin confirms it
+  (`"force": true`): otherwise the request is refused with `409` naming how many of each read it, as they fail once
+  Beacon stops reading the source. The page shows that reason and asks a second time.
+- Marking and unmarking are recorded in the settings history (`DataSource.{id}.AllowMigrationWrites`, before and after,
+  and who) and in the security log (`MigrationWritesChanged`, ids only).
+- Marking a data source clears the column sample values Beacon collected through its login, so stored metadata never
+  shows values read before it became a write target.
+- Before you return a write target to a read source, change its login back to one that can only read: from then on
+  Beacon reads it again. The page asks for confirmation and says so.
+- Every other data source — including the source of a migration — should keep a login that can only read.
+
 ## Connection Best Practices
 
 ### Use Read-Only Users
 
-Create dedicated read-only database users for Beacon:
+Create dedicated read-only database users for every data source Beacon reads (every data source except a
+[migration write target](#migration-write-targets)). On SQL Server, Azure Synapse, Snowflake, BigQuery and Databricks
+this is the only database-side guarantee that Beacon cannot write (see
+[Read-only guarantees per engine](#read-only-guarantees-per-engine)):
 
 **PostgreSQL:**
 ```sql
@@ -242,6 +303,15 @@ CREATE USER 'beacon_readonly'@'%' IDENTIFIED BY 'strong-password';
 GRANT SELECT ON your_database.* TO 'beacon_readonly'@'%';
 FLUSH PRIVILEGES;
 ```
+
+**Snowflake:** a role with `USAGE` on the warehouse, database and schemas and `SELECT` on the tables (no `OWNERSHIP`,
+`INSERT`, `UPDATE`, `CREATE` or `OPERATE`), set as the user's default role or as `role=` in the connection.
+
+**BigQuery:** a service account with `roles/bigquery.dataViewer` on the datasets and `roles/bigquery.jobUser` on the
+project — not `dataEditor` or `admin`.
+
+**Databricks:** a token for a principal with `USE CATALOG`, `USE SCHEMA` and `SELECT` only, and `CAN USE` on the SQL
+warehouse.
 
 ### Enable Connection Pooling
 

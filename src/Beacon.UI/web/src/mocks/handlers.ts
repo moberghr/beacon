@@ -104,6 +104,7 @@ const authHandlers = [
       canWrite: true,
       isAdmin: true,
       permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'],
+      migrationsEnabled: true,
     })),
   http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
@@ -538,6 +539,8 @@ const dataSourceEntries = [
           projects: [{ id: 1, name: 'Demo Analytics' }],
           // A project the mock user may not see: shown as "+1 other".
           otherProjectCount: 1,
+          databaseReadOnlyEnforced: true,
+          allowMigrationWrites: false,
         },
         {
           id: 2,
@@ -550,6 +553,24 @@ const dataSourceEntries = [
           openWhenUnlinked: true,
           projects: [{ id: 1, name: 'Demo Analytics' }, { id: 2, name: 'Sample Warehouse' }],
           otherProjectCount: 0,
+          // SQL Server does not refuse writes in a read-only session: the page warns.
+          databaseReadOnlyEnforced: false,
+          allowMigrationWrites: false,
+        },
+        {
+          id: 3,
+          name: 'Reporting (migration write target)',
+          dataSourceType: 'Database',
+          databaseEngineType: 'MSSQL',
+          queryCount: 0,
+          migrationJobsCount: 0,
+          metadataLoadingEnabled: true,
+          openWhenUnlinked: false,
+          projects: [],
+          otherProjectCount: 0,
+          databaseReadOnlyEnforced: false,
+          // Migrations write to it and Beacon never reads it: labelled as a write target, not asked for a read-only login.
+          allowMigrationWrites: true,
         },
       ];
 
@@ -558,8 +579,13 @@ const dataSourcesHandlers = [
     const entry = dataSourceEntries.find(x => x.id === Number(params.id));
     return entry ? HttpResponse.json(entry) : new HttpResponse(null, { status: 404 });
   }),
-  http.get('/beacon/api/data-sources', () =>
-    HttpResponse.json(paged(dataSourceEntries))),
+  http.get('/beacon/api/data-sources', ({ request }) => {
+    const targets = new URL(request.url).searchParams.get('migrationTargets');
+    return HttpResponse.json(paged(dataSourceEntries.filter(
+      x => targets === null || String(x.allowMigrationWrites === true) === targets,
+    )));
+  }),
+  http.put('/beacon/api/data-sources/:id/migration-writes', () => new HttpResponse(null, { status: 204 })),
   // Schema explorer on the detail page (DatabaseMetadataSnapshot, unwrapped).
   http.get('/beacon/api/data-sources/:id/metadata', ({ params }) => {
     const id = Number(params.id);
@@ -1066,6 +1092,9 @@ const aiActorsHandlers = [
 // ---------- mcp -----------------------------------------------------------------
 
 const mcpHandlers = [
+  // The default deployment locks read-only enforcement and PII detection on.
+  http.get('/beacon/api/mcp/settings/locks', () =>
+    HttpResponse.json({ lockedFields: ['EnablePiiDetection', 'EnforceReadOnly'] })),
   http.get('/beacon/api/mcp/settings', () =>
     HttpResponse.json({
       askSystemPrompt: null,

@@ -21,7 +21,7 @@ internal sealed class SemanticSearchService(
     IKnowledgeGraphService knowledgeGraphService,
     ILlmProvider llmProvider,
     IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
+    ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
     IDataSourceProviderFactory providerFactory,
     IProjectAccessEvaluator projectAccess,
@@ -32,6 +32,9 @@ internal sealed class SemanticSearchService(
     public const string FailedMessage = "The question could not be answered; try again or rephrase it.";
 
     private const int _defaultMaxRows = 100;
+
+    // How long the generated statement may run, as the MCP query tool allows.
+    private static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
     private const string _systemPrompt =
         """
         You are an expert SQL analyst. Your job is to translate a natural language question into a correct,
@@ -103,57 +106,54 @@ internal sealed class SemanticSearchService(
                 "SQL generated for DataSource {DataSourceId} ({SqlLength} chars)",
                 dataSourceId, generatedSql.Length);
 
-            // 3. Validate query with the regex guardrail (write-op + PII column detection)
-            var validation = guardrailService.ValidateQuery(generatedSql, new QueryGuardrailOptions
-            {
-                ReadOnly = true,
-                MaxRows = _defaultMaxRows,
-                DetectPii = true
-            });
-
-            if (!validation.IsValid)
-            {
-                return new SemanticSearchResult(
-                    generatedSql,
-                    explanation,
-                    null,
-                    $"Generated query failed safety validation: {validation.Error}");
-            }
-
-            // 4. Load the data source: the read-only check parses the SQL in its dialect.
+            // 3. Load the data source: the gate judges the SQL in its dialect.
             await using var context = await contextFactory.CreateDbContextAsync(ct);
 
             var dataSource = await context.DataSources
                 .Where(x => x.Id == dataSourceId)
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
-            var dialect = DataSourceSqlDialect.Of(dataSource);
 
-            // AST-based read-only enforcement as defense-in-depth on top of the regex guardrail (§1.5), and names in the
-            // source's own configured database only.
-            var astError = readOnlyAstValidator.Validate(generatedSql, dialect)
-                ?? SqlCrossDatabaseRule.Validate(generatedSql, dialect, configuredDatabases.Resolve(dataSource));
-            if (astError != null)
+            // 4. The shared execution gate (§1.5): the regex guardrail and the read-only AST in the source's dialect, names
+            // in the source's own configured database only, the host policy, PII columns, and the row cap written into the
+            // SQL — a bound of the statement's own above it is lowered.
+            var report = gate.Evaluate(new SqlGateRequest(
+                generatedSql,
+                DataSourceSqlDialect.Of(dataSource),
+                EnforceReadOnly: true,
+                DetectPii: true,
+                CustomPiiPatterns: null,
+                Catalog: null,
+                BlockOnSchemaFailure: false,
+                LintContext: null,
+                EnableSemanticLint: false,
+                MaxRows: _defaultMaxRows)
+            {
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
+            });
+            if (report.Blocked)
             {
                 return new SemanticSearchResult(
                     generatedSql,
                     explanation,
                     null,
-                    $"Generated query failed safety validation: {astError}");
+                    $"Generated query failed safety validation: {report.BlockReason}");
             }
 
             if (!execute)
                 return new SemanticSearchResult(generatedSql, explanation, null, null);
 
-            // 5. Apply row limit and execute
-            var limitedSql = guardrailService.ApplyRowLimit(generatedSql, _defaultMaxRows, dialect);
-
+            // 5. §1.5 backstop — the gate's SQL on the read-only path (a READ ONLY transaction where the engine has one;
+            // the warehouse connectors' own binding verdict otherwise), within a bounded statement timeout.
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-            var queryResult = await provider.ExecuteQueryAsync(
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(StatementTimeout);
+            var queryResult = await provider.ExecuteReadOnlyQueryAsync(
                 dataSource,
-                limitedSql,
+                report.FinalSql,
                 new Dictionary<string, object?>(),
-                ct);
+                timeoutCts.Token);
 
             if (!queryResult.Success)
             {
@@ -166,7 +166,7 @@ internal sealed class SemanticSearchService(
 
             // 6. Optionally mask PII columns
             var rows = queryResult.Rows;
-            if (validation.PiiColumns is { Count: > 0 } piiCols && rows.Count > 0)
+            if (report.PiiColumns is { Count: > 0 } piiCols && rows.Count > 0)
             {
                 rows = rows
                     .Select(row => guardrailService.MaskPiiValues(row, piiCols))

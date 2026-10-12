@@ -2,6 +2,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from './auth/RequireAuth';
+import { RequireMigrations } from './auth/RequireMigrations';
 import { AppShell } from './components/layout/AppShell';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { lazyWithRetry } from './lib/lazyWithRetry';
@@ -95,10 +96,13 @@ export default function App() {
                   <Route path="/notifications" element={lazyRoute(NotificationsPage)} />
                   <Route path="/notifications/:id" element={lazyRoute(NotificationDetailPage)} />
                   <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />
-                  <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
-                  <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
-                  <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
-                  <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                  {/* Data migration exists only while the deployment runs it (Beacon:Migrations:Enabled). */}
+                  <Route element={<RequireMigrations />}>
+                    <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
+                    <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
+                    <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
+                    <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                  </Route>
                   <Route path="/queries" element={lazyRoute(QueriesListPage)} />
                   <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />
                   <Route path="/queries/:id" element={lazyRoute(QueryDetailPage)} />

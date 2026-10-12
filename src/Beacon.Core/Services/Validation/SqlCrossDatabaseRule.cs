@@ -139,13 +139,15 @@ public static class SqlCrossDatabaseRule
                     TableFactor.Table { Args: not null } table => CheckFunction(table.Name, table.Args.Arguments, naming, home, functionNames),
                     TableFactor.Table table when naming.Dialect is DatabricksDialect && SqlReadOnlyAstValidator.IsPathReference(table.Name) => PathReferenceMessage,
                     TableFactor.TableFunction { Expression: not Expression.Function } => DynamicNameMessage(naming),
-                    Statement.Execute execute when SqlDeniedFunctions.ReachesBeyondTheSource(LastPartOf(execute.Name)) => BeyondTheSourceMessage(LastPartOf(execute.Name)),
+                    Statement.Execute execute when SqlDeniedFunctions.ReachesBeyondTheSource(LastPartOf(execute.Name), naming.Dialect) => BeyondTheSourceMessage(LastPartOf(execute.Name)),
                     Statement.Execute execute => CheckExecute(execute, naming),
                     Statement.Prepare => DynamicSqlMessage("PREPARE", naming),
                     Statement.Use => $"USE is not allowed: it changes the {naming.Noun}, schema, role or warehouse the SQL after it runs in. Write {naming.LocalForm} names instead.",
                     Statement.SetRole => RoleSwitchMessage("SET ROLE"),
                     Statement.SetVariable setting => CheckSetting(setting, naming),
                     Statement.AttachDatabase => "ATTACH is not allowed: it opens another database.",
+                    Statement.Copy { Target: CopyTarget.Program or CopyTarget.File } =>
+                        "COPY to or from a program or a server file is not allowed: it reaches beyond the data source.",
                     Statement.CreateFunction { FunctionBody: CreateFunctionBody.AsBeforeOptions { Expression: Expression.LiteralValue } or CreateFunctionBody.AsAfterOptions { Expression: Expression.LiteralValue } } =>
                         $"A function defined from a string is not allowed: the {naming.Noun}s its body names cannot be checked.",
                     ObjectName name when !functionNames.Contains(name) => CheckName(name.Values, naming, home),
@@ -176,12 +178,17 @@ public static class SqlCrossDatabaseRule
         }
 
         var lastPart = LastPartOf(name);
-        if (SqlDeniedFunctions.ReachesBeyondTheSource(lastPart))
+        if (SqlDeniedFunctions.ReachesBeyondTheSource(lastPart, naming.Dialect))
         {
             return BeyondTheSourceMessage(lastPart);
         }
 
         if (naming.Dialect is PostgreSqlDialect && PostgreSqlQueryTextFunctions.Contains(lastPart))
+        {
+            return DynamicSqlMessage(lastPart, naming);
+        }
+
+        if (SqlDeniedFunctions.RunsSqlText(lastPart, naming.Dialect))
         {
             return DynamicSqlMessage(lastPart, naming);
         }

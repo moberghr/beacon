@@ -35,6 +35,7 @@ public class AiActorService : IAiActorServiceExtended
     private readonly IBeaconScheduler _beaconScheduler;
     private readonly IRunAsScope _runAs;
     private readonly IExecutionAccessCheck _executionAccess;
+    private readonly IStepSqlSaveCheck _saveCheck;
     private readonly ILogger<AiActorService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -52,6 +53,7 @@ public class AiActorService : IAiActorServiceExtended
         IBeaconScheduler beaconScheduler,
         IRunAsScope runAs,
         IExecutionAccessCheck executionAccess,
+        IStepSqlSaveCheck saveCheck,
         ILogger<AiActorService> logger)
     {
         _contextFactory = contextFactory;
@@ -62,6 +64,7 @@ public class AiActorService : IAiActorServiceExtended
         _beaconScheduler = beaconScheduler;
         _runAs = runAs;
         _executionAccess = executionAccess;
+        _saveCheck = saveCheck;
         _logger = logger;
     }
 
@@ -1111,6 +1114,16 @@ public class AiActorService : IAiActorServiceExtended
         action.QueryName = name;
         action.SqlQuery = sql;
 
+        // The model's SQL passes the same check as a query saved from the editor before anything is stored: the execution
+        // gate in the source's dialect and, where Beacon holds the source's metadata, its own tables and columns only.
+        var rejection = await _saveCheck.RejectionAsync(actor.DataSourceId, sql, [], cancellationToken);
+        if (rejection != null)
+        {
+            action.ErrorMessage = $"Query validation failed: {rejection}";
+            _logger.LogWarning("AI Actor {ActorId} proposed a query the save check refused", actor.Id);
+            return;
+        }
+
         // Create query directly in context to get the ID back
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -1350,6 +1363,15 @@ public class AiActorService : IAiActorServiceExtended
         if (firstStep == null)
         {
             action.ErrorMessage = $"Query {queryId} has no steps to refine";
+            return;
+        }
+
+        // Checked before the stored step is touched, as a new query is (see ExecuteCreateQueryAsync).
+        var rejection = await _saveCheck.RejectionAsync(firstStep.DataSourceId, newSql, [], cancellationToken);
+        if (rejection != null)
+        {
+            action.ErrorMessage = $"Refined query validation failed: {rejection}";
+            _logger.LogWarning("AI Actor {ActorId} proposed a refinement of query {QueryId} the save check refused", actor.Id, queryId);
             return;
         }
 

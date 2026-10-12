@@ -340,6 +340,18 @@ A step's SQL may name objects of its own data source's database only. Unqualifie
 
 Function and type names follow the same rule. A data source without a configured database accepts no database qualifier, and names resolved only at run time (`IDENTIFIER(...)`, Snowflake `TABLE('...')`) are refused. The final query of a multi-step query runs on the in-memory step results and is not affected. See [Database names in SQL](/features/authorization/#database-names-in-sql).
 
+### How a query runs
+
+Every statement Beacon runs for a query — a preview (stored, draft or paged), a subscription run or its test delivery, an AI actor's check of the query it wrote, a data migration's source read — goes through the same execution gate as the MCP tools, then the data source's read-only path:
+
+1. **The execution gate**, with read-only enforcement always on: a length cap, a refusal of control characters (other than tab and line breaks) and Unicode noncharacters, the regex guardrail, the read-only parser in the data source's dialect (one `SELECT`, no writes, no locking hints, no side-effecting or cross-connection functions), the [database-name rule](#database-names), the host policy for a host data source, and a row cap written into the SQL itself (`LIMIT` / `TOP`). The text judged is the text that runs: placeholders bound as parameters, `--` line comments removed (as the data source's dialect reads them) and line breaks flattened, so a comment line never swallows the clause after it. The regex guardrail reads the statement without its comments — a step may start with `-- Revenue by month` or explain itself with `/* … */`, even naming a write it does not make — while MySQL executable comments (`/*! … */`) and optimizer hints (`/*+ … */`) stay and are judged; the parser always reads the SQL as written. An `END` that closes no `CASE` is refused (the parser would stop reading there), and on SQL Server and Azure Synapse so is an unquoted alias that is a statement keyword, such as `SELECT 1 COMMIT` — quote it (`[COMMIT]`) to use it as a name.
+2. **The read-only path** of the provider: on PostgreSQL and MySQL the statement runs inside a `READ ONLY` session and transaction (on PostgreSQL as a batch of exactly one command, so a second statement is refused), so the database itself refuses a write the parser missed. SQL Server has no such mode: the statement runs inside a transaction that is always rolled back, which undoes such a write but does not refuse it, and a statement that ends that transaction fails the run. Azure Synapse and Snowflake run it plainly; BigQuery and Databricks refuse anything their own dialect's parser does not read as a single `SELECT`, and BigQuery runs only what a dry run reports as a `SELECT`. On every engine but PostgreSQL and MySQL a read-only login is the database-level boundary, and the data source pages say so; on PostgreSQL and MySQL the engine's read-only session is defence in depth, and a read-only login is still required ([Read-only guarantees per engine](/features/data-sources/#read-only-guarantees-per-engine)).
+3. **Limits:** one statement may return at most `Beacon:Query:MaxExecutionRows` rows (default 100,000; see [Query Execution Row Cap](/getting-started/configuration/#query-execution-row-cap)) — the cap is written into the SQL: a statement's own `LIMIT`, `TOP` or `FETCH` above the cap, `LIMIT ALL` or `NULL` is lowered to it, and an expression, `TOP … PERCENT` or `WITH TIES` is wrapped in a capped derived table (on SQL Server a statement with a `WITH` clause that cannot be lowered is refused); on SQL Server and Azure Synapse a `UNION`, `EXCEPT` or `INTERSECT` without an `ORDER BY` is capped as a derived table too, so its result columns need names (alias them). On PostgreSQL, MySQL, SQL Server, Azure Synapse and Snowflake the read stops one row past the cap; BigQuery and Databricks read the capped statement's result whole. A larger result fails the run with *returned more than N rows (the `Beacon:Query:MaxExecutionRows` limit)* instead of delivering part of it — and a statement may run for `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds). Closing a preview or cancelling a request stops the statement.
+
+The final query of a multi-step query runs on the steps' results in Beacon's in-memory SQLite store, behind the same gate (without the database-name rule — it reaches no database) and the store's own read-only engine settings. A final query that runs out of time fails the run — a preview, a subscription, an AI actor's check and a migration all see a failure, never an empty result.
+
+**When a query is saved**, each step's SQL must already pass that gate, so SQL that could never run is not stored. When Beacon holds metadata for the step's data source, every column the SQL reads from a table in that metadata must exist there; refresh the data source's metadata after adding a column. The same check applies when an AI actor creates or refines a query.
+
 ### Reliability
 
 **DO:**
@@ -488,11 +500,18 @@ mysql -h host -u user -p database -e "SELECT COUNT(*) FROM users"
 
 ### Query Timeout
 
-If queries time out:
+A statement may run for `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds; see [Query Execution Row Cap](/getting-started/configuration/#query-execution-row-cap)). If queries time out:
 1. Check query execution plan for performance issues
 2. Add indexes to improve performance
-3. Increase timeout in subscription settings
-4. Simplify query or reduce result set
+3. Simplify query or reduce result set
+
+### Returned more than 100000 rows
+
+One statement may return at most `Beacon:Query:MaxExecutionRows` rows (default 100,000), and the message names that setting (a migration's read names its own, `Beacon:Migrations:MaxRows`); a larger result fails instead of being cut short, so a subscription never reports a partial count. Filter or aggregate the step, or raise the setting as far as the host's memory allows. On MySQL a read stopped at the cap can leave its read-only transaction unable to close; the result is then discarded with the same *returned more than N rows* message. A paged preview reads one page and a count when the SQL's shape allows it; SQL it cannot page (for example with comments) is read whole and previewed only up to that limit.
+
+### Column does not exist on a table
+
+The save check found a column the data source's stored metadata does not list for that table. Check the name, or refresh the data source's metadata if the column was added after the last refresh.
 
 ### Names another database
 

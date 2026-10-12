@@ -32,6 +32,7 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Worker.Services;
 using Beacon.Tests.Common;
@@ -203,6 +204,41 @@ public class DataQualityCustomSqlReadOnlyTests
             .Which.ActualValue.Should().Be(RowValue, "an Admin's read-only custom check still reports its value");
     }
 
+    // The rule's value and message reach its history and the contract's alerts, so PII read into them is masked first.
+    [TestCase("SELECT 0 AS passed, MAX(email) AS actual_value FROM accounts", true)]
+    [TestCase("SELECT 0 AS passed, MAX(iban) AS actual_value FROM accounts", false)]
+    public async Task EvaluateContractAsync_CustomSqlReadingPii_MasksTheValueItReports(string sql, bool masked)
+    {
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = TextRow("a.customer@bank.example") });
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule(sql)), []);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        var actualValue = result.RuleResults.Should().ContainSingle().Which.ActualValue;
+        if (masked)
+        {
+            actualValue.Should().Be("a***e");
+            return;
+        }
+
+        actualValue.Should().Be("a.customer@bank.example");
+    }
+
+    [Test]
+    public async Task EvaluateContractAsync_CustomSqlReadingPii_IsReportedAsIsWhenPiiDetectionIsOff()
+    {
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = TextRow("a.customer@bank.example") });
+        var service = CreateService(
+            Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 0 AS passed, MAX(email) AS actual_value FROM accounts")),
+            [],
+            piiSettings: new McpSettingsData { EnablePiiDetection = false });
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        result.RuleResults.Should().ContainSingle()
+            .Which.ActualValue.Should().Be("a.customer@bank.example");
+    }
+
     [Test]
     public async Task EvaluateContractAsync_ThatRuns_ClearsASkippedScheduledEvaluationRecordedOnTheContract()
     {
@@ -230,8 +266,12 @@ public class DataQualityCustomSqlReadOnlyTests
 
         var result = await service.EvaluateContractAsync(42, CancellationToken.None);
 
-        // PostgreSQL and MySQL wrap the rule in read-only transaction statements; the rule is the one SELECT.
-        var command = server.Commands.Single(x => x.Sql.StartsWith("SELECT", StringComparison.Ordinal));
+        // PostgreSQL and MySQL wrap the rule in read-only transaction statements, SQL Server checks its transaction after
+        // it; the rule is the one SELECT.
+        var command = server.Commands
+            .Where(x => x.Sql.StartsWith("SELECT", StringComparison.Ordinal))
+            .Where(x => x.Sql != "SELECT @@TRANCOUNT")
+            .Single();
         command.Sql.Should().Be(expectedSql);
         command.Parameters.Should().Equal(new Dictionary<string, object?> { ["p0"] = pattern });
         result.RuleResults.Should().ContainSingle().Which.Passed.Should().BeTrue();
@@ -639,7 +679,8 @@ public class DataQualityCustomSqlReadOnlyTests
         List<object> saved,
         TimeSpan? ruleTimeout = null,
         List<DataQualityScore>? scores = null,
-        List<DatabaseMetadata>? metadata = null)
+        List<DatabaseMetadata>? metadata = null,
+        McpSettingsData? piiSettings = null)
     {
         var resolver = new Mock<IDataSourceConnectionResolver>();
         resolver
@@ -651,7 +692,8 @@ public class DataQualityCustomSqlReadOnlyTests
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             hostGuard,
             new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
-            NullLogger<DatabaseProvider>.Instance);
+            NullLogger<DatabaseProvider>.Instance,
+            TestQueryServices.QueryOptions);
         var sets = new Dictionary<Type, object>
         {
             [typeof(DataContract)] = RecordingBeaconContext.MemorySet([contract], saved),
@@ -671,6 +713,8 @@ public class DataQualityCustomSqlReadOnlyTests
             TestSqlGate.Create(hostGuard: hostGuard),
             TestConfiguredDatabases.Of("sales"),
             TestProjectAccess.ExecutionAllowed(),
+            TestQueryServices.DefaultSettings(piiSettings),
+            new QueryGuardrailService(),
             NullLogger<DataQualityEvaluationService>.Instance)
         {
             RuleTimeout = ruleTimeout ?? TimeSpan.FromSeconds(60)
@@ -792,6 +836,16 @@ public class DataQualityCustomSqlReadOnlyTests
         return table;
     }
 
+    private static DataTable TextRow(string actualValue)
+    {
+        var table = new DataTable();
+        table.Columns.Add("passed", typeof(int));
+        table.Columns.Add("actual_value", typeof(string));
+        table.Rows.Add(0, actualValue);
+
+        return table;
+    }
+
     private static DataTable SingleValueRow(string column, object value)
     {
         var table = new DataTable();
@@ -896,6 +950,10 @@ public class DataQualityCustomSqlReadOnlyTests
         protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => new FakeTransaction(this);
 
         protected override DbCommand CreateDbCommand() => new FakeCommand(this);
+
+        public override bool CanCreateBatch => true;
+
+        protected override DbBatch CreateDbBatch() => new CommandBackedDbBatch(this);
     }
 
     private sealed class FakeTransaction(FakeConnection connection) : DbTransaction
@@ -938,10 +996,11 @@ public class DataQualityCustomSqlReadOnlyTests
             return 0;
         }
 
+        // SQL Server's read-only path asks whether its transaction is still open after the read: it is.
         public override object? ExecuteScalar()
         {
             Record();
-            return null;
+            return CommandText == "SELECT @@TRANCOUNT" ? 1 : null;
         }
 
         protected override DbParameter CreateDbParameter() => new FakeParameter();

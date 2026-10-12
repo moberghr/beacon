@@ -19,6 +19,9 @@ public class VirtualTableManager : IDisposable
         _logger = logger;
     }
 
+    /// <summary>How long the final query may run on the in-memory store. Settable for tests.</summary>
+    internal int StatementTimeoutSeconds { get; init; } = Constants.Query.StatementTimeoutSeconds;
+
     public void AddVirtualTable(string name, List<IDictionary<string, object?>> data, ProjectInfo projectInfo)
     {
         _virtualTables[name] = data;
@@ -73,9 +76,17 @@ public class VirtualTableManager : IDisposable
         _logger.LogDebug("Cleared all virtual tables and project info");
     }
 
+    /// <summary>
+    /// The final query of a multi-step run on the in-memory SQLite store. <paramref name="gate"/> judges the statement as it
+    /// runs (after <c>@resultN</c> translation) before any table is loaded — a blocked statement throws, so a statement like
+    /// ATTACH never reaches SQLite (it would create files on the host) — and its <see cref="SqlGateReport.FinalSql"/> (the
+    /// row cap the gate placed) is what runs, within <see cref="Constants.Query.StatementTimeoutSeconds"/> and the caller's
+    /// cancellation. A statement that runs out of time is reported with <see cref="QueryResult.TimedOut"/> and no rows —
+    /// never a result to act on.
+    /// </summary>
     public async Task<QueryResult> ExecuteFinalQueryWithInMemoryDatabase(
         string finalQuery,
-        SqlReadOnlyAstValidator readOnlyAstValidator,
+        Func<string, SqlGateReport> gate,
         ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
         CancellationToken cancellationToken)
     {
@@ -84,12 +95,11 @@ public class VirtualTableManager : IDisposable
         // Translate the final query to use actual table names
         var translatedQuery = inMemoryDb.TranslateFinalQuery(finalQuery);
 
-        // The final query is stored or LLM-written SQL — gate the text that runs (§1.5) before anything is loaded,
-        // so a statement like ATTACH never reaches SQLite (it would create files on the host).
-        var rejection = readOnlyAstValidator.Validate(translatedQuery, nameof(DatabaseEngineType.SQLite));
-        if (rejection != null)
+        // The final query is stored or LLM-written SQL — gate the text that runs (§1.5) before anything is loaded.
+        var report = gate(translatedQuery);
+        if (report.Blocked)
         {
-            throw new InvalidOperationException(rejection);
+            throw new InvalidOperationException(report.BlockReason ?? "The final query was rejected.");
         }
 
         _logger.LogInformation("Executing final query using in-memory SQLite database with {TableCount} virtual tables",
@@ -105,10 +115,11 @@ public class VirtualTableManager : IDisposable
             await inMemoryDb.CreateTableFromResults(tableName, data, projectInfo);
         }
 
-        _logger.LogDebug("Translated query: {TranslatedQuery}", translatedQuery);
-
         // Execute the query against SQLite
-        var (results, executionTimeMs, timedOut) = await inMemoryDb.ExecuteQueryAsync(translatedQuery, cancellationToken: cancellationToken);
+        var (results, executionTimeMs, timedOut) = await inMemoryDb.ExecuteQueryAsync(
+            report.FinalSql,
+            StatementTimeoutSeconds,
+            cancellationToken);
 
         // Log database analysis
         var analysis = inMemoryDb.AnalyzeDatabase();
@@ -134,11 +145,11 @@ public class VirtualTableManager : IDisposable
     /// <summary>
     /// The final query of a multi-step preview, one page at a time: gated and loaded into SQLite as for
     /// <see cref="ExecuteFinalQueryWithInMemoryDatabase"/>, then only the page is read back. The page and count
-    /// rewrites pass the same read-only gate.
+    /// rewrites pass the same gate.
     /// </summary>
     public async Task<SqlResultPage> ExecuteFinalQueryPagedAsync(
         string finalQuery,
-        SqlReadOnlyAstValidator readOnlyAstValidator,
+        Func<string, SqlGateReport> gate,
         ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
         Helpers.ListRequest paging,
         CancellationToken cancellationToken)
@@ -146,7 +157,7 @@ public class VirtualTableManager : IDisposable
         var translatedQuery = InMemoryDatabaseManager.TranslateResultReferences(finalQuery);
 
         // Gate the text that runs (§1.5) before any virtual table is loaded, as the non-paged path does.
-        var rejection = readOnlyAstValidator.Validate(translatedQuery, nameof(DatabaseEngineType.SQLite));
+        var rejection = Rejection(gate, translatedQuery);
         if (rejection != null)
         {
             throw new InvalidOperationException(rejection);
@@ -162,8 +173,15 @@ public class VirtualTableManager : IDisposable
         return await inMemoryDb.ExecutePagedAsync(
             translatedQuery,
             paging,
-            x => readOnlyAstValidator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            x => Rejection(gate, x),
             cancellationToken);
+    }
+
+    private static string? Rejection(Func<string, SqlGateReport> gate, string sql)
+    {
+        var report = gate(sql);
+
+        return report.Blocked ? report.BlockReason ?? "The final query was rejected." : null;
     }
 
     public void Dispose()

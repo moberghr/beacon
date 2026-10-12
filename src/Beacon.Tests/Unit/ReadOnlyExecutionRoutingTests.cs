@@ -12,8 +12,10 @@ using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
+using Beacon.Connector.AzureSynapse;
 using Beacon.Connector.MySql;
 using Beacon.Connector.PostgreSql;
+using Beacon.Connector.Snowflake;
 using Beacon.Connector.SqlServer;
 using Beacon.Core;
 using Beacon.Core.Configuration;
@@ -56,14 +58,16 @@ public class ReadOnlyExecutionRoutingTests
     [TearDown]
     public void RestoreConnectionFactories()
     {
-        // The DatabaseProvider tests re-register the PostgreSQL and MSSQL factories with recording
+        // The DatabaseProvider tests re-register the engines' connection factories with recording
         // fakes; run the REAL registration paths (AddPostgreSqlConnector / AddSqlServerConnector)
         // over a throwaway service collection so later suites — including the in-process
         // integration harness — see production wiring.
         new BeaconBuilder(new ServiceCollection(), new ConfigurationBuilder().Build())
             .AddPostgreSqlConnector()
             .AddSqlServerConnector()
-            .AddMySqlConnector();
+            .AddMySqlConnector()
+            .AddAzureSynapseConnector()
+            .AddSnowflakeConnector();
     }
 
     // --- (a) default interface method forwarding -------------------------------------------------
@@ -256,29 +260,141 @@ public class ReadOnlyExecutionRoutingTests
     }
 
     [Test]
-    public async Task DatabaseProvider_NonPostgresEngine_ExecuteReadOnlyQueryAsync_ExecutesPlainWithoutTransaction()
+    public async Task DatabaseProvider_SqlServer_ExecuteReadOnlyQueryAsync_RunsInATransactionThatIsAlwaysRolledBack()
     {
-        // MSSQL has no READ ONLY transaction mode, so the read-only path degrades to plain
-        // execution — SupportsDatabaseReadOnlyEnforcement reports exactly this.
+        // SQL Server has no READ ONLY transaction mode: the read-only path runs the statement inside a transaction that is
+        // rolled back, never committed, so a write the parsers missed is undone. It cannot refuse the write, so
+        // SupportsDatabaseReadOnlyEnforcement stays false for SQL Server.
         var connection = new RecordingDbConnection();
         DbConnectionFactory.Register(DatabaseEngineType.MSSQL, x => connection);
-        var dataSource = new DataSource
-        {
-            Id = SqlDataSourceId,
-            Name = "mssql-warehouse",
-            DataSourceType = DataSourceType.Database,
-            EncryptedConnectionData = "encrypted",
-            DatabaseEngineType = DatabaseEngineType.MSSQL
-        };
 
         var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
-            dataSource, "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+            EngineDataSource(DatabaseEngineType.MSSQL), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
 
         result.Success.Should().BeTrue(result.ErrorMessage);
-        // No SET read-only statements exist for engines without database-level enforcement.
+        connection.ExecutedCommands.Should().Equal(
+            "SAVE TRANSACTION @savepoint",
+            "SELECT 1",
+            "SELECT @@TRANCOUNT",
+            "ROLLBACK TRANSACTION @savepoint");
+        connection.BegunTransaction.Should().NotBeNull();
+        connection.Executions.Should().OnlyContain(x => x.Transaction == connection.BegunTransaction);
+        connection.BegunTransaction!.RolledBack.Should().BeTrue();
+        connection.BegunTransaction.Committed.Should().BeFalse();
+        CreateDatabaseProvider().SupportsDatabaseReadOnlyEnforcement(DatabaseEngineType.MSSQL).Should().BeFalse();
+    }
+
+    // A statement that ends the transaction it runs in (a COMMIT, or a COMMIT and a new BEGIN TRANSACTION, which drops the
+    // savepoint) is not undone by the rollback: the result is discarded, the run fails, and a security event names the
+    // data source.
+    [TestCase(0, false)]
+    [TestCase(null, true)]
+    public async Task DatabaseProvider_SqlServer_AStatementThatEndsTheTransaction_FailsTheRun_AndIsLogged(int? transactionCount, bool savepointGone)
+    {
+        var connection = new RecordingDbConnection
+        {
+            TransactionCount = transactionCount,
+            FailOnCommandText = x => savepointGone && x == "ROLLBACK TRANSACTION @savepoint",
+            FailureMessage = "Cannot roll back the savepoint. No transaction or savepoint of that name was found."
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, x => connection);
+        var logs = new LogRecorder();
+
+        var result = await CreateDatabaseProvider(logger: logs.For<DatabaseProvider>())
+            .ExecuteReadOnlyQueryAsync(EngineDataSource(DatabaseEngineType.MSSQL), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be(DatabaseProvider.SqlServerTransactionEndedMessage);
+        result.Rows.Should().BeEmpty();
+        connection.BegunTransaction!.Committed.Should().BeFalse();
+        logs.Entries
+            .Where(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Warning)
+            .Should().ContainSingle(x => x.Message.Contains("ended its rolled-back transaction"));
+    }
+
+    // PostgreSQL's read-only path sends the statement as a batch of exactly one command, inside the READ ONLY transaction,
+    // with its parameters: the driver refuses a second statement in it instead of running each.
+    [Test]
+    public async Task DatabaseProvider_PostgreSql_RunsTheStatementAsABatchOfOneCommand()
+    {
+        var connection = new RecordingDbConnection();
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            EngineDataSource(DatabaseEngineType.PostgreSQL), "SELECT id FROM t WHERE id = @p0", new Dictionary<string, object?> { ["p0"] = 7L }, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        connection.BatchSizes.Should().Equal(1);
+        connection.TransactionOf("SELECT id FROM t WHERE id = @p0").Should().BeSameAs(connection.BegunTransaction);
+        connection.BegunTransaction!.Committed.Should().BeTrue();
+    }
+
+    // The plain path (read-only off) is unchanged: no batch.
+    [Test]
+    public async Task DatabaseProvider_PostgreSql_ThePlainPath_RunsNoBatch()
+    {
+        var connection = new RecordingDbConnection();
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteQueryAsync(
+            EngineDataSource(DatabaseEngineType.PostgreSQL), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        connection.BatchSizes.Should().BeEmpty();
+    }
+
+    // The statement that fails runs inside the transaction Beacon opened (after its savepoint), so whatever it did before
+    // failing is undone with that transaction; nothing runs after it, and the server's refusal reaches the caller.
+    [Test]
+    public async Task DatabaseProvider_SqlServer_AWriteTheDatabaseRejects_RanInsideTheTransaction_AndNothingRunsAfterIt()
+    {
+        const string write = "UPDATE customers SET name = 'x'";
+        var connection = new RecordingDbConnection
+        {
+            FailOnCommandText = x => x == write,
+            FailureMessage = "The UPDATE permission was denied on the object 'customers'."
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            EngineDataSource(DatabaseEngineType.MSSQL), write, new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be("The UPDATE permission was denied on the object 'customers'.");
+        connection.ExecutedCommands.Should().Equal("SAVE TRANSACTION @savepoint", write);
+        connection.TransactionOf(write).Should().BeSameAs(connection.BegunTransaction);
+        connection.BegunTransaction!.Committed.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task DatabaseProvider_SqlServer_ExecuteQueryAsync_OpensNoTransaction()
+    {
+        var connection = new RecordingDbConnection();
+        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteQueryAsync(
+            EngineDataSource(DatabaseEngineType.MSSQL), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        connection.BegunTransaction.Should().BeNull();
+    }
+
+    // Synapse (dedicated and serverless pools differ in what transactions they allow) and Snowflake have no read-only
+    // session: their read-only path runs the statement plainly, and a read-only login is the only database-side check.
+    [TestCase(DatabaseEngineType.AzureSynapse)]
+    [TestCase(DatabaseEngineType.Snowflake)]
+    public async Task DatabaseProvider_EngineWithoutReadOnlySession_ExecuteReadOnlyQueryAsync_RunsPlain(DatabaseEngineType engine)
+    {
+        var connection = new RecordingDbConnection();
+        DbConnectionFactory.Register(engine, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            EngineDataSource(engine), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
         connection.ExecutedCommands.Should().Equal("SELECT 1");
-        connection.BegunTransaction.Should().BeNull("no read-only transaction must be opened for a non-PostgreSQL engine");
-        connection.TransactionOf("SELECT 1").Should().BeNull();
+        connection.BegunTransaction.Should().BeNull();
+        CreateDatabaseProvider().SupportsDatabaseReadOnlyEnforcement(engine).Should().BeFalse();
     }
 
     [Test]
@@ -360,6 +476,27 @@ public class ReadOnlyExecutionRoutingTests
         result.Rows.Should().BeEmpty();
     }
 
+    // A read stopped at the row cap cancels the rest of its statement, which can leave MySQL's transaction unable to close.
+    // The result is still discarded, and the caller is told what it has to change: the result is larger than its ceiling.
+    [Test]
+    public async Task DatabaseProvider_MySql_RollbackFailsAfterAReadStoppedAtTheCap_ReportsTheRowCeiling()
+    {
+        var connection = new Beacon.Tests.Common.RecordingDbConnection
+        {
+            RowCount = 50,
+            FailOnCommandText = x => x == "ROLLBACK"
+        };
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, x => connection);
+
+        var result = await CreateDatabaseProvider().ExecuteReadOnlyQueryAsync(
+            MySqlDataSource(), "SELECT id FROM accounts LIMIT 11", new Dictionary<string, object?>(), 11, CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be(DatabaseProvider.MoreRowsThanMessage(10));
+        result.ErrorMessage.Should().Contain("more than 10 rows");
+        result.Rows.Should().BeEmpty();
+    }
+
     [Test]
     public async Task DatabaseProvider_MySql_CallerCancelsAfterTheRead_TheRollbackStillRunsAndTheReadSucceeds()
     {
@@ -435,7 +572,9 @@ public class ReadOnlyExecutionRoutingTests
         connection.ExecutedCommands.Should().Equal("EXPLAIN SELECT 1");
     }
 
-    private static DatabaseProvider CreateDatabaseProvider(string connectionString = "Host=unused;Database=unused")
+    private static DatabaseProvider CreateDatabaseProvider(
+        string connectionString = "Host=unused;Database=unused",
+        Microsoft.Extensions.Logging.ILogger<DatabaseProvider>? logger = null)
     {
         var encryption = new Mock<IEncryptionService>();
         encryption
@@ -460,7 +599,8 @@ public class ReadOnlyExecutionRoutingTests
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             hostGuard.Object,
             new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
-            NullLogger<DatabaseProvider>.Instance);
+            logger ?? NullLogger<DatabaseProvider>.Instance,
+            TestQueryServices.QueryOptions);
     }
 
     private static string[] MySqlReadOnly(string query) =>
@@ -471,6 +611,18 @@ public class ReadOnlyExecutionRoutingTests
         "ROLLBACK",
         "SET SESSION TRANSACTION READ WRITE"
     ];
+
+    private static DataSource EngineDataSource(DatabaseEngineType engine)
+    {
+        return new DataSource
+        {
+            Id = SqlDataSourceId,
+            Name = "warehouse",
+            DataSourceType = DataSourceType.Database,
+            EncryptedConnectionData = "encrypted",
+            DatabaseEngineType = engine
+        };
+    }
 
     private static DataSource MySqlDataSource()
     {
@@ -690,6 +842,11 @@ public class ReadOnlyExecutionRoutingTests
 
         public IEnumerable<string> ExecutedCommands => Executions.Select(x => x.CommandText);
 
+        /// <summary>What <c>SELECT @@TRANCOUNT</c> answers; null answers one while the begun transaction is open.</summary>
+        public int? TransactionCount { get; init; }
+
+        public int OpenTransactions => TransactionCount ?? (BegunTransaction is { Committed: false, RolledBack: false } ? 1 : 0);
+
         public DbTransaction? TransactionOf(string commandText) =>
             Executions.Single(x => x.CommandText == commandText).Transaction;
 
@@ -715,6 +872,13 @@ public class ReadOnlyExecutionRoutingTests
         }
 
         protected override DbCommand CreateDbCommand() => new RecordingDbCommand(this);
+
+        /// <summary>The number of commands of every batch run.</summary>
+        public List<int> BatchSizes { get; } = [];
+
+        public override bool CanCreateBatch => true;
+
+        protected override DbBatch CreateDbBatch() => new CommandBackedDbBatch(this, BatchSizes);
     }
 
     private sealed class RecordingDbTransaction(RecordingDbConnection connection) : DbTransaction
@@ -756,10 +920,11 @@ public class ReadOnlyExecutionRoutingTests
             return 0;
         }
 
+        // SQL Server's read-only path asks for @@TRANCOUNT after the read: one while the begun transaction is open.
         public override object? ExecuteScalar()
         {
             connection.RecordExecution(CommandText, DbTransaction);
-            return null;
+            return CommandText == "SELECT @@TRANCOUNT" ? connection.OpenTransactions : null;
         }
 
         protected override DbParameter CreateDbParameter() => new FakeParameter();

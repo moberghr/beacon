@@ -63,18 +63,26 @@ internal partial class MigrationService
                 Steps = querySteps
             };
 
-            // Execute the query to get source data using preview service
+            // Read the source through the temporary-query path, within the migration's own row budget (Beacon:Migrations:MaxRows):
+            // a larger source fails the run here, before anything is written.
             var parameters = request.Parameters?.Select(kvp => new ParameterValue
             {
                 Name = kvp.Key,
                 Value = kvp.Value?.ToString() ?? ""
             }).ToList() ?? new List<ParameterValue>();
 
-            var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, cancellationToken, parameters);
+            var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, parameters, _options.MaxRows, cancellationToken);
 
-            if (!queryResult.Success || queryResult.FinalResult?.AllRecords == null)
+            // Nothing is written from a source read that failed or ran out of time, in any step or in the final query: a
+            // timed-out read has no rows, and writing them would empty the destination in Truncate mode.
+            if (queryResult == null
+                || !queryResult.Success
+                || queryResult.StepResults.Any(x => !x.Success)
+                || queryResult.FinalResult is not { AllRecords: not null, TimedOut: false })
             {
-                throw new InvalidOperationException($"Source query execution failed: {queryResult.ErrorMessage}");
+                var reason = queryResult?.FinalResult?.TimedOut == true ? "the source query timed out" : queryResult?.ErrorMessage;
+
+                throw new InvalidOperationException($"Source query execution failed: {reason ?? "no result"}");
             }
 
             var sourceData = queryResult.FinalResult.AllRecords;

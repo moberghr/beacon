@@ -23,6 +23,11 @@ internal static class McpEndpoints
             .WithName("GetMcpSettings")
             .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
 
+        // The settings the deployment pins (Beacon:Mcp locks): the page disables them, a write that changes one is refused (409).
+        mcp.MapGet("/settings/locks", (IMediator m, CancellationToken ct) => m.Send(new GetMcpDeploymentLocksQuery(), ct))
+            .WithName("GetMcpDeploymentLocks")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
+
         mcp.MapPut("/settings", async (UpdateMcpSettingsBody body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new UpdateMcpSettingsCommand(body.Data), ct);

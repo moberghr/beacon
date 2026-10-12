@@ -6,6 +6,8 @@ export interface PermissionsFixture {
   canWrite?: boolean;
   isAdmin?: boolean;
   permissions?: BeaconPermission[];
+  /** Whether the deployment runs data migrations; on unless a test turns it off. */
+  migrationsEnabled?: boolean;
 }
 
 /**
@@ -20,6 +22,7 @@ export function permissionsHandler(fixture: PermissionsFixture = {}) {
       canWrite: fixture.canWrite ?? true,
       isAdmin,
       permissions: isAdmin ? [...BEACON_PERMISSIONS] : fixture.permissions ?? [],
+      migrationsEnabled: fixture.migrationsEnabled ?? true,
     }),
   );
 }

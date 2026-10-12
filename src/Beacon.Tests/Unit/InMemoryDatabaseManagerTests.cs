@@ -48,6 +48,34 @@ public class InMemoryDatabaseManagerTests
             .Where(x => x.SqliteErrorCode == raw.SQLITE_AUTH, "the read-only authorizer refuses ATTACH while it compiles");
     }
 
+    // ATTACH and VACUUM INTO both create a file on the host. The authorizers refuse them while tables load and after; the
+    // engine's own attached-database limit (zero) refuses them as well, with every authorizer lifted.
+    [TestCase("ATTACH DATABASE '{0}' AS x")]
+    [TestCase("VACUUM INTO '{0}'")]
+    public async Task FileCreatingStatements_AreRefusedInEveryPhase_AndByTheEngineLimitAlone(string template)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"beacon-join-store-{Guid.NewGuid():N}.db");
+        var sql = string.Format(System.Globalization.CultureInfo.InvariantCulture, template, path);
+        try
+        {
+            using var manager = await ManagerWithPeople();
+            Run(manager, sql).Should().Be(raw.SQLITE_AUTH, "the load authorizer refuses it (VACUUM INTO asks when it runs)");
+
+            var act = () => manager.ExecuteQueryAsync(sql);
+            await act.Should().ThrowAsync<SqliteException>()
+                .Where(x => x.SqliteErrorCode == raw.SQLITE_AUTH, "the read-only authorizer refuses it");
+
+            raw.sqlite3_set_authorizer(manager.Handle, AllowEverything, null);
+            Run(manager, sql).Should().Be(raw.SQLITE_ERROR, "zero attachable databases leaves no room for the file");
+
+            File.Exists(path).Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Test]
     public void NestedCommentSmuggle_IsRejectedByTheAstGate()
     {
@@ -318,6 +346,42 @@ public class InMemoryDatabaseManagerTests
         UserVersion(manager).Should().Be(0, "no part of a column name may run as SQL");
     }
 
+    // Names of any length built only of quoting and statement characters load as one plain column each.
+    [TestCase(";")]
+    [TestCase(";;--")]
+    [TestCase("]];PRAGMA user_version=7;--")]
+    [TestCase("``);PRAGMA user_version=7;--")]
+    public async Task CreateTableFromResults_SemicolonsAndRepeatedQuotes_StayOneColumn(string columnName)
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+
+        await manager.CreateTableFromResults("result1", [new Dictionary<string, object?> { [columnName] = "kept" }], Project());
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]");
+
+        results.Should().ContainSingle().Which.Should().Equal(new Dictionary<string, object?> { [columnName] = "kept" });
+        UserVersion(manager).Should().Be(0);
+    }
+
+    [Test]
+    public async Task CreateTableFromResults_VeryLongNamesOfQuotesAndBrackets_StayPlainColumns()
+    {
+        var quotes = new string('"', 4000) + ");PRAGMA user_version=7;--";
+        var brackets = new string(']', 4000) + ");PRAGMA user_version=7;--";
+        var long1 = new string('x', 20_000);
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+
+        await manager.CreateTableFromResults(
+            "result1",
+            [new Dictionary<string, object?> { [quotes] = 1L, [brackets] = 2L, [long1] = 3L }],
+            Project());
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]");
+
+        results.Should().ContainSingle();
+        results[0].Keys.Should().Equal([quotes, brackets, long1]);
+        manager.AnalyzeDatabase().Tables.Keys.Should().Equal("result1");
+        UserVersion(manager).Should().Be(0);
+    }
+
     [Test]
     public async Task CreateTableFromResults_HostileColumnName_CannotCreateAnotherTable()
     {
@@ -440,6 +504,20 @@ public class InMemoryDatabaseManagerTests
             DatabaseEngine = nameof(DatabaseEngineType.PostgreSQL),
             DatabaseEngineType = DatabaseEngineType.PostgreSQL
         };
+
+    /// <summary>Compiles and steps <paramref name="sql"/> on the store's connection; the first code that is not a success.</summary>
+    private static int Run(InMemoryDatabaseManager manager, string sql)
+    {
+        var rc = raw.sqlite3_prepare_v2(manager.Handle, sql, out var statement);
+        try
+        {
+            return rc != raw.SQLITE_OK ? rc : raw.sqlite3_step(statement);
+        }
+        finally
+        {
+            raw.sqlite3_finalize(statement);
+        }
+    }
 
     /// <summary>Compiles (never runs) <paramref name="sql"/> on the store's connection and returns SQLite's code.</summary>
     private static int Prepare(InMemoryDatabaseManager manager, string sql)

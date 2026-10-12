@@ -78,6 +78,16 @@ describe('Sidebar', () => {
     expect(screen.getByText('Queries')).toBeInTheDocument();
   });
 
+  it('shows no Data Migration entry, to an Admin either, while the deployment does not run migrations', async () => {
+    signedInAs(['Admin']);
+    mswServer.use(permissionsHandler({ isAdmin: true, migrationsEnabled: false }));
+
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('User Management')).toBeInTheDocument();
+    expect(screen.queryByText('Data Migration')).not.toBeInTheDocument();
+  });
+
   it('shows a user with functional roles only the pages those open, not the project-data pages', async () => {
     sessionOf(true, ['Auditor', 'DataSourceAdmin'], 'Tester');
     mswServer.use(functionalOnly('Auditor', 'DataSourceAdmin'));

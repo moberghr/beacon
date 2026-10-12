@@ -84,11 +84,13 @@ public static class SqlPageRewriter
         var derived = DerivedTableBody(trimmed, query, isTSql, bounded, ordered);
 
         // T-SQL rejects ORDER BY (SELECT NULL) after DISTINCT or a set operation (ORDER BY items must be in
-        // the select list), so with no column to order by those shapes page through a derived table.
+        // the select list), so with no column to order by those shapes — and a parenthesized query — page through a
+        // derived table.
         var needsDerivedOrder = isTSql
             && sort == null
             && !ordered
-            && (query.Body is SetExpression.SetOperation || query.Body is SetExpression.SelectExpression { Select.Distinct: not null });
+            && (query.Body is SetExpression.SetOperation or SetExpression.QueryExpression
+                || query.Body is SetExpression.SelectExpression { Select.Distinct: not null });
 
         string? pageSql;
         if (!bounded && (!ordered || sort == null) && !needsDerivedOrder)

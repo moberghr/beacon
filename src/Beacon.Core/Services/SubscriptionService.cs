@@ -1,6 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Cronos;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -38,11 +40,14 @@ internal class SubscriptionService(
     IBeaconScheduler beaconScheduler,
     IAnomalyDetectionService anomalyDetectionService,
     IBeaconActorAccessor actorAccessor,
-    BeaconConfiguration configuration)
+    BeaconConfiguration configuration,
+    IOptions<QueryExecutionOptions> queryOptions)
     : ISubscriptionService
 {
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
+
         // The owner its runs act as: the caller, never a value from the request.
         var ownerUserId = ScheduledWorkOwner.Require(await actorAccessor.GetCurrentAsync(cancellationToken), configuration);
 
@@ -230,6 +235,8 @@ internal class SubscriptionService(
 
     public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         CronExpression.Parse(subscriptionData.CronExpression);
@@ -456,6 +463,18 @@ internal class SubscriptionService(
             await context.SaveChangesAsync(CancellationToken.None);
 
             throw;
+        }
+    }
+
+    // Every statement of a run stops at Beacon:Query:StatementTimeoutSeconds; a subscription's own timeout may only be
+    // shorter, so a longer one is refused rather than silently cut to the limit.
+    private void EnsureTimeoutWithinTheStatementLimit(int? timeoutSeconds)
+    {
+        var limit = queryOptions.Value.StatementTimeoutSeconds;
+        if (timeoutSeconds > limit)
+        {
+            throw new InvalidOperationException(
+                $"The timeout may be at most {limit} seconds: every statement stops at {QueryExecutionOptions.SectionName}:{nameof(QueryExecutionOptions.StatementTimeoutSeconds)} ({limit} seconds in this deployment).");
         }
     }
 }

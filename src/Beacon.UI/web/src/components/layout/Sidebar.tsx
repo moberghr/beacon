@@ -73,7 +73,7 @@ const SECTIONS: NavSection[] = [
       },
       { name: 'Projects', Icon: IconFolder, slug: 'projects' },
       { name: 'Data Quality', Icon: IconShield, slug: 'data-quality' },
-      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', visible: opensFor('MigrationOperator') },
+      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', visible: access => access.opensMigrations },
       { name: 'AI Actors', Icon: IconBot, slug: 'ai-actors' },
     ],
   },

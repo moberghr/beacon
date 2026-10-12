@@ -64,6 +64,26 @@ describe('DataSourceDetailPage projects', () => {
   });
 });
 
+describe('DataSourceDetailPage read-only enforcement', () => {
+  it('warns that a source whose engine does not refuse writes needs a read-only login', async () => {
+    renderWith(entry({ databaseEngineType: 'MSSQL', databaseReadOnlyEnforced: false }));
+
+    expect(await screen.findByText('No database-level read-only enforcement')).toBeInTheDocument();
+    expect(screen.getByText(/login that can only read/)).toBeInTheDocument();
+    expect(screen.getByText('Read-only login required')).toBeInTheDocument();
+  });
+
+  it('says the engine enforces read-only where it does, still asking for a read-only login, without a warning', async () => {
+    renderWith(entry({ databaseReadOnlyEnforced: true }));
+
+    expect(await screen.findByText('Enforced by the engine — still use a read-only login')).toHaveAttribute(
+      'title',
+      expect.stringMatching(/defence in depth.*login that can only read/),
+    );
+    expect(screen.queryByText('No database-level read-only enforcement')).not.toBeInTheDocument();
+  });
+});
+
 describe('DataSourceDetailPage delete', () => {
   // The page's catch-all answers every other GET with 404: who the user is must be answered first.
   const me = http.get('*/beacon/api/auth/me', () =>
@@ -121,5 +141,171 @@ describe('DataSourceDetailPage metadata refresh', () => {
     fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Metadata loading is disabled for this data source.'));
+  });
+
+  it('says how many names the refresh left out', async () => {
+    renderWith(
+      entry({}),
+      http.post('*/beacon/api/data-sources/42/refresh-metadata', () =>
+        HttpResponse.json({ dataSourceId: 42, databaseEngineType: 1, tables: [], refreshedAt: '2026-10-12T08:00:00Z', skippedNameCount: 3 }),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('3 table or column names were left out')));
+  });
+});
+
+describe('DataSourceDetailPage migration write target', () => {
+  const me = http.get('*/beacon/api/auth/me', () =>
+    HttpResponse.json({ userId: 'u1', userName: 'tester', displayName: 'Tester', email: null, isAuthenticated: true, roles: [] }),
+  );
+
+  it('labels a write target as one, never read by Beacon, without the read-only login warning', async () => {
+    renderWith(entry({ databaseEngineType: 'MSSQL', databaseReadOnlyEnforced: false, allowMigrationWrites: true }));
+
+    expect(await screen.findByText('Not read by Beacon')).toBeInTheDocument();
+    expect(screen.getAllByText('Migration write target').length).toBeGreaterThan(0);
+    expect(screen.queryByText('No database-level read-only enforcement')).not.toBeInTheDocument();
+    expect(screen.queryByText('Read-only login required')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /refresh metadata/i })).not.toBeInTheDocument();
+  });
+
+  it('lets an Admin mark a source as a write target, after confirming', async () => {
+    let sent: unknown = null;
+    renderWith(
+      entry({}),
+      me,
+      permissionsHandler({ isAdmin: true }),
+      http.put('*/beacon/api/data-sources/42/migration-writes', async ({ request }) => {
+        sent = await request.json();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as migration write target' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as write target' }));
+
+    await waitFor(() => expect(sent).toEqual({ allowMigrationWrites: true }));
+  });
+
+  it('names what reads a source in use and marks it only once the Admin confirms again', async () => {
+    const sent: unknown[] = [];
+    const reason = 'Data source 42 is read by 2 queries and 1 subscription. Beacon stops reading a migration write target, so they will fail. Confirm to mark it anyway.';
+    renderWith(
+      entry({}),
+      me,
+      permissionsHandler({ isAdmin: true }),
+      http.put('*/beacon/api/data-sources/42/migration-writes', async ({ request }) => {
+        const body = (await request.json()) as { force?: boolean };
+        sent.push(body);
+        return body.force
+          ? new HttpResponse(null, { status: 204 })
+          : HttpResponse.json({ title: reason, status: 409 }, { status: 409 });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as migration write target' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as write target' }));
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark anyway' }));
+
+    await waitFor(() => expect(sent).toEqual([{ allowMigrationWrites: true }, { allowMigrationWrites: true, force: true }]));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Marked as a migration write target.'));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('leaves a source in use as it was when the Admin does not confirm again', async () => {
+    const sent: unknown[] = [];
+    renderWith(
+      entry({}),
+      me,
+      permissionsHandler({ isAdmin: true }),
+      http.put('*/beacon/api/data-sources/42/migration-writes', async ({ request }) => {
+        sent.push(await request.json());
+        return HttpResponse.json({ title: 'Data source 42 is read by 1 query.', status: 409 }, { status: 409 });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as migration write target' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as write target' }));
+    expect(await screen.findByText('Data source 42 is read by 1 query.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByText('Data source 42 is read by 1 query.')).not.toBeInTheDocument());
+    expect(sent).toEqual([{ allowMigrationWrites: true }]);
+  });
+
+  it('shows why a change failed for any other reason', async () => {
+    renderWith(
+      entry({ allowMigrationWrites: true }),
+      me,
+      permissionsHandler({ isAdmin: true }),
+      http.put('*/beacon/api/data-sources/42/migration-writes', () =>
+        HttpResponse.json({ title: 'The data source changed meanwhile.', status: 409 }, { status: 409 }),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to a read source' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to reads' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('The data source changed meanwhile.'));
+    expect(screen.queryByRole('button', { name: 'Mark anyway' })).not.toBeInTheDocument();
+  });
+
+  it('offers the switch to no one but an Admin', async () => {
+    renderWith(entry({}), me, permissionsHandler({ permissions: ['DataSourceAdmin', 'MigrationOperator'] }));
+
+    expect(await screen.findByText('Migration writes')).toBeInTheDocument();
+    await screen.findByTestId('access-ready');
+    expect(screen.queryByRole('button', { name: 'Mark as migration write target' })).not.toBeInTheDocument();
+  });
+
+  it('offers an Admin no marking while migrations are off, but still the way back for a target', async () => {
+    renderWith(entry({}), me, permissionsHandler({ isAdmin: true, migrationsEnabled: false }));
+
+    expect(await screen.findByText('Migration writes')).toBeInTheDocument();
+    await screen.findByTestId('access-ready');
+    expect(screen.queryByRole('button', { name: 'Mark as migration write target' })).not.toBeInTheDocument();
+  });
+
+  it('lets an Admin return a write target to a read source while migrations are off', async () => {
+    let sent: unknown = null;
+    renderWith(
+      entry({ allowMigrationWrites: true }),
+      me,
+      permissionsHandler({ isAdmin: true, migrationsEnabled: false }),
+      http.put('*/beacon/api/data-sources/42/migration-writes', async ({ request }) => {
+        sent = await request.json();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to a read source' }));
+    expect(sent).toBeNull();
+    expect(await screen.findByText(/change its login to one that can only read first/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Return to reads' }));
+
+    await waitFor(() => expect(sent).toEqual({ allowMigrationWrites: false }));
+  });
+
+  it('keeps a write target when the Admin cancels returning it to a read source', async () => {
+    let sent: unknown = null;
+    renderWith(
+      entry({ allowMigrationWrites: true }),
+      me,
+      permissionsHandler({ isAdmin: true }),
+      http.put('*/beacon/api/data-sources/42/migration-writes', async ({ request }) => {
+        sent = await request.json();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to a read source' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByText(/change its login to one that can only read first/i)).not.toBeInTheDocument());
+    expect(sent).toBeNull();
   });
 });

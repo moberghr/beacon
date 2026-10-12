@@ -14,7 +14,12 @@ namespace Beacon.Core.Services;
 
 internal partial class MigrationService
 {
-    private DbConnection CreateDatabaseConnection(Data.Entities.DataSource dataSource)
+    /// <summary>
+    /// The writer's connection to <paramref name="dataSource"/>, the one place Beacon decrypts a migration write target's
+    /// credentials: refused, before they are decrypted, for a source that is not a write target, or is host-managed or marked
+    /// read-only. Internal for unit tests.
+    /// </summary>
+    internal DbConnection CreateDatabaseConnection(Data.Entities.DataSource dataSource)
     {
         try
         {
@@ -24,6 +29,13 @@ internal partial class MigrationService
             // Host-managed sources are read-only, policy-gated views of the host database; bulk copy bypasses that.
             if (dataSource.HostManagedKey != null)
                 throw new InvalidOperationException($"Host data source '{dataSource.Name}' cannot be used by migration jobs.");
+
+            // The writer connects only to a migration write target: the last check before its credentials are decrypted.
+            var refusal = MigrationWriteTargets.DestinationRefusal(dataSource);
+            if (refusal != null)
+            {
+                throw new InvalidOperationException(refusal);
+            }
 
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             return DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType.Value, connectionString);

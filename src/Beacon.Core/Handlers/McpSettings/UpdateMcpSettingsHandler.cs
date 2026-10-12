@@ -61,6 +61,9 @@ internal sealed class UpdateMcpSettingsHandler(
             context.McpSettings.Add(entity);
         }
 
+        // A row that did not exist yet held the defaults every consumer read, so those are the values a change replaces.
+        var before = McpSettingsChangeAudit.Snapshot(entity);
+
         entity.AskSystemPrompt = data.AskSystemPrompt;
         entity.GlobalInstruction = data.GlobalInstruction;
         entity.GetContextDescription = data.GetContextDescription;
@@ -81,12 +84,13 @@ internal sealed class UpdateMcpSettingsHandler(
         }
 
         // Turning read-only enforcement or PII detection off is an Admin's; a SecurityAdmin turns them on.
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         if (McpSafetySettings.Loosens(entity.EnforceReadOnly, data.EnforceReadOnly)
             || McpSafetySettings.Loosens(entity.EnablePiiDetection, data.EnablePiiDetection))
         {
             McpSafetySettings.DemandAdmin(
                 await permissionAccessor.GetCurrentAsync(cancellationToken),
-                await actorAccessor.GetCurrentAsync(cancellationToken),
+                actor,
                 logger,
                 null);
         }
@@ -143,8 +147,21 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.MaxConcurrentQueriesPerKey = KeepStoredWhenClamped(entity.MaxConcurrentQueriesPerKey, data.MaxConcurrentQueriesPerKey, ceilings.MaxConcurrentQueriesPerKey);
         entity.AllowExplicitFeedbackContent = data.AllowExplicitFeedbackContent;
 
+        // Every change is kept in the settings history: who, which setting, the value before and after.
+        var changes = McpSettingsChangeAudit.Changes(
+            McpSettingsChangeAudit.GlobalKeyPrefix,
+            before,
+            McpSettingsChangeAudit.Snapshot(entity),
+            actor.LogId,
+            DateTime.UtcNow);
+        foreach (var change in changes)
+        {
+            context.AppSettingHistory.Add(change);
+        }
+
         await context.SaveChangesAsync(cancellationToken);
         settingsProvider.InvalidateCache();
+        McpSettingsChangeAudit.Log(logger, changes, actor.LogId, null);
     }
 
     // A stored value above the ceiling resolves to the ceiling; the same value coming back is the page echoing
@@ -169,7 +186,9 @@ internal sealed class UpdateMcpSettingsHandler(
 
 /// <summary>
 /// Saves the global MCP settings. For an Admin or a SecurityAdmin; only an Admin turns read-only enforcement or PII
-/// detection off (403, <see cref="McpSafetySettings"/>). A value that contradicts a deployment lock is refused (409).
+/// detection off (403, <see cref="McpSafetySettings"/>), and only while the deployment does not lock them on. A value that
+/// contradicts a deployment lock is refused (409), an Admin's included. Every change is recorded in the settings history
+/// (<see cref="McpSettingsChangeAudit"/>).
 /// </summary>
 [ProjectScopeExempt("security configuration, gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateMcpSettingsCommand(McpSettingsData Data) : IRequest;

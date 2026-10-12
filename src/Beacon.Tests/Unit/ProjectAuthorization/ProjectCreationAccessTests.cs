@@ -262,6 +262,7 @@ public class ProjectCreationAccessTests
             Mock.Of<IBeaconUserContext>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
+            TestQueryServices.Runner(),
             NullLogger<DataSourceService>.Instance);
 
         await service.CreateDataSource(

@@ -124,6 +124,28 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     });
   });
 
+  it('warns that a timeout above the default statement limit is refused unless the deployment raised it', async () => {
+    stubQueryEndpoints(12);
+    stubRecipients([OPS_RECIPIENT]);
+
+    renderWithProviders(<AddSubscriptionDialog open onClose={vi.fn()} initialQueryId={12} />);
+
+    await waitForQuery(12);
+    next();
+    await screen.findByText(/Ops/);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
+    next();
+
+    const timeout = await screen.findByLabelText(/timeout \(seconds\)/i);
+    expect(screen.getByText(/empty uses the deployment's limit/i)).toBeInTheDocument();
+    fireEvent.change(timeout, { target: { value: '90' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.change(timeout, { target: { value: '600' } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Beacon:Query:StatementTimeoutSeconds/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/refused unless this deployment raised its limit to at least 600 seconds/);
+  });
+
   it('sends the notification trigger, row threshold, attachment format and anomaly settings', async () => {
     stubQueryEndpoints(12);
     stubRecipients([OPS_RECIPIENT]);

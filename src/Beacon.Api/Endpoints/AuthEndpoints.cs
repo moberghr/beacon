@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Beacon.Api.Authentication;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Api.Endpoints;
@@ -72,6 +73,7 @@ internal static class AuthEndpoints
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
+        var migrationsEnabled = httpContext.RequestServices.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true;
         var canRead = await authorization.HasReadPermissionAsync(cancellationToken);
         var canWrite = await authorization.HasWritePermissionAsync(cancellationToken);
         var accessor = httpContext.RequestServices.GetService<IBeaconPermissionAccessor>();
@@ -85,7 +87,8 @@ internal static class AuthEndpoints
             permissions.IsAdmin,
             BeaconPermissions.All
                 .Where(permissions.Holds)
-                .ToArray());
+                .ToArray(),
+            migrationsEnabled);
     }
 }
 
@@ -116,9 +119,15 @@ internal sealed record ExternalLoginResponse(string LoginUrl, string ReturnUrlPa
 }
 
 /// <summary>
-/// What the caller may do now: read and write (its global role), whether it is an Admin, and the functional permissions
-/// it holds (<see cref="BeaconPermissions"/>; an Admin holds every one).
+/// What the caller may do now: read and write (its global role), whether it is an Admin, the functional permissions it
+/// holds (<see cref="BeaconPermissions"/>; an Admin holds every one), and whether this deployment runs data migrations
+/// (<c>Beacon:Migrations:Enabled</c>; the shell hides the feature when it does not).
 /// </summary>
-internal sealed record CurrentPermissionsResponse(bool CanRead, bool CanWrite, bool IsAdmin, IReadOnlyList<string> Permissions);
+internal sealed record CurrentPermissionsResponse(
+    bool CanRead,
+    bool CanWrite,
+    bool IsAdmin,
+    IReadOnlyList<string> Permissions,
+    bool MigrationsEnabled);
 
 internal sealed record SsoConfigResponse(bool Enabled);

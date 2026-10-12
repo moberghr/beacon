@@ -41,4 +41,13 @@ describe('MigrationOverviewCard', () => {
     await screen.findByTestId('access-ready');
     expect(screen.queryByRole('link', { name: 'Open jobs →' })).not.toBeInTheDocument();
   });
+
+  it('is not shown while the deployment does not run migrations', async () => {
+    mswServer.use(permissionsHandler({ isAdmin: true, migrationsEnabled: false }));
+
+    renderCard();
+
+    await screen.findByTestId('access-ready');
+    expect(screen.queryByText('Data migration')).not.toBeInTheDocument();
+  });
 });

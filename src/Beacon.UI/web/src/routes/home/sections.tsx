@@ -16,11 +16,15 @@ import { useAccess } from '@/auth/useAuth';
 /**
  * Migration overview card — totals, success rate, execution count, errors.
  * Self-contained: owns its own query hook and renders four Mini bars. The totals and the jobs are a
- * MigrationOperator's (an Admin holds it); everyone else gets zeros and no link.
+ * MigrationOperator's (an Admin holds it); everyone else gets zeros and no link. Not shown at all while the
+ * deployment does not run migrations.
  */
 export function MigrationOverviewCard() {
-  const { data, isLoading } = useHomeMigrationSummaryQuery();
-  const opensJobs = useAccess().hasPermission('MigrationOperator');
+  const access = useAccess();
+  const { data, isLoading } = useHomeMigrationSummaryQuery(access.migrationsEnabled);
+  const opensJobs = access.opensMigrations;
+
+  if (!access.migrationsEnabled) return null;
 
   const total = data?.total ?? 0;
   const successful = data?.successful ?? 0;

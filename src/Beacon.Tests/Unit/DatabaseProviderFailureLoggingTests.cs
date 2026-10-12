@@ -78,7 +78,8 @@ public class DatabaseProviderFailureLoggingTests
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new HostDataSourceGuard(new NoHostSources()),
             new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
-            logger);
+            logger,
+            Beacon.Tests.Common.TestQueryServices.QueryOptions);
     }
 
     private static DataSource OrdinarySource()

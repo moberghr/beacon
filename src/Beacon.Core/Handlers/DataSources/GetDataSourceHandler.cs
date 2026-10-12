@@ -2,10 +2,14 @@ using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.Services.Providers;
 
 namespace Beacon.Core.Handlers.DataSources;
 
-internal sealed class GetDataSourceHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
+internal sealed class GetDataSourceHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    IDataSourceProviderFactory providers)
     : IRequestHandler<GetDataSourceQuery, DataSourceEntry?>
 {
     public async Task<DataSourceEntry?> Handle(GetDataSourceQuery request, CancellationToken cancellationToken)
@@ -18,7 +22,7 @@ internal sealed class GetDataSourceHandler(IDbContextFactory<BeaconContext> cont
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var readableStep = DataSourceProjects.ReadableStep(context, readable);
 
-        return await context.DataSources
+        var entry = await context.DataSources
             .Where(x => x.Id == request.Id)
             .Select(x =>
                 new DataSourceEntry
@@ -41,6 +45,7 @@ internal sealed class GetDataSourceHandler(IDbContextFactory<BeaconContext> cont
                         : 0,
                     MetadataLoadingEnabled = x.MetadataLoadingEnabled,
                     OpenWhenUnlinked = x.OpenWhenUnlinked,
+                    AllowMigrationWrites = x.AllowMigrationWrites,
                     Projects = context.ProjectDataSources
                         .Where(y => y.DataSourceId == x.Id)
                         .Where(shownProject)
@@ -56,6 +61,8 @@ internal sealed class GetDataSourceHandler(IDbContextFactory<BeaconContext> cont
                         .Count(otherProject)
                 })
             .FirstOrDefaultAsync(cancellationToken);
+
+        return entry == null ? null : DataSourceProjects.WithReadOnlyEnforcement(entry, providers);
     }
 }
 

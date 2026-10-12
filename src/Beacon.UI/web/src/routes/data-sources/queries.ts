@@ -26,10 +26,20 @@ export interface DataSourceEntry {
   metadataLoadingEnabled: boolean;
   /** Reachable without a project link (sources that existed before project access); new sources are not. */
   openWhenUnlinked: boolean;
+  /**
+   * An Admin marked it as a migration write target: migrations may write to it and Beacon never reads it, so its login may
+   * hold write grants. Every other data source should use a login that can only read.
+   */
+  allowMigrationWrites?: boolean;
   /** The live projects linking the source that the caller may read. */
   projects: DataSourceProjectChip[];
   /** Live projects linking the source that the caller may not read. */
   otherProjectCount: number;
+  /**
+   * True when the engine refuses writes in Beacon's read-only session (PostgreSQL, MySQL); false when Beacon's parser
+   * checks are the only guard, so the source must be connected with a login that can only read; null when it runs no SQL.
+   */
+  databaseReadOnlyEnforced?: boolean | null;
 }
 
 /** A project linking a data source. */
@@ -61,19 +71,27 @@ export function useDataSourceQuery(id: number | null | undefined) {
 }
 
 /**
- * The alphabetically first data source, for forms that pre-select one (new query, new step). A single
- * row request, not a list.
+ * The alphabetically first data source Beacon reads (never a migration write target), for forms that pre-select one (new
+ * query, new step). A single row request, not a list.
  */
 export function useDefaultDataSource(options: { databaseOnly?: boolean } = {}) {
   return useQuery({
     queryKey: [...DATA_SOURCES_KEY, 'default', options],
     queryFn: async () =>
-      (await fetchPagedList<DataSourceEntry>('/beacon/api/data-sources', { ...options, pageSize: 1, sort: 'name' })).items[0] ?? null,
+      (await fetchPagedList<DataSourceEntry>('/beacon/api/data-sources', {
+        ...options,
+        migrationTargets: false,
+        pageSize: 1,
+        sort: 'name',
+      })).items[0] ?? null,
   });
 }
 
-/** How many data sources exist (optionally database ones only) — a one-row request that reads totalCount. */
-export function useDataSourceCount(options: { databaseOnly?: boolean } = {}) {
+/**
+ * How many data sources exist (optionally database ones only, or only migration write targets / only read sources) — a
+ * one-row request that reads totalCount.
+ */
+export function useDataSourceCount(options: { databaseOnly?: boolean; migrationTargets?: boolean } = {}) {
   return useQuery({
     queryKey: [...DATA_SOURCES_KEY, 'count', options],
     queryFn: async () =>
@@ -199,6 +217,8 @@ export interface DatabaseMetadataSnapshot {
   databaseEngineType: string | null;
   tables: TableMetadataDto[];
   refreshedAt: string;
+  /** Names the refresh that read this snapshot left out (quote, bracket, semicolon or control characters). */
+  skippedNameCount?: number;
 }
 
 export function useDataSourceMetadataQuery(dataSourceId: number | null | undefined) {
@@ -233,6 +253,25 @@ export function useDeleteDataSource() {
       mutationFn: (id) => beaconApi().deleteDataSource(id),
       invalidate: [DATA_SOURCES_KEY],
       errorFallback: 'Delete data source failed',
+    }),
+  );
+}
+
+/**
+ * Marks a data source as a migration write target, or returns it to an ordinary read source (Admin only). Marking a
+ * source that queries, subscriptions or data contracts read answers 409 with how many unless `force` confirms it, so
+ * the caller handles errors itself (no toast here).
+ */
+export function useSetMigrationWrites() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ id: number; allowMigrationWrites: boolean; force?: boolean }, void>({
+      qc,
+      mutationFn: ({ id, allowMigrationWrites, force }) =>
+        beaconApi().setDataSourceMigrationWrites(id, force ? { allowMigrationWrites, force } : { allowMigrationWrites }),
+      invalidate: [DATA_SOURCES_KEY],
+      errorFallback: 'Changing the migration write target failed',
+      errorToast: false,
     }),
   );
 }

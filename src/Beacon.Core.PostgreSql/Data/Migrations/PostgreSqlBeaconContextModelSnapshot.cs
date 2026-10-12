@@ -2002,6 +2002,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowMigrationWrites")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_migration_writes");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");

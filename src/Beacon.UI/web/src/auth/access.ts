@@ -19,6 +19,8 @@ export interface CurrentPermissions {
   canWrite: boolean;
   isAdmin: boolean;
   permissions: string[];
+  /** Whether this deployment runs data migrations (`Beacon:Migrations:Enabled`, off by default). */
+  migrationsEnabled?: boolean;
 }
 
 /** What the signed-in user may do now, with the checks the pages ask. */
@@ -35,6 +37,10 @@ export interface Access {
   hasAnyPermission: (...permissions: BeaconPermission[]) => boolean;
   /** Holds functional permissions but no role that reads project data: the pages those permissions open only. */
   isFunctionalOnly: boolean;
+  /** Whether this deployment runs data migrations; while it does not, nothing of the feature is shown. */
+  migrationsEnabled: boolean;
+  /** The migration pages are open: the deployment runs migrations and the user holds MigrationOperator (or is an Admin). */
+  opensMigrations: boolean;
 }
 
 export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoading: boolean): Access {
@@ -42,6 +48,7 @@ export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoadin
   const permissions = data?.permissions ?? [];
   const held = new Set(permissions);
   const hasPermission = (permission: BeaconPermission) => isAdmin || held.has(permission);
+  const migrationsEnabled = data?.migrationsEnabled === true;
 
   return {
     isLoading,
@@ -52,6 +59,8 @@ export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoadin
     hasPermission,
     hasAnyPermission: (...wanted) => wanted.some(hasPermission),
     isFunctionalOnly: data !== undefined && data.canRead === false && !isAdmin && permissions.length > 0,
+    migrationsEnabled,
+    opensMigrations: migrationsEnabled && hasPermission('MigrationOperator'),
   };
 }
 
@@ -61,6 +70,8 @@ export interface PermissionPage {
   permissions: BeaconPermission[];
   /** Only the path itself, not the pages under it (a data source's own page needs read permission). */
   exact?: boolean;
+  /** A page of data migration, which exists only while the deployment runs migrations. */
+  migrations?: boolean;
 }
 
 /** The pages a functional permission opens without a Viewer or Editor role. */
@@ -71,8 +82,8 @@ export const PERMISSION_PAGES: PermissionPage[] = [
   { path: '/mcp-settings', label: 'MCP settings', permissions: ['Auditor', 'SecurityAdmin'] },
   { path: '/admin-settings', label: 'Admin settings', permissions: ['Auditor', 'SecurityAdmin'] },
   { path: '/data-sources', label: 'Data sources', permissions: ['DataSourceAdmin'], exact: true },
-  { path: '/migration-jobs', label: 'Data migration', permissions: ['MigrationOperator'] },
-  { path: '/migration-history', label: 'Migration history', permissions: ['MigrationOperator'] },
+  { path: '/migration-jobs', label: 'Data migration', permissions: ['MigrationOperator'], migrations: true },
+  { path: '/migration-history', label: 'Migration history', permissions: ['MigrationOperator'], migrations: true },
 ];
 
 /** Pages about the user themselves, open to everyone signed in. */
@@ -80,7 +91,9 @@ const PERSONAL_PAGES = ['/settings', '/about'];
 
 /** The pages the user's functional permissions open, in sidebar order. */
 export function pagesOpenedBy(access: Access): PermissionPage[] {
-  return PERMISSION_PAGES.filter(x => access.hasAnyPermission(...x.permissions));
+  return PERMISSION_PAGES
+    .filter(x => access.migrationsEnabled || x.migrations !== true)
+    .filter(x => access.hasAnyPermission(...x.permissions));
 }
 
 /** Whether a user with no project data may open the page at `pathname`. */

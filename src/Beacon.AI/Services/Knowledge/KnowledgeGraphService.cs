@@ -6,6 +6,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -785,6 +786,7 @@ internal sealed class KnowledgeGraphService(
 
         // Get all data source IDs for this project
         var dsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -1212,6 +1214,7 @@ internal sealed class KnowledgeGraphService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var dsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -2439,6 +2442,7 @@ internal sealed class KnowledgeGraphService(
     private static IQueryable<int> ProjectSourceIds(BeaconContext context, int projectId)
     {
         return context.ProjectDataSources
+            .WhereReadable()
             .Where(x => x.ProjectId == projectId)
             .Select(x => x.DataSourceId);
     }

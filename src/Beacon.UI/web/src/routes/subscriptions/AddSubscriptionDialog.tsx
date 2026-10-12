@@ -137,6 +137,12 @@ const nullableNumber = (v: unknown) => (v === '' || v == null ? null : Number(v)
 
 const LABEL_CLS = 'text-2xs font-semibold uppercase tracking-eyebrow text-text-muted';
 
+/**
+ * Every statement of a run also stops at the deployment's statement limit (Beacon:Query:StatementTimeoutSeconds, 120
+ * seconds unless the host changed it); the server refuses a subscription timeout above that limit.
+ */
+const DEFAULT_STATEMENT_TIMEOUT_SECONDS = 120;
+
 interface AddSubscriptionDialogProps {
   open: boolean;
   onClose: () => void;
@@ -169,6 +175,7 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
   const anomalyEnabled = watch('anomalyEnabled');
   const anomalyMethod = watch('anomaly.detectionMethod');
   const anomalySensitivity = watch('anomaly.sensitivity');
+  const timeoutSeconds = watch('timeoutSeconds');
 
   const queryDetail = useQueryDetailQuery(queryId > 0 ? queryId : undefined);
 
@@ -392,15 +399,25 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
               />
             </Field>
 
-            <Field label="Timeout (seconds)" hint="Longest a run may take.">
+            <Field
+              label="Timeout (seconds)"
+              hint={`Longest each statement may take; empty uses the deployment's limit (${DEFAULT_STATEMENT_TIMEOUT_SECONDS} s by default).`}
+            >
               <Input
                 id="sub-timeout"
                 type="number"
-                placeholder="No timeout"
+                placeholder="Deployment limit"
                 {...register('timeoutSeconds', { setValueAs: nullableNumber })}
               />
             </Field>
           </div>
+
+          {timeoutSeconds != null && timeoutSeconds > DEFAULT_STATEMENT_TIMEOUT_SECONDS && (
+            <span role="alert" className="text-xs text-warn">
+              Above {DEFAULT_STATEMENT_TIMEOUT_SECONDS} seconds, the default statement limit (Beacon:Query:StatementTimeoutSeconds):
+              saving is refused unless this deployment raised its limit to at least {timeoutSeconds} seconds.
+            </span>
+          )}
 
           <div className="grid gap-1.5">
             <label className="flex items-center gap-2">
@@ -559,7 +576,7 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
             <dt className={LABEL_CLS}>Timeout</dt>
             <dd>
               {values.timeoutSeconds == null
-                ? <span className="text-text-muted">No timeout</span>
+                ? <span className="text-text-muted">Deployment limit</span>
                 : <span className="mono">{values.timeoutSeconds}s</span>}
             </dd>
             <dt className={LABEL_CLS}>Options</dt>
