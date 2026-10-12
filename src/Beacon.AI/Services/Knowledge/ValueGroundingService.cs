@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -22,6 +23,7 @@ internal sealed class ValueGroundingService(
     IDataSourceProviderFactory providerFactory,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IQueryGuardrailService guardrail,
     ILogger<ValueGroundingService> logger) : IValueGroundingService
 {
     private const int MaxLiterals = 4;
@@ -71,6 +73,10 @@ internal sealed class ValueGroundingService(
             return "";
         }
 
+        // A column whose values are never read to describe it (a PII, secret-like or financial-amount name) is neither
+        // matched against its samples nor probed.
+        var groundable = WithoutExcludedColumns(tables, settings);
+
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -102,7 +108,7 @@ internal sealed class ValueGroundingService(
                 ct.ThrowIfCancellationRequested();
 
                 var hits = new List<string>();
-                var candidates = RankCandidateColumns(tables, literal);
+                var candidates = RankCandidateColumns(groundable, literal);
 
                 foreach (var candidate in candidates)
                 {
@@ -142,7 +148,7 @@ internal sealed class ValueGroundingService(
         catch (Exception ex)
         {
             // Never log the literal or probe SQL (§1.11) — a count is enough to diagnose.
-            logger.LogWarning(ex, "Value grounding probe failed for data source {DataSourceId}; injecting no value-matches block.", dataSourceId);
+            logger.LogWarning("Value grounding probe failed for data source {DataSourceId}; injecting no value-matches block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -393,13 +399,25 @@ internal sealed class ValueGroundingService(
         }
 
         var values = ExtractColumnValues(result.Rows);
-        if (values.Count == 0 || PiiValueScreen.ContainsPiiValue(values, settings.CustomPiiPatterns))
+        if (values.Count == 0 || ColumnValueExclusions.ContainsExcludedValue(values, settings.CustomPiiPatterns))
         {
             return null;
         }
 
         return values
             .Select(x => $"{candidate.Schema}.{candidate.Table}.{candidate.Column.ColumnName} = '{EscapeForRender(x)}'")
+            .ToList();
+    }
+
+    private IReadOnlyList<ValueGroundingTable> WithoutExcludedColumns(IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings)
+    {
+        return tables
+            .Select(x => x with
+            {
+                Columns = x.Columns
+                    .Where(y => !ColumnValueExclusions.IsExcludedColumn(guardrail, y.ColumnName, settings.CustomPiiPatterns))
+                    .ToList()
+            })
             .ToList();
     }
 

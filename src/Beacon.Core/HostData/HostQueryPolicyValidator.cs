@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Validation;
@@ -12,11 +13,30 @@ using SqlParser.Tokens;
 
 namespace Beacon.Core.HostData;
 
-/// <summary>Outcome of a host-policy check. <see cref="MaskedOutputColumns"/> are result keys whose values must be masked.</summary>
+/// <summary>
+/// Outcome of a host-policy check. A result is masked by position against <see cref="OutputColumns"/>;
+/// <see cref="MaskedOutputColumns"/> are the names the policy derived for the masked ones, for name-based PII layers on top.
+/// </summary>
 public sealed record HostPolicyResult(bool Allowed, string? Error, IReadOnlyList<string> MaskedOutputColumns)
 {
     /// <summary>Bind-parameter names (without their <c>@</c>) the statement uses; each must be supplied when it runs.</summary>
     public IReadOnlyList<string> Parameters { get; init; } = [];
+
+    /// <summary>
+    /// The statement's output columns in result order, as the policy derived them. A result read from the host database
+    /// is masked by POSITION against this list; a column's name is only checked against it, and a column whose name
+    /// differs is masked too. Null for an ordinary data source and on a rejection.
+    /// </summary>
+    public IReadOnlyList<HostOutputColumn>? OutputColumns { get; init; }
+
+    /// <summary>The engine the statement was judged for, whose rules decide how a result column's name compares.</summary>
+    public DatabaseEngineType? Engine { get; init; }
+
+    /// <summary>Zero-based positions of the <see cref="OutputColumns"/> whose values are masked.</summary>
+    public IReadOnlyList<int> MaskedOutputPositions => (OutputColumns ?? [])
+        .Select((x, i) => x.Masked ? i : -1)
+        .Where(x => x >= 0)
+        .ToList();
 
     public static HostPolicyResult Reject(string error) => new(false, error, []);
 
@@ -43,6 +63,12 @@ public sealed record HostPolicyResult(bool Allowed, string? Error, IReadOnlyList
 }
 
 /// <summary>
+/// One output column of a statement on a host data source: the name the engine labels it with — null when the engine
+/// makes one up (an unaliased expression) — and whether its values are masked.
+/// </summary>
+public sealed record HostOutputColumn(string? Name, bool Masked);
+
+/// <summary>
 /// Enforces a <see cref="HostExposurePolicy"/> on SQL bound for a host-managed data source — the confidentiality
 /// boundary between an AI agent (which may be prompt-injected) and the host application's database. Fail closed:
 /// the statement must parse, in the POLICY's dialect (never the caller's), as one SELECT, and is then resolved the
@@ -53,17 +79,22 @@ public sealed record HostPolicyResult(bool Allowed, string? Error, IReadOnlyList
 /// against the SELECT's own FROM, outer (correlated) references only when qualified; output aliases are visible only
 /// to the same SELECT's ORDER BY (and PostgreSQL's GROUP BY) and to outer queries through the derived table's / CTE's
 /// column list; a bare relation name is never a column (no whole-row references); unknown columns are rejected;</item>
-/// <item>identifiers compare the way the dialect does (PostgreSQL: unquoted folded to lower case, then exact;
-/// SQL Server: case-insensitive);</item>
+/// <item>identifiers compare the way the dialect does (PostgreSQL: unquoted folded to lower case, shortened to 63 bytes
+/// as the server shortens them, then exact; SQL Server: case-insensitive); on PostgreSQL two different identifiers of a
+/// statement that are the same in their first 63 bytes, or an unquoted identifier with a non-ASCII letter that changes
+/// case, are refused — the server would read them as one, or keep the letter where this check folds it;</item>
 /// <item>functions must be on the dialect's allow-list (<see cref="HostSqlFunctions"/>);</item>
 /// <item>a masked column may appear only as a direct projection (which stays masked, through CTEs, derived tables
-/// and UNION ALL), inside <c>COUNT(col)</c>, or in <c>col IS [NOT] NULL</c> — never in a predicate, join,
-/// grouping, ordering, window, function or subquery value, so its value cannot be probed.</item>
+/// and UNION ALL — the result is masked by output position), inside <c>COUNT(col)</c>, or in <c>col IS [NOT] NULL</c> —
+/// never in a predicate, join, grouping, ordering, window, function or subquery value, so its value cannot be probed.</item>
 /// </list>
 /// </summary>
 internal static class HostQueryPolicyValidator
 {
     private const int MaxDepth = 400;
+
+    // NAMEDATALEN - 1 in a stock PostgreSQL build: the server silently shortens a longer identifier to this many bytes.
+    private const int PostgresMaxIdentifierBytes = 63;
 
     private const string MaskedUseMessage =
         "may only be selected directly (optionally aliased), counted with COUNT(column) or tested with IS NULL / IS NOT NULL on a host data source";
@@ -243,6 +274,10 @@ internal static class HostQueryPolicyValidator
         private readonly List<string> _errors = [];
         private readonly HashSet<string> _parameters = new(parameters, StringComparer.OrdinalIgnoreCase);
 
+        // PostgreSQL only: every identifier of the statement by the name the server gives it (folded, shortened to 63
+        // bytes), with the identifier as written — two different identifiers that share a name would be read as one.
+        private readonly Dictionary<string, string> _serverNames = new(StringComparer.Ordinal);
+
         public HostPolicyResult Run(Query query)
         {
             var ctes = ImmutableDictionary<string, IReadOnlyList<OutputColumn>>.Empty.WithComparers(_comparer);
@@ -267,7 +302,14 @@ internal static class HostQueryPolicyValidator
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            return new HostPolicyResult(true, null, maskedNames) { Parameters = _parameters.Order(StringComparer.Ordinal).ToList() };
+            return new HostPolicyResult(true, null, maskedNames)
+            {
+                Parameters = _parameters.Order(StringComparer.Ordinal).ToList(),
+                OutputColumns = outputs
+                    .Select(x => new HostOutputColumn(x.Name, x.Masked))
+                    .ToList(),
+                Engine = policy.Engine
+            };
         }
 
         private IReadOnlyList<OutputColumn> AnalyzeQuery(
@@ -1348,17 +1390,79 @@ internal static class HostQueryPolicyValidator
             _errors.Add(message);
         }
 
-        // PostgreSQL folds unquoted identifiers to lower case and keeps quoted ones verbatim; T-SQL compares
-        // case-insensitively under the default collation.
+        // PostgreSQL folds unquoted identifiers to lower case, keeps quoted ones verbatim and shortens either to 63 bytes, so
+        // a name is compared as the server holds it; T-SQL compares case-insensitively under the default collation.
         private string Normalize(Ident ident)
         {
-            return _postgres && ident.QuoteStyle == null ? ident.Value.ToLowerInvariant() : ident.Value;
+            if (!_postgres)
+            {
+                return ident.Value;
+            }
+
+            RefuseUnquotedNonAsciiCaseChange(ident);
+
+            var folded = ident.QuoteStyle == null ? ident.Value.ToLowerInvariant() : ident.Value;
+            var serverName = PostgresServerName(folded);
+            if (!_serverNames.TryAdd(serverName, folded) && !string.Equals(_serverNames[serverName], folded, StringComparison.Ordinal))
+            {
+                Error($"Identifiers '{Shown(_serverNames[serverName])}' and '{Shown(folded)}' are the same in their first {PostgresMaxIdentifierBytes} bytes; PostgreSQL shortens longer names to {PostgresMaxIdentifierBytes} bytes, so it would read them as one — use names that differ sooner, or, when the host's own names collide, expose a view or rename the column on the host.");
+            }
+
+            return serverName;
+        }
+
+        // PostgreSQL folds only A–Z of an unquoted identifier (in a UTF-8 database), where Normalize folds every letter: the
+        // server would name the column, table or result key differently than this check does, so such an identifier is
+        // refused.
+        private void RefuseUnquotedNonAsciiCaseChange(Ident ident)
+        {
+            if (ident.QuoteStyle == null && !string.Equals(AsciiLower(ident.Value), ident.Value.ToLowerInvariant(), StringComparison.Ordinal))
+            {
+                Error($"Unquoted identifier '{ident.Value}' has a non-ASCII letter PostgreSQL does not fold to lower case — write it in lower case or quote it.");
+            }
+        }
+
+        private static string Shown(string identifier)
+        {
+            return identifier.Length <= 30 ? identifier : $"{identifier[..30]}…";
+        }
+
+        private static string AsciiLower(string value)
+        {
+            return string.Concat(value.Select(x => char.IsAsciiLetterUpper(x) ? char.ToLowerInvariant(x) : x));
         }
 
         private bool NameEquals(string left, string right)
         {
             return _comparer.Equals(left, right);
         }
+    }
+
+    /// <summary>
+    /// <paramref name="identifier"/> (already folded) as PostgreSQL names it: shortened to 63 bytes of UTF-8 on a character
+    /// boundary when it is longer, as the server's truncate_identifier does.
+    /// </summary>
+    internal static string PostgresServerName(string identifier)
+    {
+        if (Encoding.UTF8.GetByteCount(identifier) <= PostgresMaxIdentifierBytes)
+        {
+            return identifier;
+        }
+
+        var bytes = 0;
+        var length = 0;
+        foreach (var rune in identifier.EnumerateRunes())
+        {
+            if (bytes + rune.Utf8SequenceLength > PostgresMaxIdentifierBytes)
+            {
+                break;
+            }
+
+            bytes += rune.Utf8SequenceLength;
+            length += rune.Utf16SequenceLength;
+        }
+
+        return identifier[..length];
     }
 
     private static PropertyInfo[] AstProperties(Type type)

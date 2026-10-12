@@ -130,7 +130,11 @@ public class BigQueryProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Query execution failed for BigQuery data source {DataSourceId}", dataSource.Id);
+            // The type and status code only (§1.11): a BigQuery error message can quote the query and row values.
+            logger.LogError(
+                "Query execution failed for BigQuery data source {DataSourceId} with {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
             stopwatch.Stop();
             return new ProviderQueryResult
             {

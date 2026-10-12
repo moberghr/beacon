@@ -24,8 +24,9 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// migration adds one nullable timestamp that existing contracts leave empty. The migration-writes migration marks no data
 /// source as a migration write target: it adds one boolean that existing rows leave false. The last one adds the users'
 /// security stamp, one nullable column that existing users leave empty, and the flag that a user must choose a new
-/// password, which existing users leave false; its target model is the snapshot. Each earlier migration's target model
-/// differs from the next one's only by that next migration.
+/// password, which existing users leave false. The last one only changes the default of the global MCP settings' sample
+/// value collection to off, for a row created from then on; it rewrites no stored row, and its target model is the
+/// snapshot. Each earlier migration's target model differs from the next one's only by that next migration.
 /// </summary>
 [TestFixture]
 public class ProjectAuthorizationMigrationTests
@@ -50,8 +51,8 @@ public class ProjectAuthorizationMigrationTests
             .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
             .Skip(1)
             .Should().Equal(
-                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp")],
-                "it sorts after every earlier migration, and only the contract-owner, migration-writes and security-stamp migrations follow it");
+                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff")],
+                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp and sample-default migrations follow it");
     }
 
     [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
@@ -109,7 +110,7 @@ public class ProjectAuthorizationMigrationTests
 
     [TestCase(false, "users", "security_stamp", "character varying(64)", "must_change_password", "boolean")]
     [TestCase(true, "Users", "SecurityStamp", "nvarchar(64)", "MustChangePassword", "bit")]
-    public void TheSecurityStampMigration_AddsANullableStampThatExistingUsersLeaveEmpty_AndAPasswordChangeFlagTheyLeaveFalse_AndItsTargetModelIsTheSnapshot(
+    public void TheSecurityStampMigration_AddsANullableStampThatExistingUsersLeaveEmpty_AndAPasswordChangeFlagTheyLeaveFalse_AndItsTargetModelIsTheOneBeforeTheNext(
         bool sqlServer,
         string table,
         string column,
@@ -131,11 +132,46 @@ public class ProjectAuthorizationMigrationTests
             .Which.Should().BeEquivalentTo(
                 new[] { new { Schema = "beacon", Table = table, Name = flagColumn }, new { Schema = "beacon", Table = table, Name = column } },
                 x => x.ExcludingMissingMembers().WithStrictOrdering());
+        var next = MigrationNamed(context, migrations, "_DefaultSampleValueCollectionOff");
         context.GetService<IMigrationsModelDiffer>()
-            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
+            .GetDifferences(Initialized(migration.TargetModel!, initializer).GetRelationalModel(), Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Should().ContainSingle("the next migration's target model differs from its target model only by that migration")
+            .Which.Should().BeOfType<AlterColumnOperation>();
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        NextAfter(migrations, "_AddUserSecurityStamp").Should().EndWith("_DefaultSampleValueCollectionOff", "it sorts after every earlier migration");
+    }
+
+    // New installations start with sample-value collection off: only the column default changes, nothing rewrites the
+    // stored settings row, so an existing installation keeps the value it has.
+    [TestCase(false, "mcp_settings", "enable_sample_value_collection", "boolean")]
+    [TestCase(true, "McpSettings", "EnableSampleValueCollection", "bit")]
+    public void TheSampleDefaultMigration_OnlyTurnsTheColumnDefaultOff_AndItsTargetModelIsTheSnapshot(bool sqlServer, string table, string column, string type)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+        var previous = MigrationNamed(context, migrations, "_AddUserSecurityStamp");
+
+        var migration = MigrationNamed(context, migrations, "_DefaultSampleValueCollectionOff");
+
+        var up = migration.UpOperations.Should().ContainSingle().Which.Should().BeOfType<AlterColumnOperation>().Subject;
+        up.Should().BeEquivalentTo(new { Schema = "beacon", Table = table, Name = column, ColumnType = type, IsNullable = false, DefaultValue = (object?)false, DefaultValueSql = (string?)null }, x => x.ExcludingMissingMembers());
+        up.OldColumn.Should().BeEquivalentTo(new { ColumnType = type, IsNullable = false, DefaultValue = (object?)true }, x => x.ExcludingMissingMembers());
+        var down = migration.DownOperations.Should().ContainSingle().Which.Should().BeOfType<AlterColumnOperation>().Subject;
+        down.DefaultValue.Should().Be(true);
+        down.OldColumn.DefaultValue.Should().Be(false);
+        var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
+        var differences = context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(Initialized(previous.TargetModel!, initializer).GetRelationalModel(), target);
+        differences.Should().ContainSingle("the migration's target model differs from the one before only by the default")
+            .Which.Should().BeOfType<AlterColumnOperation>()
+            .Which.Should().BeEquivalentTo(new { Table = table, Name = column, DefaultValue = (object?)false }, x => x.ExcludingMissingMembers());
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).Last().Should().EndWith("_AddUserSecurityStamp", "it sorts after every earlier migration");
+        Ordered(migrations).Last().Should().EndWith("_DefaultSampleValueCollectionOff", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]

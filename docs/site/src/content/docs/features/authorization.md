@@ -507,7 +507,7 @@ SQL that Beacon runs against a data source may name objects of that source's own
 
 A data source several live projects link is held to the strictest guardrails among those projects, whichever project's caller queries it: read-only enforcement and PII detection are on when any of them turns them on; value grounding and sample-value collection are off when any of them turns them off; the custom PII patterns of all of them apply (to query results and to the grounding PII screens); and the row limit, statement timeout, maximum result size, maximum plan cost and value-grounding probe budget are the lowest any of them sets. A data source only one project links keeps that project's settings, and archived projects count for nothing. Beacon computes this itself from each project's effective settings (`IMcpSettingsProvider.GetEffectiveSettingsAsync(projectId)`), so a host's own settings provider takes part unchanged.
 
-They apply to the MCP tools that run SQL — `query`, `dry_run`, `ask` (on every data source it routes to, cross-source included) and the saved-query tools — and so to the MCP playground; to grounding (`ask`, `get_query_context`: live value probes, their budget, the stored sample values shown in the context and the PII screen of probed values); and to sampling a data source's values when its metadata is refreshed. Stored sample values pass the PII screen again whenever they are shown — in grounding and in the data source's metadata (`GET /beacon/api/data-sources/{id}/metadata`) — with the patterns that apply then, so values stored before a stricter project linked the source, or before a pattern was added, are withheld: a column whose name matches shows none, a matching value is dropped and the rest stay. As when values are sampled, the built-in patterns apply whatever the PII-detection setting, and no stored values are shown while sample-value collection is off. For an Admin, the project detail lists them per shared data source (`sharedSourceGuardrails`: each setting's effective value and the project that sets it), next to the projects that share the source.
+They apply to the MCP tools that run SQL — `query`, `dry_run`, `ask` (on every data source it routes to, cross-source included) and the saved-query tools — and so to the MCP playground; to grounding (`ask`, `get_query_context`: live value probes, their budget, the stored sample values shown in the context and the PII screen of probed values); and to sampling a data source's values when its metadata is refreshed, which no project asks for: sample values are collected while collection is on in the effective settings of every live project that links the source (each project's override, else the global value), the global value deciding alone only for a source no live project links. Stored sample values pass the PII screen again whenever they are shown — in grounding and, to an Admin, in the data source's metadata (`GET /beacon/api/data-sources/{id}/metadata`) — with the patterns that apply then, so values stored before a stricter project linked the source, or before a pattern was added, are withheld: a column whose name matches shows none, a matching value is dropped and the rest stay. As when values are sampled, the built-in patterns apply whatever the PII-detection setting, and no stored values are shown while sample-value collection is off. For an Admin, the project detail lists them per shared data source (`sharedSourceGuardrails`: each setting's effective value and the project that sets it), next to the projects that share the source.
 
 ### Who the caller is
 
@@ -642,8 +642,13 @@ every statement read-only whatever the settings it is handed, including the `ask
 in-memory join of a cross-source query. Only after the host turns a lock off do the role rules above apply (an Admin
 turns it off; a SecurityAdmin only on), and the host logs a warning at startup for each lock that is off.
 
-A stored value a lock overrides (read-only or PII detection switched off globally or for a project before the lock, or
-content retention on under `ForceNoContentRetention`) is kept but has no effect. After startup the host logs one warning
+`Beacon:Mcp:ForbidRowDataToLlm` (off by default) is a lock of the same kind: it pins sample-value collection, value
+grounding and the eval judge off, so no value read from a data source reaches the LLM provider (see
+[What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider)).
+
+A stored value a lock overrides (read-only or PII detection switched off globally or for a project before the lock,
+content retention on under `ForceNoContentRetention`, or sample values, value grounding or the eval judge on under
+`ForbidRowDataToLlm`) is kept but has no effect. After startup the host logs one warning
 that lists those rows by id — the global settings row and the project ids — and the locks concerned; and a statement
 refused only because the lock turned read-only enforcement on over such a stored value says so, naming
 `Beacon:Mcp:ForceReadOnly`.
@@ -933,6 +938,77 @@ This version splits the Admin role into [functional permissions](#functional-per
 - **Stricter.** An encryption key that decodes to printable text or fewer than 16 distinct byte values is refused. Break-glass names match the stored user name exactly. While local login is off, every password sign-in, whatever provider authenticated it, needs a stored internal break-glass user. Realtime connections close at the session's next check. `IBeaconAuthenticationProvider.ValidateSessionAsync` is marked obsolete (Beacon never called it).
 - **More public API.** New: `BeaconDataProtectionExtensions.AddBeaconDataProtection` (`Beacon.Api.Authentication`), `LocalLoginOptions` and `UserManagementOptions.LocalLogin`, `OidcAuthenticationOptions.RequireMfa` and `AcceptedAcrValues`, `AuthenticationResult.PasswordChangeRequired` and `PasswordChangeNeeded`, `IUserManagementService.CompleteRequiredPasswordChangeAsync`, `BeaconUser.MustChangePassword`, `CreateInternalUserRequest.AssignedByUserId` and `CreateExternalUserRequest.AssignedByUserId`, `ProjectAccessEvents.BreakGlassSignIn` (7119) and `ProjectAccessEvents.PasswordSignInRefused` (7120), `BeaconClaims.SessionStamp`, `StoredValueReEncryptionResult`, `ServiceConfiguration.PreviousEncryptionKeysKey` and `HasPreviousEncryptionKeys`, `McpCallerSubjectHasher.CallerHashKeyKey` and `KeySource`, and the `BeaconDataProtectionExtensions` constants `ApplicationNameKey`, `DevelopmentApplicationName` and `AllowUnencryptedKeysKey`. `GET /beacon/api/auth/sso` returns `localLoginEnabled` and `/auth/me` `signOutEverywhereEnabled`.
 - **Changed signatures.** `IUserManagementService.CompleteRequiredPasswordChangeAsync` is a default interface member: an existing implementation recompiles unchanged and, without an override, answers the generic sign-in failure (a user it flags cannot complete the change through the login form). `HybridAuthenticationProvider`'s constructor gains an optional third parameter, `BeaconConfiguration? configuration` (the old two-parameter constructor is gone: code compiled against it recompiles unchanged); without the configuration the provider does not fall back to its external JWT login, since it cannot tell whether local login is on. `JwtExternalApiAuthenticationProvider` gains a constructor that takes `BeaconConfiguration` (while local login is off it refuses every login); the existing one is kept. `LoginRequest` (a positional record) gains an optional last parameter, `NewPassword`: code that constructs or deconstructs it recompiles (binary-incompatible). `LoginResponse` gains `PasswordChangeRequired`, and the login operation now declares `LoginResponse` for `200`, `400` and `401` in the OpenAPI document (the typed client's `login()` returns it, and throws with it on `400`/`401`); the operation is documented only where it is mapped (local login on, or a break-glass account listed).
+
+## Upgrading: data minimisation
+
+- **Host data sources are masked by position.** The columns a host policy masks are masked by their position in the
+  result, before the rows are keyed by column name, on every path that reads a host data source (a caller's alias, a
+  long or non-ASCII alias, or a repeated name no longer decides what is masked). A result column the database names
+  differently than the policy derived is masked too, and the MCP `query` tool says how many; a result whose columns do
+  not line up with the columns the policy checked is discarded and the request fails. On PostgreSQL host data sources
+  two identifiers PostgreSQL would shorten to the same 63-byte name, and unquoted identifiers with a non-ASCII letter
+  that changes case, are refused. See [Host DbContext](/features/host-dbcontext/).
+- **Failure logs name the failure, not its message.** Connectors, previews, the in-memory join, migrations,
+  grounding, the ask and cross-source pipelines, evals and the data-contract and AI-actor jobs log a failed query by
+  exception type, error code (SQLSTATE, SQL Server error number, SQLite result code, HTTP status, Google, AWS and
+  Databricks error codes), the types of the exceptions it wraps and the method that threw it —
+  `PostgresException (error code 22P02, inner SocketException, at NpgsqlConnector.ReadMessage)` — where they logged
+  separate type and code fields, or the message, before; the API connector logs the data source of a call, not its
+  path. A refusal Beacon raises itself (the execution gate) keeps its message.
+- **Database errors are redacted by class** before they reach an LLM prompt, a learning signal or the stored ad-hoc
+  query history (always), and the caller and the audit row (while PII detection is on): an error that can quote row
+  values becomes `Database error <code> (<class>): <generic description>`. See
+  [MCP Server → Database errors](/features/mcp-server/#database-errors).
+- **Sample values and value grounding are off for a new installation**, and a project turns them on for itself:
+  a metadata refresh collects while every live project that links the data source has collection on (its override,
+  else the global value), so a project that turns it on collects even while the global value is off. Stored sample
+  values are returned only to an Admin by the REST metadata endpoint; `get_query_context` returns them to the project's
+  callers while sampling is on. The refresh reads only the columns it may sample; secret-like (now also `hmac` and key
+  material named with `hmac`, `aes`, `rsa`, `pgp`, `gpg` or `ssh`), PII (banking identifiers included), person-name,
+  Croatian personal-data and financial-amount columns are never sampled, probed or listed, while surrogate keys such as
+  `ProductKey` are sampled again; archiving a data source or marking it as a migration write target clears its samples,
+  archived tables included. See [Sample values](/features/data-sources/#sample-values) and
+  [What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
+- **Banking identifiers are PII.** Column names `iban`, `oib` and `jmbg` (as a whole name segment: `customer_iban`,
+  `ClientOib`, `IBANNumber` — not `Libanon`) and account numbers (`account_no`, `account_number`, `acct_num`) match the
+  built-in PII pattern, so query results mask them on every path while PII detection is on; values with valid IBAN, OIB
+  or JMBG check digits count as PII-shaped, and data-quality custom SQL masks a text value that looks like PII whatever
+  its column is called.
+- **Row data to the LLM provider is logged and can be locked out.** Every prompt carrying row data is logged (event
+  `7123`, as it is handed to the provider; a provider failure adds a Warning), and `Beacon:Mcp:ForbidRowDataToLlm` pins
+  sample values, value grounding and the eval judge off and keeps value-listing documentation sections out of prompts;
+  under it, an instruction on such a section answers `400`. New startup records: a Warning naming the projects whose
+  stored documentation still has value-listing sections (under the lock), and an Information record of the row-data
+  settings in effect while no global MCP settings row is stored.
+- **Settings.** A save under a deployment lock keeps the stored value of every field the lock pins — now for a project's
+  overrides too (before, a project save cleared them), so lifting the lock restores the project's configuration. A
+  `PUT /beacon/api/mcp/settings` body that omits `enableSampleValueCollection` or `enableValueGrounding` stores `false`
+  for it (the request shape is unchanged; the meaning of an omitted field is). The MCP settings page shows both switches,
+  globally and per project, and sends back every setting it loaded.
+- **Migration.** `DefaultSampleValueCollectionOff` (both providers) changes only the default of
+  `mcp_settings.enable_sample_value_collection` to `false`; no row is rewritten.
+- **Public API.** Removed (breaking for implementers and callers): `IHostDataSourceGuard.Mask` — host results are masked
+  by position inside Beacon. New member on an interface (breaking for implementers):
+  `IProjectDocumentationService.ExportLatestToMarkdownAsync(int projectId, IReadOnlyCollection<ProjectDocSectionType> leaveOut, CancellationToken)`;
+  `ILlmRowDataEgress` gains `RecordReturnedToMcpClientAsync`. New: `HostPolicyResult.OutputColumns`,
+  `HostPolicyResult.Engine` and `HostPolicyResult.MaskedOutputPositions`, `HostOutputColumn`, `HostResultMetadata`
+  (`RenamedMaskedColumns`, a `ProviderQueryResult.Metadata` key);
+  `Beacon.Core.Helpers.FailureCodes` (`ErrorCodeOf`, `Describe`, `InnerTypesOf`, `ThrowingMethodOf`);
+  `Beacon.Core.Exceptions.DataSourceServiceException` (`ErrorCode`); `McpDeploymentOptions.ForbidRowDataToLlm`;
+  `SecretLikeColumnNames.IsSecretLikeForValues`; in `Beacon.Core.Services.Security`, `CredentialValueScreen`,
+  `BankingIdentifiers`, `ColumnValueExclusions` and `DatabaseErrorRedactor` (`Placeholder`, `UnscreenedMessage`,
+  `Redact`, `ForCaller`, `ClassOnly`, `KnownNames`); `Beacon.Core.Data.Enums.ProjectDocSectionTypes` (`ListingValues`,
+  `ListsValues`); `BeaconTelemetry.ErrorRedactionFallbacks` (`beacon.error_redaction.fallbacks`);
+  `ProjectAccessEvents.RowDataSentToLlm` (7123); in `Beacon.AI.Services.LlmProviders`, `ILlmRowDataEgress` (registered
+  with `TryAdd`), `LlmRowDataScope` (with an init-only `CallerId`) and `LlmRowDataCategories` (`sample-values`,
+  `value-matches`, `column-values`, `result-rows`, `database-errors`, `stored-documentation`). New init-only properties:
+  `SmartSchemaContext.RowDataCategories`, `AskSqlPipelineOptions.CallerId`, `FailureCluster.ProjectId`,
+  `DocChunkHit.SectionType`. Changed defaults: `McpSettingsData` and the `McpSettings` entity default
+  `EnableSampleValueCollection` and `EnableValueGrounding` to `false`. Changed behaviour:
+  `ISharedSourceSettings.GetDataSourceSettingsAsync` takes sample-value collection from the linking projects' effective
+  settings; `IQueryGuardrailService.IsPiiColumn` and `PiiValueScreen.ContainsPiiValue` match more. The REST and OpenAPI
+  shapes are unchanged; `GET /beacon/api/data-sources/{id}/metadata` and the refresh return `sampleValues` to an Admin
+  only.
 
 ## Migration from Previous Versions
 

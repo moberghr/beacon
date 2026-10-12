@@ -590,9 +590,6 @@ public class ReadOnlyExecutionRoutingTests
         hostGuard
             .Setup(x => x.Check(It.IsAny<DataSource>(), It.IsAny<string>()))
             .Returns(new Beacon.Core.HostData.HostPolicyResult(true, null, []));
-        hostGuard
-            .Setup(x => x.Mask(It.IsAny<List<Dictionary<string, object?>>>(), It.IsAny<IReadOnlyList<string>>()))
-            .Returns<List<Dictionary<string, object?>>, IReadOnlyList<string>>((x, _) => x);
 
         return new DatabaseProvider(
             resolver.Object,

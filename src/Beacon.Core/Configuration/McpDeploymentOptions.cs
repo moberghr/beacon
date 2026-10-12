@@ -6,8 +6,8 @@ namespace Beacon.Core.Configuration;
 /// Deployment-level MCP guarantees bound from <c>Beacon:Mcp</c>. Locks pin a setting for the global row and
 /// every project regardless of what an admin stores — an Admin included (the UI disables the switch, the API answers
 /// 409); only the host's configuration lifts one. Ceilings bound the numeric settings — a stored value above a ceiling
-/// resolves to the ceiling. An absent section means the read-only and PII-detection locks are on, content retention is
-/// not locked, and there are no ceilings beyond the built-in SQL / question length caps.
+/// resolves to the ceiling. An absent section means the read-only and PII-detection locks are on, content retention and
+/// row data to the LLM are not locked, and there are no ceilings beyond the built-in SQL / question length caps.
 /// </summary>
 public sealed class McpDeploymentOptions
 {
@@ -27,6 +27,14 @@ public sealed class McpDeploymentOptions
 
     /// <summary>Pins <c>RetainQueryContent = false</c> everywhere.</summary>
     public bool ForceNoContentRetention { get; set; }
+
+    /// <summary>
+    /// Pins <c>EnableSampleValueCollection</c>, <c>EnableValueGrounding</c> and <c>EnableEvalJudge</c> to <c>false</c>
+    /// everywhere, so no row value read from a data source goes to the LLM provider: no sample values are collected or
+    /// shown, no value is probed for grounding, documentation discovers no column values, and no eval judge sees result
+    /// rows. Off by default.
+    /// </summary>
+    public bool ForbidRowDataToLlm { get; set; }
 
     public McpCeilingOptions Ceilings { get; set; } = new();
 

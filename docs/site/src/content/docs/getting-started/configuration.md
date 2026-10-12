@@ -1070,6 +1070,7 @@ Most MCP behaviour is configured at runtime on the **MCP Settings** page, per pr
       "ForceReadOnly": true,
       "ForcePiiDetection": true,
       "ForceNoContentRetention": false,
+      "ForbidRowDataToLlm": false,
       "Ceilings": {
         "MaxRowLimit": 1000,
         "StatementTimeoutSeconds": 60,
@@ -1089,13 +1090,16 @@ Most MCP behaviour is configured at runtime on the **MCP Settings** page, per pr
 | `ForceReadOnly` | **Default `true`.** Pins read-only enforcement on, globally and for every project, and makes the SQL execution gate judge every statement read-only whatever the caller's settings say (the `ask`, `query` and `dry_run` tools and the in-memory join included). Attempts to disable it are refused with HTTP 409 — an Admin's too. Set it to `false` only to let an Admin turn read-only enforcement off at runtime; the host then logs a warning at startup. |
 | `ForcePiiDetection` | **Default `true`.** Pins PII detection on, globally and for every project; attempts to disable it are refused with HTTP 409, an Admin's too. Set it to `false` only to let an Admin turn PII detection off at runtime; the host then logs a warning at startup. |
 | `ForceNoContentRetention` | Pins the content lock on for every project — questions, SQL, and free-text errors are never persisted. See [Content retention](/features/mcp-server/#content-retention). |
+| `ForbidRowDataToLlm` | **Default `false`.** Pins sample-value collection, value grounding and the eval judge off, globally and for every project, so no value read from a data source goes to the LLM provider: no sample is collected or shown (documentation discovers no column values either), nothing is probed for value grounding, the eval judge sees no rows, lesson extraction sends only a database error's class and code, and the business-domain, data-model and glossary documentation sections (which can list discovered values) stay out of every prompt — an instruction on such a section answers HTTP 400. Attempts to turn one of the three settings on are refused with HTTP 409, an Admin's too; stored values are kept (a save keeps them, globally and per project) and listed in a startup warning, and a second startup warning names the projects whose stored documentation still has value-listing sections (regenerate it). See [What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider). |
 | `Ceilings.*` | Clamp a numeric setting **downward only**. A ceiling can lower what an administrator configured; it can never raise it. |
 | `Ceilings.MaxSqlChars` | Maximum length of SQL accepted by the MCP query tools. Default `100000`. |
 | `Ceilings.MaxQuestionChars` | Maximum length of a natural-language question accepted by `ask`. Default `4000`. |
 
 `MaxSqlChars` and `MaxQuestionChars` **always apply**: they use their defaults even when the `Ceilings` section is absent, and you can only tune them, not switch them off.
 
-The whole section is optional — omit it and read-only enforcement and PII detection are locked on, content retention is not locked, and there are no deployment-set ceilings; the SQL and question length caps always apply. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
+The whole section is optional — omit it and read-only enforcement and PII detection are locked on, content retention and row data to the LLM are not locked, and there are no deployment-set ceilings; the SQL and question length caps always apply. Every ceiling you do specify must be greater than zero, and the host fails to start otherwise, so a typo surfaces at boot rather than silently disabling a limit.
+
+Sample-value collection and value grounding are off by default (no lock needed); a project turns them on for itself on the MCP Settings page. While no global MCP settings row is stored, the host logs at startup (Information) which of the settings that send row data to the LLM provider are in effect.
 
 Settings resolve as **lock → project override → global value → built-in default**, with ceilings applied last. On the global settings page a locked switch is shown disabled with a note; in project scope locked fields are hidden and named in a banner; clamped fields are flagged. `GET /beacon/api/mcp/settings/locks` lists the locked settings.
 

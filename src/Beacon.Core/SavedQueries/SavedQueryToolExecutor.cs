@@ -144,7 +144,14 @@ internal sealed class SavedQueryToolExecutor(
             var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, parameters, timeoutCts.Token);
             if (!result.Success)
             {
-                return SavedQueryToolExecution.Failed($"Step {step.StepOrder} failed: {result.ErrorMessage ?? "unknown error"}", tablesUsed, firstDataSourceId);
+                // The database's error can quote row values: redacted while PII detection is on (a host data source's error is
+                // already Beacon's generic text).
+                var error = DatabaseErrorRedactor.ForCaller(
+                    result.ErrorMessage ?? "unknown error",
+                    report.FinalSql,
+                    settings.EnablePiiDetection && dataSource.HostManagedKey == null);
+
+                return SavedQueryToolExecution.Failed($"Step {step.StepOrder} failed: {error}", tablesUsed, firstDataSourceId);
             }
 
             var rows = result.Rows ?? [];

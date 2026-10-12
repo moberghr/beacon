@@ -8,6 +8,7 @@ using Beacon.AI.Services.Mcp;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -41,6 +42,7 @@ internal sealed class McpEvalService(
     IConfiguredDatabaseResolver configuredDatabases,
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
+    ILlmRowDataEgress rowDataEgress,
     ILogger<McpEvalService> logger) : IMcpEvalService
 {
     // Hard cap on rows handed to the (opt-in, PII-redacted) judge so a large result set never balloons
@@ -48,6 +50,16 @@ internal sealed class McpEvalService(
     private const int MaxJudgeRows = 20;
 
     internal const string NoProjectNote = "An eval run needs a project: runs without one are refused.";
+
+    /// <summary>Who the egress log names for the replay verification of a learned pattern (a background job).</summary>
+    internal const string ReplayCallerId = "pattern-replay";
+
+    // An eval run is a background job: the egress log names the user who started it, or the job itself, never whom the
+    // job happens to run as.
+    internal static string EvalCallerId(int? triggeredByUserId)
+    {
+        return triggeredByUserId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "eval-run";
+    }
 
     public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
     {
@@ -134,7 +146,7 @@ internal sealed class McpEvalService(
             var errored = 0;
             foreach (var evalCase in cases)
             {
-                var result = await EvaluateCaseAsync(runId, evalCase, dataSourcesById, settings, ct);
+                var result = await EvaluateCaseAsync(runId, EvalCallerId(run.TriggeredByUserId), evalCase, dataSourcesById, settings, ct);
                 if (result.Passed)
                 {
                     passed++;
@@ -177,7 +189,7 @@ internal sealed class McpEvalService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Eval run {RunId} failed", runId);
+            logger.LogError("Eval run {RunId} failed ({Failure})", runId, FailureCodes.Describe(ex));
             run.Status = "Failed";
             run.Notes = ex.Message;
             await context.SaveChangesAsync(CancellationToken.None);
@@ -187,6 +199,7 @@ internal sealed class McpEvalService(
 
     private async Task<McpEvalResult> EvaluateCaseAsync(
         int runId,
+        string callerId,
         EvalCaseData evalCase,
         IReadOnlyDictionary<int, DataSource> dataSourcesById,
         McpSettingsData settings,
@@ -207,7 +220,7 @@ internal sealed class McpEvalService(
             // (null → 0.1) so headline eval behaviour is unchanged; only replay forces temperature 0.
             var outcome = await GenerateExecuteCompareAsync(
                 dataSource, evalCase.ProjectId, evalCase.Question, evalCase.GoldSql, evalCase.GoldResultFingerprint,
-                null, settings, generationTemperature: null, ct);
+                null, settings, generationTemperature: null, callerId, ct);
 
             var failureTag = DetermineFailureTag(
                 outcome.Passed, outcome.GeneratedTables, outcome.RelevantTables, outcome.GoldExec, outcome.GeneratedExec);
@@ -222,7 +235,8 @@ internal sealed class McpEvalService(
             if (JudgeAllowed(settings) && !outcome.Passed && outcome.GoldExec.Success && outcome.GeneratedExec.Success)
             {
                 judgeUsed = true;
-                judgeVerdict = await RunJudgeAsync(evalCase.Question, outcome.GoldExec, outcome.GeneratedExec, settings, ct);
+                var judgeScope = new LlmRowDataScope(evalCase.ProjectId, [dataSource.Id], [LlmRowDataCategories.ResultRows]) { CallerId = callerId };
+                judgeVerdict = await RunJudgeAsync(evalCase.Question, outcome.GoldExec, outcome.GeneratedExec, settings, judgeScope, ct);
             }
 
             sw.Stop();
@@ -246,7 +260,7 @@ internal sealed class McpEvalService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Eval case {CaseId} in run {RunId} threw during evaluation", evalCase.Id, runId);
+            logger.LogWarning("Eval case {CaseId} in run {RunId} threw during evaluation ({Failure})", evalCase.Id, runId, FailureCodes.Describe(ex));
             // A thrown exception means the harness could not evaluate this case (infra/generation), NOT that
             // the model produced wrong SQL — tag it so it is excluded from the accuracy denominator.
             return FailedResult(runId, evalCase.Id, null, McpEvalFailureTag.HarnessError, ex.Message, sw);
@@ -276,7 +290,7 @@ internal sealed class McpEvalService(
         // noise (both the baseline and candidate replay generations run through here).
         var outcome = await GenerateExecuteCompareAsync(
             dataSource, projectId, question, goldSql, goldResultFingerprint, extraContext, settings,
-            generationTemperature: 0.0m, ct);
+            generationTemperature: 0.0m, ReplayCallerId, ct);
 
         // Measurable ONLY when both sides actually executed — a guardrail/AST rejection or a provider/
         // connection error makes the pass/fail meaningless, so the replay gate must exclude it rather than
@@ -302,6 +316,7 @@ internal sealed class McpEvalService(
         string? extraContext,
         McpSettingsData settings,
         decimal? generationTemperature,
+        string callerId,
         CancellationToken ct)
     {
         // An eval run executes the generated SQL against the source, so live probes may run.
@@ -320,7 +335,10 @@ internal sealed class McpEvalService(
             new AskSqlPipelineOptions(
                 ExtraContext: extraContext,
                 GenerationTemperature: generationTemperature,
-                AllowSelfConsistency: generationTemperature is null),
+                AllowSelfConsistency: generationTemperature is null)
+            {
+                CallerId = callerId
+            },
             ct);
 
         var goldExec = await evalExecutor.ExecuteReadOnlyAsync(dataSource.Id, goldSql, ct);
@@ -352,6 +370,7 @@ internal sealed class McpEvalService(
         ProviderQueryResult goldExec,
         ProviderQueryResult generatedExec,
         McpSettingsData settings,
+        LlmRowDataScope scope,
         CancellationToken ct)
     {
         var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
@@ -380,7 +399,8 @@ internal sealed class McpEvalService(
             MaxTokens = 256
         };
 
-        var response = await llmProvider.CompleteAsync(request, ct);
+        // The prompt carries (redacted) result rows: the request is logged as such.
+        var response = await rowDataEgress.Track(llmProvider, scope).CompleteAsync(request, ct);
         return response.Content;
     }
 

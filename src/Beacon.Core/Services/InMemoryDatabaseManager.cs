@@ -232,7 +232,11 @@ public class InMemoryDatabaseManager : IDisposable
         catch (Exception ex)
         {
             stopwatch.Stop();
-            _logger.LogError(ex, "Error executing SQLite query");
+
+            // The type and error code only (§1.11): SQLite's message can quote the join query or the rows it read.
+            _logger.LogError(
+                "Error executing SQLite query: {Failure}",
+                Helpers.FailureCodes.Describe(ex));
             throw;
         }
     }

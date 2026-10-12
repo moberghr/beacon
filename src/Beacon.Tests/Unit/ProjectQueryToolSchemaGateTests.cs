@@ -372,6 +372,50 @@ public class ProjectQueryToolSchemaGateTests
         _auditLogs.Should().HaveCount(2).And.OnlyContain(x => x.UserId == CallerUserId && x.ErrorMessage != null);
     }
 
+    // A database error that quotes a row value: the stored signal always holds it redacted; the caller and the audit row get
+    // it redacted while PII detection is on, as it was otherwise.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AFailureQuotingAValue_IsRedactedOnTheSignal_AndForTheCallerAndAuditWhileDetectionIsOn(bool piiDetectionOn)
+    {
+        const string error = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+        const string redacted = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = error });
+        var settings = SettingsProviderMock.Create(new McpSettingsData { EnablePiiDetection = piiDetectionOn });
+
+        var result = await CreateTool(settings).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        var expected = piiDetectionOn ? redacted : error;
+        (result.IsError ?? false).Should().BeTrue();
+        string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text)).Should().Be($"Query execution failed: {expected}");
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(expected);
+        _signals.Should().ContainSingle().Which.ExecutionError.Should().Be(redacted);
+    }
+
+    // A host data source's result whose columns the database named otherwise than the policy derived says how many were
+    // masked for it.
+    [Test]
+    public async Task AResultWithColumnsMaskedForTheirName_SaysHowMany()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["id"] = "***" }],
+                Metadata = new Dictionary<string, object?> { [Beacon.Core.HostData.HostResultMetadata.RenamedMaskedColumns] = 1 }
+            });
+
+        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text))
+            .Should().Contain("*1 column(s) of this host data source result were masked because the database named them differently than the host policy checked them.*");
+    }
+
     private void WithCatalog(Dictionary<string, HashSet<string>> catalog)
     {
         _knowledgeGraph

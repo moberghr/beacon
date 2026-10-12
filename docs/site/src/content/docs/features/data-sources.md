@@ -116,7 +116,7 @@ Deleting a data source will NOT delete associated queries, but queries will be u
 2. Confirm deletion in the dialog
 3. Data source is archived (soft delete)
 
-Archiving evicts the data source's cached metadata and relationship graph, and its metadata is no longer served: reading or refreshing an archived data source's metadata answers `404`. Changing a data source's connection (`IDataSourceService.UpdateDataSource`) evicts both caches as well.
+Archiving evicts the data source's cached metadata and relationship graph, and its metadata is no longer served: reading or refreshing an archived data source's metadata answers `404`. Archiving also clears the column [sample values](#sample-values) stored for the data source (archived tables of it included), so no copy of its rows outlives it; data sources archived before this was in place keep theirs until restored and refreshed. Changing a data source's connection (`IDataSourceService.UpdateDataSource`) evicts both caches as well.
 
 ## Metadata Loading Options
 
@@ -170,6 +170,54 @@ The data source details page shows the metadata loading status in the Overview s
   }
 }
 ```
+
+### Sample values
+
+A metadata refresh can store a few real values per column (up to five, each cut to 50 characters, or the full set of a
+short column's values when it has at most 12) to ground text-to-SQL: they are shown to the model as examples. They are
+row data, so:
+
+- **Off by default, and each project's choice.** Sample-value collection (`EnableSampleValueCollection`) is off for a new
+  installation. A refresh collects while it is on in the effective settings of every live project that links the data
+  source — the project's own override, else the global value — so turning it on for a project is enough even while the
+  global value is off, and one linking project that has it off keeps the source unsampled. The global value decides
+  alone only for a data source no live project links. The deployment lock `Beacon:Mcp:ForbidRowDataToLlm` turns it off
+  everywhere (see [MCP Server → What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider)).
+- **Columns never read.** The refresh reads only the columns whose values may describe them — its sampling statement
+  names those columns, and a table with none is not queried. A column is left out when its name is PII (the built-in
+  pattern, including the banking identifiers `iban`, `oib` and `jmbg` as a whole name segment — `customer_iban`,
+  `ClientOib`, `IBANNumber`, but not `Libanon` or `Kibana` — and account numbers such as `account_number`, or a custom
+  PII pattern); names a person's name (`first_name`, `LastName`, `surname`, `customer_name`, Croatian `ime`, `prezime`)
+  or Croatian personal data (`adresa`, `telefon`, `mobitel`, `placa`, `stanje`, `broj_racuna`); looks like it holds a
+  secret (`password`, `secret`, `token`, `api_key`, `private_key`, `credential`, `cookie`, `passcode`, `passphrase`, a
+  connection string, `dsn`, `webhook_url`, and the name segments `pwd`, `session`, `signature`, `pin`, `otp`, `salt`,
+  `hash`, `bearer`, `jwt` and `hmac` — so `session_id` and `request_hmac` are left out while `pinned` or `hashtag` are
+  not); has a `key` segment beside `api`, `access`, `secret`, `private`, `signing`, `encryption`, `master`, `license`,
+  `hmac`, `aes`, `rsa`, `pgp`, `gpg` or `ssh`, or is named just `key` (`hmac_key`, `EncryptionKey` and `ssh_key` are left
+  out, while a surrogate key such as `ProductKey` or `ClientKey` is sampled); names a personal financial amount
+  (`salary`, `wage`, `balance`, `income` — not a `balance_type` or an `income_category`); or holds binary data.
+  Financial amounts stay unmasked in query results.
+- **Values that drop a column's samples.** Every value read is screened whole, before it is cut to 50 characters. When
+  one looks like PII (an e-mail address, a card or phone number, an IBAN, OIB or JMBG with valid check digits, or a
+  custom pattern) or like a credential (a PEM block, a JSON Web Token, a key with a known prefix such as `sk_`, `AKIA`,
+  `ghp_`, `xox…-`, `ATATT`, `AIza` or `glpat-`, a bcrypt, argon2 or crypt hash, a run of more than 32 hex digits, a long
+  mixed-case base64-like run that is not a slug, SKU or path, a credential written into text such as `password=…`, or
+  a URL with a user name and password), the column keeps none. Each refresh logs, as counts only, how many columns it
+  left out by name, for a PII-shaped value and for a credential-shaped value.
+- **A refresh clears what it no longer samples.** The refresh replaces the stored catalog, so a column that is now left
+  out loses the samples it held. Until then, samples stored earlier are screened again whenever they are read — with
+  today's name and value rules and the custom patterns of every project that links the source — and withheld if they
+  fail.
+- **Who sees them.** The REST metadata response (`GET /beacon/api/data-sources/{id}/metadata`, and the refresh's
+  response) carries sample values to an Admin only, screened under the settings that apply now; every other caller gets
+  the columns without them (the UI does not show them). That Admin-only rule is the REST endpoint's. Grounding reads the
+  stored samples itself, under the settings of the asking project and the projects it shares the source with: `ask`
+  sends them to the LLM provider, and `get_query_context` returns them to an MCP caller with Read in the project — in
+  both cases only while sample-value collection is on for that project and every project sharing the source, and never
+  under `Beacon:Mcp:ForbidRowDataToLlm`. Both are recorded in the row-data egress log (event `7123`).
+- **Archiving or a migration write target clears them.** Archiving a data source (see
+  [Delete Data Source](#delete-data-source)) or marking it as a migration write target clears the samples stored for
+  it, the columns of its archived tables included.
 
 ### Example: Large Database with Schema Filtering
 

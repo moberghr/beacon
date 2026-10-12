@@ -73,6 +73,9 @@ public class LearnedPatternProjectScopingTests
             new Mock<IDataSourceProviderFactory>().Object,
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
+            Mock.Of<Beacon.Core.Services.ISharedSourceSettings>(),
+            new Beacon.Core.Services.Security.QueryGuardrailService(),
+            TestRowDataEgress.Discarding(),
             NullLogger<ProjectDocumentationService>.Instance);
     }
 

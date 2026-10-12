@@ -22,7 +22,7 @@ For a given question and data source, Beacon assembles the context in blocks. Se
 | **Verified query examples (authoritative)** | Human-verified question → SQL pairs for this data source | [Golden examples](#golden-examples-and-the-eval-harness) |
 | **Learned Patterns (from usage)** | Known corrections, column clarifications, join patterns, common queries, business-term mappings, documentation gaps | [The learning loop](#the-learning-loop) |
 
-Sample values are what make filters land on real data (`'shipped'` vs `'SHIPPED'`). They are collected per column and can be switched off with the `EnableSampleValueCollection` setting; on a data source several live projects link, any of them switching it off stops the collection and keeps the stored values out of every project's context (see [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources)).
+Sample values are what make filters land on real data (`'shipped'` vs `'SHIPPED'`). They are row data sent to the LLM provider, so collection is off by default: turn `EnableSampleValueCollection` on for a project (its override on the MCP Settings page) or globally. A refresh collects while it is on in the effective settings of every live project that links the data source — each project's override, else the global value — so a project that turns it on collects even while the global value is off. On a data source several live projects link, any of them switching it off stops the collection and keeps the stored values out of every project's context (see [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources)), and the deployment lock `Beacon:Mcp:ForbidRowDataToLlm` keeps it off everywhere. Documentation generation discovers column values for the same projects only, and logs once per run which data sources it listed no values for because collection is off. PII, secret-like and financial-amount columns are never sampled, and a column with a PII- or credential-shaped value keeps none — see [Sample values](/features/data-sources/#sample-values) and [What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
 
 :::tip
 Everything on this page is reachable from the outside: `get_query_context` returns the same assembled context an `ask` call would use, so an agent can write its own SQL against the same grounding, validate it with `dry_run`, and execute it with `query`.
@@ -200,11 +200,12 @@ Indexing and aggregation run as recurring [Warp](https://moberghr.github.io/warp
 
 ## Settings reference
 
-These live in `McpSettingsData` and round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The **MCP Settings** page (`/mcp-settings`) exposes the prompt, tool-description, and guardrail/learning knobs — the max row limit, read-only enforcement, PII patterns, and the four `Learning*` settings below. Everything else in this table is currently API-only.
+These live in `McpSettingsData` and round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The **MCP Settings** page (`/mcp-settings`) exposes the prompt, tool-description, and guardrail/learning knobs — the max row limit, read-only enforcement, PII patterns, sample-value collection and value grounding (globally and per project), and the four `Learning*` settings below. Everything else in this table is currently API-only; a save on the page sends every setting back as it read it, so the API-only ones keep their values.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `EnableSampleValueCollection` | `true` | Collect real sample values for the M-Schema block |
+| `EnableSampleValueCollection` | `false` | Collect real sample values for the M-Schema block (and discover column values for documentation) |
+| `EnableValueGrounding` | `false` | Probe live values for the literal-looking words of a question and add the matches to the context |
 | `EnableLearning` | `true` | Master switch for signal mining |
 | `LearningAutoApproveThreshold` | `0.7` | Confidence at or above which a pattern auto-approves |
 | `LearningInjectionBudgetChars` | `1500` | Character budget for the learned-patterns block |

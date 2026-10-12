@@ -68,7 +68,8 @@ public class McpProjectSettingsHandlerTests
     {
         _rows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, MaxRowLimit = 50, EnablePiiDetection = false });
 
-        await CreateUpdateHandler().Handle(
+        // Unlocked: under a lock the stored override of the locked field would be kept (see the lock tests below).
+        await CreateUpdateHandler(Unlocked()).Handle(
             new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = 75 }),
             CancellationToken.None);
 
@@ -104,6 +105,40 @@ public class McpProjectSettingsHandlerTests
             CancellationToken.None);
 
         _rows.Should().ContainSingle();
+    }
+
+    // The page never sends a locked field: an unrelated save under the row-data lock keeps the overrides the project stored
+    // before the lock (the lock overrides them until it is lifted), and writes the rest.
+    [Test]
+    public async Task AnUnrelatedProjectSave_UnderTheLock_KeepsTheStoredRowDataOverrides()
+    {
+        _rows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, EnableSampleValueCollection = true, EnableValueGrounding = false, EnableEvalJudge = true, MaxRowLimit = 50 });
+
+        await CreateUpdateHandler(new McpDeploymentOptions { ForbidRowDataToLlm = true }).Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = 75 }),
+            CancellationToken.None);
+
+        _rows.Should().ContainSingle();
+        _rows[0].EnableSampleValueCollection.Should().BeTrue();
+        _rows[0].EnableValueGrounding.Should().BeFalse();
+        _rows[0].EnableEvalJudge.Should().BeTrue();
+        _rows[0].MaxRowLimit.Should().Be(75);
+        _history.Should().ContainSingle().Which.SettingKey.Should().Be($"Mcp.Project.{ProjectId}.MaxRowLimit", "a kept override is no change");
+    }
+
+    // The same holds for the safety locks: a stored read-only override survives, and keeping it loosens nothing.
+    [Test]
+    public async Task AnUnrelatedProjectSave_UnderTheReadOnlyLock_KeepsTheStoredOverride_WithoutAnAdmin()
+    {
+        _rows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, EnforceReadOnly = true });
+        _global.Add(new McpSettings { EnforceReadOnly = false });
+
+        await CreateUpdateHandler(new McpDeploymentOptions { ForceReadOnly = true, ForcePiiDetection = false }, TestPermissions.Holding(BeaconPermissions.SecurityAdmin)).Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = 75 }),
+            CancellationToken.None);
+
+        _rows[0].EnforceReadOnly.Should().BeTrue();
+        _rows[0].MaxRowLimit.Should().Be(75);
     }
 
     [Test]

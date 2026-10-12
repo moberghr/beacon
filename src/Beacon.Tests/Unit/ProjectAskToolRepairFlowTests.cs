@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using Moq;
@@ -79,13 +80,13 @@ public class ProjectAskToolRepairFlowTests
     {
         _executor
             .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("column \"bogus\" does not exist");
+            .ReturnsAsync("relation \"orders\" does not exist");
         _executor
             .Setup(x => x.DryRunAsync(DataSourceId, CorrectedSql, It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                "column \"bogus\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<CancellationToken>()))
+                "relation \"orders\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
@@ -98,9 +99,162 @@ public class ProjectAskToolRepairFlowTests
         outcome.Text.Should().Contain(CorrectedSql);
         _executor.Verify(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()), Times.Once);
         _executor.Verify(x => x.ExecuteAsync(DataSourceId, GeneratedSql, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
-        outcome.DryRunError.Should().Contain("bogus");
+        outcome.DryRunError.Should().Contain("orders");
         outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run" && x.Succeeded);
         outcome.CorrectedSql.Should().Be(CorrectedSql);
+    }
+
+    // A database error that quotes a row value goes into the repair prompt as its class, code and a generic description
+    // only — and the log carries none of the value either.
+    [Test]
+    public async Task AnExecutionErrorQuotingARowValue_ReachesTheRepairPromptRedacted()
+    {
+        SetupCleanDryRun();
+        var log = new LogRecorder();
+        string? prompted = null;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, "22P02: invalid input syntax for type integer: \"Ivan Horvat\" in column \"orders\"; DETAIL: Key (id)=(ivan@bank.example)", 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompted = error)
+            .ReturnsAsync((string?)null);
+        var pipeline = new AskSqlPipeline(
+            _knowledgeGraph.Object,
+            _sqlGeneration.Object,
+            TestSqlGate.Create(_guardrail.Object),
+            TestRowDataEgress.Discarding(),
+            log.For<AskSqlPipeline>());
+
+        await pipeline.RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        prompted.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
+        log.Contains("Horvat").Should().BeFalse();
+        log.Contains("ivan@bank.example").Should().BeFalse();
+    }
+
+    // The caller reads a database error redacted while PII detection is on, as it was otherwise; the repair steps the
+    // stored signal is built from hold it redacted either way.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AnExecutionErrorQuotingARowValue_ReachesTheCallerByTheSetting_AndTheRepairStepsRedacted(bool piiDetectionOn)
+    {
+        SetupCleanDryRun();
+        _settings.EnablePiiDetection = piiDetectionOn;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "execution").Which.Error.Should().Be(RedactedError);
+        if (piiDetectionOn)
+        {
+            outcome.Text.Should().Contain($"**Execution Error:** {RedactedError}").And.NotContain("Horvat");
+            return;
+        }
+
+        outcome.Text.Should().Contain($"**Execution Error:** {ErrorQuotingAValue}");
+    }
+
+    [Test]
+    public async Task ADryRunErrorQuotingARowValue_IsKeptRedactedOnTheOutcome()
+    {
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ErrorQuotingAValue);
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.DryRunError.Should().Be(RedactedError);
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run").Which.Error.Should().Be(RedactedError);
+    }
+
+    // The repair prompt gets the dry-run error without the value it quotes, and the log its class only.
+    [Test]
+    public async Task ADryRunErrorQuotingARowValue_ReachesTheRepairPromptAndTheLogRedacted()
+    {
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ErrorQuotingAValue);
+        string? repairError = null;
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => repairError = error)
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        var log = new LogRecorder();
+
+        await CreatePipeline(log.For<AskSqlPipeline>()).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        repairError.Should().Be(RedactedError);
+        log.Entries.Should().Contain(x => x.Message == "Dry-run validation failed, retrying (Database error 22P02 (data exception).)");
+        log.Contains("Horvat").Should().BeFalse();
+    }
+
+    private const string ErrorQuotingAValue = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+
+    private const string RedactedError = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
+
+    // Every request whose prompt carries the context's row data is logged before it is sent, with ids and categories only.
+    [Test]
+    public async Task EveryPromptCarryingRowData_IsLoggedWithIdsAndCategoriesOnly()
+    {
+        SetupCleanDryRun();
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context Examples: [Horvat]",
+                DatabaseDialect = "PostgreSQL",
+                TotalTableCount = 1,
+                RowDataCategories = [LlmRowDataCategories.SampleValues, LlmRowDataCategories.ValueMatches]
+            });
+        var llm = new Mock<ILlmProvider>();
+        llm
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Beacon.Core.Models.Ai.LlmResponse { Content = GeneratedSql });
+        var generation = new SqlGenerationService();
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        var log = new LogRecorder();
+        var pipeline = new AskSqlPipeline(
+            _knowledgeGraph.Object,
+            generation,
+            TestSqlGate.Create(_guardrail.Object),
+            TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()),
+            NullLogger<AskSqlPipeline>.Instance);
+
+        await pipeline.RunAsync(llm.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        var calls = llm.Invocations.Count(x => x.Method.Name == nameof(ILlmProvider.CompleteAsync));
+        calls.Should().BePositive("the request still goes through the provider handed in");
+        var egress = log.Entries
+            .Where(x => x.EventId == Beacon.Core.Authorization.ProjectAccess.ProjectAccessEvents.RowDataSentToLlm)
+            .ToList();
+        egress.Should().HaveCount(calls, "one record per request");
+        egress.Should().OnlyContain(x => x.Message == $"An LLM request carrying sample-values, value-matches read from data sources {DataSourceId} of project {ProjectId} was handed to the provider for caller {TestRowDataEgress.CallerId}");
+        log.Contains("Horvat").Should().BeFalse("a value never reaches the log");
     }
 
     [Test]
@@ -725,13 +879,14 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync((string?)null);
     }
 
-    private AskSqlPipeline CreatePipeline()
+    private AskSqlPipeline CreatePipeline(ILogger<AskSqlPipeline>? logger = null)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
-            NullLogger<AskSqlPipeline>.Instance);
+            TestRowDataEgress.Discarding(),
+            logger ?? NullLogger<AskSqlPipeline>.Instance);
     }
 
     // The real audit + signal services over a capturing context (§4.7 — no DB), so a test can assert the rows

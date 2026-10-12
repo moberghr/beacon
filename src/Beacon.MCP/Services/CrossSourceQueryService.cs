@@ -5,6 +5,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -22,6 +23,7 @@ internal sealed class CrossSourceQueryService(
     IConfiguredDatabaseResolver configuredDatabases,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
+    ILlmRowDataEgress rowDataEgress,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -38,15 +40,20 @@ internal sealed class CrossSourceQueryService(
         var text = "";
         var failedSources = new List<(string Name, string Reason)>();
 
-        var sourceQueries = new List<(RoutedSource Source, string Sql, string SchemaContext)>();
+        var sourceQueries = new List<(RoutedSource Source, string Sql, SmartSchemaContext Context, ILlmProvider Provider)>();
         var columnsUsed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var source in sources)
         {
             // ask needs Query in the project, so live probes may run.
             var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, liveValueProbes: true, ct);
 
+            // Every prompt about this source carries its context: each request is logged with the row-derived data it carries.
+            var sourceProvider = rowDataEgress.Track(
+                llmProvider,
+                new LlmRowDataScope(projectId, [source.DataSourceId], smartContext.RowDataCategories));
+
             var sqlResult = await sqlGenerationService.GenerateAsync(
-                llmProvider, smartContext.FullContext, question, settings, ct);
+                sourceProvider, smartContext.FullContext, question, settings, ct);
             var sql = sqlResult.Sql;
 
             // Pre-execution schema validation with one bounded repair, mirroring the single-source flow.
@@ -67,7 +74,7 @@ internal sealed class CrossSourceQueryService(
 
                 var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
                 var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                    llmProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
+                    sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
 
                 var retryReport = retriedSql != null
                     ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings) with
@@ -97,7 +104,7 @@ internal sealed class CrossSourceQueryService(
                 columnsUsed.UnionWith(schemaReport.ColumnsUsed);
             }
 
-            sourceQueries.Add((source, sql, smartContext.FullContext));
+            sourceQueries.Add((source, sql, smartContext, sourceProvider));
 
             text += $"### Source: {source.DataSourceName}\n```sql\n{sql}\n```\n\n";
         }
@@ -126,7 +133,7 @@ internal sealed class CrossSourceQueryService(
 
         for (var i = 0; i < sourceQueries.Count; i++)
         {
-            var (source, sql, schemaContext) = sourceQueries[i];
+            var (source, sql, sourceContext, sourceProvider) = sourceQueries[i];
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             var dataSource = await context.DataSources
@@ -152,7 +159,7 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(llmProvider, dataSource, configuredDatabase, source, sql, schemaContext, question, settings, signal, ct);
+            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, source, sql, sourceContext, question, settings, signal, ct);
 
             // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
@@ -180,8 +187,15 @@ internal sealed class CrossSourceQueryService(
 
             if (!result.Success)
             {
-                failedSources.Add((source.DataSourceName, result.ErrorMessage ?? "Execution failed"));
-                text += $"**Execution Error for {source.DataSourceName}:** {result.ErrorMessage}\n";
+                // The database's error can quote row values: the caller reads it redacted while PII detection is on (a host
+                // data source's error is already Beacon's generic text).
+                var error = DatabaseErrorRedactor.ForCaller(
+                    result.ErrorMessage ?? "Execution failed",
+                    limitedSql,
+                    settings.EnablePiiDetection && dataSource.HostManagedKey == null,
+                    logger);
+                failedSources.Add((source.DataSourceName, error));
+                text += $"**Execution Error for {source.DataSourceName}:** {error}\n";
                 continue;
             }
 
@@ -323,7 +337,7 @@ internal sealed class CrossSourceQueryService(
         string? configuredDatabase,
         RoutedSource source,
         string sql,
-        string schemaContext,
+        SmartSchemaContext sourceContext,
         string question,
         McpSettingsData settings,
         McpSignalBuilder signal,
@@ -352,17 +366,25 @@ internal sealed class CrossSourceQueryService(
         }
         catch (Exception ex)
         {
-            // Dry-run infrastructure failures never block the cross-source flow
-            logger.LogWarning(ex, "Dry-run validation unavailable for data source {DataSourceId}", dataSource.Id);
+            // Dry-run infrastructure failures never block the cross-source flow. The type and error code only (§1.11).
+            logger.LogWarning(
+                "Dry-run validation unavailable for data source {DataSourceId}: {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
             return sql;
         }
 
-        logger.LogInformation("Dry-run failed for {DataSourceName}, retrying. Error: {Error}", source.DataSourceName, dryRunError);
-        signal.SetDryRunFailed(dryRunError);
+        // The repair prompt and the stored signal get the error without the values it quotes; the log its class only.
+        var redactedError = DatabaseErrorRedactor.Redact(dryRunError, DatabaseErrorRedactor.KnownNames(sql, sourceContext.SchemaCatalog), logger);
+        logger.LogInformation(
+            "Dry-run failed for data source {DataSourceId}, retrying ({ErrorClass})",
+            dataSource.Id,
+            DatabaseErrorRedactor.ClassOnly(dryRunError, logger));
+        signal.SetDryRunFailed(redactedError);
 
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
         var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-            llmProvider, systemPrompt, sql, dryRunError, schemaContext, null, question, ct);
+            llmProvider, systemPrompt, sql, redactedError, sourceContext.FullContext, null, question, ct);
 
         if (retriedSql == null)
         {
@@ -393,7 +415,10 @@ internal sealed class CrossSourceQueryService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Re-validation unavailable for data source {DataSourceId}", dataSource.Id);
+            logger.LogWarning(
+                "Re-validation unavailable for data source {DataSourceId}: {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
         }
 
         signal.SetRetry(retriedSql, true);

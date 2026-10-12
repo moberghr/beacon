@@ -65,6 +65,26 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool — the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
 
+### Row data sent to the LLM provider
+
+Prompts that carry data read from a data source are logged at category
+`Beacon.AI.Services.LlmProviders.LlmRowDataEgress`, event **7123** `RowDataSentToLlm` — identifiers only, never a value
+or prompt text, and no table is written:
+
+| Level | When | Message fields |
+|---|---|---|
+| Information | A request carrying row data is handed to the LLM provider (written before the provider answers, since the data may leave even when it then fails). | `Categories`, `DataSourceIds`, `ProjectId`, `CallerId` |
+| Warning | The provider then fails that request. | the same, plus `Failure` — the exception's type and error code, never its message |
+| Information | A `get_query_context` response returns sample values or value matches to the MCP client. | `Categories`, `DataSourceIds`, `ProjectId`, `CallerId` |
+
+The categories are `sample-values`, `value-matches`, `column-values` (documentation enum discovery), `result-rows`
+(the eval judge), `database-errors` (lesson extraction) and `stored-documentation` (business-domain, data-model and
+glossary sections, which can list discovered values). `CallerId` is the caller's Beacon user id; background work names
+itself — `learning-aggregation`, `documentation-indexing`, `pattern-replay`, an eval run's starting user or `eval-run`,
+documentation generation's requesting user — and a caller that cannot be resolved is `unknown` (the lookup failure is
+logged as a Warning by type, and never fails the request). See
+[What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
+
 ## Span attributes and metrics
 
 The MCP SDK already opens one span per `tools/call` (activity source `Experimental.ModelContextProtocol`, tagged
@@ -87,6 +107,7 @@ On the `Beacon` meter:
 | `beacon.mcp.tool.calls` | Counter | `gen_ai.tool.name`, `beacon.outcome` (`success`\|`error`), `error.type`, `beacon.caller.kind` |
 | `beacon.mcp.tool.rows` | Histogram | `gen_ai.tool.name` |
 | `beacon.mcp.audit.write_failures` | Counter | `gen_ai.tool.name` |
+| `beacon.error_redaction.fallbacks` | Counter | none — a database error that could not be [screened](/features/mcp-server/#database-errors) in time and was replaced as a whole |
 
 Duration is not duplicated on a Beacon instrument — the SDK's own `mcp.server.operation.duration` already covers it.
 

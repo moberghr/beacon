@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
+using Beacon.Core.Helpers;
 using Beacon.Core.Helpers.File;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
@@ -298,7 +299,11 @@ internal class JobService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to evaluate data contract {ContractId}", contractId);
+            // The type and error code only (§1.11): a rule's failure can quote its SQL or row values.
+            logger.LogError(
+                "Failed to evaluate data contract {ContractId}: {Failure}",
+                contractId,
+                FailureCodes.Describe(ex));
             throw;
         }
     }
@@ -514,8 +519,11 @@ internal class JobService(
         }
         catch (Exception ex)
         {
-            // Log but don't fail the subscription execution
-            logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
+            // Log but don't fail the subscription execution: the type and error code only (§1.11).
+            logger.LogWarning(
+                "Failed to trigger AI Actor for subscription {SubscriptionId}: {Failure}",
+                subscriptionId,
+                FailureCodes.Describe(ex));
         }
     }
 

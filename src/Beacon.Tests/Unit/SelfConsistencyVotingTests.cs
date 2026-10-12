@@ -649,6 +649,7 @@ public class SelfConsistencyVotingTests
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
+            TestRowDataEgress.Discarding(),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

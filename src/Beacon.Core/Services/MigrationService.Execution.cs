@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Models.Queries;
@@ -147,7 +148,7 @@ internal partial class MigrationService
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Migration execution failed");
+            logger.LogError("Migration execution failed ({Failure})", FailureCodes.Describe(ex));
             throw;
         }
     }

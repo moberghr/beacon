@@ -377,23 +377,6 @@ public class HostDataSourceSynchronizerTests
     }
 
     [Test]
-    public void Guard_Mask_MasksTheWholeValue_AndKeepsNulls()
-    {
-        var guard = new HostDataSourceGuard(BuildRegistry(x => { }));
-        var rows = new List<Dictionary<string, object?>>
-        {
-            new() { ["SSN"] = "0101302989", ["Name"] = "Anna" },
-            new() { ["SSN"] = null, ["Name"] = "Bo" }
-        };
-
-        var masked = guard.Mask(rows, ["ssn"]);
-
-        masked[0]["SSN"].Should().Be(HostDataSourceGuard.MaskedValue, "no character of a host-masked value leaves the query");
-        masked[0]["Name"].Should().Be("Anna");
-        masked[1]["SSN"].Should().BeNull("null carries no value to hide");
-    }
-
-    [Test]
     public void Registry_ResolvesScopedContextAndKeepsDesignTimeComments()
     {
         var registry = BuildRegistry(x => x.AllowTables("Customer"));

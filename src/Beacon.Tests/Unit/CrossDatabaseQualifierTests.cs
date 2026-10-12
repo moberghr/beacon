@@ -522,8 +522,8 @@ public class CrossDatabaseQualifierTests
 
         if (reachesTheConnection)
         {
-            await act.Should().ThrowAsync<QueryExecutionFailedException>()
-                .WithMessage($"*{nameof(ConnectionReachedException)}*");
+            // The failure on the data source itself; its message is the database's error, redacted while PII detection is on.
+            await act.Should().ThrowAsync<QueryExecutionFailedException>();
             return;
         }
 

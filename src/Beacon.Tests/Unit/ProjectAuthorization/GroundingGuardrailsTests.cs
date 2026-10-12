@@ -1,5 +1,6 @@
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.Knowledge;
+using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -76,7 +77,7 @@ public class GroundingGuardrailsTests
     [Test]
     public async Task AnotherLinkingProjectWithValueGroundingOff_TurnsItOffForThisProjectToo()
     {
-        var context = await Service(Shared(new McpSettingsData { EnableValueGrounding = false })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
+        var context = await Service(Shared(new McpSettingsData { EnableValueGrounding = false, EnableSampleValueCollection = true })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
 
         _probes.Should().BeEmpty();
         context.FullContext.Should().NotContain("## Value matches");
@@ -85,7 +86,7 @@ public class GroundingGuardrailsTests
     [Test]
     public async Task AnotherLinkingProjectsLowerProbeBudget_Applies()
     {
-        await Service(Shared(new McpSettingsData { ValueGroundingMaxProbes = 1 })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
+        await Service(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, ValueGroundingMaxProbes = 1 })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
 
         _probes.Should().ContainSingle();
     }
@@ -94,7 +95,7 @@ public class GroundingGuardrailsTests
     public async Task AnotherLinkingProjectWithSampleValuesOff_HidesTheStoredSampleValues()
     {
         var withSamples = await Service(Unshared()).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
-        var withoutSamples = await Service(Shared(new McpSettingsData { EnableSampleValueCollection = false })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
+        var withoutSamples = await Service(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = false })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
 
         withSamples.FullContext.Should().Contain("REFUNDED");
         withoutSamples.FullContext.Should().NotContain("REFUNDED").And.NotContain("PAID");
@@ -103,7 +104,7 @@ public class GroundingGuardrailsTests
     [Test]
     public async Task AnotherLinkingProjectsCustomPiiPattern_ScreensTheProbedValues()
     {
-        var context = await Service(Shared(new McpSettingsData { CustomPiiPatterns = ["berlin"] })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
+        var context = await Service(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, CustomPiiPatterns = ["berlin"] })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
 
         _probes.Should().NotBeEmpty();
         context.FullContext.Should().NotContain("'Berlin'");
@@ -113,7 +114,7 @@ public class GroundingGuardrailsTests
     public async Task TheRepairPromptsTableSchemas_FollowTheSampleValueSettingToo()
     {
         var withSamples = await Service(Unshared()).GetTablesContextAsync(DataSourceId, ProjectId, ["orders"]);
-        var withoutSamples = await Service(Shared(new McpSettingsData { EnableSampleValueCollection = false })).GetTablesContextAsync(DataSourceId, ProjectId, ["orders"]);
+        var withoutSamples = await Service(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = false })).GetTablesContextAsync(DataSourceId, ProjectId, ["orders"]);
 
         withSamples.Should().Contain("REFUNDED");
         withoutSamples.Should().Contain("status").And.NotContain("REFUNDED");
@@ -126,7 +127,7 @@ public class GroundingGuardrailsTests
     public async Task ALinkingProjectsCustomPiiPattern_HidesTheMatchingStoredSampleValues_AndKeepsTheOthers()
     {
         var unscreened = await Service(Unshared()).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
-        var service = Service(Shared(new McpSettingsData { CustomPiiPatterns = ["^REFUND"] }));
+        var service = Service(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, CustomPiiPatterns = ["^REFUND"] }));
         var context = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
         var tableSchemas = await service.GetTablesContextAsync(DataSourceId, ProjectId, ["orders"]);
 
@@ -138,7 +139,7 @@ public class GroundingGuardrailsTests
     [Test]
     public async Task ALinkingProjectsCustomPiiPatternOnTheColumnName_HidesAllItsStoredSampleValues()
     {
-        var context = await Service(Shared(new McpSettingsData { CustomPiiPatterns = ["^status$"] })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
+        var context = await Service(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, CustomPiiPatterns = ["^status$"] })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: false);
 
         context.FullContext.Should().Contain("status").And.NotContain("REFUNDED").And.NotContain("PAID");
     }
@@ -159,12 +160,78 @@ public class GroundingGuardrailsTests
     [Test]
     public async Task GetQueryContext_ShowsOnlyTheStoredSampleValuesTheLinkingProjectsPatternsAllow()
     {
-        var result = await QueryContextTool(Shared(new McpSettingsData { CustomPiiPatterns = ["^REFUND"] })).ExecuteAsync(
+        var result = await QueryContextTool(Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, CustomPiiPatterns = ["^REFUND"] })).ExecuteAsync(
             question: Question, datasource_id: DataSourceId, cancellationToken: CancellationToken.None);
 
         (result.IsError ?? false).Should().BeFalse();
         var text = result.Content.OfType<TextContentBlock>().Single().Text;
         text.Should().NotContain("REFUNDED").And.NotContain("ada@example.com").And.Contain("Examples: [PAID]");
+    }
+
+    // The ask context names the row-derived data it carries, for the egress log: stored samples, and value matches when
+    // grounding found some; neither when the settings keep row data from the prompt.
+    [Test]
+    public async Task TheAskContext_NamesTheRowDataItCarries()
+    {
+        var grounded = await Service(Unshared()).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
+        var samplesOnly = await Service(Shared(new McpSettingsData { EnableValueGrounding = false, EnableSampleValueCollection = true })).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
+
+        grounded.RowDataCategories.Should().Equal(LlmRowDataCategories.SampleValues, LlmRowDataCategories.ValueMatches);
+        samplesOnly.RowDataCategories.Should().Equal(LlmRowDataCategories.SampleValues);
+    }
+
+    // Under the deployment lock Beacon:Mcp:ForbidRowDataToLlm every project's settings resolve with sample values and value
+    // grounding off: no stored sample is shown, no value is probed, and the context carries no row data.
+    [Test]
+    public async Task UnderTheRowDataLock_NoSampleIsShown_NothingIsProbed_AndTheContextCarriesNoRowData()
+    {
+        var locked = new SettingsWorld(new Dictionary<int, McpSettingsData> { [ProjectId] = Locked(AskerSettings()) });
+
+        var context = await Service(locked).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true);
+        var tables = await Service(locked).GetTablesContextAsync(DataSourceId, ProjectId, ["orders"]);
+
+        _probes.Should().BeEmpty();
+        context.FullContext.Should().NotContain("REFUNDED").And.NotContain("## Value matches");
+        tables.Should().Contain("status").And.NotContain("REFUNDED");
+        context.RowDataCategories.Should().BeEmpty();
+    }
+
+    // The metadata response carries stored sample values for an Admin only; every other caller gets the columns without
+    // them (the UI shows none), and the refresh's response follows the same rule.
+    [Test]
+    public async Task TheMetadataRead_CarriesSampleValues_ForAnAdminOnly()
+    {
+        var snapshot = new DatabaseMetadataSnapshot(
+            DataSourceId,
+            DatabaseEngineType.PostgreSQL,
+            [
+                new TableMetadataDto(
+                    "public",
+                    "orders",
+                    [new ColumnMetadataDto("status", "varchar", true, false, false, 1, null, null, null, 20, null, ["PAID"], SampleValuesComplete: true)],
+                    [],
+                    null)
+            ],
+            DateTime.UtcNow);
+        var metadata = new Mock<IDatabaseMetadataService>();
+        metadata
+            .Setup(x => x.GetMetadataAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(snapshot);
+        var settings = Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true });
+
+        var asAdmin = await new GetDataSourceMetadataHandler(metadata.Object, new MetadataSampleView(TestPermissions.Admin, settings.SharedSources(DataSourceId), new QueryGuardrailService()))
+            .Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
+        var asViewer = await new GetDataSourceMetadataHandler(metadata.Object, new MetadataSampleView(TestPermissions.None, settings.SharedSources(DataSourceId), new QueryGuardrailService()))
+            .Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
+        var asDataSourceAdmin = await new GetDataSourceMetadataHandler(metadata.Object, new MetadataSampleView(TestPermissions.Holding(Beacon.Core.Authorization.BeaconPermissions.DataSourceAdmin), settings.SharedSources(DataSourceId), new QueryGuardrailService()))
+            .Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
+
+        asAdmin.Tables.Single().Columns.Single().SampleValues.Should().Equal("PAID");
+        asAdmin.Tables.Single().Columns.Single().SampleValuesComplete.Should().BeTrue();
+        asViewer.Tables.Single().Columns.Single().SampleValues.Should().BeNull();
+        asViewer.Tables.Single().Columns.Single().SampleValuesComplete.Should().BeFalse();
+        asViewer.Tables.Single().Columns.Single().ColumnName.Should().Be("status", "the catalog itself is unchanged");
+        asDataSourceAdmin.Tables.Single().Columns.Single().SampleValues.Should().BeNull("only an Admin sees sample values");
     }
 
     // The metadata read serves stored sample values under the same screen, with the settings of every live project that
@@ -192,8 +259,10 @@ public class GroundingGuardrailsTests
         metadata
             .Setup(x => x.GetMetadataAsync(DataSourceId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(snapshot);
-        var settings = Shared(new McpSettingsData { CustomPiiPatterns = ["^REFUND"] });
-        var handler = new GetDataSourceMetadataHandler(metadata.Object, settings.SharedSources(DataSourceId), new QueryGuardrailService());
+        var settings = Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, CustomPiiPatterns = ["^REFUND"] });
+        var handler = new GetDataSourceMetadataHandler(
+            metadata.Object,
+            new MetadataSampleView(TestPermissions.Admin, settings.SharedSources(DataSourceId), new QueryGuardrailService()));
 
         var read = await handler.Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
 
@@ -205,6 +274,9 @@ public class GroundingGuardrailsTests
         columns[2].SampleValuesComplete.Should().BeTrue("nothing was withheld from region");
         snapshot.Tables.Single().Columns[0].SampleValues.Should().Equal("REFUNDED", "PAID");
     }
+
+    private static McpSettingsData Locked(McpSettingsData settings) =>
+        McpSettingsProvider.Resolve(settings, null, new McpDeploymentOptions { ForbidRowDataToLlm = true }).Effective;
 
     private static McpSettingsData AskerSettings() => new()
     {
@@ -296,6 +368,7 @@ public class GroundingGuardrailsTests
             providers.Object,
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<ValueGroundingService>.Instance);
 
         return new KnowledgeGraphService(
@@ -318,7 +391,7 @@ public class GroundingGuardrailsTests
         var audit = new McpAuditService(_factory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var caller = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [] };
 
-        return new GetQueryContextTool(knowledgeGraph, _factory, caller, audit, NullLogger<GetQueryContextTool>.Instance);
+        return new GetQueryContextTool(knowledgeGraph, _factory, caller, audit, TestRowDataEgress.Discarding(), NullLogger<GetQueryContextTool>.Instance);
     }
 
     // Every project of the map is live and links the data source.
@@ -328,6 +401,7 @@ public class GroundingGuardrailsTests
 
         public IMcpSettingsProvider Provider => SettingsProviderMock.Create(projects[ProjectId], projectSettings: projects).Object;
 
-        public ISharedSourceSettings SharedSources(int dataSourceId) => TestSharedSources.Linking(dataSourceId, projects);
+        // The global row is the asking project's settings, as for the provider above.
+        public ISharedSourceSettings SharedSources(int dataSourceId) => TestSharedSources.Linking(dataSourceId, projects, projects[ProjectId]);
     }
 }

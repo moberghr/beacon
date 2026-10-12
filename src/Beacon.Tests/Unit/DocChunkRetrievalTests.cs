@@ -10,6 +10,7 @@ using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
@@ -65,6 +66,7 @@ public class DocChunkRetrievalTests
         hits.Should().ContainSingle();
         hits[0].ChunkText.Should().Be(RawMatchText,
             "the query must be embedded RAW to match raw-indexed chunks — masking it would rank the MASKED_MATCH decoy first");
+        hits[0].SectionType.Should().Be(ProjectDocSectionType.DataModel, "a hit carries its section's type, which says whether it can list discovered values");
     }
 
     [Test]
@@ -100,7 +102,11 @@ public class DocChunkRetrievalTests
     private static KnowledgeGraphService BuildService(
         IBeaconEmbeddingService embedder, List<McpDocChunk> chunks, List<McpEmbedding> embeddings)
     {
-        var context = new DocChunkContext(BuildDbSet(embeddings).Object, BuildDbSet(chunks).Object);
+        var sections = new List<ProjectDocumentationSection>
+        {
+            new() { Id = 10, SectionType = ProjectDocSectionType.DataModel, Title = "Data Model", Content = "" }
+        };
+        var context = new DocChunkContext(BuildDbSet(embeddings).Object, BuildDbSet(chunks).Object, BuildDbSet(sections).Object);
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -147,12 +153,14 @@ public class DocChunkRetrievalTests
 
         private readonly DbSet<McpEmbedding> _embeddings;
         private readonly DbSet<McpDocChunk> _chunks;
+        private readonly DbSet<ProjectDocumentationSection> _sections;
         private DatabaseFacade? _database;
 
-        public DocChunkContext(DbSet<McpEmbedding> embeddings, DbSet<McpDocChunk> chunks) : base(Options, "beacon")
+        public DocChunkContext(DbSet<McpEmbedding> embeddings, DbSet<McpDocChunk> chunks, DbSet<ProjectDocumentationSection> sections) : base(Options, "beacon")
         {
             _embeddings = embeddings;
             _chunks = chunks;
+            _sections = sections;
         }
 
         public override DatabaseFacade Database => _database ??= new NonNpgsqlDatabaseFacade(this);
@@ -167,6 +175,11 @@ public class DocChunkRetrievalTests
             if (typeof(TEntity) == typeof(McpDocChunk))
             {
                 return (DbSet<TEntity>)(object)_chunks;
+            }
+
+            if (typeof(TEntity) == typeof(ProjectDocumentationSection))
+            {
+                return (DbSet<TEntity>)(object)_sections;
             }
 
             return base.Set<TEntity>();

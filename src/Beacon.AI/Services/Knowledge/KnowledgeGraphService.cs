@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Embeddings;
+using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -321,7 +322,7 @@ internal sealed class KnowledgeGraphService(
         catch (Exception ex)
         {
             // Fail closed onto the lexical arm — a vector-store/query hiccup must never fail a search.
-            logger.LogWarning(ex, "Dense retrieval arm failed for data source {DataSourceId}; falling back to lexical search.", dataSourceId);
+            logger.LogWarning("Dense retrieval arm failed for data source {DataSourceId}; falling back to lexical search ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return lexicalRanked.Take(maxResults).ToList();
         }
     }
@@ -926,7 +927,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Semantic search arm failed for project {ProjectId}; returning keyword-only results.", projectId);
+            logger.LogWarning("Semantic search arm failed for project {ProjectId}; returning keyword-only results ({Failure}).", projectId, FailureCodes.Describe(ex));
             return keywordRanked;
         }
     }
@@ -1259,6 +1260,9 @@ internal sealed class KnowledgeGraphService(
             .Select(x => x with { Columns = WithStoredSamples(x.Columns, mcpSettings) })
             .ToList();
 
+        // Whether a prompt built from this context, or from a table context of the same source, can carry sample values.
+        var samplesShown = allTables.Any(x => x.Columns.Any(y => y.SampleValuesJson != null));
+
         var totalColumns = allTables.Sum(t => t.Columns.Count);
         var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
         var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
@@ -1285,12 +1289,14 @@ internal sealed class KnowledgeGraphService(
             // Item 5: ask-time value grounding — real values found for literal-looking words in the
             // question, injected right before the golden exemplars so the model sees them alongside the
             // schema. Skipped for API sources (no SQL to probe) and gated by EnableValueGrounding.
+            var valueMatches = "";
             if (mcpSettings.EnableValueGrounding && !isApi)
             {
                 var valueGroundingTables = allTables
                     .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                     .ToList();
-                sb.Append(await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct));
+                valueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
+                sb.Append(valueMatches);
             }
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
@@ -1322,7 +1328,8 @@ internal sealed class KnowledgeGraphService(
                 ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
                 SchemaCatalog = catalog,
                 PrimaryKeyCatalog = primaryKeyCatalog,
-                JoinPaths = allPaths
+                JoinPaths = allPaths,
+                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches)
             };
         }
 
@@ -1374,13 +1381,15 @@ internal sealed class KnowledgeGraphService(
 
         // Item 5: ask-time value grounding, scoped to the detailed tables only (same set rendered with
         // full columns above) — same gating as the fast path.
+        var smartValueMatches = "";
         if (mcpSettings.EnableValueGrounding && !isApi)
         {
             var valueGroundingTables = allTables
                 .Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}"))
                 .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                 .ToList();
-            smartSb.Append(await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct));
+            smartValueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
+            smartSb.Append(smartValueMatches);
         }
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
@@ -1413,7 +1422,8 @@ internal sealed class KnowledgeGraphService(
             PrimaryKeyCatalog = primaryKeyCatalog,
             Capped = expansion.Capped,
             OmittedTableCount = expansion.OmittedTableCount,
-            JoinPaths = expansion.JoinPaths
+            JoinPaths = expansion.JoinPaths,
+            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches)
         };
     }
 
@@ -1497,9 +1507,29 @@ internal sealed class KnowledgeGraphService(
                     {
                         x.Id,
                         x.ChunkText,
-                        x.ContextualBlurb
+                        x.ContextualBlurb,
+                        x.SourceSectionId
                     })
                 .ToListAsync(ct);
+
+            // Each chunk of generated documentation carries its section's type, which says whether its text can list
+            // values discovered in the data; an imported document's chunk has no section.
+            var sectionIds = chunks
+                .Select(x => x.SourceSectionId)
+                .Where(x => x != 0)
+                .Distinct()
+                .ToList();
+            var sectionTypes = sectionIds.Count == 0
+                ? new Dictionary<int, ProjectDocSectionType>()
+                : await context.ProjectDocumentationSections
+                    .Where(x => sectionIds.Contains(x.Id))
+                    .Select(x =>
+                        new
+                        {
+                            x.Id,
+                            x.SectionType
+                        })
+                    .ToDictionaryAsync(x => x.Id, x => x.SectionType, ct);
 
             var chunksById = chunks.ToDictionary(x => x.Id);
 
@@ -1508,7 +1538,10 @@ internal sealed class KnowledgeGraphService(
             {
                 if (chunksById.TryGetValue(hit.OwnerId, out var chunk))
                 {
-                    results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb));
+                    results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb)
+                    {
+                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
+                    });
                 }
             }
 
@@ -1520,7 +1553,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Dense doc-chunk retrieval failed for project {ProjectId}; falling back to char-truncated documentation.", projectId);
+            logger.LogWarning("Dense doc-chunk retrieval failed for project {ProjectId}; falling back to char-truncated documentation ({Failure}).", projectId, FailureCodes.Describe(ex));
             return [];
         }
     }
@@ -1546,7 +1579,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Value grounding failed for data source {DataSourceId}; injecting no value-matches block.", dataSourceId);
+            logger.LogWarning("Value grounding failed for data source {DataSourceId}; injecting no value-matches block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -1662,7 +1695,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Glossary retrieval failed for project {ProjectId}; injecting no glossary block.", projectId);
+            logger.LogWarning("Glossary retrieval failed for project {ProjectId}; injecting no glossary block ({Failure}).", projectId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -1765,7 +1798,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block.", dataSourceId);
+            logger.LogWarning("Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -1822,6 +1855,23 @@ internal sealed class KnowledgeGraphService(
         sampleOnly.ValueGroundingMaxProbes = 0;
 
         return sampleOnly;
+    }
+
+    // The row-derived data an ask context carries, for the egress log (LlmRowDataEgress).
+    private static List<string> RowDataCategoriesOf(bool samplesShown, string valueMatches)
+    {
+        var categories = new List<string>();
+        if (samplesShown)
+        {
+            categories.Add(LlmRowDataCategories.SampleValues);
+        }
+
+        if (!string.IsNullOrEmpty(valueMatches))
+        {
+            categories.Add(LlmRowDataCategories.ValueMatches);
+        }
+
+        return categories;
     }
 
     // Stored sample values are served only while sample-value collection is on for every live project that links the
@@ -2012,7 +2062,7 @@ internal sealed class KnowledgeGraphService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Semantic exemplar selection failed for data source {DataSourceId}; falling back to table-overlap pattern ranking.", dataSourceId);
+                logger.LogWarning("Semantic exemplar selection failed for data source {DataSourceId}; falling back to table-overlap pattern ranking ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             }
         }
 
@@ -2325,7 +2375,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Schema graph join-path rendering failed for data source {DataSourceId}; context sent without join paths.", dataSourceId);
+            logger.LogWarning("Schema graph join-path rendering failed for data source {DataSourceId}; context sent without join paths ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return [];
         }
     }
@@ -2360,7 +2410,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Schema graph expansion failed for data source {DataSourceId}; falling back to foreign-key expansion.", dataSourceId);
+            logger.LogWarning("Schema graph expansion failed for data source {DataSourceId}; falling back to foreign-key expansion ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
         }
 
         return ExpandByForeignKeyHop(matchedTableNames, allTables);

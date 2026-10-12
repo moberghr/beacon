@@ -42,6 +42,8 @@ const SCHEMA = z.object({
   enforceReadOnly: z.boolean(),
   enablePiiDetection: z.boolean(),
   customPiiPatternsText: z.string(),
+  enableSampleValueCollection: z.boolean(),
+  enableValueGrounding: z.boolean(),
   enableLearning: z.boolean(),
   learningAutoApproveThreshold: z.number().min(0).max(1),
   learningInjectionBudgetChars: z.number().int().min(0),
@@ -60,6 +62,15 @@ const SCHEMA = z.object({
 });
 
 type FormValues = z.infer<typeof SCHEMA>;
+
+/** The settings that send values read from the data to the LLM provider, which Beacon:Mcp:ForbidRowDataToLlm pins off. */
+const ROW_DATA_KEYS = ['enableSampleValueCollection', 'enableValueGrounding'] as const;
+
+/** One label per row-data switch, on the global form and the per-project overrides alike. */
+const ROW_DATA_LABEL = {
+  enableSampleValueCollection: 'Collect sample values',
+  enableValueGrounding: 'Ground questions in live values (value grounding)',
+} as const;
 type TabKey = 'prompt' | 'tools' | 'guardrails' | 'context';
 type Scope = 'global' | number;
 
@@ -78,6 +89,8 @@ export const FIELD_TAB: Record<keyof FormValues, TabKey> = {
   enforceReadOnly: 'guardrails',
   enablePiiDetection: 'guardrails',
   customPiiPatternsText: 'guardrails',
+  enableSampleValueCollection: 'guardrails',
+  enableValueGrounding: 'guardrails',
   enableLearning: 'guardrails',
   learningAutoApproveThreshold: 'guardrails',
   learningInjectionBudgetChars: 'guardrails',
@@ -170,6 +183,7 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
   // Settings the deployment pins: their switches stay as pinned, for every role.
   const locked = new Set((useMcpDeploymentLocks().data ?? []).map(lowerFirst));
   const safetyLocked = locked.has('enforceReadOnly') || locked.has('enablePiiDetection');
+  const rowDataLocked = ROW_DATA_KEYS.some(x => locked.has(x));
   const updateMutation = useUpdateMcpSettings();
   const [tab, setTab] = useState<TabKey>('prompt');
 
@@ -190,7 +204,10 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
     // the backend's `?? default` fallback keeps working — saving '' would wipe
     // the default Ask system prompt and tool descriptions.
     const orNull = (s: string | null) => (s && s.trim() !== '' ? s : null);
+    // Every setting the page loaded goes back as it was read, so one the page does not show is never reset to a
+    // default by a save; the form's own fields overwrite theirs.
     const payload: McpSettingsData = {
+      ...data,
       askSystemPrompt: orNull(values.askSystemPrompt),
       globalInstruction: orNull(values.globalInstruction),
       getContextDescription: orNull(values.getContextDescription),
@@ -205,8 +222,8 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
         .split('\n')
         .map(s => s.trim())
         .filter(Boolean),
-      // No UI toggle yet — preserve the stored value so saving never silently flips it
-      enableSampleValueCollection: data?.enableSampleValueCollection ?? true,
+      enableSampleValueCollection: values.enableSampleValueCollection,
+      enableValueGrounding: values.enableValueGrounding,
       enableLearning: values.enableLearning,
       learningAutoApproveThreshold: values.learningAutoApproveThreshold,
       learningInjectionBudgetChars: values.learningInjectionBudgetChars,
@@ -387,6 +404,39 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
                   placeholder={'customer_name\naccount_number\n\\biban\\b'}
                 />
               </Field>
+
+              <hr className="my-2 border-0 border-t border-border" />
+              <h3 className="m-0 text-sm font-semibold text-text">Row data sent to the LLM provider</h3>
+              <p className="m-0 text-text-muted text-xs">
+                Off by default. While on, values read from the data sources reach the LLM provider: sample values in
+                grounding context and documentation, and live values matched to the words of a question. A project can
+                override either for itself.
+              </p>
+              <label className="flex gap-2 items-center text-sm">
+                <input
+                  type="checkbox"
+                  disabled={locked.has('enableSampleValueCollection')}
+                  {...form.register('enableSampleValueCollection')}
+                />
+                {ROW_DATA_LABEL.enableSampleValueCollection}
+                {locked.has('enableSampleValueCollection') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
+              </label>
+              <label className="flex gap-2 items-center text-sm">
+                <input
+                  type="checkbox"
+                  disabled={locked.has('enableValueGrounding')}
+                  {...form.register('enableValueGrounding')}
+                />
+                {ROW_DATA_LABEL.enableValueGrounding}
+                {locked.has('enableValueGrounding') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
+              </label>
+              {rowDataLocked && (
+                <p className="m-0 text-xs text-text-muted">
+                  Off by the deployment (<span className="mono">Beacon:Mcp:ForbidRowDataToLlm</span>): no value read
+                  from the data is sent to the LLM provider. Nobody can turn these on here or per project, an Admin
+                  included; only the host&apos;s configuration can.
+                </p>
+              )}
 
               <hr className="my-2 border-0 border-t border-border" />
               <h3 className="m-0 text-sm font-semibold text-text">Execution</h3>
@@ -593,7 +643,12 @@ export const OVERRIDE_SECTIONS: OverrideSection[] = [
       },
       {
         key: 'enableSampleValueCollection',
-        label: 'Collect sample values',
+        label: ROW_DATA_LABEL.enableSampleValueCollection,
+        kind: 'bool',
+      },
+      {
+        key: 'enableValueGrounding',
+        label: ROW_DATA_LABEL.enableValueGrounding,
         kind: 'bool',
       },
     ],
@@ -811,7 +866,11 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector, readOnly }
           tone="warn"
           icon={<Lock />}
           title="Locked by deployment configuration"
-          sub={`${data.lockedFields.join(', ')} ${data.lockedFields.length === 1 ? 'is' : 'are'} pinned by Beacon:Mcp and cannot be changed here or globally.`}
+          sub={`${data.lockedFields.join(', ')} ${data.lockedFields.length === 1 ? 'is' : 'are'} pinned by Beacon:Mcp and cannot be changed here or globally.${
+            ROW_DATA_KEYS.some(x => locked.has(x))
+              ? ' Beacon:Mcp:ForbidRowDataToLlm keeps every value read from the data away from the LLM provider.'
+              : ''
+          }`}
         />
       )}
       {data.clampedFields.length > 0 && (
@@ -1054,6 +1113,9 @@ function settingsToForm(data: McpSettingsData | undefined): FormValues {
     enforceReadOnly: data?.enforceReadOnly ?? true,
     enablePiiDetection: data?.enablePiiDetection ?? true,
     customPiiPatternsText: (data?.customPiiPatterns ?? []).join('\n'),
+    // Off by default: both send values read from the data to the LLM provider.
+    enableSampleValueCollection: data?.enableSampleValueCollection ?? false,
+    enableValueGrounding: data?.enableValueGrounding ?? false,
     enableLearning: data?.enableLearning ?? true,
     learningAutoApproveThreshold: data?.learningAutoApproveThreshold ?? 0.85,
     learningInjectionBudgetChars: data?.learningInjectionBudgetChars ?? 4000,

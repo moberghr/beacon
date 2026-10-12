@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 
@@ -58,7 +59,7 @@ internal sealed class McpLearningAggregationService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to aggregate patterns for project {ProjectId}", projectId);
+                logger.LogWarning("Failed to aggregate patterns for project {ProjectId} ({Failure})", projectId, FailureCodes.Describe(ex));
             }
         }
 
@@ -199,7 +200,7 @@ internal sealed class McpLearningAggregationService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Replay verification failed for pattern {PatternId}; leaving NeedsEvidence", candidate.Id);
+                logger.LogWarning("Replay verification failed for pattern {PatternId}; leaving NeedsEvidence ({Failure})", candidate.Id, FailureCodes.Describe(ex));
             }
         }
 
@@ -357,7 +358,10 @@ internal sealed class McpLearningAggregationService(
                     representative.GeneratedSql,
                     representative.SchemaValidationError ?? representative.ExecutionError,
                     representative.CorrectedSql,
-                    null);
+                    null)
+                {
+                    ProjectId = projectId
+                };
 
                 extraction.Attempts++;
                 var lesson = await lessonExtractor.ExtractAsync(cluster, ct);
@@ -710,7 +714,7 @@ internal sealed class McpLearningAggregationService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to cleanup old MCP query signals");
+            logger.LogWarning("Failed to cleanup old MCP query signals ({Failure})", FailureCodes.Describe(ex));
         }
     }
 

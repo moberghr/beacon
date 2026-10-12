@@ -148,6 +148,13 @@ public record SmartSchemaContext
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlySet<string>> PrimaryKeyCatalog { get; init; } =
         new Dictionary<string, IReadOnlySet<string>>();
+
+    /// <summary>
+    /// The row-derived data a prompt built from this context can carry (<c>LlmRowDataCategories</c>): sample values when
+    /// any column of the source shows them under the guardrails that apply, value matches when value grounding found
+    /// some. Empty when the context carries none.
+    /// </summary>
+    public IReadOnlyList<string> RowDataCategories { get; init; } = [];
 }
 
 public record LearnedPatternInfo(

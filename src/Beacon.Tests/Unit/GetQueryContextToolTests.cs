@@ -8,6 +8,8 @@ using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
+using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -241,7 +243,44 @@ public class GetQueryContextToolTests
             x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), !mayQuery, It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private GetQueryContextTool CreateTool(bool multiSource, List<int>? queryProjectIds = null)
+    // Sample values and value matches returned to the MCP client are recorded like a prompt Beacon sends: ids and
+    // categories only, never a value; a context without row data records nothing.
+    [Test]
+    public async Task AContextCarryingRowData_IsRecordedAsReturnedToTheMcpClient()
+    {
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = FullContext + "status Examples: [Horvat]\n",
+                DatabaseDialect = "PostgreSQL",
+                RowDataCategories = [LlmRowDataCategories.SampleValues, LlmRowDataCategories.ValueMatches]
+            });
+        var log = new LogRecorder();
+
+        var result = await CreateTool(multiSource: false, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>())).ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        log.Entries.Should().ContainSingle()
+            .Which.Should().Match<RecordedLog>(x => x.EventId == ProjectAccessEvents.RowDataSentToLlm
+                && x.Level == Microsoft.Extensions.Logging.LogLevel.Information
+                && x.Message == $"Grounding context carrying sample-values, value-matches read from data sources {WarehouseId} of project {ProjectId} was returned to the MCP client for caller {TestRowDataEgress.CallerId}");
+        log.Contains("Horvat").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task AContextWithoutRowData_RecordsNothing()
+    {
+        var log = new LogRecorder();
+
+        await CreateTool(multiSource: false, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>())).ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None);
+
+        log.Entries.Should().BeEmpty();
+    }
+
+    private GetQueryContextTool CreateTool(bool multiSource, List<int>? queryProjectIds = null, ILlmRowDataEgress? egress = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
@@ -259,6 +298,7 @@ public class GetQueryContextToolTests
             factory.Object,
             projectContext,
             auditService,
+            egress ?? TestRowDataEgress.Discarding(),
             NullLogger<GetQueryContextTool>.Instance);
     }
 

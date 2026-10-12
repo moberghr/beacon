@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
+using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data;
 using Beacon.MCP.Services;
 
@@ -17,6 +18,7 @@ internal sealed class GetQueryContextTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
     McpAuditService auditService,
+    ILlmRowDataEgress rowDataEgress,
     ILogger<GetQueryContextTool> logger)
 {
     private const int DefaultMaxChars = 12000;
@@ -138,6 +140,11 @@ internal sealed class GetQueryContextTool(
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
                 question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
+
+            // Sample values and value matches go to the MCP client's own model: recorded like a prompt Beacon sends.
+            await rowDataEgress.RecordReturnedToMcpClientAsync(
+                new LlmRowDataScope(projectId, [dataSourceId], smartContext.RowDataCategories),
+                cancellationToken);
             return ToolHelper.Success(text, structured);
         }
         catch (Exception ex)

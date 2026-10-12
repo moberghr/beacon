@@ -188,7 +188,7 @@ public class DataQualityCustomSqlReadOnlyTests
     {
         var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
         var service = CreateService(
-            Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 1 AS passed, MAX(iban) AS actual_value FROM accounts")),
+            Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 1 AS passed, MAX(reference) AS actual_value FROM accounts")),
             []);
 
         var result = await service.EvaluateContractAsync(42, CancellationToken.None);
@@ -198,18 +198,22 @@ public class DataQualityCustomSqlReadOnlyTests
             .Should().Equal(
                 "SET default_transaction_read_only = on",
                 "SET TRANSACTION READ ONLY",
-                "SELECT 1 AS passed, MAX(iban) AS actual_value FROM accounts LIMIT 1");
+                "SELECT 1 AS passed, MAX(reference) AS actual_value FROM accounts LIMIT 1");
         server.Commands[^1].Transaction.Should().NotBeNull("the rule runs inside the READ ONLY transaction");
         result.RuleResults.Should().ContainSingle()
             .Which.ActualValue.Should().Be(RowValue, "an Admin's read-only custom check still reports its value");
     }
 
-    // The rule's value and message reach its history and the contract's alerts, so PII read into them is masked first.
-    [TestCase("SELECT 0 AS passed, MAX(email) AS actual_value FROM accounts", true)]
-    [TestCase("SELECT 0 AS passed, MAX(iban) AS actual_value FROM accounts", false)]
-    public async Task EvaluateContractAsync_CustomSqlReadingPii_MasksTheValueItReports(string sql, bool masked)
+    // The rule's value and message reach its history and the contract's alerts, so PII read into them is masked first: by
+    // the column it reads, and by the value's own shape whatever the column is called.
+    [TestCase("SELECT 0 AS passed, MAX(email) AS actual_value FROM accounts", "a.customer@bank.example", true)]
+    [TestCase("SELECT 0 AS passed, MAX(iban) AS actual_value FROM accounts", "a.customer@bank.example", true)]
+    [TestCase("SELECT 0 AS passed, MAX(account_number) AS actual_value FROM accounts", "a.customer@bank.example", true)]
+    [TestCase("SELECT 0 AS passed, MAX(reference) AS actual_value FROM accounts", "a.customer@bank.example", true)]
+    [TestCase("SELECT 0 AS passed, MAX(reference) AS actual_value FROM accounts", "REF-OPEN", false)]
+    public async Task EvaluateContractAsync_CustomSqlReadingPii_MasksTheValueItReports(string sql, string value, bool masked)
     {
-        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = TextRow("a.customer@bank.example") });
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = TextRow(value) });
         var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule(sql)), []);
 
         var result = await service.EvaluateContractAsync(42, CancellationToken.None);
@@ -221,7 +225,34 @@ public class DataQualityCustomSqlReadOnlyTests
             return;
         }
 
-        actualValue.Should().Be("a.customer@bank.example");
+        actualValue.Should().Be(value);
+    }
+
+    // An aggregate under an innocent alias reads an IBAN: its value is screened and masked.
+    [Test]
+    public async Task CustomSqlReadingAnIbanShapedValueUnderAnInnocentName_MasksTheValue()
+    {
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = TextRow("HR1210010051863000160") });
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 0 AS passed, MAX(ref_code) AS actual_value FROM accounts")), []);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        result.RuleResults.Should().ContainSingle().Which.ActualValue.Should().Be("H***0");
+    }
+
+    // A value the screen cannot clear — a custom pattern it cannot even run — is masked (fail closed).
+    [Test]
+    public async Task CustomSqlValueAnUnusableCustomPatternCannotClear_IsMasked()
+    {
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = TextRow("REF-OPEN") });
+        var service = CreateService(
+            Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), CustomSqlRule("SELECT 0 AS passed, MAX(ref_code) AS actual_value FROM accounts")),
+            [],
+            piiSettings: new McpSettingsData { EnablePiiDetection = true, CustomPiiPatterns = ["(unclosed"] });
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        result.RuleResults.Should().ContainSingle().Which.ActualValue.Should().Be("R***N");
     }
 
     [Test]

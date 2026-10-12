@@ -28,8 +28,10 @@ internal sealed class UpdateMcpProjectSettingsHandler(
 
         // Deployment locks win over any stored value (§1.5, R1/R2). ANY non-null override of a locked field is
         // refused — even one that agrees with the lock today, because it would silently take effect the day the
-        // lock is lifted. Null means "inherit" and is always allowed: the inherited value is pinned by the lock.
-        foreach (var rule in McpLockPolicy.ActiveRules(deploymentOptions.Value))
+        // lock is lifted. Null is always allowed and keeps the stored override of a locked field (below), which the
+        // lock overrides until it is lifted.
+        var activeLocks = McpLockPolicy.ActiveRules(deploymentOptions.Value);
+        foreach (var rule in activeLocks)
         {
             if (rule.HasOverride(data))
             {
@@ -63,6 +65,16 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         var entity = await context.McpProjectSettings
             .Where(x => x.ProjectId == request.ProjectId)
             .FirstOrDefaultAsync(cancellationToken);
+
+        // The page never sends a locked field, so an unrelated save would otherwise clear its stored override: keep it, so
+        // lifting the lock restores the project's configuration (as the global handler keeps the global row's value).
+        if (entity != null)
+        {
+            foreach (var rule in activeLocks)
+            {
+                rule.KeepStoredOverride(data, entity);
+            }
+        }
 
         // Turning read-only enforcement or PII detection off for the project is an Admin's; a SecurityAdmin turns them
         // on. An override left empty inherits the global value, read only when that decides it.
@@ -184,7 +196,8 @@ internal sealed class UpdateMcpProjectSettingsHandler(
 /// Saves a project's MCP setting overrides (null inherits the global value). For an Admin or a SecurityAdmin; only an
 /// Admin turns read-only enforcement or PII detection off for the project, or pins either off (403,
 /// <see cref="McpSafetySettings"/>), and only while the deployment does not lock them on. An override of a field a
-/// deployment lock pins is refused (409), an Admin's included. Every change is recorded in the settings history
+/// deployment lock pins is refused (409), an Admin's included, and a save leaves the override such a field held before the
+/// lock as it is. Every change is recorded in the settings history
 /// (<see cref="McpSettingsChangeAudit"/>).
 /// </summary>
 [ProjectScopeExempt("security configuration, gated by the SecurityAdmin permission", Policy = BeaconPermissions.SecurityAdminPolicy)]

@@ -16,6 +16,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataSources;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
@@ -269,6 +270,53 @@ public class MetadataRefreshTests
         warning.Message.Should().NotContain("\t");
     }
 
+    // A refresh replaces the stored catalog: a column the sampler now leaves out — a secret-like name, a credential-shaped
+    // value — is stored without the samples it held before; an ordinary column gets its new ones. Nothing else is scrubbed.
+    [Test]
+    public async Task Refresh_StoresNoSamplesForAColumnTheSamplerLeavesOut_ClearingWhatItHeld()
+    {
+        var world = new MetadataWorld();
+        var old = new DatabaseMetadata { Id = 1, DataSourceId = DataSourceId, SchemaName = "sales", TableName = "partners" };
+        old.Columns =
+        [
+            new ColumnMetadata { ColumnName = "api_key", DataType = "text", DatabaseMetadata = old, SampleValues = "[\"held-before\"]" },
+            new ColumnMetadata { ColumnName = "reference", DataType = "text", DatabaseMetadata = old, SampleValues = "[\"held-before\"]" },
+            new ColumnMetadata { ColumnName = "status", DataType = "text", DatabaseMetadata = old, SampleValues = "[\"OLD\"]" }
+        ];
+        world.Stored.Add(old);
+        world.Extracted = [Extracted("sales", "partners", null, ("api_key", null), ("reference", null), ("status", null))];
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DataSource _, string sql, Dictionary<string, object?> _, CancellationToken _) => new ProviderQueryResult
+            {
+                Success = true,
+                Rows = !sql.StartsWith("SELECT DISTINCT", StringComparison.Ordinal)
+                    ? [new Dictionary<string, object?> { ["api_key"] = "partner-key-1", ["reference"] = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8", ["status"] = "ACTIVE" }]
+                    : sql.Contains("\"reference\"", StringComparison.Ordinal)
+                        ? [new Dictionary<string, object?> { ["reference"] = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8" }]
+                        : [new Dictionary<string, object?> { ["status"] = "ACTIVE" }]
+            });
+        var providers = new Mock<IDataSourceProviderFactory>();
+        providers
+            .Setup(x => x.GetProvider(It.IsAny<DataSourceType>()))
+            .Returns(provider.Object);
+        var sampler = new ColumnValueSampler(
+            new QueryGuardrailService(),
+            new GatedSqlRunner(TestSqlGate.Create(), providers.Object, TestConfiguredDatabases.None, TestQueryServices.QueryOptions),
+            NullLogger<ColumnValueSampler>.Instance);
+
+        await world.Service(sampler: sampler, settings: new McpSettingsData { EnableSampleValueCollection = true }).RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        var stored = world.Saved.OfType<DatabaseMetadata>().Single().Columns;
+        stored.Single(x => x.ColumnName == "api_key").SampleValues.Should().BeNull("a secret-like name is never sampled");
+        stored.Single(x => x.ColumnName == "reference").SampleValues.Should().BeNull("a credential-shaped value drops the column's samples");
+        stored.Single(x => x.ColumnName == "status").SampleValues.Should().Be("[\"ACTIVE\"]");
+        provider.Invocations
+            .Select(x => (string)x.Arguments[1])
+            .Should().NotContain(x => x.Contains("DISTINCT \"api_key\"", StringComparison.Ordinal), "no domain probe reads it either");
+    }
+
     [Test]
     public async Task Refresh_InvalidatesTheRelationshipGraph()
     {
@@ -302,6 +350,30 @@ public class MetadataRefreshTests
         world.DataSources.Single().ArchivedTime.Should().NotBeNull();
         world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("an archived source's metadata is never served from the cache");
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+    }
+
+    // Archiving takes the column values sampled from the source with it, archived tables' columns included; another
+    // source's samples stay. Nothing already archived is scrubbed: only this archive clears.
+    [Test]
+    public async Task ArchivingADataSource_ClearsTheColumnValuesSampledFromIt()
+    {
+        var world = new MetadataWorld();
+        var table = new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "public", TableName = "orders" };
+        var archivedTable = new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "public", TableName = "old_orders", ArchivedTime = DateTime.UtcNow };
+        var otherTable = new DatabaseMetadata { DataSourceId = DataSourceId + 1, SchemaName = "public", TableName = "orders" };
+        var sampled = new ColumnMetadata { ColumnName = "status", DataType = "text", DatabaseMetadata = table, SampleValues = "[\"PAID\"]", SampleValuesComplete = true };
+        var sampledArchived = new ColumnMetadata { ColumnName = "status", DataType = "text", DatabaseMetadata = archivedTable, SampleValues = "[\"OPEN\"]" };
+        var otherSource = new ColumnMetadata { ColumnName = "status", DataType = "text", DatabaseMetadata = otherTable, SampleValues = "[\"OPEN\"]", SampleValuesComplete = true };
+        world.StoredColumns.AddRange([sampled, sampledArchived, otherSource]);
+
+        await world.DataSourceService().DeleteDataSource(DataSourceId, CancellationToken.None);
+
+        world.DataSources.Single().ArchivedTime.Should().NotBeNull();
+        sampled.SampleValues.Should().BeNull();
+        sampled.SampleValuesComplete.Should().BeFalse();
+        sampledArchived.SampleValues.Should().BeNull("an archived table of the source keeps no copy either");
+        otherSource.SampleValues.Should().Be("[\"OPEN\"]");
+        otherSource.SampleValuesComplete.Should().BeTrue();
     }
 
     [Test]
@@ -342,6 +414,7 @@ public class MetadataRefreshTests
             new ForcedMetadataRefreshCooldown(cache ?? new MemoryCache(new MemoryCacheOptions()), time ?? TimeProvider.System),
             settings ?? new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = cooldownMinutes } },
             permissions ?? TestPermissions.None,
+            new MetadataSampleView(permissions ?? TestPermissions.None, Mock.Of<ISharedSourceSettings>(), new QueryGuardrailService()),
             NullLogger<RefreshDataSourceMetadataHandler>.Instance);
     }
 
@@ -416,6 +489,8 @@ public class MetadataRefreshTests
 
         public List<DatabaseMetadata> Stored { get; } = [];
 
+        public List<ColumnMetadata> StoredColumns { get; } = [];
+
         public List<McpDocumentationPatch> Patches { get; } = [];
 
         public IReadOnlyList<TableMetadataDto> Extracted { get; set; } = [];
@@ -426,7 +501,10 @@ public class MetadataRefreshTests
 
         public Mock<ISchemaGraphService> Graph { get; } = new();
 
-        public DatabaseMetadataService Service(ILogger<DatabaseMetadataService>? logger = null)
+        public DatabaseMetadataService Service(
+            ILogger<DatabaseMetadataService>? logger = null,
+            IColumnValueSampler? sampler = null,
+            McpSettingsData? settings = null)
         {
             var extractor = new Mock<IDatabaseMetadataExtractor>();
             extractor.SetupGet(x => x.SupportedEngineType).Returns(DatabaseEngineType.PostgreSQL);
@@ -438,8 +516,8 @@ public class MetadataRefreshTests
                 Factory(),
                 Encryption(),
                 [extractor.Object],
-                Mock.Of<IColumnValueSampler>(),
-                SettingsProviderMock.Unshared(SettingsProviderMock.Create(new McpSettingsData { EnableSampleValueCollection = false }).Object),
+                sampler ?? Mock.Of<IColumnValueSampler>(),
+                SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData { EnableSampleValueCollection = false }).Object),
                 Cache,
                 Graph.Object,
                 logger ?? NullLogger<DatabaseMetadataService>.Instance);
@@ -465,6 +543,7 @@ public class MetadataRefreshTests
             {
                 [typeof(DataSource)] = RecordingBeaconContext.MemorySet(DataSources, Saved),
                 [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Stored, Saved),
+                [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet(StoredColumns, Saved),
                 [typeof(McpDocumentationPatch)] = RecordingBeaconContext.MemorySet(Patches, Saved),
                 [typeof(Beacon.Core.Data.Entities.DataMigration.MigrationJob)] = RecordingBeaconContext.MemorySet(new List<Beacon.Core.Data.Entities.DataMigration.MigrationJob>(), Saved)
             };

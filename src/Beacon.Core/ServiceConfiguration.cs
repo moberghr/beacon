@@ -302,6 +302,9 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MetadataRefreshOptions>, Configuration.MetadataRefreshOptionsValidator>());
         services.TryAddSingleton<Services.Metadata.ForcedMetadataRefreshCooldown>();
 
+        // The stored sample values a metadata response carries: an Admin's only.
+        services.TryAddTransient<Handlers.DataSources.MetadataSampleView>();
+
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 

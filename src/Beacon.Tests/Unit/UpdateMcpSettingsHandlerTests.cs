@@ -99,6 +99,41 @@ public class UpdateMcpSettingsHandlerTests
         saves().Should().Be(1);
     }
 
+    // Under the row-data lock the page sends the three fields as the lock pins them (off); the values stored before the
+    // lock survive an unrelated save, so lifting the lock restores them.
+    [Test]
+    public async Task AnUnrelatedGlobalSave_UnderTheLock_KeepsTheStoredRowDataFlags()
+    {
+        var stored = new McpSettings { EnableSampleValueCollection = true, EnableValueGrounding = true, EnableEvalJudge = true, MaxRowLimit = 1000 };
+        var (handler, saves) = CreateHandlerWithRow(stored, new McpDeploymentOptions { ForbidRowDataToLlm = true });
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnableSampleValueCollection = false, EnableValueGrounding = false, EnableEvalJudge = false, MaxRowLimit = 250 }),
+            CancellationToken.None);
+
+        stored.EnableSampleValueCollection.Should().BeTrue();
+        stored.EnableValueGrounding.Should().BeTrue();
+        stored.EnableEvalJudge.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(250, "the unrelated field is written");
+        saves().Should().Be(1);
+    }
+
+    // Without the lock the same save is a deliberate edit and turns them off.
+    [Test]
+    public async Task AGlobalSave_WithoutTheLock_WritesTheRowDataFlags()
+    {
+        var stored = new McpSettings { EnableSampleValueCollection = true, EnableValueGrounding = true, EnableEvalJudge = true };
+        var (handler, _) = CreateHandlerWithRow(stored, new McpDeploymentOptions());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnableSampleValueCollection = false, EnableValueGrounding = false, EnableEvalJudge = false }),
+            CancellationToken.None);
+
+        stored.EnableSampleValueCollection.Should().BeFalse();
+        stored.EnableValueGrounding.Should().BeFalse();
+        stored.EnableEvalJudge.Should().BeFalse();
+    }
+
     [Test]
     public async Task Handle_LockedFieldEchoedBack_KeepsStoredValue()
     {

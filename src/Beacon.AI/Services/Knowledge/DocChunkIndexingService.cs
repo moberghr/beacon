@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
 using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.Knowledge;
@@ -13,7 +15,10 @@ namespace Beacon.AI.Services.Knowledge;
 /// of char-truncating the whole documentation. When <c>EnableContextualRetrieval</c> is on and an LLM
 /// provider is usable, each chunk is prefixed with a short LLM-generated situating blurb before embedding
 /// and the blurb is stored (Tier-3 ⑩, Anthropic contextual retrieval). Only the section documentation text
-/// reaches the LLM — never bulk query rows (§1.11). Mirrors <see cref="EmbeddingIndexingService"/>: the
+/// reaches the LLM — never bulk query rows (§1.11); the text of a section that can list values discovered in the data
+/// (<see cref="ProjectDocSectionTypes.ListingValues"/>) is row data, so its blurb requests are logged by the row-data egress
+/// log, and while row data may not reach the provider (<c>Beacon:Mcp:ForbidRowDataToLlm</c>) its chunks get no blurb and
+/// are embedded raw. Mirrors <see cref="EmbeddingIndexingService"/>: the
 /// interface lives in Core, the impl here, gated by settings, one context per unit of work via
 /// <see cref="IDbContextFactory{BeaconContext}"/>, OCE rethrown, all-failed surfaced as an error.
 /// </summary>
@@ -23,8 +28,13 @@ internal sealed class DocChunkIndexingService(
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
     IEmbeddingVectorColumnWriter vectorWriter,
+    ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<DocChunkIndexingService> logger) : IDocChunkIndexingService
 {
+    /// <summary>Who the egress log names for the blurbs this background job requests.</summary>
+    internal const string CallerId = "documentation-indexing";
+
     // Kept identical to EmbeddingIndexingService so all vectors in the shared store share a model/version
     // and a model swap re-indexes everything consistently.
     private const string EmbeddingModelName = "bge-small-en-v1.5";
@@ -100,7 +110,7 @@ internal sealed class DocChunkIndexingService(
             catch (Exception ex)
             {
                 failed++;
-                logger.LogWarning(ex, "Failed to index doc chunks for project {ProjectId}", projectId);
+                logger.LogWarning("Failed to index doc chunks for project {ProjectId} ({Failure})", projectId, FailureCodes.Describe(ex));
             }
         }
 
@@ -164,7 +174,8 @@ internal sealed class DocChunkIndexingService(
                     new SectionSource
                     {
                         Id = x.Id,
-                        Content = x.Content
+                        Content = x.Content,
+                        SectionType = x.SectionType
                     })
                 .ToListAsync(ct);
 
@@ -205,11 +216,24 @@ internal sealed class DocChunkIndexingService(
         var blurbFailures = 0;
         if (settings.EnableContextualRetrieval && desired.Count > 0)
         {
-            var sectionTextById = sections.ToDictionary(x => x.Id, x => x.Content);
+            var sectionsById = sections.ToDictionary(x => x.Id);
+            var forbidRowData = deploymentOptions.Value.ForbidRowDataToLlm;
+            var listedValuesProvider = rowDataEgress.Track(
+                llmProvider,
+                new LlmRowDataScope(projectId, [], [LlmRowDataCategories.StoredDocumentation]) { CallerId = CallerId });
             for (var i = 0; i < desired.Count; i++)
             {
                 var chunk = desired[i];
-                var blurbResult = await GenerateBlurbAsync(chunk.SourceSectionId, sectionTextById[chunk.SourceSectionId], chunk.Text, ct);
+                var section = sectionsById[chunk.SourceSectionId];
+                var listsValues = section.SectionType.ListsValues();
+                if (listsValues && forbidRowData)
+                {
+                    // Under the row-data lock a section that can list values never reaches the provider: no blurb.
+                    continue;
+                }
+
+                var blurbResult = await GenerateBlurbAsync(
+                    listsValues ? listedValuesProvider : llmProvider, chunk.SourceSectionId, section.Content, chunk.Text, ct);
                 blurbs[i] = blurbResult.Blurb;
                 if (blurbResult.Failed)
                 {
@@ -582,7 +606,7 @@ internal sealed class DocChunkIndexingService(
                 new ImportedChunkSource(x.Id, x.ImportedDocument!.Title, x.ChunkText));
     }
 
-    private async Task<BlurbResult> GenerateBlurbAsync(int sectionId, string sectionText, string chunkText, CancellationToken ct)
+    private async Task<BlurbResult> GenerateBlurbAsync(ILlmProvider provider, int sectionId, string sectionText, string chunkText, CancellationToken ct)
     {
         try
         {
@@ -594,7 +618,7 @@ internal sealed class DocChunkIndexingService(
                 MaxTokens = BlurbMaxTokens
             };
 
-            var response = await llmProvider.CompleteAsync(request, ct);
+            var response = await provider.CompleteAsync(request, ct);
             var blurb = response.Content?.Trim();
             // Legitimately-blank response is NOT a failure — the raw chunk is embedded and the provider is fine.
             return new BlurbResult(string.IsNullOrWhiteSpace(blurb) ? null : blurb, Failed: false);
@@ -608,7 +632,7 @@ internal sealed class DocChunkIndexingService(
             // Best-effort: a provider outage / not-configured error must never drop the chunk. Embed the raw
             // chunk (null blurb) and flag the FAILURE so an all-failed project can be surfaced as an Error
             // (§ Unwanted behaviours — blurb failure → raw chunk).
-            logger.LogWarning(ex, "Contextual blurb generation failed for a doc chunk of section {SectionId}; embedding raw chunk.", sectionId);
+            logger.LogWarning("Contextual blurb generation failed for a doc chunk of section {SectionId}; embedding raw chunk ({Failure}).", sectionId, FailureCodes.Describe(ex));
             return new BlurbResult(null, Failed: true);
         }
     }
@@ -636,6 +660,7 @@ internal sealed class DocChunkIndexingService(
     {
         public int Id { get; init; }
         public string Content { get; init; } = null!;
+        public ProjectDocSectionType SectionType { get; init; }
     }
 
     private sealed class GlossaryTermSource

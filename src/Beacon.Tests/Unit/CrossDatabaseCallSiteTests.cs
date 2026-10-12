@@ -101,10 +101,11 @@ public class CrossDatabaseCallSiteTests
 
         await foreign.Should().ThrowAsync<InvalidOperationException>().WithMessage("*another database*");
         _connectionsOpened.Should().Be(0);
-        // A failure on the data source ends the preview as a failed page, carrying the provider's message.
+        // A failure on the data source ends the preview as a failed page, carrying the provider's message — redacted, as
+        // PII detection is on — and the connection was reached.
         var page = await matching();
         page.Success.Should().BeFalse();
-        page.ErrorMessage.Should().Contain(nameof(ConnectionReachedException));
+        page.ErrorMessage.Should().StartWith("Database error");
         _connectionsOpened.Should().Be(1);
     }
 
@@ -351,7 +352,7 @@ public class CrossDatabaseCallSiteTests
         executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AskExecutionResult("### Results (1 row)\n", null, 1, true, [new Dictionary<string, object?> { ["id"] = 1 }]));
-        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), NullLogger<AskSqlPipeline>.Instance);
+        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), NullLogger<AskSqlPipeline>.Instance);
 
         Generates(generation, Foreign);
         var foreign = await pipeline.RunAsync(Mock.Of<ILlmProvider>(), DataSourceId, ProjectId, "orders?", new McpSettingsData(), executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
@@ -511,6 +512,7 @@ public class CrossDatabaseCallSiteTests
             TestConfiguredDatabases.Of(Configured),
             knowledge.Object,
             generation.Object,
+            TestRowDataEgress.Discarding(),
             NullLoggerFactory.Instance,
             NullLogger<CrossSourceQueryService>.Instance);
     }

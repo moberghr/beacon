@@ -27,6 +27,10 @@ export const PATCH_STATUS_LABEL: Record<number, string> = {
   [McpDocPatchStatus.Rejected]: 'Rejected',
 };
 
+/**
+ * The global settings the page edits. The server's row has more (self-consistency, retrieval, exemplar and grounding
+ * budgets…): a save spreads everything it loaded, so the settings the page does not show go back as they were read.
+ */
 export interface McpSettingsData {
   askSystemPrompt: string | null;
   globalInstruction: string | null;
@@ -40,6 +44,7 @@ export interface McpSettingsData {
   enablePiiDetection: boolean;
   customPiiPatterns: string[];
   enableSampleValueCollection: boolean;
+  enableValueGrounding: boolean;
   enableLearning: boolean;
   learningAutoApproveThreshold: number;
   learningInjectionBudgetChars: number;

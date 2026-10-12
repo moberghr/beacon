@@ -88,16 +88,9 @@ internal sealed class SetDataSourceMigrationWritesHandler(
             }
 
             // Beacon never reads a write target, and its login may change to one that can write: the column values sampled
-            // through the old login go with it, so no path that serves stored metadata can show them.
-            var sampledColumns = await context.ColumnMetadata
-                .Where(x => x.DatabaseMetadata.DataSourceId == request.DataSourceId)
-                .Where(x => x.SampleValues != null || x.SampleValuesComplete)
-                .ToListAsync(cancellationToken);
-            foreach (var column in sampledColumns)
-            {
-                column.SampleValues = null;
-                column.SampleValuesComplete = false;
-            }
+            // through the old login go with it, archived tables' columns included, so no path that serves stored metadata
+            // can show them.
+            await DatabaseMetadataService.ClearStoredSampleValuesAsync(context, request.DataSourceId, cancellationToken);
         }
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);

@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.Learning;
 
@@ -100,10 +101,8 @@ internal sealed class PatternReplayVerifier(
                 // A case we could not measure counts as Errored (never a flip, never a regression), so a
                 // flaky/erroring case can neither help a candidate over the promotion bar nor block it.
                 errored++;
-                logger.LogWarning(
-                    ex,
-                    "Replay verification threw for a case on pattern {PatternId} ({Schema}.{Table}); counting as errored",
-                    candidate.Id, candidate.SchemaName, candidate.TableName);
+                logger.LogWarning("Replay verification threw for a case on pattern {PatternId} ({Schema}.{Table}); counting as errored ({Failure})",
+                    candidate.Id, candidate.SchemaName, candidate.TableName, FailureCodes.Describe(ex));
             }
         }
 

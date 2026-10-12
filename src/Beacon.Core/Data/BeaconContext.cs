@@ -1473,7 +1473,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.GetDocumentationDescription).HasMaxLength(1000);
             entity.Property(e => e.AskDescription).HasMaxLength(1000);
             entity.Property(e => e.CustomPiiPatterns).HasMaxLength(4000);
-            entity.Property(e => e.EnableSampleValueCollection).HasDefaultValue(true);
+            entity.Property(e => e.EnableSampleValueCollection).HasDefaultValue(false);
             entity.Property(e => e.EnableReplayVerification).HasDefaultValue(true);
             entity.Property(e => e.LearningReplayMinFlips).HasDefaultValue(1);
             entity.Property(e => e.EnableContextualRetrieval).HasDefaultValue(false);

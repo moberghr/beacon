@@ -2,6 +2,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
+using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -82,6 +83,39 @@ public class GatedSqlRunnerTests
         var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10), CancellationToken.None);
 
         await act.Should().ThrowAsync<QueryExecutionFailedException>().WithMessage("relation does not exist");
+    }
+
+    // The database's error quotes a row value: while the source's effective PII detection is on (the request's settings,
+    // else the source's tightened global settings) the failure carries it redacted; with detection off it is as it was.
+    [TestCase(true, null, true)]
+    [TestCase(false, null, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, false)]
+    public async Task AFailureQuotingAValue_IsRedactedWhilePiiDetectionIsOn(bool sourceDetects, bool? requestDetects, bool redacted)
+    {
+        const string error = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+        var settings = new Mock<ISharedSourceSettings>();
+        settings
+            .Setup(x => x.GetDataSourceSettingsAsync(Source.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpSettingsData { EnablePiiDetection = sourceDetects });
+        var runner = new GatedSqlRunner(
+            TestSqlGate.Create(),
+            TestQueryServices.Providers(Answering(new ProviderQueryResult { Success = false, ErrorMessage = error }).Object),
+            TestConfiguredDatabases.None,
+            TestQueryServices.QueryOptions,
+            settings.Object);
+        var pii = requestDetects is { } detects ? new McpSettingsData { EnablePiiDetection = detects } : null;
+
+        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, pii), CancellationToken.None);
+
+        var thrown = await act.Should().ThrowAsync<QueryExecutionFailedException>();
+        if (redacted)
+        {
+            thrown.Which.Message.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
+            return;
+        }
+
+        thrown.Which.Message.Should().Be(error);
     }
 
     [Test]

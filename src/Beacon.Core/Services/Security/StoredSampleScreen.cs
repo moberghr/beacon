@@ -8,11 +8,13 @@ namespace Beacon.Core.Services.Security;
 /// since, applies only when the values are read back. So every path that shows stored samples passes them through here
 /// with the settings that apply now (for a shared data source, the strictest of the live projects that link it).
 /// <para>
-/// The screen is the one sampling and value-grounding probes use: a column whose name is PII
-/// (<see cref="IQueryGuardrailService.IsPiiColumn"/>, built-in or custom pattern) shows none of its samples, and a value
-/// that <see cref="PiiValueScreen"/> finds PII-shaped or matching a custom pattern is dropped while the others stay. As
-/// when values are sampled, the built-in screens apply whatever the PII-detection setting. Nothing is shown while
-/// sample-value collection is off.
+/// The screen is the one sampling and value-grounding probes use: a column whose name
+/// <see cref="ColumnValueExclusions"/> leaves out (PII, built-in or custom pattern; secret-like; a financial amount), or
+/// one of whose values looks like a credential (<see cref="CredentialValueScreen"/>), shows none of its samples, and a
+/// value that <see cref="PiiValueScreen"/> finds PII-shaped or matching a custom pattern is dropped while the others stay.
+/// So samples stored before these screens existed are withheld until the next refresh replaces them. As when values are
+/// sampled, the built-in screens apply whatever the PII-detection setting. Nothing is shown while sample-value
+/// collection is off (which the deployment lock <c>Beacon:Mcp:ForbidRowDataToLlm</c> pins).
 /// </para>
 /// </summary>
 public static class StoredSampleScreen
@@ -35,7 +37,8 @@ public static class StoredSampleScreen
             return values;
         }
 
-        if (guardrail.IsPiiColumn(columnName, settings.CustomPiiPatterns))
+        if (ColumnValueExclusions.IsExcludedColumn(guardrail, columnName, settings.CustomPiiPatterns)
+            || CredentialValueScreen.ContainsCredential(values))
         {
             return null;
         }

@@ -70,6 +70,9 @@ public static class ServiceConfiguration
         // every completion through LlmRequestQueue.
         services.AddSingleton<ILlmProvider, DelegatingLlmProvider>();
 
+        // The log of row-derived data sent to the LLM provider (ids and categories only).
+        services.TryAddTransient<ILlmRowDataEgress, LlmRowDataEgress>();
+
         // AI services
         services.TryAddScoped<IAiAlertGenerationService, AiAlertGenerationService>();
 

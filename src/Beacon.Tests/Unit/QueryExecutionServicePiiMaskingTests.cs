@@ -132,6 +132,33 @@ public class QueryExecutionServicePiiMaskingTests
         StructuredRowValues(result).Should().Contain(RawEmail);
     }
 
+    // The database's error quotes a row value: the MCP caller (the ask flow, dry_run) gets it redacted while PII detection
+    // is on, as it was otherwise.
+    [TestCase(true, "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.")]
+    [TestCase(false, DatabaseErrorWithAValue)]
+    public async Task ExecuteAsync_AFailureQuotingAValue_IsRedactedWhilePiiDetectionIsOn(bool piiDetectionOn, string expected)
+    {
+        var service = BuildService(piiDetectionOn, result: new ProviderQueryResult { Success = false, ErrorMessage = DatabaseErrorWithAValue });
+
+        var result = await service.ExecuteAsync(1, "SELECT total FROM orders", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(expected);
+    }
+
+    [TestCase(true, "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.")]
+    [TestCase(false, DatabaseErrorWithAValue)]
+    public async Task ValidateAsync_ADryRunFailureQuotingAValue_IsRedactedWhilePiiDetectionIsOn(bool piiDetectionOn, string expected)
+    {
+        var service = BuildService(piiDetectionOn, validation: new Beacon.Core.Models.Providers.QueryValidationResult { IsValid = false, Errors = [DatabaseErrorWithAValue] });
+
+        var outcome = await service.ValidateAsync(1, "SELECT total FROM orders", CancellationToken.None);
+
+        outcome.Error.Should().Be(expected);
+    }
+
+    private const string DatabaseErrorWithAValue = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+
     private static List<string?> StructuredRowValues(QueryExecutionResult result)
     {
         result.Structured.Should().NotBeNull();
@@ -223,14 +250,16 @@ public class QueryExecutionServicePiiMaskingTests
         DataSourceType dataSourceType = DataSourceType.Database,
         DatabaseEngineType? engine = DatabaseEngineType.PostgreSQL,
         List<string>? executed = null,
-        ISharedSourceSettings? sharedSources = null)
+        ISharedSourceSettings? sharedSources = null,
+        ProviderQueryResult? result = null,
+        Beacon.Core.Models.Providers.QueryValidationResult? validation = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new SeededDataSourceContext(dataSourceType, engine));
 
-        var providerResult = new ProviderQueryResult
+        var providerResult = result ?? new ProviderQueryResult
         {
             Success = true,
             Rows = rows ??
@@ -248,6 +277,9 @@ public class QueryExecutionServicePiiMaskingTests
                 It.IsAny<CancellationToken>()))
             .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => executed?.Add(sql))
             .ReturnsAsync(providerResult);
+        provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(validation ?? new Beacon.Core.Models.Providers.QueryValidationResult { IsValid = true });
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory

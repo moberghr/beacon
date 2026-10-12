@@ -2582,7 +2582,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("EnableSampleValueCollection")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
-                        .HasDefaultValue(true);
+                        .HasDefaultValue(false);
 
                     b.Property<bool>("EnableSelfConsistency")
                         .HasColumnType("bit");

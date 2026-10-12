@@ -250,6 +250,31 @@ public class SubscriptionRunSettingsTests
         result.QueryResults.Should().NotContain("0101302");
     }
 
+    // The database names the host-masked column otherwise than the host policy derived (kt): the provider masks it by its
+    // POSITION, so the join, the delivered rows and their export never see the value, with PII detection off too.
+    [Test]
+    public async Task AHostMaskedColumnTheDatabaseNamesOtherwise_IsMaskedByPosition()
+    {
+        ConnectLedger([("Id", x => x + 1), ("kt_as_the_server_named_it", x => $"01013029{x + 1}9")]);
+        ConnectCrm([("id", x => x + 1), ("city", x => $"city{x + 1}")]);
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql: true);
+        var service = Service(
+            [(Ledger, "SELECT c.\"Id\", c.\"SSN\" AS kt FROM public.\"Customer\" c"), (Crm, "SELECT id, city FROM addresses")],
+            "SELECT a.kt_as_the_server_named_it AS copy, b.city FROM @result1 a JOIN @result2 b ON a.Id = b.id",
+            new Dictionary<int, McpSettingsData>
+            {
+                [Ledger] = new() { EnablePiiDetection = false },
+                [Crm] = new() { EnablePiiDetection = false }
+            },
+            hostSnapshot: snapshot);
+
+        var result = await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        result.AllRecords.Should().HaveCount(3);
+        result.AllRecords.Should().OnlyContain(x => (string?)x["copy"] == HostResultMasker.MaskedValue);
+        result.QueryResults.Should().NotContain("0101302");
+    }
+
     private static void ConnectLedger(IReadOnlyList<(string Name, Func<int, object?> Value)> columns)
     {
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => new RecordingDbConnection { Columns = columns, RowCount = 3 });

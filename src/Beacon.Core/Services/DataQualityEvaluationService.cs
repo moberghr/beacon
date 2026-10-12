@@ -361,22 +361,33 @@ internal class DataQualityEvaluationService(
 
     // A CustomSql rule's own text columns (actual_value, message) become the rule result's value and message, which its
     // history and alerts carry, so a PII column read into them — by its own name, by an alias over it or by a custom
-    // pattern — is masked before the result is built (§1.6/§1.11). The numeric columns (passed, score) are read as numbers.
+    // pattern — is masked before the result is built (§1.6/§1.11). While PII detection is on, a text value that looks like
+    // PII is masked too, whatever its column is called (MAX(iban) AS actual_value), and a screen that cannot finish counts
+    // as a hit. The numeric columns (passed, score), and a value the database returns as a number, are not text.
     private Dictionary<string, object?> MaskCustomSqlText(Dictionary<string, object?> row, string sql, McpSettingsData pii, DatabaseEngineType engineType)
     {
+        var customPatterns = pii.CustomPiiPatterns.Count > 0 ? pii.CustomPiiPatterns : null;
         var piiColumns = PiiRowMasker.ResolvePiiColumns(
             guardrail,
             row.Keys,
             [],
             pii.EnablePiiDetection,
-            pii.CustomPiiPatterns.Count > 0 ? pii.CustomPiiPatterns : null,
+            customPatterns,
             sql,
             engineType.ToString());
-        var textColumns = piiColumns
+        var textColumns = row.Keys
             .Where(x => CustomSqlTextColumns.Contains(x))
+            .Where(x => piiColumns.Contains(x) || LooksLikePii(row[x]))
             .ToList();
 
         return textColumns.Count == 0 ? row : guardrail.MaskPiiValues(row, textColumns);
+
+        bool LooksLikePii(object? value)
+        {
+            return pii.EnablePiiDetection
+                && value is string { Length: > 0 } text
+                && PiiValueScreen.ContainsPiiValue([text], customPatterns);
+        }
     }
 
     private void LogRejection(DataContractRule rule, DataContract contract, string reason)

@@ -94,6 +94,21 @@ public class DryRunToolTests
         _gate.Dialects.Should().Equal(dialect);
     }
 
+    // The provider's dry-run error is the database's own and can quote a row value: the stored signal never holds it raw,
+    // whatever the PII setting (the caller's copy is redacted upstream while detection is on).
+    [Test]
+    public async Task AProviderDryRunErrorQuotingAValue_IsStoredOnTheSignalRedacted()
+    {
+        _queryExecution
+            .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderDryRunOutcome("22P02: invalid input syntax for type integer: \"Ivan Horvat\"", false));
+
+        await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        _signals.Should().ContainSingle()
+            .Which.DryRunError.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
+    }
+
     [Test]
     public async Task ValidSelect_AllGatesPass_AppliesRowLimit_AndRunsProviderDryRun()
     {

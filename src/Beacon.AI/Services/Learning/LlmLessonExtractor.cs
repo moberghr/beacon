@@ -1,7 +1,11 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
+using Beacon.Core.Helpers;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.AI.Services.Learning;
 
@@ -10,14 +14,21 @@ namespace Beacon.AI.Services.Learning;
 /// <see cref="FailureCluster"/> it asks the model to diagnose the failure and emit a compact structured
 /// JSON lesson, which is parsed defensively into an <see cref="ExtractedLesson"/>. Every completion goes
 /// through the queue-backed <see cref="ILlmProvider"/> (§6.1) and stays provider-agnostic (§9.4). Only
-/// the cluster's text fields are sent — never bulk result rows (§1.11). On ANY provider/parse failure it
-/// logs a warning and returns <c>null</c> so <see cref="McpLearningAggregationService"/> falls back to the
-/// deterministic regex path; cancellation is always propagated (lesson: never swallow cancellation).
+/// the cluster's text fields are sent — never bulk result rows (§1.11). The database error goes without the values it can
+/// quote (<see cref="DatabaseErrorRedactor"/>), and as its class and code only while row data may not reach the provider
+/// (<c>Beacon:Mcp:ForbidRowDataToLlm</c>); a request carrying the redacted error is logged by the row-data egress log. On
+/// ANY provider/parse failure it logs a warning and returns <c>null</c> so <see cref="McpLearningAggregationService"/>
+/// falls back to the deterministic regex path; cancellation is always propagated (lesson: never swallow cancellation).
 /// </summary>
 internal sealed class LlmLessonExtractor(
     ILlmProvider llmProvider,
+    ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<LlmLessonExtractor> logger) : ILessonExtractor
 {
+    /// <summary>The caller the egress log names for a lesson the learning aggregation job extracts.</summary>
+    internal const string CallerId = "learning-aggregation";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -55,15 +66,23 @@ internal sealed class LlmLessonExtractor(
     {
         try
         {
+            var forbidRowData = deploymentOptions.Value.ForbidRowDataToLlm;
+            var error = PromptError(cluster, forbidRowData);
             var request = new LlmRequest
             {
                 SystemPrompt = SystemPrompt,
-                Messages = [new ChatMessage(ConversationRole.User, BuildUserMessage(cluster))],
+                Messages = [new ChatMessage(ConversationRole.User, BuildUserMessage(cluster with { Error = error }))],
                 Temperature = 0.0m,
                 MaxTokens = 512
             };
 
-            var response = await llmProvider.CompleteAsync(request, ct);
+            // The redacted error is the one part of the prompt read from a data source; its class and code alone are not.
+            IReadOnlyList<string> categories = error != null && !forbidRowData ? [LlmRowDataCategories.DatabaseErrors] : [];
+            var provider = rowDataEgress.Track(
+                llmProvider,
+                new LlmRowDataScope(cluster.ProjectId ?? 0, [cluster.DataSourceId], categories) { CallerId = CallerId });
+
+            var response = await provider.CompleteAsync(request, ct);
             return Parse(response.Content, cluster);
         }
         catch (OperationCanceledException)
@@ -72,12 +91,26 @@ internal sealed class LlmLessonExtractor(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(
-                ex,
-                "Lesson extraction failed for {Schema}.{Table}; falling back to deterministic detection",
-                cluster.SchemaName, cluster.TableName);
+            logger.LogWarning("Lesson extraction failed for {Schema}.{Table}; falling back to deterministic detection ({Failure})",
+                cluster.SchemaName, cluster.TableName, FailureCodes.Describe(ex));
             return null;
         }
+    }
+
+    // The names of the cluster's SQL stay in an error about a name; values it quotes never reach the prompt.
+    private string? PromptError(FailureCluster cluster, bool forbidRowData)
+    {
+        if (string.IsNullOrWhiteSpace(cluster.Error))
+        {
+            return null;
+        }
+
+        return forbidRowData
+            ? DatabaseErrorRedactor.ClassOnly(cluster.Error, logger)
+            : DatabaseErrorRedactor.Redact(
+                cluster.Error,
+                DatabaseErrorRedactor.KnownNames($"{cluster.GeneratedSql}\n{cluster.CorrectedSql}", null),
+                logger);
     }
 
     private ExtractedLesson? Parse(string? content, FailureCluster cluster)
@@ -103,10 +136,8 @@ internal sealed class LlmLessonExtractor(
         }
         catch (JsonException ex)
         {
-            logger.LogWarning(
-                ex,
-                "Lesson extractor: unparseable LLM JSON for {Schema}.{Table}",
-                cluster.SchemaName, cluster.TableName);
+            logger.LogWarning("Lesson extractor: unparseable LLM JSON for {Schema}.{Table} ({Failure})",
+                cluster.SchemaName, cluster.TableName, FailureCodes.Describe(ex));
             return null;
         }
 

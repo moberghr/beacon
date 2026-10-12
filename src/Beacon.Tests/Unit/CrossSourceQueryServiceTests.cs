@@ -6,9 +6,12 @@ using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Connector.PostgreSql;
+using Beacon.Core;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
@@ -17,6 +20,9 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.MCP.Services;
 using Beacon.Tests.Common;
+using Beacon.Tests.Unit.HostData;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using ProviderValidationResult = Beacon.Core.Models.Providers.QueryValidationResult;
 
 namespace Beacon.Tests.Unit;
@@ -362,6 +368,42 @@ public class CrossSourceQueryServiceTests
         ResultLine(text, "Zagreb").Should().Be("| 1***9 | 1***9 | Zagreb |");
     }
 
+    // The real provider masks the host-masked column by its POSITION before its rows enter the join store, also when the
+    // database names it otherwise than the host policy derived (ref_code): matched by name, the value would join raw.
+    [Test]
+    [NonParallelizable] // DbConnectionFactory is a process-wide registry.
+    public async Task TwoSourceJoin_AHostMaskedColumnTheDatabaseNamesOtherwise_IsMaskedByPosition()
+    {
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql: true);
+        var hostGuard = new HostDataSourceGuard(new SingleHostRegistry(snapshot));
+        var hostProvider = TestQueryServices.DatabaseProvider(hostGuard: hostGuard);
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.Is<DataSource>(y => y.Id == DataSourceId), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns((DataSource dataSource, string sql, Dictionary<string, object?> parameters, CancellationToken token) =>
+                hostProvider.ExecuteReadOnlyQueryAsync(dataSource, sql, parameters, token));
+        GeneratesFor(WarehouseContext, "SELECT c.\"Id\" AS address_id, c.\"SSN\" AS ref_code FROM public.\"Customer\" c");
+        GeneratesFor(CrmContext, "SELECT address_id, city FROM addresses");
+        ReturnsRowsFor(CrmDataSourceId, Row(("address_id", 1L), ("city", "Zagreb")));
+        JoinsWith("SELECT r1.ref_code_as_the_server_named_it AS x, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id");
+        DbConnectionFactory.Register(
+            DatabaseEngineType.PostgreSQL,
+            _ => new RecordingDbConnection { Columns = [("address_id", x => (long)x + 1), ("ref_code_as_the_server_named_it", _ => "123456789")], RowCount = 1 });
+
+        try
+        {
+            var (text, succeeded) = await CreateService(hostGuard, warehouseCatalog: []).ExecuteAsync(
+                _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+
+            succeeded.Should().BeTrue(text);
+            text.Should().NotContain("123456789");
+            ResultLine(text, "Zagreb").Should().Be("| *** | Zagreb |");
+        }
+        finally
+        {
+            new BeaconBuilder(new ServiceCollection(), new ConfigurationBuilder().Build()).AddPostgreSqlConnector();
+        }
+    }
+
     [Test]
     public async Task PiiDetectionOff_DoesNotMaskResultColumns()
     {
@@ -374,6 +416,95 @@ public class CrossSourceQueryServiceTests
         succeeded.Should().BeTrue(text);
         text.Should().Contain("alice@example.com");
     }
+
+    // A database error quoting a row value reaches the caller redacted while PII detection is on, as it was otherwise.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AnExecutionErrorQuotingAValue_ReachesTheCallerRedactedWhileDetectionIsOn(bool detect)
+    {
+        Generates("SELECT id FROM orders");
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = ErrorQuotingAValue });
+
+        var (text, _) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect), execute: true, _signal, CancellationToken.None);
+
+        if (detect)
+        {
+            text.Should().Contain($"**Execution Error for warehouse:** {RedactedError}").And.NotContain("Horvat");
+            return;
+        }
+
+        text.Should().Contain(ErrorQuotingAValue);
+    }
+
+    // The stored signal never holds the database's raw dry-run error.
+    [Test]
+    public async Task ADryRunErrorQuotingAValue_IsStoredOnTheSignalRedacted()
+    {
+        Generates("SELECT id FROM orders");
+        _provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = [ErrorQuotingAValue] });
+
+        await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+
+        _signal.Build().DryRunError.Should().Be(RedactedError);
+    }
+
+    // The repair prompt gets the dry-run error without the value it quotes, and the log its class only.
+    [Test]
+    public async Task ADryRunErrorQuotingAValue_ReachesTheRepairPromptAndTheLogRedacted()
+    {
+        Generates("SELECT id FROM orders");
+        _provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = [ErrorQuotingAValue] });
+        string? repairError = null;
+        _sqlGen
+            .Setup(x => x.RetryWithErrorAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => repairError = error)
+            .ReturnsAsync((string?)null);
+        var log = new LogRecorder();
+
+        await CreateService(logger: log.For<CrossSourceQueryService>()).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+
+        repairError.Should().Be(RedactedError);
+        log.Entries.Should().Contain(x => x.Message == $"Dry-run failed for data source {DataSourceId}, retrying (Database error 22P02 (data exception).)");
+        log.Contains("Horvat").Should().BeFalse();
+    }
+
+    // Each source's prompts go through a provider that logs its own data source and categories, never a value.
+    [Test]
+    public async Task EachSourcesPrompts_AreLoggedWithThatSourceAndItsCategories()
+    {
+        var log = new LogRecorder();
+        var providers = new Dictionary<string, ILlmProvider>();
+        _sqlGen
+            .Setup(x => x.GenerateAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .Callback<ILlmProvider, string, string, McpSettingsData, CancellationToken, decimal?>((provider, context, _, _, _, _) => providers[context] = provider)
+            .ReturnsAsync(new SqlGenerationResult("SELECT id FROM orders", ["orders"]));
+        var service = CreateService(egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()));
+
+        await service.ExecuteAsync(_llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: false, _signal, CancellationToken.None);
+        await providers[WarehouseContext].CompleteAsync(new LlmRequest());
+        await providers[CrmContext].CompleteAsync(new LlmRequest());
+
+        log.Entries.Select(x => x.Message).Should().Equal(
+            $"An LLM request carrying sample-values read from data sources {DataSourceId} of project {ProjectId} was handed to the provider for caller {TestRowDataEgress.CallerId}",
+            $"An LLM request carrying sample-values, value-matches read from data sources {CrmDataSourceId} of project {ProjectId} was handed to the provider for caller {TestRowDataEgress.CallerId}");
+    }
+
+    private const string ErrorQuotingAValue = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+
+    private const string RedactedError = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
 
     private void ReturnsRows(Dictionary<string, object?> row)
     {
@@ -447,7 +578,11 @@ public class CrossSourceQueryServiceTests
     };
 
     // A host guard makes the warehouse source host-managed under HostKey.
-    private CrossSourceQueryService CreateService(IHostDataSourceGuard? hostGuard = null)
+    private CrossSourceQueryService CreateService(
+        IHostDataSourceGuard? hostGuard = null,
+        Dictionary<string, HashSet<string>>? warehouseCatalog = null,
+        ILlmRowDataEgress? egress = null,
+        Microsoft.Extensions.Logging.ILogger<CrossSourceQueryService>? logger = null)
     {
         var warehouseHostKey = hostGuard == null ? null : HostKey;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -467,7 +602,8 @@ public class CrossSourceQueryServiceTests
             {
                 FullContext = WarehouseContext,
                 DatabaseDialect = _warehouseDialect,
-                SchemaCatalog = Catalog()
+                SchemaCatalog = warehouseCatalog ?? Catalog(),
+                RowDataCategories = [LlmRowDataCategories.SampleValues]
             });
         knowledgeGraph
             .Setup(x => x.GetSmartContextForAskAsync(CrmDataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
@@ -475,7 +611,8 @@ public class CrossSourceQueryServiceTests
             {
                 FullContext = CrmContext,
                 DatabaseDialect = "PostgreSQL",
-                SchemaCatalog = CrmCatalog()
+                SchemaCatalog = CrmCatalog(),
+                RowDataCategories = [LlmRowDataCategories.SampleValues, LlmRowDataCategories.ValueMatches]
             });
 
         var guardrail = new QueryGuardrailService();
@@ -489,8 +626,16 @@ public class CrossSourceQueryServiceTests
             TestConfiguredDatabases.None,
             knowledgeGraph.Object,
             _sqlGen.Object,
+            egress ?? TestRowDataEgress.Discarding(),
             NullLoggerFactory.Instance,
-            NullLogger<CrossSourceQueryService>.Instance);
+            logger ?? NullLogger<CrossSourceQueryService>.Instance);
+    }
+
+    private sealed class SingleHostRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry
+    {
+        public IReadOnlyList<HostDataSourceRegistration> Registrations => [];
+
+        public HostExposureSnapshot? GetSnapshot(string hostManagedKey) => hostManagedKey == HostKey ? snapshot : null;
     }
 
     /// <summary>Serves the data-source lookup over an async-queryable double — no DB (§4.7).</summary>

@@ -86,4 +86,8 @@ public interface IKnowledgeGraphService
 /// A documentation chunk retrieved for the knowledge-answer path. <see cref="ContextualBlurb"/> is the
 /// LLM-generated situating sentence (Tier-3 ⑩) when contextual retrieval indexed it, otherwise null.
 /// </summary>
-public record DocChunkHit(string ChunkText, string? ContextualBlurb);
+public record DocChunkHit(string ChunkText, string? ContextualBlurb)
+{
+    /// <summary>The type of the documentation section the chunk was cut from; null for a chunk of an imported document.</summary>
+    public ProjectDocSectionType? SectionType { get; init; }
+}

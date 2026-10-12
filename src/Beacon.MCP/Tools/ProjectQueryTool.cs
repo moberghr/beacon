@@ -8,6 +8,7 @@ using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -153,18 +154,27 @@ internal sealed class ProjectQueryTool(
 
             if (!result.Success)
             {
+                // The database's error can quote row values: the stored signal always gets it redacted, the caller and the
+                // audit trail while PII detection is on (a host data source's error is already Beacon's generic text).
+                var rawError = result.ErrorMessage ?? "Unknown error";
+                var callerError = DatabaseErrorRedactor.ForCaller(rawError, queryText, settings.EnablePiiDetection && dataSource.HostManagedKey == null, logger);
                 sw.Stop();
-                signal.SetExecutionFailed(result.ErrorMessage ?? "Unknown error");
+                signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(rawError, queryText, redact: true, logger));
                 signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                    sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, result.ErrorMessage,
+                    sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, callerError,
                     tables: report?.TablesUsed.ToList(), ct: cancellationToken);
                 await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-                return ToolHelper.Error($"Query execution failed: {result.ErrorMessage}");
+                return ToolHelper.Error($"Query execution failed: {callerError}");
             }
 
             var text = $"# Query Results\n\n**Data Source:** {dataSource.Name}\n**Rows:** {result.Rows?.Count ?? 0}\n\n";
             JsonNode? structured = null;
+
+            if (result.Metadata.TryGetValue(HostResultMetadata.RenamedMaskedColumns, out var renamed) && renamed is int renamedCount and > 0)
+            {
+                text += $"*{renamedCount} column(s) of this host data source result were masked because the database named them differently than the host policy checked them.*\n\n";
+            }
 
             if (result.Rows != null && result.Rows.Count > 0)
             {
@@ -196,7 +206,7 @@ internal sealed class ProjectQueryTool(
         catch (Exception ex)
         {
             sw.Stop();
-            signal.SetExecutionFailed(ex.Message);
+            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, sql ?? api_query, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
                 sql ?? api_query, datasource_id, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);

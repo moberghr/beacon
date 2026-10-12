@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Markdig;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.Documentation;
@@ -20,6 +22,9 @@ internal sealed class ProjectDocumentationService(
     IDataSourceProviderFactory dataSourceProviderFactory,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    ISharedSourceSettings sharedSourceSettings,
+    IQueryGuardrailService guardrail,
+    ILlmRowDataEgress rowDataEgress,
     ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
 {
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
@@ -30,6 +35,9 @@ internal sealed class ProjectDocumentationService(
 
         var docContext = await GatherContextAsync(projectId, ct);
 
+        // The prompts that list discovered column values carry row data to the LLM provider: each such request is logged.
+        var columnValuesProvider = rowDataEgress.Track(llmProvider, ColumnValuesScope(projectId, userId, docContext));
+
         var sections = new List<ProjectDocumentationSection>();
         var totalInput = 0;
         var totalOutput = 0;
@@ -37,14 +45,14 @@ internal sealed class ProjectDocumentationService(
         var model = "unknown";
 
         // Run passes 1-7 in parallel (independent context), then pass 8 (glossary) sequentially
-        var parallelPasses = new (ProjectDocSectionType Type, string Title, int SortOrder, Func<DocumentationContext, string> BuildPrompt)[]
+        var parallelPasses = new (ProjectDocSectionType Type, string Title, int SortOrder, Func<DocumentationContext, string> BuildPrompt, bool ListsColumnValues)[]
         {
-            (ProjectDocSectionType.ProjectOverview, "Project Overview", 0, BuildProjectOverviewPrompt),
-            (ProjectDocSectionType.BusinessDomains, "Business Domains", 1, BuildBusinessDomainsPrompt),
-            (ProjectDocSectionType.DataModel, "Data Model", 2, BuildDataModelPrompt),
-            (ProjectDocSectionType.DataFlows, "Data Flows", 3, BuildDataFlowsPrompt),
-            (ProjectDocSectionType.CodeLineage, "Code Lineage", 4, BuildCodeLineagePrompt),
-            (ProjectDocSectionType.DataQuality, "Data Quality", 5, BuildDataQualityPrompt),
+            (ProjectDocSectionType.ProjectOverview, "Project Overview", 0, BuildProjectOverviewPrompt, false),
+            (ProjectDocSectionType.BusinessDomains, "Business Domains", 1, BuildBusinessDomainsPrompt, true),
+            (ProjectDocSectionType.DataModel, "Data Model", 2, BuildDataModelPrompt, true),
+            (ProjectDocSectionType.DataFlows, "Data Flows", 3, BuildDataFlowsPrompt, false),
+            (ProjectDocSectionType.CodeLineage, "Code Lineage", 4, BuildCodeLineagePrompt, false),
+            (ProjectDocSectionType.DataQuality, "Data Quality", 5, BuildDataQualityPrompt, false),
         };
 
         // Add API documentation pass only if there are API data sources
@@ -55,13 +63,13 @@ internal sealed class ProjectDocumentationService(
             try
             {
                 var userPrompt = pass.BuildPrompt(docContext);
-                var response = await CallLlmAsync(GetSystemPrompt(pass.Type), userPrompt, ct);
+                var response = await CallLlmAsync(pass.ListsColumnValues ? columnValuesProvider : llmProvider, GetSystemPrompt(pass.Type), userPrompt, ct);
                 return (pass.Type, pass.Title, pass.SortOrder, Content: response.Content,
                     response.InputTokens, response.OutputTokens, response.Cost, response.Model, Error: (string?)null);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Documentation generation failed for section {SectionType}", pass.Type);
+                logger.LogWarning("Documentation generation failed for section {SectionType} ({Failure})", pass.Type, FailureCodes.Describe(ex));
                 return (pass.Type, pass.Title, pass.SortOrder,
                     Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
                     InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
@@ -94,7 +102,7 @@ internal sealed class ProjectDocumentationService(
         try
         {
             var glossaryPrompt = BuildGlossaryPrompt(docContext, sections);
-            var glossaryResponse = await CallLlmAsync(GetSystemPrompt(ProjectDocSectionType.Glossary), glossaryPrompt, ct);
+            var glossaryResponse = await CallLlmAsync(columnValuesProvider, GetSystemPrompt(ProjectDocSectionType.Glossary), glossaryPrompt, ct);
             sections.Add(new ProjectDocumentationSection
             {
                 SectionType = ProjectDocSectionType.Glossary,
@@ -109,7 +117,7 @@ internal sealed class ProjectDocumentationService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Documentation generation failed for Glossary");
+            logger.LogWarning("Documentation generation failed for Glossary ({Failure})", FailureCodes.Describe(ex));
             sections.Add(new ProjectDocumentationSection
             {
                 SectionType = ProjectDocSectionType.Glossary,
@@ -149,7 +157,12 @@ internal sealed class ProjectDocumentationService(
         return documentation;
     }
 
-    public async Task<string> ExportToMarkdownAsync(int documentationId, CancellationToken ct = default)
+    public Task<string> ExportToMarkdownAsync(int documentationId, CancellationToken ct = default)
+    {
+        return ExportToMarkdownAsync(documentationId, [], ct);
+    }
+
+    private async Task<string> ExportToMarkdownAsync(int documentationId, IReadOnlyCollection<ProjectDocSectionType> leaveOut, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -166,7 +179,7 @@ internal sealed class ProjectDocumentationService(
         sb.AppendLine($"*Generated: {doc.GeneratedAt:yyyy-MM-dd HH:mm} UTC | Model: {doc.GeneratedByModel}*");
         sb.AppendLine();
 
-        foreach (var section in doc.Sections)
+        foreach (var section in doc.Sections.Where(x => !leaveOut.Contains(x.SectionType)))
         {
             sb.AppendLine($"## {section.Title}");
             sb.AppendLine();
@@ -219,7 +232,12 @@ internal sealed class ProjectDocumentationService(
         return ConvertToHtml(markdown);
     }
 
-    public async Task<string?> ExportLatestToMarkdownAsync(int projectId, CancellationToken ct = default)
+    public Task<string?> ExportLatestToMarkdownAsync(int projectId, CancellationToken ct = default)
+    {
+        return ExportLatestToMarkdownAsync(projectId, [], ct);
+    }
+
+    public async Task<string?> ExportLatestToMarkdownAsync(int projectId, IReadOnlyCollection<ProjectDocSectionType> leaveOut, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var latestId = await context.ProjectDocumentations
@@ -229,7 +247,7 @@ internal sealed class ProjectDocumentationService(
             .FirstOrDefaultAsync(ct);
 
         if (latestId == null) return null;
-        return await ExportToMarkdownAsync(latestId.Value, ct);
+        return await ExportToMarkdownAsync(latestId.Value, leaveOut, ct);
     }
 
     // --- Section helpers ---
@@ -243,14 +261,14 @@ internal sealed class ProjectDocumentationService(
         try
         {
             var userPrompt = BuildApiDocumentationPrompt(docContext);
-            var response = await CallLlmAsync(GetSystemPrompt(ProjectDocSectionType.ApiDocumentation), userPrompt, ct);
+            var response = await CallLlmAsync(llmProvider, GetSystemPrompt(ProjectDocSectionType.ApiDocumentation), userPrompt, ct);
             return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
                 Content: response.Content,
                 response.InputTokens, response.OutputTokens, response.Cost, response.Model, Error: null);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Documentation generation failed for API Documentation");
+            logger.LogWarning("Documentation generation failed for API Documentation ({Failure})", FailureCodes.Describe(ex));
             return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
                 Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
                 InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
@@ -300,7 +318,7 @@ internal sealed class ProjectDocumentationService(
         var learnedPatterns = patternsTask.Result;
 
         // Phase 2: Discover enum/status values from external data sources
-        var enumValues = await DiscoverEnumValuesAsync(dsIds, tables, ct);
+        var enumValues = await DiscoverEnumValuesAsync(projectId, dsIds, tables, ct);
 
         return new DocumentationContext
         {
@@ -319,7 +337,7 @@ internal sealed class ProjectDocumentationService(
 
     // --- LLM Calling ---
 
-    private async Task<LlmResponse> CallLlmAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+    private static async Task<LlmResponse> CallLlmAsync(ILlmProvider provider, string systemPrompt, string userPrompt, CancellationToken ct)
     {
         var request = new LlmRequest
         {
@@ -328,7 +346,22 @@ internal sealed class ProjectDocumentationService(
             Temperature = 0.3m,
             MaxTokens = 8192
         };
-        return await llmProvider.CompleteAsync(request, ct);
+        return await provider.CompleteAsync(request, ct);
+    }
+
+    // The column values discovery found, for the egress log: their data sources, on behalf of the user who asked.
+    private static LlmRowDataScope ColumnValuesScope(int projectId, int userId, DocumentationContext docContext)
+    {
+        var dataSourceIds = docContext.EnumValues
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .Order()
+            .ToList();
+
+        return new LlmRowDataScope(projectId, dataSourceIds, dataSourceIds.Count > 0 ? [LlmRowDataCategories.ColumnValues] : [])
+        {
+            CallerId = userId.ToString(CultureInfo.InvariantCulture)
+        };
     }
 
     // --- System Prompts ---
@@ -1026,7 +1059,7 @@ internal sealed class ProjectDocumentationService(
     }
 
     private async Task<List<EnumColumnValues>> DiscoverEnumValuesAsync(
-        List<int> dataSourceIds, List<TableInfo> tables, CancellationToken ct)
+        int projectId, List<int> dataSourceIds, List<TableInfo> tables, CancellationToken ct)
     {
         await using var ctx = await contextFactory.CreateDbContextAsync(ct);
 
@@ -1045,24 +1078,52 @@ internal sealed class ProjectDocumentationService(
         {
             try
             {
+                // Discovered values are row data that goes into the documentation prompts: read only while sample-value
+                // collection is on for the project and every live project that links the source (the deployment lock
+                // Beacon:Mcp:ForbidRowDataToLlm pins it off), screened with their custom PII patterns.
+                var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [ds.Id], ct);
+                if (!settings.EnableSampleValueCollection)
+                {
+                    return (Values: new List<EnumColumnValues>(), SamplingOff: true);
+                }
+
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-                return await DiscoverEnumValuesForDataSourceAsync(ds, tables, timeoutCts.Token);
+                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token), SamplingOff: false);
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex,
-                    "Enum value discovery failed for data source {DataSourceId} ({DataSourceName})",
-                    ds.Id, ds.Name);
+                // The type and error code only (§1.11): a message can quote row values.
+                logger.LogWarning(
+                    "Enum value discovery failed for data source {DataSourceId}: {Failure}",
+                    ds.Id,
+                    FailureCodes.Describe(ex));
 
-                return new List<EnumColumnValues>();
+                return (Values: new List<EnumColumnValues>(), SamplingOff: false);
             }
         });
 
         var results = await Task.WhenAll(tasks);
 
-        return results.SelectMany(x => x).ToList();
+        // Once per run, so the documentation that lists no values for these sources is explained.
+        var samplingOff = dataSources
+            .Zip(results)
+            .Where(x => x.Second.SamplingOff)
+            .Select(x => x.First.Id)
+            .Order()
+            .ToList();
+        if (samplingOff.Count > 0)
+        {
+            logger.LogInformation(
+                "Enum value discovery for project {ProjectId} lists no values of data sources {DataSourceIds}: sample-value collection is off for them",
+                projectId,
+                samplingOff);
+        }
+
+        return results
+            .SelectMany(x => x.Values)
+            .ToList();
     }
 
     /// <summary>
@@ -1072,9 +1133,11 @@ internal sealed class ProjectDocumentationService(
     /// position, never by a literal of its name. Each statement passes the read-only execution gate — capped at
     /// <see cref="EnumValuesPerColumn"/> rows per column — and runs through the provider's read-only path (§1.5/§1.10). A
     /// table that is skipped is logged by name with the reason, and every run ends with how many tables were discovered.
+    /// A column whose name <see cref="ColumnValueExclusions"/> leaves out (PII, secret-like, a financial amount) is not
+    /// read, and a column one of whose values looks like PII or a credential is dropped.
     /// </summary>
     private async Task<List<EnumColumnValues>> DiscoverEnumValuesForDataSourceAsync(
-        DataSource dataSource, List<TableInfo> tables, CancellationToken ct)
+        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct)
     {
         var provider = dataSourceProviderFactory.GetProvider(dataSource.DataSourceType);
         var engineType = dataSource.DatabaseEngineType!.Value;
@@ -1100,6 +1163,7 @@ internal sealed class ProjectDocumentationService(
                 var candidates = table.Columns
                     .Where(IsEnumCandidate)
                     .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.Name))
+                    .Where(x => !ColumnValueExclusions.IsExcludedColumn(guardrail, x.Name, customPiiPatterns))
                     .OrderByDescending(x => HasEnumNameHint(x.Name))
                     .Take(5)
                     .Select(x => x.Name)
@@ -1164,6 +1228,15 @@ internal sealed class ProjectDocumentationService(
                         })
                         .OrderByDescending(x => x.Count)
                         .ToList();
+
+                    // A column one of whose values looks like PII or a credential lists none of them.
+                    var screened = values
+                        .Select(x => x.Value)
+                        .ToList();
+                    if (ColumnValueExclusions.ContainsExcludedValue(screened, customPiiPatterns))
+                    {
+                        continue;
+                    }
 
                     result.Add(new EnumColumnValues(
                         dataSource.Id, table.SchemaName, table.TableName, group.Key!, values));

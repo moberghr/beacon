@@ -68,7 +68,11 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         }
         catch (Exception ex) when (!IsAccessRefusal(ex))
         {
-            _logger.LogWarning(ex, "Error executing query preview for query {QueryId}", queryId);
+            // The type and error code only (§1.11): the message can quote the SQL or row values.
+            _logger.LogWarning(
+                "Error executing query preview for query {QueryId}: {Failure}",
+                queryId,
+                FailureCodes.Describe(ex));
             return Failed(ex);
         }
     }
@@ -101,7 +105,11 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         }
         catch (Exception ex) when (!IsAccessRefusal(ex))
         {
-            _logger.LogWarning(ex, "Error executing step preview for query {QueryId} step {StepOrder}", queryId, stepOrder);
+            _logger.LogWarning(
+                "Error executing step preview for query {QueryId} step {StepOrder}: {Failure}",
+                queryId,
+                stepOrder,
+                FailureCodes.Describe(ex));
             return Failed(ex);
         }
     }

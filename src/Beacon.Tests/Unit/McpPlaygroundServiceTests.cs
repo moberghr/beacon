@@ -479,6 +479,7 @@ public class McpPlaygroundServiceTests
             factory.Object,
             x.GetRequiredService<IProjectContext>(),
             x.GetRequiredService<McpAuditService>(),
+            TestRowDataEgress.Discarding(),
             NullLogger<GetQueryContextTool>.Instance));
 
         services.AddScoped(x => new ProjectSearchTool(

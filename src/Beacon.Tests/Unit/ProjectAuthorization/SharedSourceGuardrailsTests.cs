@@ -129,18 +129,76 @@ public class SharedSourceGuardrailsTests
     [Test]
     public async Task ADataSourcesOwnWork_TakesTheStrictestOfTheLiveProjectsLinkingIt()
     {
-        var provider = Provider(
+        (int, McpProjectSettings)[] rows =
+        [
             (1, new McpProjectSettings { ProjectId = 1, EnableSampleValueCollection = true, CustomPiiPatterns = """["iban"]""" }),
             (2, new McpProjectSettings { ProjectId = 2, EnableSampleValueCollection = false, CustomPiiPatterns = """["oib"]""" }),
-            (4, new McpProjectSettings { ProjectId = 4, CustomPiiPatterns = """["archived"]""" }));
+            (4, new McpProjectSettings { ProjectId = 4, CustomPiiPatterns = """["archived"]""" })
+        ];
+        var provider = Provider(new McpSettingsEntity { Id = 1, EnableSampleValueCollection = true }, rows);
 
         var onTen = await provider.GetDataSourceSettingsAsync(10);
         var onTwelve = await provider.GetDataSourceSettingsAsync(12);
+        var onTwelveByDefault = await Provider(null, rows).GetDataSourceSettingsAsync(12);
 
         onTen.EnableSampleValueCollection.Should().BeFalse("project 2 links source 10 and turns sample values off");
         onTen.CustomPiiPatterns.Should().BeEquivalentTo(["iban", "oib"], "the archived project 4 counts for nothing");
         onTwelve.EnableSampleValueCollection.Should().BeTrue();
         onTwelve.CustomPiiPatterns.Should().Equal("iban");
+        onTwelveByDefault.EnableSampleValueCollection.Should().BeTrue("project 1, the only project linking source 12, turns sample values on");
+    }
+
+    // Collection is the linking projects' choice (each project's override, else the global value): a project that turns it
+    // on collects while the global value is off; one linking project that has it off keeps it off; the global value decides
+    // only for a source no live project links; the deployment lock pins it off whatever is stored.
+    [TestCase(false, 12, true, TestName = "ProjectOn_GlobalOff_Collects")]
+    [TestCase(true, 12, true, TestName = "ProjectOn_GlobalOn_Collects")]
+    [TestCase(true, 10, false, TestName = "SharedWithAProjectThatIsOff_DoesNotCollect")]
+    [TestCase(false, 11, false, TestName = "SharedWithAProjectInheritingAGlobalValueThatIsOff_DoesNotCollect")]
+    [TestCase(true, 11, true, TestName = "SharedWithAProjectInheritingAGlobalValueThatIsOn_Collects")]
+    [TestCase(false, 13, false, TestName = "UnlinkedSource_GlobalOff_DoesNotCollect")]
+    [TestCase(true, 13, true, TestName = "UnlinkedSource_GlobalOn_Collects")]
+    public async Task SampleValueCollection_FollowsTheLinkingProjectsEffectiveSettings(bool globalOn, int dataSourceId, bool collects)
+    {
+        (int, McpProjectSettings)[] rows =
+        [
+            (1, new McpProjectSettings { ProjectId = 1, EnableSampleValueCollection = true }),
+            (2, new McpProjectSettings { ProjectId = 2, EnableSampleValueCollection = false }),
+            (4, new McpProjectSettings { ProjectId = 4, EnableSampleValueCollection = false })
+        ];
+        var provider = Provider(new McpSettingsEntity { Id = 1, EnableSampleValueCollection = globalOn }, rows);
+
+        var settings = await provider.GetDataSourceSettingsAsync(dataSourceId);
+
+        settings.EnableSampleValueCollection.Should().Be(collects);
+    }
+
+    [Test]
+    public async Task SampleValueCollection_UnderTheRowDataLock_IsOff_WhateverTheProjectsSay()
+    {
+        (int, McpProjectSettings)[] rows = [(1, new McpProjectSettings { ProjectId = 1, EnableSampleValueCollection = true })];
+        var provider = Provider(
+            new McpSettingsEntity { Id = 1, EnableSampleValueCollection = true },
+            rows,
+            new McpDeploymentOptions { ForceReadOnly = false, ForcePiiDetection = false, ForbidRowDataToLlm = true });
+
+        (await provider.GetDataSourceSettingsAsync(12)).EnableSampleValueCollection.Should().BeFalse();
+        (await provider.GetDataSourceSettingsAsync(13)).EnableSampleValueCollection.Should().BeFalse("an unlinked source follows the locked global value");
+    }
+
+    // The other guardrails of a source's own work never fall below the global settings: a project override that loosens
+    // PII detection or the row limit does not loosen them here.
+    [Test]
+    public async Task ADataSourcesOwnWork_KeepsTheOtherGuardrailsAtLeastAsStrictAsTheGlobalSettings()
+    {
+        (int, McpProjectSettings)[] rows = [(1, new McpProjectSettings { ProjectId = 1, EnablePiiDetection = false, MaxRowLimit = 5000, EnableSampleValueCollection = true })];
+        var provider = Provider(new McpSettingsEntity { Id = 1, EnablePiiDetection = true, MaxRowLimit = 100 }, rows);
+
+        var settings = await provider.GetDataSourceSettingsAsync(12);
+
+        settings.EnablePiiDetection.Should().BeTrue();
+        settings.MaxRowLimit.Should().Be(100);
+        settings.EnableSampleValueCollection.Should().BeTrue();
     }
 
     [Test]
@@ -248,15 +306,21 @@ public class SharedSourceGuardrailsTests
     // The host's settings provider resolves each project; the shared-source tightening is Beacon's own.
     private static SharedSourceSettings Provider(params (int ProjectId, McpProjectSettings Row)[] rows)
     {
-        var world = World(projectSettings: rows.Select(x => x.Row).ToList());
-        var settingsProvider = new McpSettingsProvider(world, new MemoryCache(new MemoryCacheOptions()), Options.Create(new McpDeploymentOptions { ForceReadOnly = false, ForcePiiDetection = false }), NullLogger<McpSettingsProvider>.Instance);
+        return Provider(null, rows);
+    }
+
+    private static SharedSourceSettings Provider(McpSettingsEntity? global, (int ProjectId, McpProjectSettings Row)[] rows, McpDeploymentOptions? options = null)
+    {
+        var world = World(projectSettings: rows.Select(x => x.Row).ToList(), globalSettings: global == null ? [] : [global]);
+        var settingsProvider = new McpSettingsProvider(world, new MemoryCache(new MemoryCacheOptions()), Options.Create(options ?? new McpDeploymentOptions { ForceReadOnly = false, ForcePiiDetection = false }), NullLogger<McpSettingsProvider>.Instance);
 
         return new SharedSourceSettings(world, settingsProvider);
     }
 
-    private static IDbContextFactory<BeaconContext> World(bool shareNothing = false, List<McpProjectSettings>? projectSettings = null)
+    private static IDbContextFactory<BeaconContext> World(bool shareNothing = false, List<McpProjectSettings>? projectSettings = null, List<McpSettingsEntity>? globalSettings = null)
     {
-        var sources = new[] { 10, 11, 12 }
+        // Source 13 is linked by no project.
+        var sources = new[] { 10, 11, 12, 13 }
             .Select(x => new DataSource { Id = x, Name = $"source {x}", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "enc" })
             .ToDictionary(x => x.Id);
         var projects = new List<Project>
@@ -282,7 +346,7 @@ public class SharedSourceGuardrailsTests
                 {
                     [typeof(Project)] = RecordingBeaconContext.MemorySet(liveProjects, saved),
                     [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(links, saved),
-                    [typeof(McpSettingsEntity)] = RecordingBeaconContext.MemorySet(new List<McpSettingsEntity>(), saved),
+                    [typeof(McpSettingsEntity)] = RecordingBeaconContext.MemorySet(globalSettings ?? [], saved),
                     [typeof(McpProjectSettings)] = RecordingBeaconContext.MemorySet(projectSettings ?? [], saved)
                 },
                 saved,

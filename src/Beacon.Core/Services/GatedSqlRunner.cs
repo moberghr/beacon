@@ -5,6 +5,7 @@ using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services;
@@ -40,13 +41,17 @@ internal sealed record GatedSqlRun(
 /// <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/> (a READ ONLY session and transaction where the engine has
 /// one, see <see cref="IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement"/>), with the caller's cancellation and a
 /// bounded statement timeout. A gate refusal throws <see cref="InvalidOperationException"/> before anything connects; a
-/// failure on the data source throws <see cref="QueryExecutionFailedException"/>; a timeout is reported, not thrown.
+/// failure on the data source throws <see cref="QueryExecutionFailedException"/>; a timeout is reported, not thrown. The
+/// failure's message is the database's own error, which can quote row values: while the data source's effective PII
+/// detection is on (the request's settings, else the global settings tightened by the projects that link the source —
+/// on, when none can be read), it is redacted (<see cref="DatabaseErrorRedactor.ForCaller"/>).
 /// </summary>
 internal sealed class GatedSqlRunner(
     ISqlExecutionGate gate,
     IDataSourceProviderFactory providerFactory,
     IConfiguredDatabaseResolver configuredDatabases,
-    IOptions<QueryExecutionOptions> queryOptions)
+    IOptions<QueryExecutionOptions> queryOptions,
+    ISharedSourceSettings? sharedSourceSettings = null)
 {
     /// <summary>How long one statement may run (<c>Beacon:Query:StatementTimeoutSeconds</c>). Settable for tests.</summary>
     internal TimeSpan StatementTimeout { get; init; } = TimeSpan.FromSeconds(queryOptions.Value.StatementTimeoutSeconds);
@@ -135,9 +140,23 @@ internal sealed class GatedSqlRunner(
                 return new GatedSqlRun([], report, dialect, result.ExecutionTimeMs, TimedOut: true);
             }
 
-            throw new QueryExecutionFailedException(result.ErrorMessage ?? "Query execution failed.");
+            throw new QueryExecutionFailedException(await CallerErrorAsync(request, result.ErrorMessage ?? "Query execution failed.", cancellationToken));
         }
 
         return new GatedSqlRun(result.Rows ?? [], report, dialect, result.ExecutionTimeMs, TimedOut: false);
+    }
+
+    // A host data source's error is already Beacon's own generic text.
+    private async Task<string> CallerErrorAsync(GatedSqlRequest request, string error, CancellationToken cancellationToken)
+    {
+        if (request.DataSource.HostManagedKey != null)
+        {
+            return error;
+        }
+
+        var detectPii = request.Pii?.EnablePiiDetection
+            ?? (sharedSourceSettings == null || (await sharedSourceSettings.GetDataSourceSettingsAsync(request.DataSource.Id, cancellationToken)).EnablePiiDetection);
+
+        return DatabaseErrorRedactor.ForCaller(error, request.Sql, detectPii);
     }
 }

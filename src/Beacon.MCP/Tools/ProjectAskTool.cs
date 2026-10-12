@@ -10,6 +10,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Configuration;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -173,7 +174,8 @@ internal sealed class ProjectAskTool(
         catch (Exception ex)
         {
             sw.Stop();
-            signal.SetExecutionFailed(ex.Message);
+            // The stored signal never holds an error's raw text, which can quote row values.
+            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, signal.GeneratedSql, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
                 question, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
@@ -221,6 +223,8 @@ internal sealed class ProjectAskTool(
 
         foreach (var repair in outcome.Repairs)
         {
+            // The pipeline hands its dry-run and execution repair errors over redacted, so the stored signal never holds a
+            // database error's raw text.
             switch (repair.Trigger)
             {
                 case "schema":

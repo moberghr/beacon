@@ -13,6 +13,8 @@ using Beacon.AI.Services.Ai.AiActor.Models;
 using Beacon.Core.Models.Ai;
 
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Helpers;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.AI.Services.Ai.AiActor;
 
@@ -107,7 +109,7 @@ public class AiActorService : IAiActorServiceExtended
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to run initial setup for actor {ActorId}", actor.Id);
+                _logger.LogError("Failed to run initial setup for actor {ActorId} ({Failure})", actor.Id, FailureCodes.Describe(ex));
                 actor.Status = AiActorStatus.Failed;
                 actor.LastError = ex.Message;
                 await context.SaveChangesAsync(cancellationToken);
@@ -341,7 +343,7 @@ public class AiActorService : IAiActorServiceExtended
 
             await context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogError(ex, "Think cycle failed for actor {ActorId}", actorId);
+            _logger.LogError("Think cycle failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
 
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
         }
@@ -548,7 +550,7 @@ public class AiActorService : IAiActorServiceExtended
             execution.CompletedAt = DateTime.UtcNow;
             await context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogError(ex, "Refinement failed for actor {ActorId}", actorId);
+            _logger.LogError("Refinement failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
         }
     }
@@ -905,7 +907,7 @@ public class AiActorService : IAiActorServiceExtended
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch schema metadata for data source {DataSourceId}", dataSourceId);
+            _logger.LogWarning("Failed to fetch schema metadata for data source {DataSourceId} ({Failure})", dataSourceId, FailureCodes.Describe(ex));
             return "Schema metadata not available.";
         }
     }
@@ -989,7 +991,7 @@ public class AiActorService : IAiActorServiceExtended
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Failed to parse LLM response as JSON");
+            _logger.LogWarning("Failed to parse LLM response as JSON ({Failure})", FailureCodes.Describe(ex));
             return new AiActorPlanResponse
             {
                 Analysis = "Failed to parse response: " + ex.Message,
@@ -1089,7 +1091,7 @@ public class AiActorService : IAiActorServiceExtended
         {
             action.Success = false;
             action.ErrorMessage = ex.Message;
-            _logger.LogError(ex, "Failed to execute action {ActionType}", plan.ActionType);
+            _logger.LogError("Failed to execute action {ActionType} ({Failure})", plan.ActionType, FailureCodes.Describe(ex));
         }
 
         return action;
@@ -1178,8 +1180,8 @@ public class AiActorService : IAiActorServiceExtended
 
                 action.Success = false;
                 action.ErrorMessage = $"Query validation failed: {validationResult.ErrorMessage ?? "Unknown error"}";
-                _logger.LogWarning("AI Actor {ActorId} created invalid query '{QueryName}': {Error}",
-                    actor.Id, name, validationResult.ErrorMessage);
+                _logger.LogWarning("AI Actor {ActorId} created invalid query '{QueryName}' ({ErrorClass})",
+                    actor.Id, name, DatabaseErrorRedactor.ClassOnly(validationResult.ErrorMessage ?? "", _logger));
                 return;
             }
 
@@ -1196,7 +1198,7 @@ public class AiActorService : IAiActorServiceExtended
 
             action.Success = false;
             action.ErrorMessage = $"Query validation failed: {ex.Message}";
-            _logger.LogWarning(ex, "AI Actor {ActorId} created invalid query '{QueryName}'", actor.Id, name);
+            _logger.LogWarning("AI Actor {ActorId} created invalid query '{QueryName}' ({Failure})", actor.Id, name, FailureCodes.Describe(ex));
             return;
         }
 
@@ -1395,8 +1397,8 @@ public class AiActorService : IAiActorServiceExtended
 
                 action.Success = false;
                 action.ErrorMessage = $"Refined query validation failed: {validationResult.ErrorMessage ?? "Unknown error"}";
-                _logger.LogWarning("AI Actor {ActorId} refined query {QueryId} with invalid SQL: {Error}",
-                    actor.Id, queryId, validationResult.ErrorMessage);
+                _logger.LogWarning("AI Actor {ActorId} refined query {QueryId} with invalid SQL ({ErrorClass})",
+                    actor.Id, queryId, DatabaseErrorRedactor.ClassOnly(validationResult.ErrorMessage ?? "", _logger));
                 return;
             }
 
@@ -1412,7 +1414,7 @@ public class AiActorService : IAiActorServiceExtended
 
             action.Success = false;
             action.ErrorMessage = $"Refined query validation failed: {ex.Message}";
-            _logger.LogWarning(ex, "AI Actor {ActorId} refined query {QueryId} with invalid SQL", actor.Id, queryId);
+            _logger.LogWarning("AI Actor {ActorId} refined query {QueryId} with invalid SQL ({Failure})", actor.Id, queryId, FailureCodes.Describe(ex));
             return;
         }
 
@@ -1698,7 +1700,7 @@ public class AiActorService : IAiActorServiceExtended
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to generate plan for actor {ActorId}", options.ActorId);
+            _logger.LogError("Failed to generate plan for actor {ActorId} ({Failure})", options.ActorId, FailureCodes.Describe(ex));
             return AiActorPlanResult.CreateFailure(ex.Message);
         }
     }
@@ -1849,7 +1851,7 @@ public class AiActorService : IAiActorServiceExtended
 
             await context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogError(ex, "Failed to execute approved plan {PlanId}", options.PlanId);
+            _logger.LogError("Failed to execute approved plan {PlanId} ({Failure})", options.PlanId, FailureCodes.Describe(ex));
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
         }
     }

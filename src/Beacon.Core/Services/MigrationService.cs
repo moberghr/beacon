@@ -94,7 +94,7 @@ internal partial class MigrationService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error creating migration job {Name}", request.Name);
+            logger.LogError("Error creating migration job {Name} ({Failure})", request.Name, FailureCodes.Describe(ex));
             return new CreateMigrationJobResponse(0, false, ex.Message);
         }
     }
@@ -202,14 +202,14 @@ internal partial class MigrationService(
                 execution.ErrorMessage = GetFullExceptionMessage(ex);
                 await context.SaveChangesAsync(cancellationToken);
 
-                logger.LogError(ex, "Failed migration job {Name} execution {ExecutionId}", migrationJob.Name, execution.Id);
+                logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex));
 
                 return new ExecuteMigrationJobResponse(execution.Id, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error executing migration job {MigrationJobId}", request.MigrationJobId);
+            logger.LogError("Error executing migration job {MigrationJobId} ({Failure})", request.MigrationJobId, FailureCodes.Describe(ex));
             return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
         }
     }
@@ -395,7 +395,7 @@ internal partial class MigrationService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error deleting migration job {Id}", id);
+            logger.LogError("Error deleting migration job {Id} ({Failure})", id, FailureCodes.Describe(ex));
             return new BaseResponse { Success = false, Message = ex.Message };
         }
     }

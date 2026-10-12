@@ -2,7 +2,9 @@ using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Eval;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.AI.Services.Mcp;
@@ -22,6 +24,7 @@ internal sealed class AskSqlPipeline(
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ISqlExecutionGate gate,
+    ILlmRowDataEgress rowDataEgress,
     ILogger<AskSqlPipeline> logger) : IAskSqlPipeline
 {
     // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
@@ -44,6 +47,24 @@ internal sealed class AskSqlPipeline(
         var fullContext = string.IsNullOrEmpty(options.ExtraContext)
             ? smartContext.FullContext
             : smartContext.FullContext + options.ExtraContext;
+
+        // Every prompt below carries this context: each request is logged with the row-derived data it carries.
+        var promptProvider = rowDataEgress.Track(
+            llmProvider,
+            new LlmRowDataScope(projectId, [dataSourceId], smartContext.RowDataCategories) { CallerId = options.CallerId });
+
+        // A database error goes into a repair prompt, and into the repair steps the stored signal is built from, without the
+        // values it quotes: only the names of this context and of the SQL it is about stay.
+        string RedactedError(string error, string sql)
+        {
+            return DatabaseErrorRedactor.Redact(error, DatabaseErrorRedactor.KnownNames(sql, smartContext.SchemaCatalog), logger);
+        }
+
+        // What the caller reads of a database error: redacted while PII detection is on.
+        string CallerError(string error, string sql)
+        {
+            return DatabaseErrorRedactor.ForCaller(error, sql, settings.EnablePiiDetection, logger);
+        }
 
         var execute = options.Execute;
         var repairs = new List<AskRepairStep>();
@@ -72,7 +93,7 @@ internal sealed class AskSqlPipeline(
         // of the candidates the vote considers, so a voted winner never loses the single candidate's
         // chance to be elected.
         var singleCandidate = await sqlGenerationService.GenerateAsync(
-            llmProvider, fullContext, question, settings, ct, options.GenerationTemperature);
+            promptProvider, fullContext, question, settings, ct, options.GenerationTemperature);
         var tableCount = singleCandidate.TablesUsed
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
@@ -92,7 +113,7 @@ internal sealed class AskSqlPipeline(
             try
             {
                 var vote = await RunSelfConsistencyVoteAsync(
-                    llmProvider, dataSourceId, question, settings, smartContext, fullContext, executor, singleCandidate, ct);
+                    promptProvider, dataSourceId, question, settings, smartContext, fullContext, executor, singleCandidate, ct);
                 votedWinner = vote.Winner;
                 votingNote = vote.Note;
             }
@@ -179,7 +200,7 @@ internal sealed class AskSqlPipeline(
             logger.LogInformation("Schema pre-validation failed, retrying. Error: {Error}", schemaVerdict.Message);
 
             var preValidationRetry = await sqlGenerationService.RetryWithErrorAsync(
-                llmProvider, systemPrompt, generatedSql, schemaVerdict.Message!,
+                promptProvider, systemPrompt, generatedSql, schemaVerdict.Message!,
                 fullContext, null, question, ct);
 
             var schemaRepairSql = (string?)null;
@@ -232,7 +253,7 @@ internal sealed class AskSqlPipeline(
                 logger.LogInformation("Semantic lint found {Count} finding(s), retrying.", initialLintFindings.Count);
 
                 var lintRetry = await sqlGenerationService.RetryWithErrorAsync(
-                    llmProvider, systemPrompt, generatedSql, lintError,
+                    promptProvider, systemPrompt, generatedSql, lintError,
                     fullContext, null, question, ct);
 
                 var lintRepairSql = (string?)null;
@@ -287,14 +308,17 @@ internal sealed class AskSqlPipeline(
 
         // Dry-run through the provider (EXPLAIN / sp_describe_first_result_set) before real execution.
         // A dry-run failure only spends a repair attempt — it never hard-blocks execution.
-        dryRunError = await TryDryRunAsync(executor, dataSourceId, generatedSql, ct);
-        if (dryRunError != null && repairAttempts < maxRepairAttempts)
+        var rawDryRunError = await TryDryRunAsync(executor, dataSourceId, generatedSql, ct);
+        var dryRunSql = generatedSql;
+        dryRunError = rawDryRunError == null ? null : RedactedError(rawDryRunError, dryRunSql);
+        if (rawDryRunError != null && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;
-            logger.LogInformation("Dry-run validation failed, retrying. Error: {Error}", dryRunError);
+            var redactedDryRunError = dryRunError!;
+            logger.LogInformation("Dry-run validation failed, retrying ({ErrorClass})", DatabaseErrorRedactor.ClassOnly(rawDryRunError, logger));
 
             var dryRunRetry = await sqlGenerationService.RetryWithErrorAsync(
-                llmProvider, systemPrompt, generatedSql, dryRunError,
+                promptProvider, systemPrompt, generatedSql, redactedDryRunError,
                 fullContext, null, question, ct);
 
             var dryRunRepairSql = (string?)null;
@@ -306,14 +330,14 @@ internal sealed class AskSqlPipeline(
                     var retryDryRunError = await TryDryRunAsync(executor, dataSourceId, dryRunRetry, ct);
                     dryRunRepairSql = dryRunRetry;
                     dryRunRepairOk = retryDryRunError == null;
-                    text += $"*Initial query failed dry-run validation ({dryRunError}), retried.*\n\n";
+                    text += $"*Initial query failed dry-run validation ({CallerError(rawDryRunError, dryRunSql)}), retried.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{dryRunRetry}\n```\n\n";
                     generatedSql = dryRunRetry;
                     correctedSql = dryRunRetry;
                 }
             }
 
-            repairs.Add(new AskRepairStep("dry-run", dryRunError, dryRunRepairSql, dryRunRepairOk));
+            repairs.Add(new AskRepairStep("dry-run", redactedDryRunError, dryRunRepairSql, dryRunRepairOk));
         }
 
         var execResult = await executor.ExecuteAsync(dataSourceId, generatedSql, 100, ct);
@@ -321,7 +345,8 @@ internal sealed class AskSqlPipeline(
         if (!execResult.IsSuccess && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;
-            logger.LogInformation("SQL error detected, retrying. Error: {Error}", execResult.ErrorMessage);
+            var redactedExecutionError = RedactedError(execResult.ErrorMessage, generatedSql);
+            logger.LogInformation("SQL error detected, retrying ({ErrorClass})", DatabaseErrorRedactor.ClassOnly(execResult.ErrorMessage, logger));
             // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate.
             var tableNames = gate.Evaluate(GateRequest(generatedSql, smartContext, settings)).TablesUsed.ToList();
             var tablesContext = tableNames.Count > 0
@@ -329,7 +354,7 @@ internal sealed class AskSqlPipeline(
                 : null;
 
             var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                llmProvider, systemPrompt, generatedSql, execResult.ErrorMessage,
+                promptProvider, systemPrompt, generatedSql, redactedExecutionError,
                 fullContext, tablesContext, question, ct);
 
             if (retriedSql != null)
@@ -337,10 +362,10 @@ internal sealed class AskSqlPipeline(
                 if (ValidateGeneratedSql(retriedSql, settings, smartContext) == null)
                 {
                     var retryExec = await executor.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
-                    repairs.Add(new AskRepairStep("execution", execResult.ErrorMessage, retriedSql, retryExec.IsSuccess));
-                    text += $"*Initial query failed ({execResult.ErrorMessage}), retried with corrected SQL.*\n\n";
+                    repairs.Add(new AskRepairStep("execution", redactedExecutionError, retriedSql, retryExec.IsSuccess));
+                    text += $"*Initial query failed ({CallerError(execResult.ErrorMessage, generatedSql)}), retried with corrected SQL.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
-                    text += retryExec.FormattedResult ?? $"**Execution Error:** {retryExec.ErrorMessage}\n";
+                    text += retryExec.FormattedResult ?? $"**Execution Error:** {CallerError(retryExec.ErrorMessage ?? "", retriedSql)}\n";
                     lintFindings = RelintFinalSql(retriedSql);
                     AppendSemanticWarnings();
                     return new AskSqlOutcome(initialSql, retriedSql, tables, retryExec.IsSuccess, text, retryExec,
@@ -349,7 +374,7 @@ internal sealed class AskSqlPipeline(
                 }
             }
 
-            repairs.Add(new AskRepairStep("execution", execResult.ErrorMessage, null, false));
+            repairs.Add(new AskRepairStep("execution", redactedExecutionError, null, false));
         }
         else if (execResult.IsSuccess && execResult.RowCount == 0 && repairAttempts < maxRepairAttempts && !electedByVote && !QuestionExpectsCountOrExistence(question))
         {
@@ -362,7 +387,7 @@ internal sealed class AskSqlPipeline(
             const string emptyResultError = "The query executed successfully but returned zero rows. Re-check filter values against the Examples in the schema, join paths, and value casing. If zero rows is genuinely the correct answer, return the identical SQL.";
 
             var emptyRetry = await sqlGenerationService.RetryWithErrorAsync(
-                llmProvider, systemPrompt, generatedSql, emptyResultError,
+                promptProvider, systemPrompt, generatedSql, emptyResultError,
                 fullContext, null, question, ct);
 
             if (emptyRetry != null && !SqlEquals(emptyRetry, generatedSql))
@@ -396,7 +421,7 @@ internal sealed class AskSqlPipeline(
             }
         }
 
-        text += execResult.FormattedResult ?? $"**Execution Error:** {execResult.ErrorMessage}\n";
+        text += execResult.FormattedResult ?? $"**Execution Error:** {CallerError(execResult.ErrorMessage ?? "", generatedSql)}\n";
         lintFindings = RelintFinalSql(generatedSql);
         AppendSemanticWarnings();
 
@@ -588,8 +613,12 @@ internal sealed class AskSqlPipeline(
         }
         catch (Exception ex)
         {
-            // Dry-run infrastructure failures (connectivity, unsupported engine) never block the ask flow
-            logger.LogWarning(ex, "Dry-run validation unavailable for data source {DataSourceId}", dataSourceId);
+            // Dry-run infrastructure failures (connectivity, unsupported engine) never block the ask flow. The type and
+            // error code only (§1.11): the message can quote the SQL or row values.
+            logger.LogWarning(
+                "Dry-run validation unavailable for data source {DataSourceId}: {Failure}",
+                dataSourceId,
+                FailureCodes.Describe(ex));
             return null;
         }
     }

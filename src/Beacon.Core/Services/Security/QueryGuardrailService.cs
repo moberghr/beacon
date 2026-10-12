@@ -15,9 +15,11 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         MatchTimeout);
 
-    // Common PII column name patterns
+    // Common PII column name patterns, banking identifiers included (IBAN, account number, OIB, JMBG). The short banking
+    // words match as a whole name segment only — snake_case, camelCase or an upper-case run (customer_iban, ClientOib,
+    // IBANNumber) — never inside a longer word (Libanon, Kibana, foible); the boundaries are case-sensitive.
     private static readonly Regex PiiColumnPattern = new(
-        @"(email|e_mail|phone|telephone|mobile|ssn|social_security|tax_id|passport|credit_card|card_number|cvv|password|pwd|secret|token|birth_?date|dob|address|zip_?code|postal|ip_address|national_id)",
+        @"(email|e_mail|phone|telephone|mobile|ssn|social_security|tax_id|passport|credit_card|card_number|cvv|password|pwd|secret|token|birth_?date|dob|address|zip_?code|postal|ip_address|national_id|(?-i:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z]))(iban|oib|jmbg)s?(?-i:(?![A-Za-z])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z]))|(account|acct)_?(no|nr|num|number)(?![a-z]))",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         MatchTimeout);
 

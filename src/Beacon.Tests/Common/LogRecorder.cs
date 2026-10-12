@@ -4,6 +4,8 @@ namespace Beacon.Tests.Common;
 
 internal sealed record RecordedLog(string Category, LogLevel Level, string Message, Exception? Exception)
 {
+    public EventId EventId { get; init; }
+
     /// <summary>The rendered message plus the exception text, for "never written anywhere" assertions.</summary>
     public string FullText => Exception == null ? Message : $"{Message} {Exception}";
 }
@@ -63,7 +65,7 @@ internal sealed class LogRecorder : ILoggerProvider
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            recorder.Add(new RecordedLog(category, logLevel, formatter(state, exception), exception));
+            recorder.Add(new RecordedLog(category, logLevel, formatter(state, exception), exception) { EventId = eventId });
         }
     }
 

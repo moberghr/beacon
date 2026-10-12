@@ -517,5 +517,24 @@ public class DatabaseMetadataService(
         }
     }
 
+    /// <summary>
+    /// Clears the sample values stored for <paramref name="dataSourceId"/>'s columns, the columns of its archived tables
+    /// included (the soft-delete filter on the tables is ignored): an archived data source, or one marked as a migration
+    /// write target, is never read again, so nothing keeps a copy of its rows. The caller saves the change.
+    /// </summary>
+    internal static async Task ClearStoredSampleValuesAsync(BeaconContext context, int dataSourceId, CancellationToken cancellationToken)
+    {
+        var sampledColumns = await context.ColumnMetadata
+            .IgnoreQueryFilters()
+            .Where(x => x.DatabaseMetadata.DataSourceId == dataSourceId)
+            .Where(x => x.SampleValues != null || x.SampleValuesComplete)
+            .ToListAsync(cancellationToken);
+        foreach (var column in sampledColumns)
+        {
+            column.SampleValues = null;
+            column.SampleValuesComplete = false;
+        }
+    }
+
     internal static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
 }

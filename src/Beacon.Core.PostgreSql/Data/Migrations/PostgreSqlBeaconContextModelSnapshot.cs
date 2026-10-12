@@ -3301,7 +3301,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("EnableSampleValueCollection")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(true)
+                        .HasDefaultValue(false)
                         .HasColumnName("enable_sample_value_collection");
 
                     b.Property<bool>("EnableSelfConsistency")

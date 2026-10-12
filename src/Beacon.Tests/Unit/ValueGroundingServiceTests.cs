@@ -11,6 +11,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 
@@ -323,6 +324,68 @@ public class ValueGroundingServiceTests
         block.Should().Be("");
     }
 
+    // A column whose values are never read to describe it — a PII name (a banking identifier included), a secret-like
+    // name or a financial amount — is neither probed nor matched against its samples; an ordinary column still is.
+    [TestCase("iban")]
+    [TestCase("customer_oib")]
+    [TestCase("account_number")]
+    [TestCase("api_key")]
+    [TestCase("session_token")]
+    [TestCase("current_balance")]
+    [TestCase("monthly_salary")]
+    public async Task BuildValueMatchesBlockAsync_ExcludedColumnName_IsNeitherProbedNorMatched(string excluded)
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "accounts", new[]
+            {
+                new ValueGroundingColumn(excluded, "varchar", false, null, "[\"Horvat\"]"),
+                new ValueGroundingColumn("branch", "varchar", false, null, null)
+            })
+        };
+        var probes = new List<string>();
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => probes.Add(sql))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [] });
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "accounts of 'Horvat'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty("the stored sample of the excluded column is never matched");
+        probes.Should().ContainSingle("only the ordinary column is probed")
+            .Which.Should().Contain("\"branch\"").And.NotContain(excluded);
+    }
+
+    // A probe hit that looks like a credential never reaches the prompt, like a PII-shaped one.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_ProbeReturnsCredentialShapedValue_ExcludedFromBlock()
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "orders", new[]
+            {
+                new ValueGroundingColumn("reference", "varchar", false, null, null)
+            })
+        };
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["reference"] = $"ACME {TestCredentials.ProviderSecretKey}" }]
+            });
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders for 'ACME'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty();
+    }
+
     [Test]
     public async Task BuildValueMatchesBlockAsync_CapHonoured_StopsProbingAtTheConfiguredMax()
     {
@@ -557,6 +620,7 @@ public class ValueGroundingServiceTests
             providerFactory.Object,
             TestSqlGate.Create(hostGuard: new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources())),
             TestConfiguredDatabases.Of(configuredDatabase),
+            new QueryGuardrailService(),
             NullLogger<ValueGroundingService>.Instance);
 
         return (service, factory);

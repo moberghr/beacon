@@ -12,8 +12,9 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 /// Server that ended the transaction it ran in; every session of a user signed out ("sign out everywhere"); a sign-in
 /// session ended when it was revalidated; while local login is off, a password sign-in by a break-glass account and a
 /// password sign-in refused; the Data Protection key ring found without a repository, acknowledged as unencrypted, or
-/// holding keys stored without encryption (revoked and replaced); and stored values moved from a previous encryption key
-/// to the current one. Ids only (§1.11). Public so every Beacon assembly logs them with the same ids.
+/// holding keys stored without encryption (revoked and replaced); stored values moved from a previous encryption key to
+/// the current one; and a request to the LLM provider whose prompt carries row-derived data (sample values, value
+/// matches, column values, result rows). Ids only (§1.11). Public so every Beacon assembly logs them with the same ids.
 /// </summary>
 public static class ProjectAccessEvents
 {
@@ -39,4 +40,5 @@ public static class ProjectAccessEvents
     public static readonly EventId PasswordSignInRefused = new(7120, nameof(PasswordSignInRefused));
     public static readonly EventId DataProtectionKeyRing = new(7121, nameof(DataProtectionKeyRing));
     public static readonly EventId StoredValuesReEncrypted = new(7122, nameof(StoredValuesReEncrypted));
+    public static readonly EventId RowDataSentToLlm = new(7123, nameof(RowDataSentToLlm));
 }

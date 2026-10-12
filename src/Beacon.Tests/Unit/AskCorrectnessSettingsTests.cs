@@ -27,12 +27,18 @@ namespace Beacon.Tests.Unit;
 [TestFixture]
 public class AskCorrectnessSettingsTests
 {
+    // Value grounding and sample values send row values to the LLM provider: a new installation has both off (the entity
+    // a first save creates as well as the settings read while no row is stored).
     [Test]
     public void McpSettingsData_Defaults_MatchSpec()
     {
         var data = new McpSettingsData();
+        var entity = new Beacon.Core.Data.Entities.McpSettings();
 
-        data.EnableValueGrounding.Should().BeTrue();
+        data.EnableValueGrounding.Should().BeFalse();
+        data.EnableSampleValueCollection.Should().BeFalse();
+        entity.EnableValueGrounding.Should().BeFalse();
+        entity.EnableSampleValueCollection.Should().BeFalse();
         data.ValueGroundingMaxProbes.Should().Be(12);
         data.EnableSemanticLint.Should().BeTrue();
         data.SelfConsistencyMinTables.Should().Be(2);
@@ -76,7 +82,7 @@ public class AskCorrectnessSettingsTests
         // happening to match McpSettingsData's own defaults.
         var entity = new McpSettingsEntity
         {
-            EnableValueGrounding = false,
+            EnableValueGrounding = true,
             ValueGroundingMaxProbes = 25,
             EnableSemanticLint = false,
             SelfConsistencyMinTables = 7
@@ -88,7 +94,7 @@ public class AskCorrectnessSettingsTests
 
         var data = await provider.GetSettingsAsync();
 
-        data.EnableValueGrounding.Should().BeFalse();
+        data.EnableValueGrounding.Should().BeTrue();
         data.ValueGroundingMaxProbes.Should().Be(25);
         data.EnableSemanticLint.Should().BeFalse();
         data.SelfConsistencyMinTables.Should().Be(7);
@@ -106,7 +112,7 @@ public class AskCorrectnessSettingsTests
 
         var data = new McpSettingsData
         {
-            EnableValueGrounding = false,
+            EnableValueGrounding = true,
             ValueGroundingMaxProbes = 99,
             EnableSemanticLint = false,
             SelfConsistencyMinTables = 3
@@ -116,7 +122,7 @@ public class AskCorrectnessSettingsTests
 
         context.Added.Should().HaveCount(1);
         var saved = context.Added[0];
-        saved.EnableValueGrounding.Should().BeFalse();
+        saved.EnableValueGrounding.Should().BeTrue();
         saved.ValueGroundingMaxProbes.Should().Be(99);
         saved.EnableSemanticLint.Should().BeFalse();
         saved.SelfConsistencyMinTables.Should().Be(3);

@@ -243,6 +243,8 @@ Get the grounding context Beacon assembles internally for the `ask` tool, scoped
 
 `get_query_context` needs Read in the project. Its value matches come from live probes of the data source only for a caller who may also query the project (Editor and above); a Viewer gets the matches the stored sample values already hold, and no probe runs for it.
 
+The context shows sample values and value matches only while sample-value collection and value grounding are on for the project and every project sharing the data source (both off by default), and never under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`; they pass the same name and value screens as everywhere else (see [Sample values](/features/data-sources/#sample-values)). Unlike the REST metadata endpoint, which returns stored sample values to an Admin only, `get_query_context` returns them to any caller with Read in the project, since they are what grounds its SQL. A response that carries them is recorded in the row-data egress log (event `7123`, "returned to the MCP client"; see [What reaches the LLM provider](#what-reaches-the-llm-provider)).
+
 The response opens with a header naming the data source and SQL dialect, followed by the grounding context. Sections marked **(authoritative)** are human-verified. When the context exceeds `max_chars` it is cut at the last complete section and ends with an explicit truncation note. `structuredContent` carries `data_source_id`, `data_source`, `dialect`, and `truncated`.
 
 **Intended workflow:** `get_query_context` → write your own SQL → `dry_run` to validate → `query` to execute. Use this instead of `ask` when your agent wants full control over the SQL it runs.
@@ -341,7 +343,7 @@ The MCP server enforces several safety measures:
 
 **Database names.** `ask`, `query`, `dry_run` and the saved-query tools refuse SQL that names another database than the data source's own — `database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery — with the gate code `cross_database`, also when read-only enforcement is off. The allowed database is the one the data source's connection configures; a source without one — or whose connection settings cannot be read — accepts no database qualifier. Unqualified and schema-qualified names always pass. The same always-on stage refuses `dblink…`, `lo_…`, `xp_…`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `EXTERNAL_QUERY` and the other functions that reach other servers, files or storage — on Databricks also `http_request`, `read_kafka` and the other stream readers, `reflect` and `java_method` — the PostgreSQL extension functions that run SQL text (`pg_background_…`, pgRouting's `pgr_…`), PostgreSQL `COPY … TO/FROM PROGRAM` and `COPY` to or from a server file, Databricks file paths and SQL Server four-part names, so turning read-only enforcement off never opens them. See [Database names in SQL](/features/authorization/#database-names-in-sql).
 
-**Shared data sources.** The guardrails a tool applies are the data source's: when several live projects link it, read-only enforcement and PII detection are on if any of them turns them on, value grounding and sample values are off if any of them turns them off, all their custom PII patterns apply, and the lowest row limit, statement timeout, result size, plan-cost limit and value-grounding probe budget win — whichever project the caller works in. `ask` applies them over every data source it routes to, and grounding (`ask`, `get_query_context`) applies the value-grounding, sample-value and PII settings. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
+**Shared data sources.** The guardrails a tool applies are the data source's: when several live projects link it, read-only enforcement and PII detection are on if any of them turns them on, value grounding and sample values are off if any of them turns them off, all their custom PII patterns apply, and the lowest row limit, statement timeout, result size, plan-cost limit and value-grounding probe budget win — whichever project the caller works in. `ask` applies them over every data source it routes to, and grounding (`ask`, `get_query_context`) applies the value-grounding, sample-value and PII settings. A metadata refresh, which no project asks for, collects sample values while collection is on in the effective settings of every live project that links the source (each project's override, else the global value); the global value alone decides only for a source no live project links. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
 
 | Setting | Strictest among the linking projects |
 |---------|--------------------------------------|
@@ -390,12 +392,12 @@ Retention is **not retro-active**: rows written before you turned the lock on ke
 
 Natural-language questions through the `ask` tool don't go through a naive prompt-to-SQL pipe. Every generated query passes a layered accuracy stack:
 
-1. **Grounded context** — before generation, Beacon assembles an M-Schema rendering (column name, type, nullability, description) *including real sample values* so filters match actual data formats (`'shipped'` vs `'SHIPPED'`), plus curated join paths, matching business-glossary terms, human-verified query examples, and lessons mined from past usage. See the [Knowledge Base guide](/features/knowledge-base/) for what goes in and how you curate it.
+1. **Grounded context** — before generation, Beacon assembles an M-Schema rendering (column name, type, nullability, description) — *with real sample values and value matches* when a project turns sample-value collection and value grounding on (both off by default; see [What reaches the LLM provider](#what-reaches-the-llm-provider)) — so filters match actual data formats (`'shipped'` vs `'SHIPPED'`), plus curated join paths, matching business-glossary terms, human-verified query examples, and lessons mined from past usage. See the [Knowledge Base guide](/features/knowledge-base/) for what goes in and how you curate it.
 2. **AST read-only validation** — generated SQL is parsed into an abstract syntax tree in the data source's own dialect (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks); SQL for a source whose dialect is unknown is refused. DML/DDL statements, stacked queries, comment-hidden writes, row-locking clauses, functions that read files, reach other servers or sleep, linked-server (four-part) names and file path references are rejected before anything reaches your database — defense-in-depth beyond the regex guardrail.
 3. **Database read-only backstop** — on PostgreSQL and MySQL, MCP-executed SQL additionally runs inside a `READ ONLY` transaction (on PostgreSQL as a batch of exactly one command, which the driver and the server refuse to split into several statements; on MySQL also with a read-only session default and statement batches turned off), so a write that somehow slipped past both parsers is still refused by the database itself — defence in depth, not a replacement for a read-only login. BigQuery and Databricks have no read-only session: their connectors refuse, on the read-only path, anything their own dialect's parser does not read as a single `SELECT` in the configured project or catalog, and BigQuery additionally runs only what a dry run reports as a `SELECT`. SQL Server, Azure Synapse and Snowflake rely on the parser gates (SQL Server also runs the statement in a transaction that is always rolled back, and fails the run when the statement ends that transaction itself). On all five, the read-only login you connect with is the database-level boundary; on PostgreSQL and MySQL it is still required.
 
 The same gate and read-only path run every query Beacon executes outside MCP too — previews, subscriptions, data-quality rules, AI actors, migration reads; see [How a query runs](/features/queries/#how-a-query-runs).
-4. **Dry-run repair loop** — if execution fails, the SQL is retried with the database error and a refreshed schema context; truncated or degenerate repairs are rejected rather than executed.
+4. **Dry-run repair loop** — if execution fails, the SQL is retried with the database error and a refreshed schema context; the error goes into the prompt redacted by its class (see [Database errors](#database-errors)); truncated or degenerate repairs are rejected rather than executed.
 5. **Row limits & PII masking** — results are capped and sensitive values (emails, phone numbers, SSNs, credit cards, tokens, and custom regex patterns) are masked (`a***z`) before leaving the server.
 
 ## Learning Loop
@@ -451,6 +453,7 @@ Some settings must be non-negotiable no matter what an administrator clicks. The
       "ForceReadOnly": true,
       "ForcePiiDetection": true,
       "ForceNoContentRetention": true,
+      "ForbidRowDataToLlm": true,
       "Ceilings": {
         "MaxRowLimit": 1000,
         "StatementTimeoutSeconds": 60,
@@ -464,10 +467,10 @@ Some settings must be non-negotiable no matter what an administrator clicks. The
 }
 ```
 
-- A **lock** (`ForceReadOnly` and `ForcePiiDetection`, both on by default; `ForceNoContentRetention`, off by default) pins the effective value for the global settings and every project. Nobody can change a locked setting at runtime — an Admin included; only the host's configuration lifts the lock. The global page shows a locked switch disabled with a note, the project scope hides locked fields and names them in a banner, `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`), and an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
+- A **lock** (`ForceReadOnly` and `ForcePiiDetection`, both on by default; `ForceNoContentRetention` and `ForbidRowDataToLlm`, off by default) pins the effective value for the global settings and every project. `ForbidRowDataToLlm` pins three settings off: sample-value collection, value grounding and the eval judge (see [What reaches the LLM provider](#what-reaches-the-llm-provider)). Nobody can change a locked setting at runtime — an Admin included; only the host's configuration lifts the lock. The global page shows a locked switch disabled with a note, the project scope hides locked fields and names them in a banner, `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`), and an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
 - With `ForceReadOnly` on, the SQL execution gate also judges every statement read-only whatever the settings a caller hands it — the `ask`, `query` and `dry_run` tools and the in-memory join of a cross-source query alike. Only a deployment that sets `ForceReadOnly: false` lets an Admin turn read-only enforcement off (globally or per project), and only there does the setting reach the gate. The host logs a warning at startup for each of these two locks that is off.
 - A **ceiling** clamps a numeric value downward only — it can lower what an administrator configured, never raise it. Clamped fields are flagged in the UI.
-- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section, read-only enforcement and PII detection are locked on, content retention is not locked, there are no deployment-set ceilings, and these two length caps hold.
+- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section, read-only enforcement and PII detection are locked on, content retention and row data to the LLM are not locked, there are no deployment-set ceilings, and these two length caps hold.
 - Settings resolve as **lock → project override → global value → built-in default**, then ceilings are applied.
 - Saving the global page never bakes a locked or clamped value into the stored row, so lifting a lock or raising a ceiling restores what was configured underneath.
 - **Every change is recorded.** Each setting a save changes — globally or for a project — is written to the settings history the [Admin Settings](/features/admin-settings/) page keeps: key `Mcp.{Setting}` or `Mcp.Project.{projectId}.{Setting}`, the value before and after (an empty override is "inherit"; a long prompt or description is cut to 2,000 characters), when, and who (the caller's Beacon user id). The log notes the change by setting name and ids only.
@@ -478,6 +481,99 @@ deployment that had either switched off globally or for a project runs with it o
 kept, and takes effect again only if the host sets `Beacon:Mcp:ForceReadOnly` (or `ForcePiiDetection`) to `false`. The
 host logs one warning after startup listing the stored rows a lock overrides (the global row and project ids), and a
 statement refused only because the lock turned read-only enforcement on names `Beacon:Mcp:ForceReadOnly` in its reason.
+:::
+
+### What reaches the LLM provider
+
+Beacon sends prompts to the LLM provider configured in [Admin Settings](/features/admin-settings/). Besides the question,
+the schema (table and column names, types, descriptions, join paths) and your curated knowledge (glossary, documentation,
+verified examples, learned patterns), a prompt can carry data read from your data sources. Each kind is off by default
+or screened, and each is logged:
+
+| Row data (egress category) | When | Screened |
+|---|---|---|
+| Sample values (`sample-values`, `Examples: [...]`) in `ask` and repair prompts — and returned by `get_query_context` | sample-value collection on (off by default) in the effective settings of the project and of every project sharing the source | name and value rules of [Sample values](/features/data-sources/#sample-values), again at every read |
+| Value matches (`value-matches`, `## Value matches`) for literal-looking words of the question | value grounding on (off by default), same sharing rule; live probes only for callers who may query | PII, secret-like and financial-amount column names are never probed or matched; a PII- or credential-shaped hit is dropped |
+| Distinct column values in documentation prompts (`column-values`, enum discovery) | sample-value collection on for the project and every project sharing the source | the same name and value rules |
+| Result rows in the eval judge's prompt (`result-rows`) | the eval judge on (off by default) and content retention on | PII columns masked, at most 20 rows |
+| Database errors in repair prompts and in lesson extraction (`database-errors` for lesson extraction) | an `ask` repair after a failed dry run or execution; the learning job mining failed `ask` signals | redacted by class ([Database errors](#database-errors)); under the lock lesson extraction sends only the class and code |
+| Stored documentation of the business-domain, data-model and glossary sections (`stored-documentation`), which can list values discovered in the data | knowledge answers, contextual-retrieval blurbs of documentation chunks, a documentation instruction on such a section | under the lock these sections are left out of knowledge answers and blurbs, and an instruction on one is refused (`400`); regenerate the documentation instead |
+
+- **The deployment lock `Beacon:Mcp:ForbidRowDataToLlm`** (off by default) pins sample-value collection, value grounding
+  and the eval judge off for the global settings and every project: no sample is collected or shown, no value is probed,
+  documentation discovers no column values, the judge sees no rows, lesson extraction sends only an error's class and
+  code, and stored documentation sections that can list discovered values stay out of every prompt. A request that would
+  turn one of the three settings on answers `409`, and a project override of one is refused even when it agrees with the
+  lock; a save under the lock keeps the values stored before it (globally and per project), so lifting the lock restores
+  them. After startup the host logs one warning listing the stored rows the lock overrides (global row and project ids),
+  and one naming the projects whose stored documentation still has value-listing sections — values discovered before the
+  lock stay in that documentation until it is regenerated.
+- **Egress log.** Every request whose prompt carries row data is logged at Information with event id `7123`
+  (`RowDataSentToLlm`) as it is handed to the provider — the data may leave even when the provider then fails, so a
+  failure adds a Warning under the same event with the failure's type and code. Each record names the categories, the
+  data source ids, the project id and the caller: the caller's Beacon user id, or for background work the job itself
+  (`learning-aggregation`, `documentation-indexing`, `pattern-replay`; an eval run names the user who started it, else
+  `eval-run`; documentation generation the user who asked for it), and `unknown` when the caller cannot be resolved
+  (which never fails the request). A `get_query_context` response carrying sample values or value matches is recorded
+  under the same event as returned to the MCP client. Never a value or prompt text; no table is written. See
+  [MCP observability](/features/mcp-observability-and-audit/#row-data-sent-to-the-llm-provider).
+- **Where the data goes.** OpenAI and Anthropic are called on their public API endpoints; there is no base-URL or proxy
+  setting for them. Azure OpenAI takes your resource's endpoint (choose its region for residency) and Bedrock your AWS
+  region, both in the LLM connection settings.
+
+### Database errors
+
+A database quotes row values back in its errors — a failed conversion names the value it could not convert, a key
+violation the key — so Beacon judges an error by its **class** (SQLSTATE, error number or the engine's wording) before
+it leaves its hands:
+
+- An error that **carries values** — a data exception or an integrity violation (SQLSTATE `22xxx`, `23xxx`), SQL Server's
+  conversion, overflow, duplicate-key, truncation and NULL errors, MySQL's incorrect-value, duplicate-entry,
+  out-of-range and too-long errors, BigQuery, Databricks and Snowflake cast and parse errors — is replaced by its class,
+  code and a generic description, none of its message kept:
+  `Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.`
+- An error that **carries no values** — an unknown or ambiguous name, a grouping, syntax, type, permission or
+  division-by-zero error — keeps its message with quoted text, key and row details and unquoted values replaced by
+  `<value>`. Quoted text survives only in an error about a name, and only when every part of it is a name of the
+  statement or the catalog.
+- An error Beacon does not recognise is replaced like a value-carrying one when it holds a quote or the word `value`,
+  and redacted like a value-free one otherwise. The whole message is redacted before it is cut to 2,000 characters; an
+  error that cannot be screened in time is replaced as a whole and counted (`beacon.error_redaction.fallbacks`).
+
+Where the redacted form is used:
+
+| Where the error goes | Redacted |
+|---|---|
+| Repair prompts (`ask`, cross-source `ask`) and lesson extraction | always (under the lock, lesson extraction gets the class and code only) |
+| Learning signals (`ask`, `query`, `dry_run`, cross-source) and the stored history of ad-hoc queries | always |
+| The error returned by `ask`, `query`, `dry_run`, cross-source queries, saved-query tools and REST previews and executions, and the audit row | while PII detection is on for the project (or the strictest project sharing the source); the raw message otherwise |
+| Host data sources | never the database's message: `Query failed on the host database.` |
+
+Logs never carry the message at all: a failed query is logged by exception type, error code, the types of the
+exceptions it wraps and the method that threw it (`PostgresException (error code 22P02, inner SocketException, at NpgsqlConnector.ReadMessage)`).
+
+:::caution[Upgrading]
+- **Defaults.** A new installation starts with sample-value collection and value grounding off. Stored settings are not
+  changed: an installation that saved its global MCP settings keeps the values it stored (the migration
+  `DefaultSampleValueCollectionOff` only changes the column default for a row created later). An installation that never
+  saved them reads the new defaults, so both are off until a project or the global settings turn them on; the host
+  then logs at startup which row-data settings are in effect. With sample-value collection off, documentation
+  generation lists no discovered column values (logged once per run).
+- **Sampling, in both directions.** A project that turns sample-value collection on now collects even while the global
+  value is off (before, the global value had to be on too). A refresh no longer reads excluded columns at all, and more
+  names are excluded: person names, Croatian personal data, connection strings, `dsn`, webhook URLs, `hmac` and key
+  material named with `hmac`, `aes`, `rsa`, `pgp`, `gpg` or `ssh` beside `key`. Surrogate keys such as `ProductKey` are
+  no longer excluded and are sampled again. The next refresh replaces what changed.
+- **Settings API.** A `PUT /beacon/api/mcp/settings` body that omits `enableSampleValueCollection` or
+  `enableValueGrounding` now stores `false` (the default) for it; send every field you read. The settings page shows
+  both switches and sends back every setting it loaded, the ones it does not show included.
+- **Errors.** Database errors returned to callers and written to the audit are in the generic class form above while PII
+  detection is on, and learning signals and ad-hoc query history always hold the redacted form. Failure logs name the
+  failure as `Type (error code …, inner …, at …)` instead of separate type and code fields.
+- **Masking.** Banking identifiers (`iban`, `oib`, `jmbg` as whole name segments, `account_number`) are PII names: query
+  results mask such columns on every path while PII detection is on. Data-quality custom SQL masks a text value (an
+  `actual_value` or `message`) that looks like PII, whatever its column is called.
+- **Under the lock**, an instruction on a business-domain, data-model or glossary documentation section answers `400`.
 :::
 
 The per-project settings have their own endpoints: `GET` / `PUT /beacon/api/mcp/projects/{projectId}/settings` (admin only). The `GET` returns the project's overrides, the resolved effective values, and the names of any locked or clamped fields.
@@ -578,6 +674,7 @@ MCP now uses the same [project access](/features/authorization/#project-access) 
 - **Eval runs without a project** are refused: the run is marked `Failed` before any case runs.
 - **Database names must be the data source's own.** SQL naming another database, catalog or project than the one the data source's connection configures is refused (`cross_database`), and a data source without a configured database accepts no database qualifier. SQL the gate cannot parse is refused even with read-only enforcement off.
 - **Shared data sources take the strictest guardrails** of the live projects that link them: a project with a looser row limit, PII, read-only, value-grounding or sample-value setting gets the stricter one on a data source it shares.
+- **Sample values and value grounding are off by default** for a new installation, and the deployment lock `Beacon:Mcp:ForbidRowDataToLlm` keeps all row data from the LLM provider; see [What reaches the LLM provider](#what-reaches-the-llm-provider).
 - **`get_query_context` runs live value probes only for callers who may query the project**; a Viewer's context resolves values from the stored samples alone.
 
 ## See Also

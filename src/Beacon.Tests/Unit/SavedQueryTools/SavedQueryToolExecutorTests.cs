@@ -288,6 +288,25 @@ public class SavedQueryToolExecutorTests
         result.Rows[1]["who"].Should().Be("a***m");
     }
 
+    // A step that fails on the data source reports the database's error, redacted while PII detection is on.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AFailedStep_ReportsTheDatabasesError_RedactedWhileDetectionIsOn(bool detectPii)
+    {
+        const string error = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = error });
+        var tool = Tool("loan_book", [Step(1, 10, "SELECT total FROM loans")], [ProjectId]);
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = detectPii }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Be(detectPii
+            ? "Step 1 failed: Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values."
+            : $"Step 1 failed: {error}");
+    }
+
     [Test]
     public async Task DetectionOff_MasksOnlyTheHostMaskedColumns()
     {
@@ -370,6 +389,43 @@ public class SavedQueryToolExecutorTests
             result.Rows.Select(x => x["city"]).Should().Equal("Split", "Zagreb");
             result.Rows.Should().OnlyContain(x => x["SSN"]!.ToString()!.All(y => y == '*'));
             result.Rows.Should().OnlyContain(x => x["kt"]!.ToString()!.All(y => y == '*'));
+        }
+        finally
+        {
+            new BeaconBuilder(new ServiceCollection(), new ConfigurationBuilder().Build()).AddPostgreSqlConnector();
+        }
+    }
+
+    // The database names the host-masked column otherwise than the host policy derived (kt): the provider masks it by its
+    // POSITION, so the join and the delivered rows never see the value — with PII detection off, nothing else would mask it.
+    [Test]
+    [NonParallelizable] // DbConnectionFactory is a process-wide registry.
+    public async Task AHostMaskedColumnTheDatabaseNamesOtherwise_IsMaskedByPosition()
+    {
+        _data.Link(ProjectId, _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: DatabaseEngineType.PostgreSQL));
+        var hostGuard = RealHostGuard(npgsql: true);
+        var hostProvider = TestQueryServices.DatabaseProvider(hostGuard: hostGuard);
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.Is<DataSource>(y => y.HostManagedKey != null), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns((DataSource dataSource, string sql, Dictionary<string, object?> parameters, CancellationToken token) =>
+                hostProvider.ExecuteReadOnlyQueryAsync(dataSource, sql, parameters, token));
+        _results.Enqueue([Row(("id", 1L), ("city", "Zagreb")), Row(("id", 2L), ("city", "Split"))]);
+        var tool = Tool(
+            "host_cities",
+            [Step(1, 20, "SELECT c.\"Id\", c.\"SSN\" AS kt FROM public.\"Customer\" c"), Step(2, 10, "SELECT id, city FROM addresses")],
+            [ProjectId],
+            finalQuery: "SELECT c.kt_as_the_server_named_it AS copy, a.city FROM @result1 c JOIN @result2 a ON a.id = c.Id ORDER BY a.city");
+        DbConnectionFactory.Register(
+            DatabaseEngineType.PostgreSQL,
+            _ => new RecordingDbConnection { Columns = [("Id", x => x + 1), ("kt_as_the_server_named_it", x => $"01013029{x + 1}9")], RowCount = 2 });
+
+        try
+        {
+            var result = await Executor(new McpSettingsData { EnablePiiDetection = false }, hostGuard).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+            result.Success.Should().BeTrue(result.Error);
+            result.Rows.Select(x => x["city"]).Should().Equal("Split", "Zagreb");
+            result.Rows.Should().OnlyContain(x => (string?)x["copy"] == HostResultMasker.MaskedValue);
         }
         finally
         {

@@ -35,7 +35,7 @@ public class DatabaseProviderFailureLoggingTests
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Exception.Should().BeNull("the exception carries the message");
         entry.Message.Should().NotContain(SensitiveValue);
-        entry.Message.Should().Be("Query execution failed for database data source 7 with FakeDbException (error code 22P02)");
+        entry.Message.Should().StartWith("Query execution failed for database data source 7 with FakeDbException (error code 22P02, at ");
     }
 
     [Test]
@@ -50,7 +50,8 @@ public class DatabaseProviderFailureLoggingTests
         result.IsValid.Should().BeFalse();
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Exception.Should().BeNull();
-        entry.Message.Should().Be("Query validation failed for database data source 7 with InvalidOperationException (error code 22003)");
+        entry.Message.Should().StartWith("Query validation failed for database data source 7 with InvalidOperationException (error code 22003, inner FakeDbException, at ");
+        entry.Message.Should().NotContain(SensitiveValue);
     }
 
     [Test]
@@ -63,7 +64,8 @@ public class DatabaseProviderFailureLoggingTests
 
         var entry = logger.Entries.Should().ContainSingle().Subject;
         entry.Exception.Should().BeNull();
-        entry.Message.Should().Be("Query execution failed for database data source 7 with InvalidOperationException (error code none)");
+        entry.Message.Should().StartWith("Query execution failed for database data source 7 with InvalidOperationException (error code none, at ");
+        entry.Message.Should().NotContain(SensitiveValue);
     }
 
     private static DatabaseProvider CreateProvider(Exception failure, RecordingLogger logger)

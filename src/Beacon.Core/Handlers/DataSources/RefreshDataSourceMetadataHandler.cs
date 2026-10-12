@@ -16,6 +16,7 @@ internal sealed class RefreshDataSourceMetadataHandler(
     ForcedMetadataRefreshCooldown cooldown,
     IOptionsMonitor<MetadataRefreshOptions> refreshOptions,
     IBeaconPermissionAccessor permissionAccessor,
+    MetadataSampleView sampleView,
     ILogger<RefreshDataSourceMetadataHandler> logger)
     : IRequestHandler<RefreshDataSourceMetadataCommand, DatabaseMetadataSnapshot>
 {
@@ -65,14 +66,16 @@ internal sealed class RefreshDataSourceMetadataHandler(
             logger.LogWarning(ex, "Schema relationship sync failed for data source {DataSourceId}; metadata refresh kept.", request.DataSourceId);
         }
 
-        return snapshot;
+        // The sample values the refresh collected go to an Admin only, as on a read of the stored catalog.
+        return await sampleView.ApplyAsync(snapshot, cancellationToken);
     }
 }
 
 /// <summary>
 /// Re-reads a data source's metadata from the database now. Curated descriptions are kept; a second forced refresh of the
 /// same data source within <see cref="MetadataRefreshOptions.ForcedRefreshCooldownMinutes"/> of one that succeeded
-/// (except by an Admin or a DataSourceAdmin), or while one is running, answers 429.
+/// (except by an Admin or a DataSourceAdmin), or while one is running, answers 429. The refreshed catalog carries sample
+/// values for an Admin only.
 /// </summary>
 public record RefreshDataSourceMetadataCommand(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>, IProjectAuthorizedRequest
 {

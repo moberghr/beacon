@@ -405,6 +405,7 @@ public class AskSqlPipelineTests
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             gate ?? TestSqlGate.Create(_guardrail.Object, hostGuard),
+            TestRowDataEgress.Discarding(),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

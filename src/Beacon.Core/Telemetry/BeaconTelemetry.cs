@@ -22,6 +22,7 @@ public static class BeaconTelemetry
     public const string ToolCallsInstrument = "beacon.mcp.tool.calls";
     public const string ToolRowsInstrument = "beacon.mcp.tool.rows";
     public const string AuditWriteFailuresInstrument = "beacon.mcp.audit.write_failures";
+    public const string ErrorRedactionFallbacksInstrument = "beacon.error_redaction.fallbacks";
 
     public const string ToolNameTag = "gen_ai.tool.name";
     public const string OutcomeTag = "beacon.outcome";
@@ -53,4 +54,8 @@ public static class BeaconTelemetry
     /// <summary>Audit rows that could not be written; tagged tool name.</summary>
     public static readonly Counter<long> AuditWriteFailures = Meter.CreateCounter<long>(
         AuditWriteFailuresInstrument, unit: "{failure}", description: "MCP audit rows that could not be persisted.");
+
+    /// <summary>Database errors that could not be screened in time and were replaced as a whole; never tagged with content.</summary>
+    public static readonly Counter<long> ErrorRedactionFallbacks = Meter.CreateCounter<long>(
+        ErrorRedactionFallbacksInstrument, unit: "{error}", description: "Database errors replaced as a whole because screening them timed out.");
 }

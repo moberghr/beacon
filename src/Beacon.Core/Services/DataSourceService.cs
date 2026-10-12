@@ -14,6 +14,7 @@ using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -46,7 +47,8 @@ internal class DataSourceService(
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
     GatedSqlRunner sqlRunner,
-    ILogger<DataSourceService> logger) : IDataSourceService
+    ILogger<DataSourceService> logger,
+    ISharedSourceSettings? sharedSourceSettings = null) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
@@ -190,6 +192,10 @@ internal class DataSourceService(
             throw new BeaconException($"Unable to archive data source. The following migration jobs must be archived first: {migrationJobNames}");
         }
 
+        // The column values sampled from the source go with it, archived tables' columns included: an archived source is
+        // never read again, so nothing keeps a copy of its rows.
+        await DatabaseMetadataService.ClearStoredSampleValuesAsync(context, dataSourceId, cancellationToken);
+
         dataSource.Archive();
         await context.SaveChangesAsync(cancellationToken);
 
@@ -316,12 +322,24 @@ internal class DataSourceService(
                     query,
                     new Dictionary<string, object?>(),
                     cancellationToken);
+
+                if (!result.Success && result.ErrorMessage != null)
+                {
+                    // The source's error can quote row values: redacted while its effective PII detection is on (a gated
+                    // SQL failure arrives redacted by the runner already).
+                    var detectPii = sharedSourceSettings == null
+                        || (await sharedSourceSettings.GetDataSourceSettingsAsync(dataSourceId, cancellationToken)).EnablePiiDetection;
+                    result.ErrorMessage = DatabaseErrorRedactor.ForCaller(result.ErrorMessage, query, detectPii, logger);
+                }
             }
 
             if (!result.Success)
             {
-                logger.LogWarning("Ad-hoc query failed for data source {DataSourceId}: {ErrorMessage}",
-                    dataSourceId, result.ErrorMessage);
+                // The class of the error only, never its text (§1.11).
+                logger.LogWarning(
+                    "Ad-hoc query failed for data source {DataSourceId} ({ErrorClass})",
+                    dataSourceId,
+                    DatabaseErrorRedactor.ClassOnly(result.ErrorMessage ?? "", logger));
             }
 
             // The display limit; a row past it says the result was larger than what is shown.
@@ -336,7 +354,7 @@ internal class DataSourceService(
                 success: result.Success,
                 dataSourceId: dataSourceId,
                 executionContext: "DataSourceEditor",
-                errorMessage: result.ErrorMessage,
+                errorMessage: StoredError(result.ErrorMessage, limitedQuery),
                 userId: userContext.UserId,
                 cancellationToken: cancellationToken);
 
@@ -353,11 +371,16 @@ internal class DataSourceService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Exception executing ad-hoc query on data source {DataSourceId}", dataSourceId);
+            // The failure's type, code, inner types and throwing method — never its message, which can quote row values
+            // (§1.11). A refusal Beacon raised itself (the execution gate) keeps its message.
+            logger.LogError(
+                "Exception executing ad-hoc query on data source {DataSourceId}: {Failure}",
+                dataSourceId,
+                FailureCodes.Describe(ex));
 
             var executionTimeMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
-            // Log failed query execution
+            // Log failed query execution: the stored history holds a database error redacted, a refusal Beacon raised as it is.
             await queryExecutionLogger.LogQueryExecutionAsync(
                 queryText: query,
                 resultCount: 0,
@@ -365,7 +388,7 @@ internal class DataSourceService(
                 success: false,
                 dataSourceId: dataSourceId,
                 executionContext: "DataSourceEditor",
-                errorMessage: ex.Message,
+                errorMessage: ex is InvalidOperationException or BeaconException ? ex.Message : StoredError(ex.Message, query),
                 userId: userContext.UserId,
                 cancellationToken: cancellationToken);
 
@@ -379,6 +402,12 @@ internal class DataSourceService(
                 RowCount = 0
             };
         }
+    }
+
+    // The ad-hoc history keeps a database error redacted whatever the PII setting: it is stored and read back later.
+    private string? StoredError(string? error, string query)
+    {
+        return error == null ? null : DatabaseErrorRedactor.ForCaller(error, query, redact: true, logger);
     }
 
     private List<string> ExtractColumns(List<Dictionary<string, object?>> rows)

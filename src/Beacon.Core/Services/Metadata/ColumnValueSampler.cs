@@ -19,6 +19,12 @@ public interface IColumnValueSampler
     /// <c>SampleValuesComplete</c>. Every sampling statement passes the shared execution gate and runs through the
     /// provider's read-only path (<see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>) on the data source's own
     /// connection, with a row cap and a statement timeout. Sampling failures are logged and never fail the metadata refresh.
+    /// A column whose name <see cref="ColumnValueExclusions"/> leaves out (PII, secret-like, a person's name, a financial
+    /// amount), or a binary column, is not read at all (the row sample names the other columns, a table with none is not
+    /// queried); one of whose values looks like PII or a credential — screened whole, before a sample is cut to
+    /// <see cref="MaxValueLength"/> — is returned with no samples, so the refresh that stores the result clears any it held
+    /// before. Each refresh logs how many columns it left out by name, for a PII-shaped value and for a credential-shaped
+    /// value (counts only).
     /// </summary>
     Task<IReadOnlyList<TableMetadataDto>> EnrichWithSampleValuesAsync(
         DataSource dataSource,
@@ -73,6 +79,7 @@ internal sealed class ColumnValueSampler(
 
         var candidates = 0;
         var sampled = 0;
+        var tally = new ExclusionTally();
         foreach (var table in tables)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -86,8 +93,8 @@ internal sealed class ColumnValueSampler(
             candidates++;
             try
             {
-                var (samples, completeDomainColumns) = await SampleTableAsync(dataSource, engineType, table, customPiiPatterns, cancellationToken);
-                enriched.Add(table with { Columns = ApplySamples(table.Columns, samples, customPiiPatterns, completeDomainColumns) });
+                var (samples, completeDomainColumns, valueExclusions) = await SampleTableAsync(dataSource, engineType, table, customPiiPatterns, cancellationToken);
+                enriched.Add(table with { Columns = ApplySamples(table.Columns, samples, customPiiPatterns, completeDomainColumns, valueExclusions, tally) });
                 sampled++;
             }
             catch (OperationCanceledException)
@@ -107,33 +114,48 @@ internal sealed class ColumnValueSampler(
         }
 
         logger.LogInformation(
-            "Sample-value collection of data source {DataSourceId}: {SampledCount} of {TableCount} tables sampled",
+            "Sample-value collection of data source {DataSourceId}: {SampledCount} of {TableCount} tables sampled; columns left out by name {ByName}, for a PII-shaped value {ByPiiValue}, for a credential-shaped value {ByCredentialValue}",
             dataSource.Id,
             sampled,
-            candidates);
+            candidates,
+            tally.ByName,
+            tally.ByPiiValue,
+            tally.ByCredentialValue);
 
         return enriched;
     }
 
-    private async Task<(Dictionary<string, List<string>> Samples, HashSet<string> CompleteDomainColumns)> SampleTableAsync(
+    private async Task<(Dictionary<string, List<string>> Samples, HashSet<string> CompleteDomainColumns, Dictionary<string, SampleExclusion> ValueExclusions)> SampleTableAsync(
         DataSource dataSource,
         DatabaseEngineType engineType,
         TableMetadataDto table,
         IReadOnlyList<string>? customPiiPatterns,
         CancellationToken cancellationToken)
     {
-        var sql = BuildSampleQuery(engineType, table.SchemaName, table.TableName);
-        var rows = await ReadAsync(dataSource, sql, SampleRowCount, cancellationToken);
+        // Only the columns whose values may describe them are read: a binary column, or one whose name is left out (PII,
+        // secret-like, a person's name, a financial amount), never leaves the database.
+        var readable = table.Columns
+            .Where(x => !ShouldSkipColumn(x, customPiiPatterns))
+            .Select(x => x.ColumnName)
+            .ToList();
+        var rows = readable.Count == 0
+            ? []
+            : await ReadAsync(dataSource, BuildSampleQuery(engineType, table.SchemaName, table.TableName, readable), SampleRowCount, cancellationToken);
         var samples = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var valueExclusions = new Dictionary<string, SampleExclusion>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in rows)
         {
             foreach (var kvp in row)
             {
-                if (kvp.Value == null)
+                // Every value read is screened whole — a credential or IBAN past the sample length still counts.
+                var fullText = FullText(kvp.Value);
+                if (fullText == null)
                 {
                     continue;
                 }
+
+                NoteExclusion(valueExclusions, kvp.Key, ScreenValue(fullText, customPiiPatterns));
 
                 if (!samples.TryGetValue(kvp.Key, out var values))
                 {
@@ -141,22 +163,17 @@ internal sealed class ColumnValueSampler(
                     samples[kvp.Key] = values;
                 }
 
-                if (values.Count >= IColumnValueSampler.MaxValuesPerColumn)
-                {
-                    continue;
-                }
-
-                var text = FormatValue(kvp.Value);
-                if (text != null && !values.Contains(text, StringComparer.Ordinal))
+                var text = Cut(fullText);
+                if (values.Count < IColumnValueSampler.MaxValuesPerColumn && !values.Contains(text, StringComparer.Ordinal))
                 {
                     values.Add(text);
                 }
             }
         }
 
-        var completeDomainColumns = await ProbeTableDomainsAsync(dataSource, engineType, table, samples, customPiiPatterns, cancellationToken);
+        var completeDomainColumns = await ProbeTableDomainsAsync(dataSource, engineType, table, samples, valueExclusions, customPiiPatterns, cancellationToken);
 
-        return (samples, completeDomainColumns);
+        return (samples, completeDomainColumns, valueExclusions);
     }
 
     // Runs one sampling statement through GatedSqlRunner: the shared execution gate in the source's dialect (the names are
@@ -197,6 +214,7 @@ internal sealed class ColumnValueSampler(
         DatabaseEngineType engineType,
         TableMetadataDto table,
         Dictionary<string, List<string>> samples,
+        Dictionary<string, SampleExclusion> valueExclusions,
         IReadOnlyList<string>? customPiiPatterns,
         CancellationToken cancellationToken)
     {
@@ -209,18 +227,22 @@ internal sealed class ColumnValueSampler(
 
             try
             {
-                var values = await ProbeDomainAsync(dataSource, engineType, table, column, cancellationToken);
-                if (!IsCompleteDomain(values))
+                var fullValues = await ProbeDomainAsync(dataSource, engineType, table, column, cancellationToken);
+
+                // A value the probe read that looks like PII or a credential leaves the whole column out.
+                foreach (var value in fullValues)
+                {
+                    NoteExclusion(valueExclusions, column.ColumnName, ScreenValue(value, customPiiPatterns));
+                }
+
+                if (!IsCompleteDomain(fullValues) || valueExclusions.ContainsKey(column.ColumnName))
                 {
                     continue;
                 }
 
-                if (ContainsPiiValue(values, customPiiPatterns))
-                {
-                    continue;
-                }
-
-                samples[column.ColumnName] = values;
+                samples[column.ColumnName] = fullValues
+                    .Select(Cut)
+                    .ToList();
                 completeDomainColumns.Add(column.ColumnName);
             }
             catch (OperationCanceledException)
@@ -265,13 +287,7 @@ internal sealed class ColumnValueSampler(
 
         foreach (var row in rows)
         {
-            var value = row.Values.FirstOrDefault();
-            if (value == null)
-            {
-                continue;
-            }
-
-            var text = FormatValue(value);
+            var text = FullText(row.Values.FirstOrDefault());
             if (text != null)
             {
                 values.Add(text);
@@ -281,14 +297,18 @@ internal sealed class ColumnValueSampler(
         return values;
     }
 
+    /// <param name="valueExclusions">Columns one of whose values, screened whole as read, looked like PII or a credential.</param>
+    /// <param name="tally">Counts the columns left out, by reason, for the refresh's log.</param>
     internal IReadOnlyList<ColumnMetadataDto> ApplySamples(
         IReadOnlyList<ColumnMetadataDto> columns,
         Dictionary<string, List<string>> samples,
         IReadOnlyList<string>? customPiiPatterns,
-        IReadOnlySet<string>? completeDomainColumns = null)
+        IReadOnlySet<string>? completeDomainColumns = null,
+        IReadOnlyDictionary<string, SampleExclusion>? valueExclusions = null,
+        ExclusionTally? tally = null)
     {
         return columns
-            .Select(x => ApplySampleToColumn(x, samples, customPiiPatterns, completeDomainColumns))
+            .Select(x => ApplySampleToColumn(x, samples, customPiiPatterns, completeDomainColumns, valueExclusions, tally))
             .ToList();
     }
 
@@ -296,30 +316,42 @@ internal sealed class ColumnValueSampler(
         ColumnMetadataDto column,
         Dictionary<string, List<string>> samples,
         IReadOnlyList<string>? customPiiPatterns,
-        IReadOnlySet<string>? completeDomainColumns)
+        IReadOnlySet<string>? completeDomainColumns,
+        IReadOnlyDictionary<string, SampleExclusion>? valueExclusions,
+        ExclusionTally? tally)
     {
-        if (ShouldSkipColumn(column, customPiiPatterns))
+        if (BinaryDataTypes.Contains(NormalizeDataType(column.DataType)))
         {
-            return column;
+            return WithoutSamples(column);
+        }
+
+        if (ColumnValueExclusions.IsExcludedColumn(guardrailService, column.ColumnName, customPiiPatterns))
+        {
+            tally?.Count(SampleExclusion.Name);
+            return WithoutSamples(column);
         }
 
         if (!samples.TryGetValue(column.ColumnName, out var values) || values.Count == 0)
         {
-            return column;
+            return WithoutSamples(column);
         }
 
-        if (ContainsPiiValue(values, customPiiPatterns))
+        var exclusion = valueExclusions != null && valueExclusions.TryGetValue(column.ColumnName, out var screened)
+            ? screened
+            : ScreenValues(values, customPiiPatterns);
+        if (exclusion != SampleExclusion.None)
         {
-            return column;
+            tally?.Count(exclusion);
+            return WithoutSamples(column);
         }
 
         var isComplete = completeDomainColumns != null && completeDomainColumns.Contains(column.ColumnName);
         return column with { SampleValues = values, SampleValuesComplete = isComplete };
     }
 
-    internal static bool ContainsPiiValue(IReadOnlyList<string> values, IReadOnlyList<string>? customPiiPatterns)
+    internal static bool ContainsExcludedValue(IReadOnlyList<string> values, IReadOnlyList<string>? customPiiPatterns)
     {
-        return PiiValueScreen.ContainsPiiValue(values, customPiiPatterns);
+        return ColumnValueExclusions.ContainsExcludedValue(values, customPiiPatterns);
     }
 
     internal bool IsDomainCandidate(ColumnMetadataDto column, IReadOnlyList<string>? customPiiPatterns)
@@ -363,21 +395,37 @@ internal sealed class ColumnValueSampler(
             return true;
         }
 
-        return guardrailService.IsPiiColumn(column.ColumnName, customPiiPatterns);
+        return ColumnValueExclusions.IsExcludedColumn(guardrailService, column.ColumnName, customPiiPatterns);
     }
 
-    internal static string BuildSampleQuery(DatabaseEngineType engineType, string schemaName, string tableName)
+    // A column left unsampled carries no samples, whatever the extracted metadata held: the refresh that stores the result
+    // clears what the column held before.
+    private static ColumnMetadataDto WithoutSamples(ColumnMetadataDto column)
+    {
+        return column.SampleValues == null && !column.SampleValuesComplete
+            ? column
+            : column with { SampleValues = null, SampleValuesComplete = false };
+    }
+
+    /// <summary>
+    /// The row sample of a table: the named columns only, each name validated and quoted in the engine's own way, as the
+    /// schema and table are.
+    /// </summary>
+    internal static string BuildSampleQuery(DatabaseEngineType engineType, string schemaName, string tableName, IReadOnlyList<string> columnNames)
     {
         var schema = SqlIdentifierGuard.Validate(schemaName, "schema");
         var table = SqlIdentifierGuard.Validate(tableName, "table");
+        var columns = columnNames
+            .Select(x => SqlIdentifierGuard.Validate(x, "column"))
+            .ToList();
         return engineType switch
         {
             DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse =>
-                $"SELECT TOP {SampleRowCount} * FROM [{SqlIdentifierGuard.EscapeQuote(schema, ']')}].[{SqlIdentifierGuard.EscapeQuote(table, ']')}]",
+                $"SELECT TOP {SampleRowCount} {QuotedList(columns, '[', ']')} FROM [{SqlIdentifierGuard.EscapeQuote(schema, ']')}].[{SqlIdentifierGuard.EscapeQuote(table, ']')}]",
             DatabaseEngineType.MySQL =>
-                $"SELECT * FROM `{SqlIdentifierGuard.EscapeQuote(schema, '`')}`.`{SqlIdentifierGuard.EscapeQuote(table, '`')}` LIMIT {SampleRowCount}",
+                $"SELECT {QuotedList(columns, '`', '`')} FROM `{SqlIdentifierGuard.EscapeQuote(schema, '`')}`.`{SqlIdentifierGuard.EscapeQuote(table, '`')}` LIMIT {SampleRowCount}",
             _ =>
-                $"SELECT * FROM \"{SqlIdentifierGuard.EscapeQuote(schema, '"')}\".\"{SqlIdentifierGuard.EscapeQuote(table, '"')}\" LIMIT {SampleRowCount}"
+                $"SELECT {QuotedList(columns, '"', '"')} FROM \"{SqlIdentifierGuard.EscapeQuote(schema, '"')}\".\"{SqlIdentifierGuard.EscapeQuote(table, '"')}\" LIMIT {SampleRowCount}"
         };
     }
 
@@ -411,9 +459,22 @@ internal sealed class ColumnValueSampler(
         return $"SELECT DISTINCT {quotedColumn} FROM (SELECT {quotedColumn} FROM {quotedSchema}.{quotedTable} WHERE {quotedColumn} IS NOT NULL LIMIT {DomainProbeInnerScanRowCount}) x LIMIT {probeLimit}";
     }
 
+    private static string QuotedList(IReadOnlyList<string> columns, char open, char close)
+    {
+        return string.Join(", ", columns.Select(x => $"{open}{SqlIdentifierGuard.EscapeQuote(x, close)}{close}"));
+    }
+
     internal static string? FormatValue(object value)
     {
-        if (value is byte[])
+        var text = FullText(value);
+
+        return text == null ? null : Cut(text);
+    }
+
+    // A value as text, whole; null for a null, binary or blank value.
+    private static string? FullText(object? value)
+    {
+        if (value is null or byte[])
         {
             return null;
         }
@@ -425,14 +486,40 @@ internal sealed class ColumnValueSampler(
             _ => value.ToString()
         };
 
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
+        return string.IsNullOrWhiteSpace(text) ? null : text;
+    }
 
+    private static string Cut(string text)
+    {
         return text.Length > IColumnValueSampler.MaxValueLength
             ? text[..IColumnValueSampler.MaxValueLength]
             : text;
+    }
+
+    private static SampleExclusion ScreenValue(string value, IReadOnlyList<string>? customPiiPatterns)
+    {
+        if (PiiValueScreen.ContainsPiiValue([value], customPiiPatterns))
+        {
+            return SampleExclusion.PiiValue;
+        }
+
+        return CredentialValueScreen.LooksLikeCredential(value) ? SampleExclusion.CredentialValue : SampleExclusion.None;
+    }
+
+    private static SampleExclusion ScreenValues(IReadOnlyList<string> values, IReadOnlyList<string>? customPiiPatterns)
+    {
+        return values
+            .Select(x => ScreenValue(x, customPiiPatterns))
+            .FirstOrDefault(x => x != SampleExclusion.None);
+    }
+
+    // The first reason found for a column is the one it is counted under.
+    private static void NoteExclusion(Dictionary<string, SampleExclusion> valueExclusions, string column, SampleExclusion exclusion)
+    {
+        if (exclusion != SampleExclusion.None)
+        {
+            valueExclusions.TryAdd(column, exclusion);
+        }
     }
 
     private static string NormalizeDataType(string dataType)
@@ -455,4 +542,45 @@ internal sealed class ColumnValueSampler(
 
     // A sampling statement that was not run or did not finish, with the class of its reason as the message.
     private sealed class SamplingSkippedException(string reason) : Exception(reason);
+}
+
+/// <summary>Why a column's sample values were left out.</summary>
+internal enum SampleExclusion
+{
+    None,
+
+    /// <summary>Its name: PII, secret-like, a person's name or a financial amount (<see cref="ColumnValueExclusions"/>).</summary>
+    Name,
+
+    /// <summary>A value read from it looked like PII (<see cref="PiiValueScreen"/>).</summary>
+    PiiValue,
+
+    /// <summary>A value read from it looked like a credential (<see cref="CredentialValueScreen"/>).</summary>
+    CredentialValue
+}
+
+/// <summary>The columns one refresh left out, by reason — counts only, for its log.</summary>
+internal sealed class ExclusionTally
+{
+    public int ByName { get; private set; }
+
+    public int ByPiiValue { get; private set; }
+
+    public int ByCredentialValue { get; private set; }
+
+    public void Count(SampleExclusion exclusion)
+    {
+        switch (exclusion)
+        {
+            case SampleExclusion.Name:
+                ByName++;
+                break;
+            case SampleExclusion.PiiValue:
+                ByPiiValue++;
+                break;
+            case SampleExclusion.CredentialValue:
+                ByCredentialValue++;
+                break;
+        }
+    }
 }

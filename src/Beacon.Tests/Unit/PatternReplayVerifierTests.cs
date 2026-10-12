@@ -411,6 +411,7 @@ public class PatternReplayVerifierTests
             knowledge.Object,
             sqlGen.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestRowDataEgress.Discarding(),
             NullLogger<AskSqlPipeline>.Instance);
 
         return new McpEvalService(
@@ -423,6 +424,7 @@ public class PatternReplayVerifierTests
             TestConfiguredDatabases.None,
             settings.Object,
             llm.Object,
+            TestRowDataEgress.Discarding(),
             NullLogger<McpEvalService>.Instance);
     }
 

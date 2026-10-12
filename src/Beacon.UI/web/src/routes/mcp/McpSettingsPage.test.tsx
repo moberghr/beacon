@@ -32,6 +32,7 @@ const GLOBAL = {
   enablePiiDetection: true,
   customPiiPatterns: [],
   enableSampleValueCollection: true,
+  enableValueGrounding: true,
   enableLearning: true,
   learningAutoApproveThreshold: 0.85,
   learningInjectionBudgetChars: 4000,
@@ -42,6 +43,25 @@ const GLOBAL = {
   maxExplainCost: null,
   maxConcurrentQueriesPerKey: 4,
   allowExplicitFeedbackContent: true,
+  // The server's row has more than the page shows; a save must post these back as read.
+  enableSelfConsistency: true,
+  selfConsistencyCandidateCount: 7,
+  enableEvalJudge: true,
+  enableSemanticRetrieval: false,
+  exemplarTopK: 9,
+  enableReplayVerification: false,
+  learningReplayMinFlips: 3,
+  enableContextualRetrieval: true,
+  docChunkWindowSentences: 8,
+  docChunkOverlapSentences: 2,
+  glossaryTopK: 11,
+  docChunkTopK: 13,
+  enableGoldenExemplars: false,
+  goldenExemplarTopK: 6,
+  goldenExemplarBudgetChars: 3333,
+  valueGroundingMaxProbes: 5,
+  enableSemanticLint: false,
+  selfConsistencyMinTables: 4,
 };
 
 const adminMe = http.get('*/beacon/api/auth/me', () =>
@@ -199,6 +219,8 @@ describe('McpSettingsPage', () => {
     expect(body!.data).toMatchObject({
       maxRowLimit: 1000,
       enforceReadOnly: true,
+      enableSampleValueCollection: true,
+      enableValueGrounding: true,
       retainQueryContent: true,
       statementTimeoutSeconds: 45,
       maxResultBytes: 262144,
@@ -215,17 +237,138 @@ describe('McpSettingsPage', () => {
       customPiiPatternsText: 'customPiiPatterns',
       maxExplainCostText: 'maxExplainCost',
     };
-    // Overridable per project but with no toggle on the global form yet (see onSubmit's
-    // enableSampleValueCollection comment) — the one intentional asymmetry.
-    const overrideOnly = ['enableSampleValueCollection'];
 
     const guardrailKeys = Object.entries(FIELD_TAB)
       .filter(([, tab]) => tab === 'guardrails')
       .map(([key]) => formKeyToDataKey[key] ?? key);
     const overrideKeys = OVERRIDE_SECTIONS.flatMap(s => s.fields.map(f => f.key as string));
 
-    expect(new Set(overrideKeys)).toEqual(new Set([...guardrailKeys, ...overrideOnly]));
+    expect(new Set(overrideKeys)).toEqual(new Set(guardrailKeys));
     expect(overrideKeys.length).toBe(new Set(overrideKeys).size);
+  });
+
+  it('global Save posts back every key of the loaded settings, those the page does not show as read', async () => {
+    let body: { data: Record<string, unknown> } | undefined;
+    mswServer.use(
+      http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+        body = (await request.json()) as typeof body;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    await renderPage();
+    fireEvent.click(screen.getByText('Save settings'));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(Object.keys(body!.data).sort()).toEqual(Object.keys(GLOBAL).sort());
+    // Nothing edited: every value goes back exactly as it was read.
+    expect(body!.data).toEqual(GLOBAL);
+  });
+
+  describe('row data sent to the LLM provider', () => {
+    it('shows sample-value collection and value grounding on the Guardrails tab, and saves a change', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      mswServer.use(
+        http.get('*/beacon/api/mcp/settings', () =>
+          HttpResponse.json({ ...GLOBAL, enableSampleValueCollection: false, enableValueGrounding: true })),
+        http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      const sampling = screen.getByLabelText('Collect sample values');
+      const grounding = screen.getByLabelText('Ground questions in live values (value grounding)');
+      expect(sampling).not.toBeChecked();
+      expect(sampling).toBeEnabled();
+      expect(grounding).toBeChecked();
+      expect(grounding).toBeEnabled();
+      expect(screen.queryByText(/ForbidRowDataToLlm/)).not.toBeInTheDocument();
+
+      fireEvent.click(sampling);
+      fireEvent.click(grounding);
+      fireEvent.click(screen.getByText('Save settings'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data).toMatchObject({ enableSampleValueCollection: true, enableValueGrounding: false });
+    });
+
+    it('stays off and disabled while the deployment forbids row data, saying where it is unlocked', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      mswServer.use(
+        // The GET resolves the lock: both read as off.
+        http.get('*/beacon/api/mcp/settings', () =>
+          HttpResponse.json({ ...GLOBAL, enableSampleValueCollection: false, enableValueGrounding: false, enableEvalJudge: false })),
+        http.get('*/beacon/api/mcp/settings/locks', () =>
+          HttpResponse.json({ lockedFields: ['EnableEvalJudge', 'EnableSampleValueCollection', 'EnableValueGrounding'] })),
+        http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      await waitFor(() => expect(screen.getByLabelText('Collect sample values')).toBeDisabled());
+      expect(screen.getByLabelText('Collect sample values')).not.toBeChecked();
+      expect(screen.getByLabelText('Ground questions in live values (value grounding)')).toBeDisabled();
+      expect(screen.getByText(/Off by the deployment/)).toHaveTextContent(/Beacon:Mcp:ForbidRowDataToLlm/);
+      expect(screen.getByLabelText('Statement timeout (s)')).toBeEnabled();
+      fireEvent.click(screen.getByText('Save settings'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data).toMatchObject({ enableSampleValueCollection: false, enableValueGrounding: false });
+    });
+
+    it('a project overrides value grounding like sample-value collection', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      mswServer.use(
+        http.put('*/beacon/api/mcp/projects/1/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      await switchToProjectOne();
+
+      expect(screen.getByLabelText('Override Collect sample values')).not.toBeChecked();
+      const toggle = screen.getByLabelText('Override Ground questions in live values (value grounding)');
+      expect(toggle).not.toBeChecked();
+      fireEvent.click(toggle);
+      // Seeded with the effective value (on), then turned off for this project.
+      const grounding = screen.getByLabelText('Ground questions in live values (value grounding)');
+      expect(grounding).toBeChecked();
+      fireEvent.click(grounding);
+      fireEvent.click(screen.getByText('Save overrides'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data.enableValueGrounding).toBe(false);
+      expect(body!.data.enableSampleValueCollection ?? null).toBeNull();
+    });
+
+    it('a project under the lock shows neither switch, and the banner says why', async () => {
+      mswServer.use(
+        http.get('*/beacon/api/mcp/projects/1/settings', () =>
+          HttpResponse.json({
+            projectId: 1,
+            overrides: {},
+            effective: { ...GLOBAL, enableSampleValueCollection: false, enableValueGrounding: false, enableEvalJudge: false },
+            lockedFields: ['EnableEvalJudge', 'EnableSampleValueCollection', 'EnableValueGrounding'],
+            clampedFields: [],
+          }),
+        ),
+      );
+      await renderPage();
+      await switchToProjectOne();
+
+      expect(screen.queryByLabelText('Override Collect sample values')).toBeNull();
+      expect(screen.queryByLabelText('Override Ground questions in live values (value grounding)')).toBeNull();
+      expect(screen.getByText(/pinned by Beacon:Mcp/)).toHaveTextContent(
+        /Beacon:Mcp:ForbidRowDataToLlm keeps every value read from the data away from the LLM provider/,
+      );
+    });
   });
 
   it('saving project overrides PUTs the override row, seeded from the effective value', async () => {

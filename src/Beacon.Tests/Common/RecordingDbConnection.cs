@@ -18,6 +18,9 @@ internal sealed class RecordingDbConnection : DbConnection
     /// <summary>The result columns every reader returns, with the value of each row (by its zero-based index).</summary>
     public IReadOnlyList<(string Name, Func<int, object?> Value)> Columns { get; init; } = [("id", x => x + 1)];
 
+    /// <summary>The result columns of a reader by its command text, in place of <see cref="Columns"/>; null keeps them.</summary>
+    public Func<string, IReadOnlyList<(string Name, Func<int, object?> Value)>?>? ColumnsFor { get; init; }
+
     public int RowCount { get; init; }
 
     /// <summary>Answers a scalar command (a count); the default is <see cref="RowCount"/>.</summary>
@@ -151,7 +154,7 @@ internal sealed class RecordingDbConnection : DbConnection
         {
             Record();
 
-            return new Reader(connection);
+            return new Reader(connection, connection.ColumnsOf(_commands.Items.LastOrDefault()?.CommandText));
         }
 
         protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken) =>
@@ -282,7 +285,7 @@ internal sealed class RecordingDbConnection : DbConnection
         {
             connection.Record(this);
 
-            return new Reader(connection);
+            return new Reader(connection, connection.ColumnsOf(CommandText));
         }
     }
 
@@ -365,14 +368,17 @@ internal sealed class RecordingDbConnection : DbConnection
         }
     }
 
-    private sealed class Reader(RecordingDbConnection connection) : DbDataReader
+    private IReadOnlyList<(string Name, Func<int, object?> Value)> ColumnsOf(string? commandText) =>
+        (commandText == null ? null : ColumnsFor?.Invoke(commandText)) ?? Columns;
+
+    private sealed class Reader(RecordingDbConnection connection, IReadOnlyList<(string Name, Func<int, object?> Value)> columns) : DbDataReader
     {
         private int _row = -1;
         private bool _closed;
 
         public override int Depth => 0;
 
-        public override int FieldCount => connection.Columns.Count;
+        public override int FieldCount => columns.Count;
 
         public override bool HasRows => connection.RowCount > 0;
 
@@ -416,20 +422,20 @@ internal sealed class RecordingDbConnection : DbConnection
 
         public override IEnumerator GetEnumerator() => throw new NotSupportedException();
 
-        public override string GetName(int ordinal) => connection.Columns[ordinal].Name;
+        public override string GetName(int ordinal) => columns[ordinal].Name;
 
         public override int GetOrdinal(string name) =>
-            connection.Columns
+            columns
                 .Select((x, i) => (x.Name, Index: i))
                 .Where(x => x.Name == name)
                 .Select(x => x.Index)
                 .First();
 
-        public override Type GetFieldType(int ordinal) => connection.Columns[ordinal].Value(0)?.GetType() ?? typeof(object);
+        public override Type GetFieldType(int ordinal) => columns[ordinal].Value(0)?.GetType() ?? typeof(object);
 
         public override string GetDataTypeName(int ordinal) => GetFieldType(ordinal).Name;
 
-        public override object GetValue(int ordinal) => connection.Columns[ordinal].Value(_row) ?? DBNull.Value;
+        public override object GetValue(int ordinal) => columns[ordinal].Value(_row) ?? DBNull.Value;
 
         public override int GetValues(object[] values)
         {
@@ -441,7 +447,7 @@ internal sealed class RecordingDbConnection : DbConnection
             return FieldCount;
         }
 
-        public override bool IsDBNull(int ordinal) => connection.Columns[ordinal].Value(_row) == null;
+        public override bool IsDBNull(int ordinal) => columns[ordinal].Value(_row) == null;
 
         public override bool GetBoolean(int ordinal) => (bool)GetValue(ordinal);
 

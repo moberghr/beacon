@@ -1,8 +1,6 @@
 using System.Data.Common;
 using System.Diagnostics;
-using System.Globalization;
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization.ProjectAccess;
@@ -27,6 +25,13 @@ internal class DatabaseProvider(
 {
     /// <summary>What a caller sees when a query against a host data source fails on the server.</summary>
     public const string HostQueryFailedMessage = "Query failed on the host database.";
+
+    /// <summary>
+    /// What a caller sees when a host data source's result did not have the columns the host policy checked, so its
+    /// masking could not be placed and the result was discarded.
+    /// </summary>
+    public const string HostResultMismatchMessage =
+        "The result's columns did not line up with the statement's columns as the host data source policy checked them, so the result was discarded. Rewrite the query so each output column is a plain column or has a short alias of its own, with no duplicate names.";
 
     /// <summary>What a caller sees when MySQL's read-only transaction could not be closed after a read.</summary>
     public const string MySqlReadOnlyNotClosedMessage = "The read-only transaction could not be closed, so the result was discarded.";
@@ -369,6 +374,7 @@ internal class DatabaseProvider(
                 commandTimeout: StatementTimeoutSeconds);
 
             List<Dictionary<string, object?>> rows;
+            HostMaskOutcome masking;
             var mySqlReadOnlyClosed = true;
             var capped = false;
             try
@@ -381,10 +387,16 @@ internal class DatabaseProvider(
                 // On PostgreSQL the statement goes out as a batch of exactly one command, so the driver refuses a second
                 // statement (a COMMIT, a BEGIN READ WRITE) rather than splitting the text and running each — the READ ONLY
                 // session and transaction alone cannot stop a statement that ends the transaction and opens a writable one.
-                (var result, capped) = usePostgreSqlReadOnlyTransaction
+                var read = usePostgreSqlReadOnlyTransaction
                     ? await ReadSingleStatementAsync(connection, query, parameters, transaction, maxRows, StatementTimeoutSeconds, cancellationToken)
                     : await ReadRowsAsync(connection, commandDefinition, maxRows, cancellationToken);
-                rows = hostGuard.Mask(result, hostCheck.MaskedOutputColumns);
+                capped = read.Capped;
+
+                // A host data source's masked columns are masked by their POSITION in the result, before the rows are keyed
+                // by column name — the name the database gives a column is the caller's to choose (an alias), and a
+                // repeated name would hide a position.
+                masking = HostResultMasker.Mask(hostCheck, dataSource.HostManagedKey != null, read.Columns, read.Rows);
+                rows = masking.Discarded ? [] : ToRows(read.Columns, read.Rows);
 
                 if (useSqlServerRollbackOnlyTransaction)
                 {
@@ -420,6 +432,26 @@ internal class DatabaseProvider(
 
             stopwatch.Stop();
 
+            if (masking.Discarded)
+            {
+                logger.LogWarning(
+                    "A result from host data source {DataSourceId} had {ActualColumns} columns where the host policy checked {ExpectedColumns}; it was discarded",
+                    dataSource.Id,
+                    masking.ActualColumns,
+                    masking.ExpectedColumns);
+
+                return Failed(stopwatch, HostResultMismatchMessage);
+            }
+
+            if (masking.RenamedColumns > 0)
+            {
+                logger.LogWarning(
+                    "{RenamedColumns} of {ColumnCount} result columns from host data source {DataSourceId} were not named as the host policy derived them and were masked",
+                    masking.RenamedColumns,
+                    masking.ActualColumns,
+                    dataSource.Id);
+            }
+
             if (!mySqlReadOnlyClosed)
             {
                 // The rows were read, but the connection's read-only state could not be restored; fail closed. A read stopped
@@ -428,16 +460,22 @@ internal class DatabaseProvider(
                 return Failed(stopwatch, capped && maxRows is { } readLimit ? MoreRowsThanMessage(readLimit - 1) : MySqlReadOnlyNotClosedMessage);
             }
 
+            var metadata = new Dictionary<string, object?>
+            {
+                ["DatabaseEngine"] = dataSource.DatabaseEngineType.Value.ToString()
+            };
+            if (masking.RenamedColumns > 0)
+            {
+                metadata[HostResultMetadata.RenamedMaskedColumns] = masking.RenamedColumns;
+            }
+
             return new ProviderQueryResult
             {
                 Rows = rows,
                 TotalRows = rows.Count,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Success = true,
-                Metadata = new Dictionary<string, object?>
-                {
-                    ["DatabaseEngine"] = dataSource.DatabaseEngineType.Value.ToString()
-                }
+                Metadata = metadata
             };
         }
         catch (Exception ex)
@@ -459,7 +497,7 @@ internal class DatabaseProvider(
     // reader it closes early, so a statement whose own LIMIT / TOP lies above the cap is not fetched in full. The driver
     // may report that cancellation while the reader closes; the rows were read by then, and the caller judges a result
     // that reached the cap as too large.
-    private static async Task<(List<Dictionary<string, object?>> Rows, bool Capped)> ReadRowsAsync(
+    private static async Task<ReadResult> ReadRowsAsync(
         DbConnection connection,
         CommandDefinition command,
         int? maxRows,
@@ -467,7 +505,7 @@ internal class DatabaseProvider(
     {
         if (maxRows is not { } cap)
         {
-            return (ConvertDapperResultsToRows((await connection.QueryAsync(command)).AsList()), false);
+            return FromDapperRows((await connection.QueryAsync(command)).AsList(), false);
         }
 
         var rows = new List<dynamic>();
@@ -494,7 +532,7 @@ internal class DatabaseProvider(
             }
         }
 
-        return (ConvertDapperResultsToRows(rows), rows.Count >= cap);
+        return FromDapperRows(rows, rows.Count >= cap);
     }
 
     /// <summary>
@@ -504,7 +542,7 @@ internal class DatabaseProvider(
     /// extended-protocol Parse message, which PostgreSQL refuses when it holds more than one statement — so neither
     /// verdict rests on Beacon's own parser. Parameters bind by name, a null as SQL NULL.
     /// </summary>
-    private static async Task<(List<Dictionary<string, object?>> Rows, bool Capped)> ReadSingleStatementAsync(
+    private static async Task<ReadResult> ReadSingleStatementAsync(
         DbConnection connection,
         string statement,
         IReadOnlyDictionary<string, object?> parameters,
@@ -533,17 +571,23 @@ internal class DatabaseProvider(
 
         batch.BatchCommands.Add(command);
 
-        var rows = new List<Dictionary<string, object?>>();
+        var rows = new List<object?[]>();
         var cap = maxRows ?? int.MaxValue;
         var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        var columns = new List<string>();
         try
         {
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                columns.Add(reader.GetName(i));
+            }
+
             while (rows.Count < cap && await reader.ReadAsync(cancellationToken))
             {
-                var row = new Dictionary<string, object?>();
+                var row = new object?[reader.FieldCount];
                 for (var i = 0; i < reader.FieldCount; i++)
                 {
-                    row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                    row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
                 }
 
                 rows.Add(row);
@@ -567,7 +611,7 @@ internal class DatabaseProvider(
             }
         }
 
-        return (rows, maxRows != null && rows.Count >= cap);
+        return new ReadResult(columns, rows, maxRows != null && rows.Count >= cap);
     }
 
     // Beacon's transaction is intact when it is still open and the savepoint set before the read can still be rolled back
@@ -627,32 +671,13 @@ internal class DatabaseProvider(
     {
         logger.Log(
             level,
-            "{What} for {SourceKind} data source {DataSourceId} with {ExceptionType} (error code {ErrorCode})",
+            "{What} for {SourceKind} data source {DataSourceId} with {Failure}",
             what,
             dataSource.HostManagedKey == null ? "database" : "host",
             dataSource.Id,
-            ex.GetType().Name,
-            ErrorCodeOf(ex) ?? "none");
+            FailureCodes.Describe(ex));
 
         return dataSource.HostManagedKey == null ? ex.Message : HostQueryFailedMessage;
-    }
-
-    // The driver's error code, never text: SQL Server's error number, otherwise the SQLSTATE that the PostgreSQL and
-    // MySQL drivers expose through DbException. Looks through wrapping exceptions.
-    private static string? ErrorCodeOf(Exception ex)
-    {
-        for (var current = ex; current != null; current = current.InnerException)
-        {
-            switch (current)
-            {
-                case SqlException sqlServer:
-                    return sqlServer.Number.ToString(CultureInfo.InvariantCulture);
-                case DbException { SqlState: { Length: > 0 } sqlState }:
-                    return sqlState;
-            }
-        }
-
-        return null;
     }
 
     // With batches on, MySQL runs every statement of a command, so `COMMIT; <write>` would end the read-only transaction
@@ -736,25 +761,53 @@ internal class DatabaseProvider(
             or DatabaseEngineType.AzureSynapse;
     }
 
-    private static List<Dictionary<string, object?>> ConvertDapperResultsToRows(List<dynamic> dapperResults)
+    // A Dapper row enumerates every field of its reader in reader order — a repeated name repeated — so field i of the
+    // enumeration is result column i.
+    private static ReadResult FromDapperRows(List<dynamic> dapperRows, bool capped)
     {
-        var rows = new List<Dictionary<string, object?>>();
+        var columns = new List<string>();
+        var rows = new List<object?[]>();
 
-        foreach (var row in dapperResults)
+        foreach (var row in dapperRows)
         {
-            var dict = new Dictionary<string, object?>();
+            var fields = row is IDictionary<string, object> dictionary
+                ? dictionary.ToList()
+                : new List<KeyValuePair<string, object>>();
 
-            if (row is IDictionary<string, object> rowDict)
+            if (rows.Count == 0)
             {
-                foreach (var kvp in rowDict)
-                {
-                    dict[kvp.Key] = kvp.Value;
-                }
+                columns = fields
+                    .Select(x => x.Key)
+                    .ToList();
             }
 
-            rows.Add(dict);
+            rows.Add(fields
+                .Select(x => (object?)x.Value)
+                .ToArray());
         }
 
-        return rows;
+        return new ReadResult(columns, rows, capped);
     }
+
+    // Keyed by column name the way callers read rows; a repeated name keeps its last column's value.
+    private static List<Dictionary<string, object?>> ToRows(IReadOnlyList<string> columns, List<object?[]> rows)
+    {
+        var result = new List<Dictionary<string, object?>>(rows.Count);
+
+        foreach (var values in rows)
+        {
+            var row = new Dictionary<string, object?>();
+            for (var i = 0; i < values.Length && i < columns.Count; i++)
+            {
+                row[columns[i]] = values[i];
+            }
+
+            result.Add(row);
+        }
+
+        return result;
+    }
+
+    /// <summary>A result as read: its column names and each row's values, both in reader order.</summary>
+    private sealed record ReadResult(IReadOnlyList<string> Columns, List<object?[]> Rows, bool Capped);
 }

@@ -236,8 +236,8 @@ internal partial class MigrationService
                 }
                 catch (Exception mergeEx)
                 {
-                    // §1.11 — log identifiers, not the generated SQL body.
-                    logger.LogError(mergeEx, "Merge query failed for table {Table}", tableName);
+                    // §1.11 — log identifiers and the failure's type and code, not the generated SQL body or the message.
+                    logger.LogError("Merge query failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(mergeEx));
                     throw new InvalidOperationException($"Merge query failed for table '{tableName}': {mergeEx.Message}", mergeEx);
                 }
 
@@ -256,7 +256,7 @@ internal partial class MigrationService
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning("Failed to drop temp table {TempTable}: {Error}", tempTableName, ex.Message);
+                    logger.LogWarning("Failed to drop temp table {TempTable}: {Failure}", tempTableName, FailureCodes.Describe(ex));
                 }
             }
         }
@@ -307,7 +307,7 @@ internal partial class MigrationService
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "PostgreSQL bulk insert failed for table {Table}", tableName);
+            logger.LogError("PostgreSQL bulk insert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
             throw new InvalidOperationException($"PostgreSQL bulk insert failed: {ex.Message}", ex);
         }
     }
@@ -334,7 +334,7 @@ internal partial class MigrationService
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "SQL Server bulk insert failed for table {Table}", tableName);
+            logger.LogError("SQL Server bulk insert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
             throw new InvalidOperationException($"SQL Server bulk insert failed: {ex.Message}", ex);
         }
     }
@@ -402,7 +402,7 @@ DO UPDATE SET {updateSet}";
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "PostgreSQL bulk upsert failed for table {Table}", tableName);
+            logger.LogError("PostgreSQL bulk upsert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
             throw new InvalidOperationException($"PostgreSQL bulk upsert failed: {ex.Message}", ex);
         }
     }
@@ -431,7 +431,7 @@ DO UPDATE SET {updateSet}";
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "SQL Server bulk upsert failed for table {Table}", tableName);
+            logger.LogError("SQL Server bulk upsert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
             throw new InvalidOperationException($"SQL Server bulk upsert failed: {ex.Message}", ex);
         }
     }
@@ -467,7 +467,7 @@ DO UPDATE SET {updateSet}";
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Bulk insert failed for table {Table}, falling back to row-by-row", tableName);
+            logger.LogError("Bulk insert failed for table {Table}, falling back to row-by-row ({Failure})", tableName, FailureCodes.Describe(ex));
 
             // Fallback to row-by-row insertion on bulk failure
             var rowsWritten = 0;
@@ -493,7 +493,7 @@ DO UPDATE SET {updateSet}";
                     rowsFailed++;
                     var errorMsg = $"Row {rowsWritten + rowsFailed} failed: {rowEx.Message}";
                     errorDetails.Add(errorMsg);
-                    logger.LogWarning("Failed to insert row into {Table}: {Error}", tableName, rowEx.Message);
+                    logger.LogWarning("Failed to insert row into {Table}: {Failure}", tableName, FailureCodes.Describe(rowEx));
 
                     if (rowsFailed > Constants.Migration.MaxFailedRowsBeforeStop)
                     {
@@ -725,7 +725,7 @@ DO UPDATE SET {updateSet}";
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to retrieve primary key columns for table {Table}", tableName);
+            logger.LogError("Failed to retrieve primary key columns for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
             return new List<string>();
         }
     }
