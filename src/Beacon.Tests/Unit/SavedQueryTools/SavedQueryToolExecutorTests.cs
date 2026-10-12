@@ -1,7 +1,10 @@
+using Beacon.Connector.PostgreSql;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -13,6 +16,8 @@ using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 using Beacon.Tests.Unit.HostData;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
@@ -301,11 +306,11 @@ public class SavedQueryToolExecutorTests
         result.Rows[0]["total"].Should().Be(3);
     }
 
-    // F-3: a host-masked column is masked BEFORE its rows enter the in-memory join store. With PII detection off the
-    // final rows get no masking of their own, so a final query reading ref_code back under another name (x) would
-    // otherwise return the raw value.
+    // A host-masked column a provider returned raw (this provider double does not mask) is still masked in the delivered
+    // rows: with PII detection off the final rows are masked by the lineage of the steps' host-masked columns, so a final
+    // query reading ref_code back under another name (x) does not return the raw value.
     [Test]
-    public async Task AMultiStepJoin_AHostMaskedColumn_IsMaskedBeforeTheJoin_EvenUnderAnAlias()
+    public async Task AMultiStepJoin_AHostMaskedColumn_IsMaskedInTheDeliveredRows_EvenUnderAnAlias()
     {
         var hostGuard = new Mock<IHostDataSourceGuard>();
         hostGuard
@@ -331,6 +336,86 @@ public class SavedQueryToolExecutorTests
         result.Rows[0]["ref_code"].Should().Be("1***9");
         result.Rows[0]["x"].Should().Be("1***9");
         result.Rows[0]["city"].Should().Be("Zagreb");
+    }
+
+    // The real provider masks a host-masked column before Beacon reads it; those rows join as the provider returned them,
+    // and the delivered column stays masked, under an alias too, whatever the detection setting.
+    [TestCase(true)]
+    [TestCase(false)]
+    [NonParallelizable] // DbConnectionFactory is a process-wide registry.
+    public async Task AMultiStepJoin_AColumnTheProviderHostMasks_StaysMaskedThroughTheJoin(bool detectPii)
+    {
+        _data.Link(ProjectId, _data.DataSource(20, "netgiro-host", hostManagedKey: HostKey, engine: DatabaseEngineType.PostgreSQL));
+        var hostGuard = RealHostGuard(npgsql: true);
+        var hostProvider = TestQueryServices.DatabaseProvider(hostGuard: hostGuard);
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.Is<DataSource>(y => y.HostManagedKey != null), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns((DataSource dataSource, string sql, Dictionary<string, object?> parameters, CancellationToken token) =>
+                hostProvider.ExecuteReadOnlyQueryAsync(dataSource, sql, parameters, token));
+        _results.Enqueue([Row(("id", 1L), ("city", "Zagreb")), Row(("id", 2L), ("city", "Split"))]);
+        var tool = Tool(
+            "host_cities",
+            [Step(1, 20, "SELECT c.\"Id\", c.\"SSN\" FROM public.\"Customer\" c"), Step(2, 10, "SELECT id, city FROM addresses")],
+            [ProjectId],
+            finalQuery: "SELECT c.SSN, c.SSN AS kt, a.city FROM @result1 c JOIN @result2 a ON a.id = c.Id ORDER BY a.city");
+        DbConnectionFactory.Register(
+            DatabaseEngineType.PostgreSQL,
+            _ => new RecordingDbConnection { Columns = [("Id", x => x + 1), ("SSN", x => $"01013029{x + 1}9")], RowCount = 2 });
+
+        try
+        {
+            var result = await Executor(new McpSettingsData { EnablePiiDetection = detectPii }, hostGuard).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+            result.Success.Should().BeTrue(result.Error);
+            result.Rows.Select(x => x["city"]).Should().Equal("Split", "Zagreb");
+            result.Rows.Should().OnlyContain(x => x["SSN"]!.ToString()!.All(y => y == '*'));
+            result.Rows.Should().OnlyContain(x => x["kt"]!.ToString()!.All(y => y == '*'));
+        }
+        finally
+        {
+            new BeaconBuilder(new ServiceCollection(), new ConfigurationBuilder().Build()).AddPostgreSqlConnector();
+        }
+    }
+
+    // Two different e-mail addresses that both mask to c***e: the steps' rows join on the addresses as read, each customer
+    // to their own city, and only the delivered e-mail column is masked.
+    [Test]
+    public async Task AMultiStepJoin_OnDistinctKeysThatMaskAlike_JoinsOneToOne_AndMasksTheDeliveredKey()
+    {
+        _results.Enqueue([Row(("id", 1L), ("email", "customer1@bank.example")), Row(("id", 2L), ("email", "customer2@bank.example"))]);
+        _results.Enqueue([Row(("email", "customer1@bank.example"), ("city", "Zagreb")), Row(("email", "customer2@bank.example"), ("city", "Split"))]);
+        var tool = Tool(
+            "customer_cities",
+            [Step(1, 11, "SELECT id, email FROM customers"), Step(2, 10, "SELECT email, city FROM contacts")],
+            [ProjectId],
+            finalQuery: "SELECT c.id, c.email, a.city FROM @result1 c JOIN @result2 a ON a.email = c.email ORDER BY c.id");
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = true }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows.Select(x => $"{x["id"]}:{x["city"]}").Should().Equal("1:Zagreb", "2:Split");
+        result.Rows.Should().OnlyContain(x => (string)x["email"]! == "c***e");
+    }
+
+    // The final query's own name for an expression over a step's PII column is masked by the column's lineage; "reach" is
+    // PII only by the step's aliasing, and "x" by no name at all.
+    [TestCase("SELECT id, email FROM customers", "email", "SELECT UPPER(c.email) AS x, a.city FROM @result1 c JOIN @result2 a ON a.id = c.id ORDER BY a.city")]
+    [TestCase("SELECT id, email AS reach FROM customers", "reach", "SELECT UPPER(c.reach) AS x, a.city FROM @result1 c JOIN @result2 a ON a.id = c.id ORDER BY a.city")]
+    public async Task AMultiStepJoin_AFinalColumnOverAStepsPiiColumn_IsMasked_AndOtherColumnsAreNot(string stepSql, string column, string finalQuery)
+    {
+        _results.Enqueue([Row(("id", 1L), (column, "ada@example.com")), Row(("id", 2L), (column, "grace@example.com"))]);
+        _results.Enqueue([Row(("id", 1L), ("city", "Zagreb")), Row(("id", 2L), ("city", "Split"))]);
+        var tool = Tool(
+            "customer_cities",
+            [Step(1, 11, stepSql), Step(2, 10, "SELECT id, city FROM addresses")],
+            [ProjectId],
+            finalQuery: finalQuery);
+
+        var result = await Executor(new McpSettingsData { EnablePiiDetection = true }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows.Select(x => x["x"]).Should().Equal("G***M", "A***M");
+        result.Rows.Select(x => x["city"]).Should().Equal("Split", "Zagreb");
     }
 
     [Test]

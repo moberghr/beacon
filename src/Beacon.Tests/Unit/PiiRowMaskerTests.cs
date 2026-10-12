@@ -316,6 +316,49 @@ public class PiiRowMaskerTests
         columns.Should().BeEquivalentTo(new[] { "email", "address_id", "contact" });
     }
 
+    // "reach" is a step's PII column whose name no pattern matches: only the lineage through the select list masks it.
+    [TestCase("SELECT a.reach, b.city FROM [result1] a JOIN [result2] b ON a.id = b.id", "reach")]
+    [TestCase("SELECT a.reach AS label, b.city FROM [result1] a JOIN [result2] b ON a.id = b.id", "label")]
+    [TestCase("SELECT UPPER(a.reach) AS label, b.city FROM [result1] a JOIN [result2] b ON a.id = b.id", "label")]
+    [TestCase("SELECT d.label, d.city FROM (SELECT reach AS label, city FROM [result1]) d", "label")]
+    [TestCase("WITH x AS (SELECT reach AS label, city FROM [result1]) SELECT label, city FROM x", "label")]
+    [TestCase("SELECT * FROM [result1]", "reach")]
+    public void ResolveLineage_AResultColumnFilledFromASourcePiiColumn_IsInTheLineage(string sql, string key)
+    {
+        var lineage = PiiRowMasker.ResolveLineage([key, "city"], ["reach"], sql, "SQLite");
+
+        lineage.Should().BeEquivalentTo(new[] { key });
+    }
+
+    // Lineage only: a result column is not PII here by its own name, so with detection off it is delivered as read.
+    [Test]
+    public void ResolveLineage_DoesNotDetectByColumnName()
+    {
+        const string sql = "SELECT a.email, a.kt AS label FROM [result1] a";
+
+        var lineage = PiiRowMasker.ResolveLineage(["email", "label"], ["kt"], sql, "SQLite");
+
+        lineage.Should().BeEquivalentTo(new[] { "label" });
+    }
+
+    // Where the select list cannot be traced, every result column is in the lineage once a source carries PII.
+    [TestCase("SELECT UPPER(a.reach), b.city FROM [result1] a JOIN [result2] b ON a.id = b.id")]
+    [TestCase("SELECT a.reach AS label, b.city FROM [result1] a JOIN [result2] b ON")]
+    public void ResolveLineage_AnUntraceableSelectList_PutsEveryColumnInTheLineage(string sql)
+    {
+        var lineage = PiiRowMasker.ResolveLineage(["label", "city"], ["reach"], sql, "SQLite");
+
+        lineage.Should().BeEquivalentTo(new[] { "label", "city" });
+    }
+
+    [Test]
+    public void ResolveLineage_NoSourcePiiColumns_IsEmpty_EvenForSqlThatCannotBeParsed()
+    {
+        var lineage = PiiRowMasker.ResolveLineage(["label", "city"], [], "SELECT FROM WHERE", "SQLite");
+
+        lineage.Should().BeEmpty();
+    }
+
     [Test]
     public void Mask_DetectionOff_MasksOnlyThePassedHostColumns()
     {

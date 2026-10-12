@@ -6,11 +6,13 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Tests.Common;
+using Beacon.Tests.Unit.HostData;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -21,11 +23,12 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// What a subscription run takes from its own settings and from the data sources it reads: its timeout ends a statement
-/// before Beacon's own does; its rows are PII-masked as the strictest data source asks (each source's settings are its
-/// linking projects' strictest), with that source's custom patterns, or not at all when none asks; the delivered result —
-/// the final query's rows, or the last step's when there is none — is masked by its column names, while the rows a final
-/// query joins keep their join keys. Two engines over recording ADO.NET doubles, no database (§4.7).
+/// What a subscription run takes from its own settings and from the data sources it reads: its timeout ends a statement —
+/// the final query on the in-memory join included — before Beacon's own does; its rows are PII-masked as the strictest
+/// data source asks (each source's settings are its linking projects' strictest), with that source's custom patterns, or
+/// not at all when none asks; the delivered result — the final query's rows, or the last step's when there is none — is
+/// masked by its column names and by the lineage of the steps' PII columns, while the rows a final query joins keep their
+/// values. Two engines over recording ADO.NET doubles, no database (§4.7).
 /// </summary>
 [TestFixture]
 [NonParallelizable] // DbConnectionFactory is a process-wide registry.
@@ -35,6 +38,7 @@ public class SubscriptionRunSettingsTests
     private const int SubscriptionId = 11;
     private const int Ledger = 3;
     private const int Crm = 4;
+    private const string HostKey = "efcore:Netgiro";
 
     [TearDown]
     public void RestoreConnectionFactories()
@@ -67,6 +71,23 @@ public class SubscriptionRunSettingsTests
 
         (await act.Should().ThrowAsync<BeaconException>()).Which.Message.Should().Contain("timed out");
         elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(20), "the subscription's one-second timeout ended the statement, not Beacon's thirty");
+    }
+
+    [Test]
+    public async Task ASubscriptionsOwnTimeout_EndsTheFinalQueryBeforeTheDeploymentsTimeout()
+    {
+        ConnectLedger([("id", x => x + 1)]);
+        var service = Service(
+            [(Ledger, "SELECT id FROM accounts")],
+            "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r",
+            timeoutSeconds: 1,
+            finalQueryTimeoutSeconds: 30);
+        var elapsed = Stopwatch.StartNew();
+
+        var act = () => service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage(QueryService.FinalQueryTimedOutMessage);
+        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the subscription's one-second timeout ended the final query, not the deployment's thirty");
     }
 
     // One source asks for no PII detection, the other does: the run masks as the stricter one, whichever comes first.
@@ -161,6 +182,74 @@ public class SubscriptionRunSettingsTests
         result.AllRecords.Should().OnlyContain(x => (string)x["address_id"]! == "***");
     }
 
+    // Three different e-mail addresses that all mask to c***e: the steps' rows join on the addresses as read, each customer
+    // to their own city, and only the delivered e-mail column is masked.
+    [Test]
+    public async Task DistinctKeysThatMaskAlike_JoinOneToOne_AndOnlyTheDeliveredColumnIsMasked()
+    {
+        ConnectLedger([("id", x => x + 1), ("email", x => $"customer{x + 1}@bank.example")]);
+        ConnectCrm([("email", x => $"customer{x + 1}@bank.example"), ("city", x => $"city{x + 1}")]);
+        var service = Service(
+            [(Ledger, "SELECT id, email FROM customers"), (Crm, "SELECT email, city FROM contacts")],
+            "SELECT a.id, a.email, b.city FROM @result1 a JOIN @result2 b ON a.email = b.email ORDER BY a.id",
+            new Dictionary<int, McpSettingsData> { [Ledger] = new(), [Crm] = new() });
+
+        var result = await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        result.AllRecords.Select(x => $"{x["id"]}:{x["city"]}").Should().Equal("1:city1", "2:city2", "3:city3");
+        result.AllRecords.Should().OnlyContain(x => (string)x["email"]! == "c***e");
+        result.QueryResults.Should().NotContain("@bank.example");
+    }
+
+    // The final query's own name for a step's PII column, or for an expression over it, is masked by the column's lineage
+    // through the select list; "reach" is PII only by the step's aliasing, and "x" by no name at all.
+    [TestCase("email", "SELECT id, email FROM customers", "SELECT UPPER(a.email) AS x, b.city FROM @result1 a JOIN @result2 b ON a.id = b.id")]
+    [TestCase("reach", "SELECT id, email AS reach FROM customers", "SELECT UPPER(a.reach) AS x, b.city FROM @result1 a JOIN @result2 b ON a.id = b.id")]
+    [TestCase("reach", "SELECT id, email AS reach FROM customers", "SELECT d.x, d.city FROM (SELECT a.reach AS x, b.city FROM @result1 a JOIN @result2 b ON a.id = b.id) d")]
+    public async Task AFinalQueryColumnFilledFromAStepsPiiColumn_IsMasked_AndOtherColumnsAreNot(string ledgerColumn, string ledgerSql, string finalQuery)
+    {
+        ConnectLedger([("id", x => x + 1), (ledgerColumn, x => $"customer{x + 1}@bank.example")]);
+        ConnectCrm([("id", x => x + 1), ("city", x => $"city{x + 1}")]);
+        var service = Service(
+            [(Ledger, ledgerSql), (Crm, "SELECT id, city FROM addresses")],
+            finalQuery,
+            new Dictionary<int, McpSettingsData> { [Ledger] = new(), [Crm] = new() });
+
+        var result = await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        result.AllRecords.Should().HaveCount(3);
+        result.AllRecords.Should().OnlyContain(x => x["x"]!.ToString()!.Contains("***"));
+        result.AllRecords.Select(x => x["city"]).Should().BeEquivalentTo(new[] { "city1", "city2", "city3" });
+        result.QueryResults.Should().NotContain("@bank.example");
+    }
+
+    // The provider masks a host-masked column before Beacon reads it; through the join it stays masked, under an alias
+    // too, whatever the detection setting.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AHostMaskedColumn_StaysMaskedThroughTheJoin(bool detectPii)
+    {
+        ConnectLedger([("Id", x => x + 1), ("SSN", x => $"01013029{x + 1}9")]);
+        ConnectCrm([("id", x => x + 1), ("city", x => $"city{x + 1}")]);
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql: true);
+        var service = Service(
+            [(Ledger, "SELECT c.\"Id\", c.\"SSN\" FROM public.\"Customer\" c"), (Crm, "SELECT id, city FROM addresses")],
+            "SELECT a.SSN AS kt, b.city FROM @result1 a JOIN @result2 b ON a.Id = b.id",
+            new Dictionary<int, McpSettingsData>
+            {
+                [Ledger] = new() { EnablePiiDetection = detectPii },
+                [Crm] = new() { EnablePiiDetection = detectPii }
+            },
+            hostSnapshot: snapshot);
+
+        var result = await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        result.AllRecords.Should().HaveCount(3);
+        result.AllRecords.Should().OnlyContain(x => x["kt"]!.ToString()!.All(y => y == '*'));
+        result.AllRecords.Select(x => x["city"]).Should().BeEquivalentTo(new[] { "city1", "city2", "city3" });
+        result.QueryResults.Should().NotContain("0101302");
+    }
+
     private static void ConnectLedger(IReadOnlyList<(string Name, Func<int, object?> Value)> columns)
     {
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => new RecordingDbConnection { Columns = columns, RowCount = 3 });
@@ -171,17 +260,21 @@ public class SubscriptionRunSettingsTests
         DbConnectionFactory.Register(DatabaseEngineType.MySQL, _ => new RecordingDbConnection { Columns = columns, RowCount = 3 });
     }
 
+    /// <param name="finalQueryTimeoutSeconds">The deployment's statement timeout on the in-memory join in place of the default.</param>
+    /// <param name="hostSnapshot">Makes the ledger a host data source exposed by this snapshot.</param>
     private static IQueryService Service(
         IReadOnlyList<(int DataSourceId, string Sql)> steps,
         string? finalQuery = null,
         Dictionary<int, McpSettingsData>? settings = null,
         int? timeoutSeconds = null,
         IDataSourceProviderFactory? providers = null,
-        TimeSpan? statementTimeout = null)
+        TimeSpan? statementTimeout = null,
+        int? finalQueryTimeoutSeconds = null,
+        HostExposureSnapshot? hostSnapshot = null)
     {
         var dataSources = new List<DataSource>
         {
-            new() { Id = Ledger, Name = "ledger", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.PostgreSQL, EncryptedConnectionData = "encrypted" },
+            new() { Id = Ledger, Name = "ledger", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.PostgreSQL, EncryptedConnectionData = "encrypted", HostManagedKey = hostSnapshot == null ? null : HostKey },
             new() { Id = Crm, Name = "crm", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.MySQL, EncryptedConnectionData = "encrypted" }
         };
         var query = new Query { Id = QueryId, Name = "customers", FinalQuery = finalQuery };
@@ -232,8 +325,17 @@ public class SubscriptionRunSettingsTests
 
         return TestQueryServices.QueryService(
             factory.Object,
+            hostGuard: hostSnapshot == null ? null : new HostDataSourceGuard(new SingleHostRegistry(hostSnapshot)),
             sharedSourceSettings: shared.Object,
             providers: providers,
+            finalQueryTimeoutSeconds: finalQueryTimeoutSeconds,
             statementTimeout: statementTimeout);
+    }
+
+    private sealed class SingleHostRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry
+    {
+        public IReadOnlyList<HostDataSourceRegistration> Registrations => [];
+
+        public HostExposureSnapshot? GetSnapshot(string hostManagedKey) => hostManagedKey == HostKey ? snapshot : null;
     }
 }

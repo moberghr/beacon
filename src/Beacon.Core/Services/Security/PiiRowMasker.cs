@@ -97,6 +97,38 @@ public static class PiiRowMasker
     }
 
     /// <summary>
+    /// The result columns of <paramref name="sql"/> that carry a value of <paramref name="sourcePiiColumns"/> — the PII
+    /// columns of the relations it reads by name (the steps of a multi-step query, read back in the in-memory join): a
+    /// result column of that name, an alias over any expression that reads one (<c>UPPER(a.email) AS x</c>), and — where
+    /// the SQL cannot be traced, as for <see cref="Mask"/> — every result column (fail closed). Lineage only: no column is
+    /// PII here by its own name, so it applies whatever the detection setting. With no PII among the sources, none is.
+    /// </summary>
+    public static IReadOnlySet<string> ResolveLineage(
+        IEnumerable<string> resultColumns,
+        IEnumerable<string> sourcePiiColumns,
+        string sql,
+        string? dialect)
+    {
+        var sources = new HashSet<string>(sourcePiiColumns, StringComparer.OrdinalIgnoreCase);
+        var lineage = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (sources.Count == 0)
+        {
+            return lineage;
+        }
+
+        var aliases = ProjectionAliases.Resolve(sql, dialect, sources.Contains);
+        foreach (var key in resultColumns)
+        {
+            if (aliases.MaskAll || aliases.Names.Contains(key) || sources.Contains(key))
+            {
+                lineage.Add(key);
+            }
+        }
+
+        return lineage;
+    }
+
+    /// <summary>
     /// One pass over the parsed SQL — CTEs before the body, FROM before the projection — so a name an inner query gives
     /// PII data is known by the time an outer query reads it back. Relations (CTEs, FROM items) are scoped per query so a
     /// wildcard or whole-row reference resolves to the right relation; the PII names themselves are tracked per

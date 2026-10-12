@@ -96,8 +96,9 @@ internal sealed class SavedQueryToolExecutor(
         var hasFinalQuery = tool.FinalQuery != null;
         var stepResults = new List<(int StepOrder, DataSource DataSource, List<Dictionary<string, object?>> Rows)>();
         var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
-        // The steps' PII result columns (by name or by their SQL's aliasing), masked on the final query's rows, which
-        // read them back by name.
+        // The steps' PII result columns (the SQL's PII names and host-masked columns, and with detection on their own
+        // names and their SQL's aliasing): the final query reads them back by name, and its result columns filled from
+        // them are masked (lineage).
         var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var step in tool.Steps)
@@ -153,31 +154,34 @@ internal sealed class SavedQueryToolExecutor(
             }
 
             var dialect = DataSourceSqlDialect.Of(dataSource);
-            if (hasFinalQuery && settings.EnablePiiDetection)
+            if (hasFinalQuery)
             {
+                // Rows that feed the final query stay as read inside the in-memory join, which they never leave
+                // (host-masked by the provider): masked, two distinct keys could mask alike (two e-mail addresses, an
+                // address_id) and join as equal. The final query's rows are masked by their lineage instead.
                 joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(
                     guardrailService,
                     rows.SelectMany(x => x.Keys),
                     report.PiiColumns,
-                    detectByColumnName: true,
+                    settings.EnablePiiDetection,
                     customPatterns,
                     report.FinalSql,
                     dialect));
             }
-
-            // Mask PII before rows leave the step (§1.6/§1.11). report.PiiColumns carries the SQL-text matches and the
-            // host-masked columns (even with detection off). Result-column + alias detection runs only on the rows
-            // returned as the result: on rows that feed the in-memory join it would also hit join keys the unanchored
-            // PII pattern matches (address_id, zip_code_id) and make distinct keys collide, so the final query's rows
-            // get it instead.
-            rows = PiiRowMasker.Mask(
-                guardrailService,
-                rows,
-                report.PiiColumns,
-                isResultStep && settings.EnablePiiDetection,
-                customPatterns,
-                report.FinalSql,
-                dialect);
+            else
+            {
+                // Mask PII before rows leave the step (§1.6/§1.11). report.PiiColumns carries the SQL-text matches and the
+                // host-masked columns (even with detection off); the result's columns are also masked by their own names
+                // and aliases.
+                rows = PiiRowMasker.Mask(
+                    guardrailService,
+                    rows,
+                    report.PiiColumns,
+                    isResultStep && settings.EnablePiiDetection,
+                    customPatterns,
+                    report.FinalSql,
+                    dialect);
+            }
 
             stepResults.Add((step.StepOrder, dataSource, rows));
         }
@@ -233,14 +237,18 @@ internal sealed class SavedQueryToolExecutor(
             return SavedQueryToolExecution.Failed("The final query timed out.", tablesUsed, firstDataSourceId);
         }
 
-        // The final rows get the full masking: the steps' PII columns read back by name, the final SQL's text matches,
-        // PII-named result columns and the final SQL's aliases (§1.6/§1.11).
+        // The final rows are masked by the lineage of the steps' PII columns — every result column the final query fills
+        // from one, by its name, an alias or an expression over it, and every result column where its select list cannot
+        // be traced — whatever the detection setting, and with detection on also by the final SQL's text matches,
+        // PII-named result columns and its aliases (§1.6/§1.11).
+        var joinedRows = results
+            .Select(x => new Dictionary<string, object?>(x))
+            .ToList();
+        var lineage = PiiRowMasker.ResolveLineage(joinedRows.SelectMany(x => x.Keys), joinPiiColumns, report.FinalSql, SqliteDialect);
         var finalRows = PiiRowMasker.Mask(
             guardrailService,
-            results
-                .Select(x => new Dictionary<string, object?>(x))
-                .ToList(),
-            report.PiiColumns.Concat(joinPiiColumns),
+            joinedRows,
+            report.PiiColumns.Concat(lineage),
             settings.EnablePiiDetection,
             settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null,
             report.FinalSql,

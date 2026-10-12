@@ -129,7 +129,8 @@ internal partial class QueryService
 
     /// <param name="pii">The settings to PII-mask by when the rows go on to recipients (a subscription run); null leaves
     /// rows as the provider returned them (host-masked).</param>
-    /// <param name="statementTimeout">A shorter per-statement timeout than the runner's own (a subscription's), or null.</param>
+    /// <param name="statementTimeout">A shorter per-statement timeout than the runner's own (a subscription's), or null;
+    /// it bounds the final query on the in-memory join too.</param>
     /// <param name="maxRows">The row ceiling of every statement in place of <see cref="ExecutionRowCeiling"/> (a
     /// migration's own budget), or null.</param>
     private async Task<QueryExecutionResult> ExecuteQuerySteps(
@@ -144,7 +145,7 @@ internal partial class QueryService
         var stepResults = new List<QueryStepResult>();
         using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>())
         {
-            StatementTimeoutSeconds = FinalQueryTimeoutSeconds
+            StatementTimeoutSeconds = FinalQueryTimeout(statementTimeout)
         };
         var totalExecutionTime = 0.0;
         var dataSourceExecutionTimes = new Dictionary<string, double>();
@@ -153,8 +154,9 @@ internal partial class QueryService
         var steps = query.Steps
             .OrderBy(x => x.StepOrder)
             .ToList();
-        // The steps' PII result columns (by name or by their SQL's aliasing), masked on the final query's rows, which read
-        // them back by name.
+        // The steps' PII result columns (the SQL's PII names and host-masked columns, and with detection on their own names
+        // and their SQL's aliasing): the final query reads them back by name, and its result columns filled from them are
+        // masked (lineage).
         var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {DataSourceCount} data sources",
@@ -168,11 +170,12 @@ internal partial class QueryService
 
             dataSourceIdsRead.Add(step.DataSourceId);
 
-            // Only the rows delivered as the result are masked by their own column names and aliases: on rows that feed
-            // the in-memory join that would also hit join keys the PII pattern matches (address_id), so the final rows
-            // get it instead.
+            // Rows that feed the final query stay as read inside the in-memory join, which they never leave: masked, two
+            // distinct keys could mask alike (two e-mail addresses, an address_id) and join as equal. The final query's
+            // rows are masked by their lineage instead. Without a final query the rows are masked here, the result's also
+            // by their own column names and aliases.
             var isResultStep = !hasFinalQuery && step == steps[^1];
-            var masking = pii == null ? null : new StepMasking(pii, isResultStep);
+            var masking = pii == null ? null : new StepMasking(pii, isResultStep, FeedsJoin: hasFinalQuery);
             var (stepResult, run) = await ExecuteStep(step, parameters, masking, statementTimeout, cancellationToken, maxRows);
             stepResults.Add(stepResult);
             totalExecutionTime += stepResult.ExecutionTimeMs;
@@ -183,13 +186,13 @@ internal partial class QueryService
 
             if (stepResult.Success)
             {
-                if (pii is { EnablePiiDetection: true } && hasFinalQuery)
+                if (pii != null && hasFinalQuery)
                 {
                     joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(
                         guardrail,
                         stepResult.AllResults.SelectMany(x => x.Keys),
                         run.Report.PiiColumns,
-                        detectByColumnName: true,
+                        pii.EnablePiiDetection,
                         CustomPatterns(pii),
                         run.Report.FinalSql,
                         run.Dialect));
@@ -275,9 +278,11 @@ internal partial class QueryService
         return executionResult;
     }
 
-    /// <summary>How a step's rows are PII-masked: by the SQL's PII columns always, by result-column names and aliases when
-    /// <paramref name="ByResultColumns"/> (the rows delivered as the result).</summary>
-    private sealed record StepMasking(McpSettingsData Settings, bool ByResultColumns);
+    /// <summary>How a subscription run's step is PII-screened: its SQL by <paramref name="Settings"/> always; its rows,
+    /// unless they <paramref name="FeedsJoin"/> (kept as read for the in-memory join, whose result is masked by lineage),
+    /// by the SQL's PII columns and, when <paramref name="ByResultColumns"/> (the rows delivered as the result), by
+    /// result-column names and aliases.</summary>
+    private sealed record StepMasking(McpSettingsData Settings, bool ByResultColumns, bool FeedsJoin);
 
     /// <summary>
     /// Runs one step through <see cref="GatedSqlRunner"/>: the gate judges the text that runs (placeholders bound — values
@@ -312,10 +317,11 @@ internal partial class QueryService
                 : null;
 
         var rows = errorMessage != null ? [] : run.Rows;
-        if (masking != null && rows.Count > 0)
+        if (masking is { FeedsJoin: false } && rows.Count > 0)
         {
             // Mask before the rows leave the step (§1.6/§1.11): the SQL-text matches and host-masked columns always, the
-            // result-column names and aliases on the delivered result.
+            // result-column names and aliases on the delivered result. Rows for the in-memory join stay as the provider
+            // returned them (host-masked).
             rows = PiiRowMasker.Mask(
                 guardrail,
                 rows,
@@ -365,8 +371,10 @@ internal partial class QueryService
     /// The final query on the in-memory SQLite store, behind the same gate (regex guardrail, read-only AST, the row cap) as
     /// the steps. A statement that times out, and a result above the ceiling, fail the run — a timed-out statement has no
     /// rows, and an empty result would read as a success to a subscription, a preview or a migration about to write; with
-    /// <paramref name="pii"/> the rows are masked by the steps' PII columns read back by name, the final SQL's own matches,
-    /// PII-named result columns and its aliases.
+    /// <paramref name="pii"/> the rows are masked by the lineage of the steps' PII columns (<paramref name="joinPiiColumns"/>)
+    /// — every result column the final query fills from one, by its name, an alias or an expression over it, and every
+    /// result column where its select list cannot be traced — whatever the detection setting, and with detection on also
+    /// by the final SQL's own matches, PII-named result columns and its aliases.
     /// </summary>
     private async Task<QueryResult> ExecuteFinalQuery(
         string finalQuery,
@@ -401,12 +409,18 @@ internal partial class QueryService
         }
 
         var report = gate.Evaluate(JoinGateRequest(InMemoryDatabaseManager.TranslateResultReferences(finalQuery), pii, rowCeiling));
+        var rows = result.AllRecords
+            .Select(x => new Dictionary<string, object?>(x))
+            .ToList();
+        var lineage = PiiRowMasker.ResolveLineage(
+            rows.SelectMany(x => x.Keys),
+            joinPiiColumns,
+            report.FinalSql,
+            nameof(DatabaseEngineType.SQLite));
         var masked = PiiRowMasker.Mask(
                 guardrail,
-                result.AllRecords
-                    .Select(x => new Dictionary<string, object?>(x))
-                    .ToList(),
-                report.PiiColumns.Concat(joinPiiColumns),
+                rows,
+                report.PiiColumns.Concat(lineage),
                 pii.EnablePiiDetection,
                 CustomPatterns(pii),
                 report.FinalSql,
@@ -466,5 +480,14 @@ internal partial class QueryService
         return rowCeiling == null
             ? $"{QueryExecutionOptions.SectionName}:{nameof(QueryExecutionOptions.MaxExecutionRows)}"
             : $"{MigrationOptions.SectionName}:{nameof(MigrationOptions.MaxRows)}";
+    }
+
+    // The final query is one of the run's statements: a shorter timeout of the run's own (a subscription's) bounds it as it
+    // bounds each step — never a longer one than the deployment's.
+    private int FinalQueryTimeout(TimeSpan? statementTimeout)
+    {
+        return statementTimeout is { } requested && requested > TimeSpan.Zero && requested.TotalSeconds < FinalQueryTimeoutSeconds
+            ? (int)Math.Ceiling(requested.TotalSeconds)
+            : FinalQueryTimeoutSeconds;
     }
 }
