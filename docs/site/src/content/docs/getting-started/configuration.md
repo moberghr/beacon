@@ -286,7 +286,7 @@ A `Beacon.Auth` session is checked against the user store at most every `Revalid
 
 A value out of range fails startup.
 
-A realtime (SignalR) connection is checked against the user store when it is opened and is closed by the server when the session's next check would be due (`RevalidateMinutes`, at least one minute); the shell reconnects, which checks the session again, so a revoked or demoted user loses the connection within that interval. The expiry is reported for the hub's requests only and never written to the cookie. API keys get no hub connection.
+A realtime (SignalR) connection is checked against the user store when it is opened and is closed by the server when the session's next check would be due (`RevalidateMinutes`, at least one minute); the shell reconnects, which checks the session again, so a revoked or demoted user loses the connection within that interval. The expiry is reported for the hub's requests only and never written to the cookie: the hub's requests never renew the cookie, sliding expiration included. API keys get no hub connection.
 
 ### Authentication Providers
 

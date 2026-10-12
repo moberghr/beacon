@@ -271,12 +271,14 @@ public static class ServiceConfiguration
 
         // Sign-in sessions (Beacon:Authentication:Session): how often a session is checked against the user store and its
         // absolute lifetime. ValidateOnStart so a value out of range fails the host at boot. The store reads the user a
-        // session names and changes a user's security stamp.
+        // session names and changes a user's security stamp. The request's verified password stamp is what its sign-in
+        // must still find stored.
         services.AddOptions<Configuration.SessionLifetimeOptions>()
             .Bind(configuration.GetSection(Configuration.SessionLifetimeOptions.SectionName))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SessionLifetimeOptions>, Configuration.SessionLifetimeOptionsValidator>());
         services.TryAddTransient<IUserSessionStore, UserSessionStore>();
+        services.TryAddScoped<SessionStampExpectation>();
 
         // Row cap of the statements Beacon runs for its own features (Beacon:Query). ValidateOnStart so a cap out of range
         // fails the host at boot.

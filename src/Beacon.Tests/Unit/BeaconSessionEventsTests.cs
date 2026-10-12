@@ -3,23 +3,35 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using Beacon.Api.Authentication;
+using Beacon.Api.Endpoints;
 using Beacon.Core;
 using Beacon.Core.Authentication;
+using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
+using Beacon.Core.Handlers.UserSettings;
+using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 using FluentAssertions;
+using MediatR;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Moq;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Unit;
@@ -27,10 +39,11 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// The server side of a <c>Beacon.Auth</c> cookie session, over a real cookie scheme on a test server (no database: the
 /// user store is a fake). With Beacon user management on, the sign-in carries the stored roles and stamp (an inactive user
-/// gets no session), and a session is checked against the user store at most every <c>RevalidateMinutes</c> (0: every
-/// request): a missing, disabled or archived user, or a changed security stamp, signs it out and deletes the cookie; the
-/// session's roles become the stored ones (identity-provider roles only within their claim lifetime). A realtime hub
-/// request is checked every time and reports the next check as its expiry, without renewing the cookie. However the
+/// gets no session, nor does a user whose stamp changed since their password was verified), and a session is checked
+/// against the user store at most every <c>RevalidateMinutes</c> (0: every request): a missing, disabled or archived user,
+/// or a changed security stamp, signs it out and deletes the cookie; the session's roles become the stored ones
+/// (identity-provider roles only within their claim lifetime). A realtime hub request is checked every time and reports the
+/// next check as its expiry, and never renews the cookie (nor does the scheme's sliding expiration for it). However the
 /// cookie is renewed, a session ends <c>AbsoluteLifetimeHours</c> after its sign-in, and its cookie never outlives that. A
 /// host without Beacon user management keeps its own principals.
 /// </summary>
@@ -204,6 +217,50 @@ public class BeaconSessionEventsTests
     }
 
     [Test]
+    public async Task ARealtimeHubRequest_PastTheSlidingMidpoint_DoesNotRenewTheCookie()
+    {
+        var store = new FakeSessionStore().With("ana", 7, "stamp-1", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+        await host.SignInAsync("ana", remember: true);
+
+        // Seven hours into a twelve-hour cookie: past half its window, where the scheme's sliding expiration renews it.
+        host.Time.Advance(TimeSpan.FromHours(7));
+        var hub = await host.GetAsync("/beacon/api/hub/expiry");
+        var page = await host.GetAsync("/test/me");
+
+        hub.StatusCode.Should().Be(HttpStatusCode.OK);
+        hub.Headers.Contains("Set-Cookie").Should().BeFalse("a hub request never renews the cookie");
+        page.StatusCode.Should().Be(HttpStatusCode.OK);
+        CookieExpiry(page).Should().NotBeNull("other requests still renew it").And.BeOnOrBefore(Start.AddHours(12));
+    }
+
+    [Test]
+    public async Task ARealtimeHubRequest_NeverRenewsACookieFromBeforeTheUpgrade_SoItEndsWithItsOriginalLifetime()
+    {
+        // A cookie from before sessions recorded their start: its lifetime counts from when it was issued (Start), and
+        // only realtime requests use it. Twenty hours long, so its sliding midpoint comes before the absolute end.
+        var store = new FakeSessionStore().With("ana", 7, null, "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+        host.IssueCookieWithoutSessionStart("ana", issuedAt: Start, expiresAt: Start.AddHours(20));
+        var cookie = host.Cookie;
+
+        host.Time.Advance(TimeSpan.FromHours(11));
+        var pastTheMidpoint = await host.GetAsync("/beacon/api/hub/expiry");
+        host.Time.Advance(TimeSpan.FromMinutes(59));
+        var justBeforeTheEnd = await host.GetAsync("/beacon/api/hub/expiry");
+        var cookieUntilTheEnd = host.Cookie;
+        host.Time.Advance(TimeSpan.FromMinutes(1));
+        var atTheEnd = await host.GetAsync("/beacon/api/hub/expiry");
+
+        pastTheMidpoint.StatusCode.Should().Be(HttpStatusCode.OK);
+        pastTheMidpoint.Headers.Contains("Set-Cookie").Should().BeFalse("a hub request never renews the cookie");
+        justBeforeTheEnd.StatusCode.Should().Be(HttpStatusCode.OK);
+        justBeforeTheEnd.Headers.Contains("Set-Cookie").Should().BeFalse();
+        cookieUntilTheEnd.Should().Be(cookie);
+        atTheEnd.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the session ends twelve hours after the cookie was issued");
+    }
+
+    [Test]
     public async Task TheSignIn_CarriesTheStampAsAClaimOfBeacon_AndSigningInAgainReplacesIt()
     {
         var store = new FakeSessionStore().With("ana", 7, "stamp-1", "Viewer");
@@ -333,6 +390,158 @@ public class BeaconSessionEventsTests
         refreshed.StatusCode.Should().Be(HttpStatusCode.OK);
         own.StatusCode.Should().Be(HttpStatusCode.OK, "this session was signed in again with the new stamp");
         stale.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "every other session of the user ends");
+    }
+
+    [Test]
+    public async Task APasswordSignIn_WhoseUsersStampChangedSinceThePasswordWasVerified_GetsNoSession()
+    {
+        // The password was verified with stamp-1; by the time the cookie is issued, the stored stamp is stamp-2 (an
+        // administrator reset the password in between).
+        var store = new FakeSessionStore().With("ana", 7, "stamp-2", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+
+        var signIn = await host.GetAsync("/test/sign-in?user=ana&remember=true&verified=true&verifiedStamp=stamp-1");
+        var after = await host.GetAsync("/test/me");
+
+        (await signIn.Content.ReadAsStringAsync()).Should().Be("refused", "the endpoint is told the sign-in did not happen");
+        after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "no session carries the newer stamp");
+        host.Logs.Should().Contain(x => x.Contains("security_stamp_changed_at_sign_in", StringComparison.Ordinal) && x.Contains("user 7", StringComparison.Ordinal));
+    }
+
+    // A user without a stamp was verified with none: a missing stamp and an empty one are the same.
+    [TestCase("stamp-1", "stamp-1")]
+    [TestCase(null, "")]
+    public async Task APasswordSignIn_WithTheStampThePasswordWasVerifiedWith_IsSignedInWithIt(string? stored, string verified)
+    {
+        var store = new FakeSessionStore().With("ana", 7, stored, "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+
+        var signIn = await host.GetAsync($"/test/sign-in?user=ana&verified=true&verifiedStamp={verified}");
+        var stamps = await host.StampClaimsAsync();
+
+        signIn.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await signIn.Content.ReadAsStringAsync()).Should().NotBe("refused");
+        stamps.Should().Equal(stored ?? string.Empty);
+    }
+
+    [Test]
+    public async Task ASignInWithoutAVerifiedPassword_AsSingleSignOnSignsIn_CarriesTheStoredStamp()
+    {
+        var store = new FakeSessionStore().With("ana", 7, "stamp-2", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+
+        await host.SignInAsync("ana");
+        var stamps = await host.StampClaimsAsync();
+
+        stamps.Should().Equal("stamp-2");
+    }
+
+    [Test]
+    public async Task APasswordVerifiedForAnotherUser_DoesNotDecideThisSignIn()
+    {
+        var store = new FakeSessionStore().With("ana", 7, "stamp-2", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+
+        await host.GetAsync("/test/sign-in?user=ana&verified=true&verifiedUser=bob&verifiedStamp=stamp-1");
+        var stamps = await host.StampClaimsAsync();
+
+        stamps.Should().Equal("stamp-2");
+    }
+
+    [Test]
+    public async Task SigningTheSessionInAgain_AfterAnotherStampChangeCameInBetween_EndsTheSession()
+    {
+        // Changing one's own password writes a new stamp; a sign-out everywhere lands before the session is signed in again.
+        var store = new FakeSessionStore().With("ana", 7, "stamp-1", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+        await host.SignInAsync("ana");
+
+        host.Time.Advance(TimeSpan.FromMinutes(1));
+        var refreshed = await host.GetAsync("/test/change-password-and-refresh?changedAgain=true");
+        var after = await host.GetAsync("/test/me");
+
+        (await refreshed.Content.ReadAsStringAsync()).Should().Be("refused");
+        after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the session never adopts the stamp of the later change");
+        host.Logs.Should().Contain(x => x.Contains("security_stamp_changed_at_sign_in", StringComparison.Ordinal));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task TheChangePasswordEndpoint_KeepsTheSession_OrAsksToSignInAgain_WhenTheStampChangedAgainMeanwhile(bool changedAgain)
+    {
+        var store = new FakeSessionStore().With("ana", 7, "stamp-1", "Viewer");
+        IHttpContextAccessor? requests = null;
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<ChangeOwnPasswordCommand>(), It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                // What the password change does: a new stamp, written and recorded as the one this session goes on with.
+                store.RenewStamp("ana");
+                requests!.HttpContext!.RequestServices.GetRequiredService<SessionStampExpectation>().Record("ana", store.StampOf("ana"));
+                if (changedAgain)
+                {
+                    store.RenewStamp("ana");
+                }
+
+                return Task.CompletedTask;
+            });
+        await using var host = await SessionHost.StartAsync(store, mediator: mediator.Object);
+        requests = host.Services.GetRequiredService<IHttpContextAccessor>();
+        await host.SignInAsync("ana");
+
+        host.Time.Advance(TimeSpan.FromMinutes(1));
+        var changed = await host.PostAsync("/beacon/api/user-settings/change-password", new ChangeOwnPasswordCommand("old", "New-password-1!"));
+        var after = await host.GetAsync("/test/me");
+
+        if (changedAgain)
+        {
+            changed.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the UI signs the user in again");
+            (await changed.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail.Should().Be(UserSettingsEndpoints.SignInAgainDetail);
+            after.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
+        else
+        {
+            changed.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            after.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+    }
+
+    [TestCase("stamp-1", false)]
+    [TestCase("stamp-2", true)]
+    public async Task TheLoginEndpoint_AnswersASignInWhoseUsersStampChangedMeanwhile_LikeAFailedLogin(string storedAtSignIn, bool refused)
+    {
+        // The password is verified against the stored user, whose stamp is then stamp-1; the cookie is issued against the
+        // session store, which by then may hold stamp-2 (an administrator reset the password in between).
+        var store = new FakeSessionStore().With("ext-ana", 7, storedAtSignIn, "Viewer");
+        var passwordUser = new BeaconUser
+        {
+            Id = 7,
+            ExternalId = "ext-ana",
+            UserName = "ana",
+            IsInternalUser = true,
+            IsEnabled = true,
+            PasswordHash = "hash",
+            PasswordSalt = "salt",
+            SecurityStamp = "stamp-1"
+        };
+        await using var host = await SessionHost.StartAsync(store, passwordUsers: [passwordUser]);
+
+        var login = await host.PostAsync("/beacon/api/auth/login", new LoginRequest("ana", "right"));
+        var after = await host.GetAsync("/test/me");
+
+        if (refused)
+        {
+            login.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+            (await login.Content.ReadFromJsonAsync<LoginResponse>())!.Error.Should().Be("Invalid username or password.");
+            after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the refused sign-in left no session cookie");
+            host.Logs.Should().Contain(x => x.Contains("security_stamp_changed_at_sign_in", StringComparison.Ordinal));
+        }
+        else
+        {
+            login.StatusCode.Should().Be(HttpStatusCode.OK);
+            after.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
     }
 
     [Test]
@@ -484,6 +693,7 @@ public class BeaconSessionEventsTests
 
         options.Events.OnSigningIn.Should().Be((Func<CookieSigningInContext, Task>)BeaconSessionEvents.SigningInAsync);
         options.Events.OnValidatePrincipal.Should().Be((Func<CookieValidatePrincipalContext, Task>)BeaconSessionEvents.ValidatePrincipalAsync);
+        options.Events.OnCheckSlidingExpiration.Should().Be((Func<CookieSlidingExpirationContext, Task>)BeaconSessionEvents.CheckSlidingExpirationAsync);
         options.Cookie.HttpOnly.Should().BeTrue();
         options.Cookie.SameSite.Should().Be(SameSiteMode.Lax);
         options.Cookie.SecurePolicy.Should().Be(CookieSecurePolicy.SameAsRequest);
@@ -573,6 +783,8 @@ public class BeaconSessionEventsTests
 
         public string? Cookie { get; set; }
 
+        public IServiceProvider Services => _app.Services;
+
         public IEnumerable<string> Logs => LogRecorder.Entries.Select(x => x.Message);
 
         public IEnumerable<RecordedLog> Entries => LogRecorder.Entries;
@@ -584,7 +796,9 @@ public class BeaconSessionEventsTests
             bool userManagement = true,
             int revalidateMinutes = 5,
             RoleMappingOptions? roleMapping = null,
-            bool sliding = true)
+            bool sliding = true,
+            IMediator? mediator = null,
+            List<BeaconUser>? passwordUsers = null)
         {
             var time = new FakeTimeProvider(Start);
             var logs = new LogRecorder();
@@ -601,6 +815,7 @@ public class BeaconSessionEventsTests
             builder.Services.AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = revalidateMinutes, AbsoluteLifetimeHours = 12 }));
             builder.Services.AddSingleton(Options.Create(roleMapping ?? new RoleMappingOptions()));
             builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+            builder.Services.AddScoped<SessionStampExpectation>();
             builder.Services
                 .AddAuthentication(Scheme)
                 .AddCookie(x =>
@@ -609,12 +824,47 @@ public class BeaconSessionEventsTests
                     x.SlidingExpiration = sliding;
                     x.Events.OnSigningIn = BeaconSessionEvents.SigningInAsync;
                     x.Events.OnValidatePrincipal = BeaconSessionEvents.ValidatePrincipalAsync;
+                    x.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
                 });
+            if (mediator != null)
+            {
+                builder.Services.AddSingleton(mediator);
+                builder.Services.AddHttpContextAccessor();
+            }
+
+            if (passwordUsers != null)
+            {
+                AddPasswordLogin(builder.Services, configuration, passwordUsers);
+            }
 
             var app = builder.Build();
             app.UseAuthentication();
-            app.MapGet("/test/sign-in", async (HttpContext context, string user, string? roles, bool? remember, string? idpPermission) =>
+            if (mediator != null)
             {
+                app.MapGroup("/beacon/api").MapUserSettingsEndpoints();
+            }
+
+            if (passwordUsers != null)
+            {
+                app.MapLoginEndpoints("/beacon", configuration);
+            }
+
+            // verified: a password of verifiedUser (else of user) was verified on this request, with verifiedStamp.
+            app.MapGet("/test/sign-in", async (
+                HttpContext context,
+                string user,
+                string? roles,
+                bool? remember,
+                string? idpPermission,
+                bool? verified,
+                string? verifiedUser,
+                string? verifiedStamp) =>
+            {
+                if (verified == true)
+                {
+                    context.RequestServices.GetRequiredService<SessionStampExpectation>().Record(verifiedUser ?? user, verifiedStamp);
+                }
+
                 var now = time.GetUtcNow();
                 var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user), new Claim(ClaimTypes.Name, user)], Scheme);
                 foreach (var role in (roles ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries))
@@ -652,6 +902,23 @@ public class BeaconSessionEventsTests
             {
                 store.RenewStamp(context.User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
                 await BeaconSessionEvents.RefreshSignInAsync(context);
+            });
+
+            // As changing one's own password does: a new stamp, recorded as the one the session is signed in again with;
+            // changedAgain: another change of the stamp lands in between.
+            app.MapGet("/test/change-password-and-refresh", async (HttpContext context, bool? changedAgain) =>
+            {
+                var externalId = context.User.FindFirst(ClaimTypes.NameIdentifier)!.Value;
+                store.RenewStamp(externalId);
+                context.RequestServices.GetRequiredService<SessionStampExpectation>().Record(externalId, store.StampOf(externalId));
+                if (changedAgain == true)
+                {
+                    store.RenewStamp(externalId);
+                }
+
+                await BeaconSessionEvents.RefreshSignInAsync(context);
+
+                return BeaconSessionEvents.WasSignInRefused(context) ? Results.Text("refused") : Results.Ok();
             });
 
             // The expiry a request's cookie authentication reports: on the hub's route, and elsewhere.
@@ -697,15 +964,75 @@ public class BeaconSessionEventsTests
             return (await response.Content.ReadFromJsonAsync<string[]>())!;
         }
 
-        public async Task<HttpResponseMessage> GetAsync(string path)
+        // A session cookie as signed in before sessions recorded their start (and stamp): only the scheme's own properties.
+        public void IssueCookieWithoutSessionStart(string user, DateTimeOffset issuedAt, DateTimeOffset expiresAt)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            var options = _app.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(Scheme);
+            var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user), new Claim(ClaimTypes.Name, user)], Scheme);
+            var properties = new AuthenticationProperties
+            {
+                IssuedUtc = issuedAt,
+                ExpiresUtc = expiresAt,
+                AllowRefresh = true
+            };
+
+            Cookie = options.TicketDataFormat.Protect(new AuthenticationTicket(new ClaimsPrincipal(identity), properties, Scheme));
+        }
+
+        public Task<HttpResponseMessage> GetAsync(string path)
+        {
+            return SendAsync(new HttpRequestMessage(HttpMethod.Get, path));
+        }
+
+        public Task<HttpResponseMessage> PostAsync<T>(string path, T body)
+        {
+            return SendAsync(new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) });
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _client.Dispose();
+            await _app.DisposeAsync();
+        }
+
+        // Beacon's password login over the database provider, its users served without a database; each request's
+        // verified stamp is recorded in that request's expectation, as Beacon registers it.
+        private static void AddPasswordLogin(IServiceCollection services, BeaconConfiguration configuration, List<BeaconUser> users)
+        {
+            var hasher = new Mock<IPasswordHasher>();
+            hasher
+                .Setup(x => x.VerifyPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+                .Returns<string, string, string>((password, hash, _) => password == "right" && hash == "hash");
+            var saved = new List<object>();
+            var sets = new Dictionary<Type, object> { [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(users, saved) };
+            var factory = new Mock<IDbContextFactory<BeaconContext>>();
+            factory
+                .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
+
+            services.AddScoped<IUserManagementService>(x => new UserManagementService(
+                factory.Object,
+                hasher.Object,
+                Mock.Of<IRoleService>(),
+                configuration,
+                TimeProvider.System,
+                null,
+                x.GetRequiredService<SessionStampExpectation>()));
+            services.AddScoped<IBeaconAuthenticationProvider, DatabaseAuthenticationProvider>();
+            services.AddSingleton(new Mock<IAntiforgery>().Object);
+            services.AddSingleton(new LoginRateLimiter());
+        }
+
+        // Sends the request (and disposes it) with the session cookie, keeping the cookie the response sets.
+        private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+        {
+            using var sent = request;
             if (Cookie != null)
             {
-                request.Headers.Add("Cookie", $"{CookieName}={Cookie}");
+                sent.Headers.Add("Cookie", $"{CookieName}={Cookie}");
             }
 
-            var response = await _client.SendAsync(request);
+            var response = await _client.SendAsync(sent);
             if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
             {
                 var session = cookies.FirstOrDefault(x => x.StartsWith($"{CookieName}=", StringComparison.Ordinal));
@@ -717,12 +1044,6 @@ public class BeaconSessionEventsTests
             }
 
             return response;
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            _client.Dispose();
-            await _app.DisposeAsync();
         }
 
         private static async Task<IResult> ReportExpiryAsync(HttpContext context)
@@ -758,6 +1079,11 @@ public class BeaconSessionEventsTests
         public void Remove(string externalId)
         {
             _users.Remove(externalId);
+        }
+
+        public string? StampOf(string externalId)
+        {
+            return _users[externalId].SecurityStamp;
         }
 
         public void RenewStamp(string externalId)

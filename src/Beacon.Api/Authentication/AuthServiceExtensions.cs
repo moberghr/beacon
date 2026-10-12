@@ -67,9 +67,11 @@ public static class AuthServiceExtensions
                 options.SlidingExpiration = true;
 
                 // Session lifecycle: the start, the security stamp and the absolute lifetime recorded at sign-in, and the
-                // session checked against the user store (Beacon:Authentication:Session).
+                // session checked against the user store (Beacon:Authentication:Session); a realtime hub request never
+                // renews the cookie.
                 options.Events.OnSigningIn = BeaconSessionEvents.SigningInAsync;
                 options.Events.OnValidatePrincipal = BeaconSessionEvents.ValidatePrincipalAsync;
+                options.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
                 options.Events.OnRedirectToLogin = context =>
                 {
                     if (IsApiRequest(context))

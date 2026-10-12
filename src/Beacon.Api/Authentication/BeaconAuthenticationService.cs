@@ -99,7 +99,8 @@ public class BeaconAuthenticationService : IBeaconAuthenticationService
             principal,
             authProperties);
 
-        // The user was disabled or archived between the password check and the sign-in: the cookie carries no session.
+        // The user was disabled or archived, or their security stamp changed, between the password check and the sign-in:
+        // the cookie carries no session.
         return BeaconSessionEvents.WasSignInRefused(httpContext)
             ? AuthenticationResult.Failed(InvalidCredentials)
             : result;

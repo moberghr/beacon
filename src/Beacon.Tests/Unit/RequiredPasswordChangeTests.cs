@@ -31,7 +31,9 @@ namespace Beacon.Tests.Unit;
 /// A password an administrator chose (a new internal user, a reset) must be replaced at the user's first sign-in: the
 /// right credentials then answer "choose a new password" without a session, and the same sign-in with a new password that
 /// the rules accept (and that differs from the old one) stores it, clears the requirement, changes the security stamp
-/// and signs the user in. Wrong credentials answer as before; the user's own password change clears the requirement.
+/// and signs the user in. Wrong credentials answer as before; the user's own password change clears the requirement. A
+/// verified password records the stamp read with it, and a new password the stamp it wrote: the sign-in that follows must
+/// still find it stored.
 /// </summary>
 [TestFixture]
 public class RequiredPasswordChangeTests
@@ -249,6 +251,50 @@ public class RequiredPasswordChangeTests
         users.Verify(x => x.CompleteRequiredPasswordChangeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Test]
+    public async Task AVerifiedPassword_RecordsTheStampReadWithIt_ForTheSignInThatFollows()
+    {
+        var user = Flagged();
+        user.MustChangePassword = false;
+        user.SecurityStamp = "stamp-1";
+        var expectation = new SessionStampExpectation();
+
+        var result = await Service([user], expectation: expectation).AuthenticateInternalUserAsync("ana", "right");
+
+        result.Success.Should().BeTrue();
+        expectation.StampFor("ext-ana").Should().Be("stamp-1");
+        expectation.StampFor("ext-bob").Should().BeNull("only the verified user's sign-in is held to it");
+    }
+
+    [Test]
+    public async Task AWrongPassword_OrOneThatMustBeReplacedFirst_RecordsNoStamp()
+    {
+        var expectation = new SessionStampExpectation();
+        var service = Service([Flagged()], expectation: expectation);
+
+        await service.AuthenticateInternalUserAsync("ana", "wrong");
+        await service.AuthenticateInternalUserAsync("ana", "right");
+
+        expectation.StampFor("ext-ana").Should().BeNull("no sign-in follows either answer");
+    }
+
+    [Test]
+    public async Task ANewPassword_RecordsTheStampItWrote_ForTheSignInThatFollows()
+    {
+        var required = Flagged();
+        var own = Flagged();
+        own.MustChangePassword = false;
+        own.SecurityStamp = "before";
+        var afterRequired = new SessionStampExpectation();
+        var afterOwn = new SessionStampExpectation();
+
+        await Service([required], expectation: afterRequired).CompleteRequiredPasswordChangeAsync("ana", "right", NewPassword);
+        await Service([own], expectation: afterOwn).ChangePasswordAsync(own.Id, "right", NewPassword);
+
+        afterRequired.StampFor("ext-ana").Should().NotBeNullOrEmpty().And.Be(required.SecurityStamp);
+        afterOwn.StampFor("ext-ana").Should().Be(own.SecurityStamp).And.NotBe("before");
+    }
+
     private static BeaconUser Flagged()
     {
         return new BeaconUser
@@ -288,7 +334,8 @@ public class RequiredPasswordChangeTests
         List<BeaconUser> users,
         int minimumLength = 8,
         bool complexity = true,
-        List<object>? saved = null)
+        List<object>? saved = null,
+        SessionStampExpectation? expectation = null)
     {
         var hasher = new Mock<IPasswordHasher>();
         hasher
@@ -315,6 +362,6 @@ public class RequiredPasswordChangeTests
         configuration.UserManagement.MinimumPasswordLength = minimumLength;
         configuration.UserManagement.RequirePasswordComplexity = complexity;
 
-        return new UserManagementService(factory.Object, hasher.Object, Mock.Of<IRoleService>(), configuration, TimeProvider.System);
+        return new UserManagementService(factory.Object, hasher.Object, Mock.Of<IRoleService>(), configuration, TimeProvider.System, null, expectation);
     }
 }

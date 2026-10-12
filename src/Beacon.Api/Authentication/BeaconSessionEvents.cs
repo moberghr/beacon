@@ -27,8 +27,11 @@ namespace Beacon.Api.Authentication;
 /// claims are replaced by the roles the user holds now (and those the identity provider mapped at sign-in, while that
 /// mapping is on and for <c>IdpRoles:ClaimLifetimeMinutes</c> after the sign-in). A realtime hub request is checked every
 /// time and reports an expiry of the next check (<see cref="SessionLifetimeOptions.RealtimeConnectionLifetime"/>), so the
-/// hub closes the connection then and the client reconnects through a fresh check; that expiry is never written to the
-/// cookie. A host without Beacon user management keeps its own principals: only the lifetime applies.
+/// hub closes the connection then and the client reconnects through a fresh check; a hub request never renews the cookie
+/// (neither by a check nor by the scheme's sliding expiration), so that expiry is never written to it. A password sign-in
+/// keeps the security stamp its password was verified with (<see cref="SessionStampExpectation"/>): a user whose stamp
+/// changed meanwhile gets no session. A host without Beacon user management keeps its own principals: only the lifetime
+/// applies.
 /// Runs inside the cookie handler, so <see cref="BeaconCookieAuthMiddleware"/> and every other cookie authentication
 /// of the request see its outcome (§1.9 order unchanged). Ids only in logs (§1.11).
 /// </summary>
@@ -39,7 +42,8 @@ internal static class BeaconSessionEvents
     internal const string ValidatedAtItem = ".beacon.session.validated";
     internal const string StampItem = ".beacon.session.stamp";
 
-    // Set on the request whose sign-in was refused because the user is disabled or archived.
+    // Set on the request whose sign-in was refused: the user is disabled or archived, or their security stamp changed
+    // since their password was verified.
     private const string SignInRefusedItem = "Beacon.Session.SignInRefused";
 
     private const string LoggerName = "Beacon.Api.Authentication.BeaconSessionEvents";
@@ -48,8 +52,10 @@ internal static class BeaconSessionEvents
     /// Records the session's start (kept when a session is signed in again with its own properties), the time it was
     /// last checked, and the user's security stamp; caps the expiry at the absolute lifetime. With Beacon user management
     /// on, the one read of the user that supplies the stamp also supplies the roles the session carries, and a user who is
-    /// disabled or archived by then gets no session: the cookie is issued already expired and without an identity, and
-    /// <see cref="WasSignInRefused"/> tells the caller.
+    /// disabled or archived by then gets no session; nor does a user whose password this request verified (or set) with
+    /// another stamp than the stored one (<see cref="SessionStampExpectation"/>): the newer stamp is never adopted. A
+    /// refused sign-in's cookie is issued already expired and without an identity, and <see cref="WasSignInRefused"/> tells
+    /// the caller. A sign-in without a password verified on its request (single sign-on) carries the stored stamp.
     /// </summary>
     public static async Task SigningInAsync(CookieSigningInContext context)
     {
@@ -70,17 +76,18 @@ internal static class BeaconSessionEvents
             var user = await store.FindAsync(externalId, context.HttpContext.RequestAborted);
             if (user is { IsActive: false })
             {
-                Logger(services)?.LogInformation(
-                    ProjectAccessEvents.SessionEnded,
-                    "Session ended: {Reason} (user {UserId})",
-                    "user_disabled_or_archived_at_sign_in",
-                    user.Id);
+                RefuseSignIn(context, now, "user_disabled_or_archived_at_sign_in", user.Id);
+                return;
+            }
 
-                context.HttpContext.Items[SignInRefusedItem] = true;
-                context.Principal = new ClaimsPrincipal(new ClaimsIdentity());
-                properties.IsPersistent = false;
-                properties.ExpiresUtc = now;
-
+            // The stamp the password was verified with must still be the user's: one changed meanwhile (a password reset,
+            // a sign-out everywhere) ends this sign-in too.
+            var verifiedStamp = services.GetService<SessionStampExpectation>()?.StampFor(externalId);
+            if (user != null
+                && verifiedStamp != null
+                && !string.Equals(verifiedStamp, user.SecurityStamp ?? string.Empty, StringComparison.Ordinal))
+            {
+                RefuseSignIn(context, now, "security_stamp_changed_at_sign_in", user.Id);
                 return;
             }
 
@@ -105,12 +112,27 @@ internal static class BeaconSessionEvents
     }
 
     /// <summary>
-    /// True when this request signed a user in who was disabled or archived by then (<see cref="SigningInAsync"/>): the
-    /// cookie it issued carries no session, so the caller answers as for any refused sign-in.
+    /// True when this request signed a user in who was disabled or archived by then, or whose security stamp changed
+    /// since their password was verified (<see cref="SigningInAsync"/>): the cookie it issued carries no session, so the
+    /// caller answers as for any refused sign-in.
     /// </summary>
     public static bool WasSignInRefused(HttpContext httpContext)
     {
         return httpContext.Items.ContainsKey(SignInRefusedItem);
+    }
+
+    /// <summary>
+    /// The cookie scheme's own sliding renewal, decided from the ticket as stored before
+    /// <see cref="ValidatePrincipalAsync"/> runs: a realtime hub request never renews the cookie, so none is made for it.
+    /// </summary>
+    public static Task CheckSlidingExpirationAsync(CookieSlidingExpirationContext context)
+    {
+        if (IsHubRequest(context.HttpContext))
+        {
+            context.ShouldRenew = false;
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>Checks the session as the class describes; a refused session is rejected and its cookie deleted.</summary>
@@ -121,7 +143,7 @@ internal static class BeaconSessionEvents
         var now = (context.Options.TimeProvider ?? TimeProvider.System).GetUtcNow();
         var properties = context.Properties;
         var hubRequest = IsHubRequest(context.HttpContext);
-        var renew = IsSlidingRenewal(context.Options, properties, now);
+        var renew = !hubRequest && IsSlidingRenewal(context.Options, properties, now);
 
         var signedInAt = ReadTime(properties, SignedInAtItem);
         if (signedInAt == null)
@@ -187,7 +209,8 @@ internal static class BeaconSessionEvents
         {
             // A hub connection outlives the request that opened it: it is closed when the session's next check is due,
             // and the client reconnects through a new check. Reported for this request only: a hub request never renews
-            // the cookie, so the shorter expiry (and this check) is not written to it.
+            // the cookie (nor does the scheme's sliding expiration: CheckSlidingExpirationAsync), so the shorter expiry
+            // (and this check) is not written to it.
             var recheckAt = now + lifetime.RealtimeConnectionLifetime;
             if (store != null && properties.ExpiresUtc > recheckAt)
             {
@@ -211,8 +234,9 @@ internal static class BeaconSessionEvents
 
     /// <summary>
     /// Signs the request's cookie session in again with its own claims and properties, so it carries the user's
-    /// current security stamp: after the user changed their own password, which signs out their other sessions. Does
-    /// nothing for a request without a cookie session.
+    /// current security stamp: after the user changed their own password, which signs out their other sessions. When the
+    /// stamp is no longer the one that change wrote (another change came in between), the sign-in is refused and
+    /// <see cref="WasSignInRefused"/> tells the caller. Does nothing for a request without a cookie session.
     /// </summary>
     public static async Task RefreshSignInAsync(HttpContext httpContext)
     {
@@ -349,6 +373,22 @@ internal static class BeaconSessionEvents
             || httpContext.Request.Path.StartsWithSegments(Endpoints.BeaconApiEndpoints.HubPath);
     }
 
+    // No session for this sign-in: the cookie is issued already expired and without an identity, and WasSignInRefused
+    // tells the caller.
+    private static void RefuseSignIn(CookieSigningInContext context, DateTimeOffset now, string reason, int userId)
+    {
+        Logger(context.HttpContext.RequestServices)?.LogInformation(
+            ProjectAccessEvents.SessionEnded,
+            "Session ended: {Reason} (user {UserId})",
+            reason,
+            userId);
+
+        context.HttpContext.Items[SignInRefusedItem] = true;
+        context.Principal = new ClaimsPrincipal(new ClaimsIdentity());
+        context.Properties.IsPersistent = false;
+        context.Properties.ExpiresUtc = now;
+    }
+
     private static async Task RejectAsync(CookieValidatePrincipalContext context, string reason, int? userId)
     {
         Logger(context.HttpContext.RequestServices)?.LogInformation(
@@ -362,7 +402,8 @@ internal static class BeaconSessionEvents
     }
 
     // The cookie scheme's own sliding renewal of this request, decided before this event from the ticket as stored: past
-    // half its window, the scheme issues the cookie for the whole window again from now (CookieAuthenticationHandler).
+    // half its window, the scheme issues the cookie for the whole window again from now (CookieAuthenticationHandler). A
+    // realtime hub request makes none (CheckSlidingExpirationAsync); the caller rules it out.
     private static bool IsSlidingRenewal(CookieAuthenticationOptions options, AuthenticationProperties properties, DateTimeOffset now)
     {
         var issuedAt = properties.IssuedUtc;

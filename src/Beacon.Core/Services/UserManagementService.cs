@@ -19,7 +19,8 @@ internal class UserManagementService(
     IRoleService roleService,
     BeaconConfiguration configuration,
     TimeProvider timeProvider,
-    ILogger<UserManagementService>? logger = null) : IUserManagementService
+    ILogger<UserManagementService>? logger = null,
+    SessionStampExpectation? stampExpectation = null) : IUserManagementService
 {
     private const string InvalidCredentials = "Invalid username or password.";
     private const string NewPasswordRequired = "Your password was set by an administrator. Choose a new password to finish signing in.";
@@ -839,7 +840,7 @@ internal class UserManagementService(
         }
 
         // A new password signs out every session the user holds (the caller's own session is signed in again by the
-        // endpoint that changed it). The user chose it, so no change is pending any more.
+        // endpoint that changed it, with the stamp written here). The user chose it, so no change is pending any more.
         var (hash, salt) = passwordHasher.HashPassword(newPassword);
         user.PasswordHash = hash;
         user.PasswordSalt = salt;
@@ -847,6 +848,7 @@ internal class UserManagementService(
         user.SecurityStamp = SecurityStamps.New();
 
         await context.SaveChangesAsync(ct);
+        stampExpectation?.Record(user.ExternalId, user.SecurityStamp);
 
         return new BaseResponse { Success = true, Message = "Password changed successfully." };
     }
@@ -906,6 +908,9 @@ internal class UserManagementService(
         user.LastLoginAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
 
+        // The stamp read with the password hash: the sign-in that follows is refused when it is no longer the user's.
+        stampExpectation?.Record(user.ExternalId, user.SecurityStamp);
+
         return SignedIn(user);
     }
 
@@ -945,6 +950,7 @@ internal class UserManagementService(
         user.SecurityStamp = SecurityStamps.New();
         user.LastLoginAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
+        stampExpectation?.Record(user.ExternalId, user.SecurityStamp);
 
         return SignedIn(user);
     }

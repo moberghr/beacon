@@ -173,7 +173,8 @@ public static partial class LoginEndpoints
 
             await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
 
-            // The user was disabled or archived between the password check and the sign-in: the cookie carries no session.
+            // The user was disabled or archived, or their security stamp changed, between the password check and the
+            // sign-in: the cookie carries no session.
             if (BeaconSessionEvents.WasSignInRefused(context))
             {
                 return Results.Json(new LoginResponse { Success = false, Error = InvalidCredentials }, statusCode: StatusCodes.Status401Unauthorized);
