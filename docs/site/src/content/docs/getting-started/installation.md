@@ -16,7 +16,7 @@ Before you begin, ensure you have:
 
 - **.NET 10.0 SDK** or later
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
-- On PostgreSQL, the **[pgvector](https://github.com/pgvector/pgvector) extension available on the server** — a migration runs `CREATE EXTENSION IF NOT EXISTS vector`, so startup migrations fail without it
+- On PostgreSQL, the **[pgvector](https://github.com/pgvector/pgvector) extension available on the server** — a migration runs `CREATE EXTENSION IF NOT EXISTS vector`, so startup migrations fail without it. On Azure Database for PostgreSQL Flexible Server, allow-list it first (server parameter `azure.extensions` must include `VECTOR`), or have an admin run `CREATE EXTENSION vector;` once if Beacon's database role cannot create extensions
 - **Node.js 18+** and npm — only needed to build or run the React frontend from source
 - **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
 - An **encryption key** (`Beacon:EncryptionKey`) — required (see [Step 2](#step-2-generate-the-encryption-key))
@@ -145,6 +145,15 @@ project has to opt in:
 :::
 
 You will also need a job runner for scheduled work — see [B5](#b5-provide-a-scheduler-implementation).
+
+:::note[MySQL migration targets]
+Migration jobs that write **into** MySQL need `Moberg.Beacon.Connector.MySql` and `.AddMySqlConnector()`: that
+package carries the EF Core MySQL provider (Pomelo) the bulk-write path uses. Beacon.Core no longer references it,
+so hosts that never touch MySQL stay clear of Pomelo's EF Core 9 dependency constraint. Without the connector, a
+MySQL migration fails with a message naming the package. Pomelo has no EF Core 10 build yet, so a host that adds
+the MySQL connector sees `NU1608` on restore; under `TreatWarningsAsErrors` that host has to suppress it at
+project level (`<NoWarn>$(NoWarn);NU1608</NoWarn>`) — a `NoWarn` on the package reference does not clear it.
+:::
 
 :::note
 The `Moberg.Beacon.Core.PostgreSql` / `Moberg.Beacon.Core.SqlServer` provider you choose is for Beacon's **metadata** database. The data sources you **monitor** are wired separately via the connector packages, and you can mix any of the nine connectors regardless of which metadata provider you use.
@@ -298,6 +307,43 @@ Calling `AddSignalR()` yourself as well is safe — registration is additive.
 :::caution[Middleware order matters]
 `ApiKeyAuthMiddleware` runs before `UseAuthentication`, and `BeaconCookieAuthMiddleware` runs after it. Reordering breaks API-key-only callers and the login redirect.
 :::
+
+### PostgreSQL through your host's `NpgsqlDataSource`
+
+If your host already owns an `NpgsqlDataSource` — for example one Aspire builds with passwordless Microsoft Entra
+authentication, whose connection string has no password — hand it to Beacon instead of a connection string.
+Beacon then opens every connection (EF Core, the startup migrations in `UseBeacon()`, raw SQL) from it:
+
+```csharp
+// Aspire registers NpgsqlDataSource as a singleton (Aspire.Azure.Npgsql / Aspire.Npgsql)
+builder.AddAzureNpgsqlDataSource("beacondb");
+
+builder.Services.AddBeaconServices(builder.Configuration, options => { /* ... */ })
+    // ... connectors ...
+    .UsePostgreSql(sp => sp.GetRequiredService<NpgsqlDataSource>());
+
+// A keyed registration (AddKeyedAzureNpgsqlDataSource) works the same way:
+//  .UsePostgreSql(sp => sp.GetRequiredKeyedService<NpgsqlDataSource>("beacondb"));
+// Or pass an instance you built yourself: .UsePostgreSql(dataSource)
+```
+
+The factory is called once, from the root provider, when Beacon first builds its context options.
+`ConnectionStrings:BeaconContext` is not read on this path.
+
+What Beacon needs from the data source:
+
+- **No `UseVector()`.** Beacon never sends or reads the pgvector type through Npgsql — it casts text literals to
+  `vector(384)` in SQL — so the data source needs no vector type mapping. The **database** needs the `vector`
+  extension: Beacon's migration runs `CREATE EXTENSION IF NOT EXISTS vector`, which requires `VECTOR` in
+  `azure.extensions` on Azure Flexible Server and a role allowed to create it (or an admin running
+  `CREATE EXTENSION vector;` beforehand).
+- **Its own search path stays yours.** Beacon's SQL names its tables and the vector type unqualified, so on each
+  connection it opens Beacon runs `SET search_path TO "beacon", public`. Npgsql resets session state when a
+  connection returns to the pool, so your own code never sees it — keep that reset on (do not set
+  `No Reset On Close=true`) and do not enable `Multiplexing` on a data source you share with Beacon. If you
+  cannot meet that, register a separate keyed data source for Beacon.
+- **Rights in the `beacon` schema.** The data source's role must be able to create the `beacon` schema (or own it)
+  and create tables in it; `ServiceConfiguration.UseBeacon(app.Services, createSchema: true)` creates the schema if missing.
 
 ### For SQL Server
 
