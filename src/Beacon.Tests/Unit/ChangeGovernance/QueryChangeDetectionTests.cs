@@ -75,11 +75,36 @@ public class QueryChangeDetectionTests
             x => x.SubmitForApprovalAsync(
                 GovernanceStore.QueryId,
                 It.IsAny<QueryData>(),
-                It.Is<QueryChangeSubmission>(y => y.Summary == "SQL query modified" && y.SupersedesOthers),
+                It.Is<QueryChangeSubmission>(y => y.Summary == "SQL query modified"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
         versions.Verify(x => x.EnsureBaselineVersionAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never, "the submission records the SQL it would replace, in its own transaction");
         store.Query.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 1", "nothing goes live before approval");
+    }
+
+    // The SQL is compared character for character: a CRLF that became an LF inside a string literal changes the rows the
+    // literal matches, so the save is submitted for approval and the stored SQL stays as it was.
+    [Test]
+    public async Task ASave_ThatChangesALineEndingInsideAStringLiteral_IsSubmittedWithTheWorkflowOn()
+    {
+        const string windows = "SELECT id FROM notes WHERE body = 'paid\r\nlate'";
+        const string unix = "SELECT id FROM notes WHERE body = 'paid\nlate'";
+        var store = new GovernanceStore();
+        store.Query.Steps[0].SqlValue = windows;
+        store.Activate(store.AddVersion(1, QueryVersionStatus.Active, windows));
+        var versions = Versions();
+
+        var response = await Service(store, versions.Object, WorkflowOn()).UpdateQuery(GovernanceStore.Edit(unix), CancellationToken.None);
+
+        response.Message.Should().Be("Changes submitted for approval");
+        versions.Verify(
+            x => x.SubmitForApprovalAsync(
+                GovernanceStore.QueryId,
+                It.Is<QueryData>(y => y.Steps.Single().SqlValue == unix),
+                It.Is<QueryChangeSubmission>(y => y.Summary == "SQL query modified"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        store.Query.Steps.Should().ContainSingle().Which.SqlValue.Should().Be(windows, "nothing goes live before approval");
     }
 
     // A swap of two steps' orders changes the order they run in.
@@ -239,10 +264,9 @@ public class QueryChangeDetectionTests
             x => x.SubmitForApprovalAsync(
                 GovernanceStore.QueryId,
                 It.Is<QueryData>(y => y.Name == "Daily orders" && y.Steps.Single().SqlValue == "SELECT 1"),
-                It.Is<QueryChangeSubmission>(y => y.Summary == "Stored SQL submitted for review" && y.RequesterUserId == "ext-ada" && !y.SupersedesOthers),
+                It.Is<QueryChangeSubmission>(y => y.Summary == "Stored SQL submitted for review" && y.RequesterUserId == "ext-ada"),
                 It.IsAny<CancellationToken>()),
-            Times.Once,
-            "a save that changes nothing that runs never replaces someone else's pending change");
+            Times.Once);
         store.Query.Name.Should().Be("Orders", "the save waits for approval as a whole");
     }
 

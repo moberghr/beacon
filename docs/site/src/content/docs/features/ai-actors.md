@@ -181,7 +181,8 @@ When the approval workflow is enabled in configuration (`EnableApprovalWorkflow(
 parameters, and the final query) is intercepted:
 
 1. Instead of applying the edit, Beacon creates a new query version in `PendingApproval` status holding the submitted
-   change — the live query keeps running unchanged. A newer submission for the same query supersedes a pending one.
+   change — the live query keeps running unchanged. A requester's newer submission for the same query supersedes their
+   pending one; while someone else's change waits, a submission is refused (`409`) until a reviewer decides it.
 2. An approval request appears at **Approvals** in the React UI (`/approvals`), showing the change summary and who
    requested it.
 3. A reviewer opens the request (`/approvals/{id}`), compares the current active version with the proposed one, and
@@ -195,24 +196,28 @@ hold it; see [Functional permissions](/features/authorization/#functional-permis
 approval requests of every project; anyone else those of the projects they read. The full rules are in
 [Queries → Approval workflow](/features/queries/#approval-workflow).
 
-**An actor's refinements go through it too.** A `REFINE_QUERY` action is validated as a draft — the refined SQL runs
-through the same gates as an editor's preview, and the stored query is never changed to try it. With the workflow on,
-the refinement is then submitted for approval with the actor's **creator** as its requester (change source `AiActor`),
-so the creator cannot approve it and it goes live only once someone else approves it; it never replaces another person's
-pending change of the query (the action fails while one waits), and an actor without a creator cannot submit at all.
-Without the workflow it is saved as a new active version attributed to the creator, with the step's change history. A
-`CREATE_QUERY` action is validated the same way before anything is stored, so a query whose SQL does not run is never
-written; with the workflow on, the query is created with nothing live and its SQL submitted for approval (with the
-creator as requester), and a `CREATE_SUBSCRIPTION` action is refused for a query whose active version was not approved
-for exactly its content — its content hash, even outside strict mode — so the action fails for a query the same plan
-just created, and a later plan subscribes once its SQL is approved. When the changes come from an approved plan, the plan's
-reviewer and everyone who asked for a revision of it are recorded on each request as its contributors: none of them
-approves those query changes (unless the host allows self-approval), and the approval page withholds **Approve** from
-them.
+**An actor's refinements go through it too.** With the workflow on, a `REFINE_QUERY` action is validated without running
+any of it: the refined SQL passes the checks of a save (the execution gate and the source's metadata) and the source's
+own non-executing validation (`EXPLAIN` without `ANALYZE` on PostgreSQL, MySQL and Snowflake,
+`sp_describe_first_result_set` on SQL Server and Azure Synapse — a plan or a description of the result, never a row;
+SQLite has none and is left to the gate), so SQL nobody reviewed never executes. Without the workflow it is validated as
+a draft, running through the same gates as an editor's preview. Either way the stored query is never changed to try it.
+With the workflow on, the refinement is then submitted for approval with the actor's **creator** as its requester
+(change source `AiActor`), so the creator cannot approve it and it goes live only once someone else approves it; it
+never replaces another person's pending change of the query (the action fails while one waits), and an actor without a
+creator cannot submit at all. Without the workflow it is saved as a new active version attributed to the creator, with
+the step's change history. A `CREATE_QUERY` action is validated the same way before anything is stored, so a query whose
+SQL does not pass is never written; with the workflow on, the query is created with nothing live and its SQL submitted
+for approval (with the creator as requester), and a `CREATE_SUBSCRIPTION` action is refused for a query whose active
+version was not approved for exactly its content — its content hash, even outside strict mode — so the action fails for
+a query the same plan just created, and a later plan subscribes once its SQL is approved. When the changes come from an
+approved plan, the plan's reviewer and everyone who asked for a revision of it are recorded on each request as its
+contributors: none of them approves those query changes (unless the host allows self-approval), and the approval page
+withholds **Approve** from them.
 
 ## Real-Time Updates (`ApprovalUpdated`)
 
-Approval decisions are pushed in real time over the SignalR hub at `/beacon/api/hub` (wired automatically; see [Real-time](/getting-started/installation/#real-time-signalr) to opt out). When a query change approval is approved or rejected, the server sends an `ApprovalUpdated` event (status `approved` or `rejected`); when a newer submission for the same query supersedes a pending request, its requester alone receives one with status `superseded`:
+Approval decisions are pushed in real time over the SignalR hub at `/beacon/api/hub` (wired automatically; see [Real-time](/getting-started/installation/#real-time-signalr) to opt out). When a query change approval is approved or rejected, the server sends an `ApprovalUpdated` event (status `approved` or `rejected`); when a requester's newer submission for the same query supersedes their pending request, they alone receive one with status `superseded`:
 
 ```json
 { "approvalId": 42, "status": "approved" }

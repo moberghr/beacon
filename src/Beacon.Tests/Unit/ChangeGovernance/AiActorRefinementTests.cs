@@ -9,8 +9,10 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Providers;
 using Beacon.Core.Worker;
 using Beacon.Tests.Common;
 using FluentAssertions;
@@ -22,13 +24,14 @@ using ActorEntity = Beacon.Core.Data.Entities.AiActor;
 namespace Beacon.Tests.Unit.ChangeGovernance;
 
 /// <summary>
-/// An AI actor's refinement is validated as a draft (the stored query never runs SQL nobody saved), then, with the
-/// approval workflow on, submitted for approval with the actor's creator as its requester — recording the stored SQL it
-/// would replace, never replacing someone else's pending change, and failing for an actor without a creator; without the
-/// workflow it is a versioned save attributed to the creator. A new query is validated as a draft before anything is
-/// stored, and with the workflow on it is created with nothing live and its SQL submitted. With the workflow on an actor
-/// subscribes only to a query with an approved active version. Approving a plan is a conditional decision from
-/// PendingApproval, and the query changes it submits record the plan's reviewer and revision requesters.
+/// An AI actor's new query or refinement is validated before anything is stored. With the approval workflow on nothing of
+/// it runs — it is checked as a save checks it and by its source's own non-executing validation (IQueryProposalCheck) —
+/// and it is submitted for approval with the actor's creator as its requester: a refinement records the stored SQL it would
+/// replace, never replaces someone else's pending change and fails for an actor without a creator; a new query is created
+/// with nothing live. Without the workflow the draft runs as an editor's preview does, and a refinement is a versioned save
+/// attributed to the creator. With the workflow on an actor subscribes only to a query with an approved active version.
+/// Approving a plan is a conditional decision from PendingApproval, and the query changes it submits record the plan's
+/// reviewer and revision requesters.
 /// </summary>
 [TestFixture]
 public class AiActorRefinementTests
@@ -37,6 +40,7 @@ public class AiActorRefinementTests
     private const string Creator = "ext-ana";
 
     private Mock<IQueryService> _queries = null!;
+    private Mock<IQueryProposalCheck> _proposals = null!;
     private Mock<IQueryVersionService> _versions = null!;
     private QueryDraft? _validated;
 
@@ -44,20 +48,22 @@ public class AiActorRefinementTests
     public void SetUp()
     {
         _queries = new Mock<IQueryService>(MockBehavior.Strict);
+        _proposals = new Mock<IQueryProposalCheck>(MockBehavior.Strict);
         _versions = new Mock<IQueryVersionService>();
         _validated = null;
     }
 
     [Test]
-    public async Task ARefinement_WithTheWorkflowOn_IsValidatedAsADraftAndSubmittedAsTheCreators()
+    public async Task ARefinement_WithTheWorkflowOn_IsCheckedWithoutRunningAndSubmittedAsTheCreators()
     {
         var store = OwnedQuery();
-        DraftRuns(true);
+        ProposalPasses(true);
 
         var action = await Service(store, WorkflowOn()).ExecuteOrProposeAsync(Actor(), Refine("SELECT 2"), [], CancellationToken.None);
 
         action.Success.Should().BeTrue();
         _validated!.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 2");
+        _queries.VerifyNoOtherCalls();
         _versions.Verify(
             x => x.SubmitForApprovalAsync(
                 GovernanceStore.QueryId,
@@ -66,11 +72,10 @@ public class AiActorRefinementTests
                     && y.Source == AiActorService.AiActorChangeSource
                     && y.Reason == "narrower"
                     && y.Summary == "AI actor refinement"
-                    && !y.SupersedesOthers
                     && y.ContributorUserIds.Count == 0),
                 It.IsAny<CancellationToken>()),
             Times.Once,
-            "a refinement never replaces another person's pending change of the query; outside a plan nobody else shaped it");
+            "outside a plan nobody else shaped the refinement");
         _versions.VerifyNoOtherCalls();
         store.Query.Steps[0].SqlValue.Should().Be("SELECT 1", "the refinement goes live only once approved");
         store.Saved.Should().BeEmpty();
@@ -83,7 +88,7 @@ public class AiActorRefinementTests
     {
         var store = OwnedQuery();
         store.Activate(store.AddVersion(1, QueryVersionStatus.Active, "SELECT 0"));
-        DraftRuns(true);
+        ProposalPasses(true);
 
         var action = await Service(store, WorkflowOn(), TestQueryServices.VersionService(store.Factory(), configuration: WorkflowOn()))
             .ExecuteOrProposeAsync(Actor(), Refine("SELECT 2"), [], CancellationToken.None);
@@ -104,7 +109,7 @@ public class AiActorRefinementTests
         var store = OwnedQuery();
         var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
         var pending = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ben", active.Id);
-        DraftRuns(true);
+        ProposalPasses(true);
 
         var action = await Service(store, WorkflowOn(), TestQueryServices.VersionService(store.Factory(), configuration: WorkflowOn()))
             .ExecuteOrProposeAsync(Actor(), Refine("SELECT 2"), [], CancellationToken.None);
@@ -122,7 +127,7 @@ public class AiActorRefinementTests
     {
         var store = OwnedQuery();
         store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
-        DraftRuns(true);
+        ProposalPasses(true);
         var ownerless = Actor();
         ownerless.CreatedByUserId = null;
 
@@ -143,6 +148,8 @@ public class AiActorRefinementTests
         var action = await Service(store, new BeaconConfiguration()).ExecuteOrProposeAsync(Actor(), Refine("SELECT 2"), [], CancellationToken.None);
 
         action.Success.Should().BeTrue();
+        _validated!.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 2");
+        _proposals.VerifyNoOtherCalls();
         store.Query.Steps[0].SqlValue.Should().Be("SELECT 2");
         store.Saved.OfType<QueryStepChangeHistory>().Should().ContainSingle().Which.Should().BeEquivalentTo(new
         {
@@ -161,7 +168,14 @@ public class AiActorRefinementTests
     public async Task ARefinementWhoseDraftFails_ChangesNothing(bool workflowOn)
     {
         var store = OwnedQuery();
-        DraftRuns(false);
+        if (workflowOn)
+        {
+            ProposalPasses(false);
+        }
+        else
+        {
+            DraftRuns(false);
+        }
 
         var action = await Service(store, workflowOn ? WorkflowOn() : new BeaconConfiguration()).ExecuteOrProposeAsync(Actor(), Refine("SELECT 2"), [], CancellationToken.None);
 
@@ -170,6 +184,63 @@ public class AiActorRefinementTests
         store.Query.Steps[0].SqlValue.Should().Be("SELECT 1");
         store.Saved.Should().BeEmpty();
         _versions.VerifyNoOtherCalls();
+    }
+
+    // End to end with the workflow on, in strict mode, for an actor that needs no plan approval: the proposal check is the
+    // real one and the source's provider offers its non-executing validation only, so a run of the SQL — or a preview of
+    // the draft — would fail the action. The SQL is validated once by the source, never run, and submitted.
+    [TestCase(AiActorActionType.CreateQuery)]
+    [TestCase(AiActorActionType.RefineQuery)]
+    public async Task WithTheWorkflowOn_AnActorsSql_IsValidatedWithoutRunning_AndSubmitted(AiActorActionType actionType)
+    {
+        var store = OwnedQuery();
+        var provider = ValidatingProvider(valid: true);
+        _versions
+            .Setup(x => x.SubmitNewQueryAsync(It.IsAny<Query>(), It.IsAny<QueryData>(), It.IsAny<QueryChangeSubmission>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryVersionChange(new QueryVersion { Id = 500, QueryId = 88, Name = "late payments", StepsJson = "[]", Status = QueryVersionStatus.PendingApproval }, 0));
+
+        var action = await Service(store, StrictWorkflow(), proposals: ProposalCheck(store, provider))
+            .ExecuteOrProposeAsync(Actor(), Plan(actionType, "SELECT 2"), [], CancellationToken.None);
+
+        action.Success.Should().BeTrue(action.ErrorMessage);
+        provider.Verify(x => x.ValidateQueryAsync(It.Is<DataSource>(y => y.Id == GovernanceStore.DataSourceId), "SELECT 2", It.IsAny<CancellationToken>()), Times.Once);
+        provider.VerifyNoOtherCalls();
+        _queries.VerifyNoOtherCalls();
+        if (actionType == AiActorActionType.CreateQuery)
+        {
+            _versions.Verify(x => x.SubmitNewQueryAsync(It.IsAny<Query>(), It.Is<QueryData>(y => y.Steps.Single().SqlValue == "SELECT 2"), It.IsAny<QueryChangeSubmission>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+        else
+        {
+            _versions.Verify(x => x.SubmitForApprovalAsync(GovernanceStore.QueryId, It.Is<QueryData>(y => y.Steps.Single().SqlValue == "SELECT 2"), It.IsAny<QueryChangeSubmission>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        _versions.VerifyNoOtherCalls();
+        store.Query.Steps[0].SqlValue.Should().Be("SELECT 1");
+    }
+
+    // Invalid SQL is still refused before anything is submitted: by the source's own validation, or by the save check
+    // before the source is reached.
+    [TestCase(AiActorActionType.CreateQuery, "SELECT missing FROM orders", true)]
+    [TestCase(AiActorActionType.RefineQuery, "SELECT missing FROM orders", true)]
+    [TestCase(AiActorActionType.CreateQuery, "SELECT 1; DELETE FROM orders", false)]
+    [TestCase(AiActorActionType.RefineQuery, "SELECT 1; DELETE FROM orders", false)]
+    public async Task WithTheWorkflowOn_InvalidSql_IsRefusedBeforeSubmission(AiActorActionType actionType, string sql, bool reachesTheSource)
+    {
+        var store = OwnedQuery();
+        var provider = ValidatingProvider(valid: false);
+
+        var action = await Service(store, StrictWorkflow(), proposals: ProposalCheck(store, provider))
+            .ExecuteOrProposeAsync(Actor(), Plan(actionType, sql), [], CancellationToken.None);
+
+        action.Success.Should().BeFalse();
+        action.ErrorMessage.Should().Contain("validation failed");
+        provider.Verify(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), reachesTheSource ? Times.Once() : Times.Never());
+        provider.VerifyNoOtherCalls();
+        _queries.VerifyNoOtherCalls();
+        _versions.VerifyNoOtherCalls();
+        store.Saved.Should().BeEmpty();
+        store.Query.Steps[0].SqlValue.Should().Be("SELECT 1");
     }
 
     [TestCase(true)]
@@ -184,6 +255,7 @@ public class AiActorRefinementTests
         action.Success.Should().Be(runs);
         _validated!.Steps.Should().ContainSingle().Which.Should().BeEquivalentTo(new { SqlValue = "SELECT 3", DataSourceId = GovernanceStore.DataSourceId }, x => x.ExcludingMissingMembers());
         store.Saved.OfType<Query>().Should().HaveCount(runs ? 1 : 0, "a query whose SQL does not run is never stored");
+        _proposals.VerifyNoOtherCalls();
     }
 
     // With the workflow on, the new query's SQL waits for approval: created with nothing live and submitted as the
@@ -192,7 +264,7 @@ public class AiActorRefinementTests
     public async Task ANewQuery_WithTheWorkflowOn_IsCreatedWithNothingLiveAndItsSqlSubmitted()
     {
         var store = new GovernanceStore();
-        DraftRuns(true);
+        ProposalPasses(true);
         _versions
             .Setup(x => x.SubmitNewQueryAsync(It.IsAny<Query>(), It.IsAny<QueryData>(), It.IsAny<QueryChangeSubmission>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new QueryVersionChange(new QueryVersion { Id = 500, QueryId = 88, Name = "late payments", StepsJson = "[]", Status = QueryVersionStatus.PendingApproval }, 0));
@@ -201,6 +273,8 @@ public class AiActorRefinementTests
 
         action.Success.Should().BeTrue();
         action.ResultEntityId.Should().Be(88);
+        _validated!.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 3");
+        _queries.VerifyNoOtherCalls();
         _versions.Verify(
             x => x.SubmitNewQueryAsync(
                 It.Is<Query>(y => y.AiActorId == ActorId && y.OwnerUserId == Creator && y.Steps.Count == 0 && y.FinalQuery == null),
@@ -256,7 +330,7 @@ public class AiActorRefinementTests
         actor.DataSource = store.Warehouse;
         store.Plans.Add(new AiActorPlan { Id = 30, AiActorId = ActorId, AiActor = actor, Status = AiActorPlanStatus.RevisionRequested, ReviewedByUserId = "ext-cid", Analysis = "a", ActionsJson = "[]" });
         store.Plans.Add(new AiActorPlan { Id = 31, AiActorId = ActorId, AiActor = actor, ParentPlanId = 30, Status = AiActorPlanStatus.PendingApproval, Analysis = "a", ActionsJson = RefinementActions("SELECT 2") });
-        DraftRuns(true);
+        ProposalPasses(true);
 
         var result = await Service(store, WorkflowOn()).ApprovePlanAsync(new ApprovePlanOptions { PlanId = 31, UserId = "ext-ben" }, CancellationToken.None);
 
@@ -302,12 +376,22 @@ public class AiActorRefinementTests
         store.Plans.Single().Status.Should().Be(AiActorPlanStatus.Rejected);
     }
 
+    // Without the workflow the draft runs as an editor's preview does.
     private void DraftRuns(bool success)
     {
         _queries
             .Setup(x => x.PreviewQuery(It.IsAny<int>(), It.IsAny<QueryDraft>(), It.IsAny<ListRequest>(), It.IsAny<CancellationToken>()))
             .Callback<int, QueryDraft?, ListRequest, CancellationToken>((_, draft, _, _) => _validated = draft)
             .ReturnsAsync(new QueryPreviewResult { Success = success, ErrorMessage = success ? null : "relation does not exist" });
+    }
+
+    // With the workflow on the proposal is checked without running it.
+    private void ProposalPasses(bool passes)
+    {
+        _proposals
+            .Setup(x => x.RejectionAsync(It.IsAny<QueryDraft>(), It.IsAny<CancellationToken>()))
+            .Callback<QueryDraft, CancellationToken>((draft, _) => _validated = draft)
+            .ReturnsAsync(passes ? null : "relation does not exist");
     }
 
     private static GovernanceStore OwnedQuery()
@@ -370,9 +454,28 @@ public class AiActorRefinementTests
             },
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
+    private static AiActorActionPlan Plan(AiActorActionType actionType, string sql) => actionType == AiActorActionType.CreateQuery ? Create(sql) : Refine(sql);
+
     private static BeaconConfiguration WorkflowOn() => new() { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } };
 
-    private AiActorService Service(GovernanceStore store, BeaconConfiguration configuration, IQueryVersionService? versions = null) =>
+    private static BeaconConfiguration StrictWorkflow() => new() { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, RequireApprovedVersionToRun = true } };
+
+    // A source whose provider answers its non-executing validation and nothing else: any other call fails.
+    private static Mock<IDataSourceProvider> ValidatingProvider(bool valid)
+    {
+        var provider = new Mock<IDataSourceProvider>(MockBehavior.Strict);
+        provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryValidationResult { IsValid = valid, Errors = valid ? [] : ["Database error 42703 (undefined column)."] });
+
+        return provider;
+    }
+
+    // The real proposal check over the store, reaching the source through provider.
+    private static IQueryProposalCheck ProposalCheck(GovernanceStore store, Mock<IDataSourceProvider> provider) =>
+        TestQueryServices.QueryService(store.Factory(), providers: TestQueryServices.Providers(provider.Object));
+
+    private AiActorService Service(GovernanceStore store, BeaconConfiguration configuration, IQueryVersionService? versions = null, IQueryProposalCheck? proposals = null) =>
         new(
             store.Factory(),
             Mock.Of<ILlmProvider>(MockBehavior.Strict),
@@ -383,6 +486,7 @@ public class AiActorRefinementTests
             Mock.Of<IRunAsScope>(),
             TestProjectAccess.ExecutionAllowed(),
             Mock.Of<IStepSqlSaveCheck>(),
+            proposals ?? _proposals.Object,
             versions ?? _versions.Object,
             configuration,
             NullLogger<AiActorService>.Instance);

@@ -119,6 +119,27 @@ public class ReviewedRunTests
         await ShouldReachTheSql(() => Service(store, strict, connections.Object).ExecuteQuery(SubscriptionId, CancellationToken.None), connections);
     }
 
+    // The approved hash covers every character of the SQL: stored SQL whose literal had its CRLF turned into an LF outside a
+    // review is not the approved content, so a strict-mode run executes nothing; the approved SQL itself runs.
+    [Test]
+    public async Task InStrictMode_ARunOfStoredSqlWhoseLiteralLostItsCarriageReturn_ExecutesNothing()
+    {
+        var store = Subscribed();
+        var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active, "SELECT id FROM notes WHERE body = 'paid\r\nlate'"));
+        store.AddRequest(active, "ext-ben", null, ApprovalStatus.Approved, approvedContentHash: active.ContentHash, reviewedBy: "ext-cid");
+        store.Query.Steps[0].SqlValue = "SELECT id FROM notes WHERE body = 'paid\nlate'";
+        var connections = Connections();
+        var strict = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, RequireApprovedVersionToRun = true } };
+
+        var drifted = () => Service(store, strict, connections.Object).ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        await drifted.Should().ThrowAsync<QueryNotReviewedException>();
+        connections.VerifyNoOtherCalls();
+
+        store.Query.Steps[0].SqlValue = "SELECT id FROM notes WHERE body = 'paid\r\nlate'";
+        await ShouldReachTheSql(() => Service(store, strict, connections.Object).ExecuteQuery(SubscriptionId, CancellationToken.None), connections);
+    }
+
     // A query stored before the workflow was on and never versioned since runs as stored outside strict mode, and every
     // such run says so (by ids only).
     [Test]

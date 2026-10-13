@@ -241,8 +241,8 @@ internal partial class QueryService
         // When approval workflow is enabled, submit a PendingApproval version instead of applying changes directly.
         // Approving applies the version's steps to the live query, so the version holds the submitted content (the whole
         // step set the save would store) — snapshotting the stored query would approve the old SQL back in. The submission
-        // records the stored SQL it would replace when no version holds it. Stored SQL brought under review by a save that
-        // changes nothing that runs never replaces someone else's pending change.
+        // records the stored SQL it would replace when no version holds it, replaces only the caller's own pending
+        // request, and is refused (409) while someone else's waits.
         if (workflow.Enabled && (sqlChanged || submitsUnreviewed))
         {
             var change = await queryVersionService.SubmitForApprovalAsync(
@@ -262,8 +262,7 @@ internal partial class QueryService
                     "Submitted for approval",
                     sqlChanged ? "SQL query modified" : "Stored SQL submitted for review")
                 {
-                    ExpectedBaseVersionId = queryData.BaseVersionId,
-                    SupersedesOthers = sqlChanged
+                    ExpectedBaseVersionId = queryData.BaseVersionId
                 },
                 cancellationToken);
 

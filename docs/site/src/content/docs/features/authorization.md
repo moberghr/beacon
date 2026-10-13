@@ -1029,7 +1029,8 @@ the rules are in [Queries → Approval workflow](/features/queries/#approval-wor
   The restored steps pass the save check again (`409` with the reason otherwise). Restoring a query another user locked
   needs Manage on the query (overriding the lock); the lock holder needs Write, as for an unlocked query.
 - **AI actors** validate a refinement and a new query as a draft before anything is stored (the stored query is no longer
-  changed to try the SQL). A refinement is saved as a new active version attributed to the actor's creator.
+  changed to try the SQL; with the workflow on nothing is run, see below). A refinement is saved as a new active version
+  attributed to the actor's creator.
 - **The editor sends the version it loaded** (`baseVersionId`); a save made on a version that is no longer active answers
   `409` — reload and make the change again.
 
@@ -1044,22 +1045,34 @@ the rules are in [Queries → Approval workflow](/features/queries/#approval-wor
 - **The decision binds to what was reviewed.** The approval detail carries the proposal's content hash and the
   step-by-step diff; `POST /beacon/api/approvals/{id}/approve` must send that hash back (`expectedContentHash`), or it
   answers `409`. A client that approved with a comment only must be updated.
+- **The content hash covers every character.** The SQL and the final query are hashed exactly as stored, whitespace and
+  line endings included: an edit that only turns a `CRLF` into an `LF` (inside a string literal it matches other values)
+  is a change submitted for review, and a run whose stored SQL differs from the approved content by a line ending is
+  refused like any other difference.
 - **Decisions are final.** Approve and reject act only on a pending request (`409` otherwise); an approval is refused as
   stale (`409`) once another version went live after the request was made, and when the proposal no longer holds the
   content it was submitted with; every step passes the save check again. The decision, the query's steps and the version
   statuses commit in one transaction.
 - **Pending requests made before this version must be submitted again.** They record neither the version they were made
   on nor their content hash, so they can be rejected, not approved: reject them and save (or restore) the change again.
-- **One pending request per query.** A new submission supersedes the earlier pending one (`Superseded`) and notifies its
-  requester; pending requests that already exist are left as they are until the next submission for the query. A save
-  that only brings unreviewed stored SQL under review, and an AI refinement, never supersede another person's request
-  (`409` while one waits).
+- **One pending request per query; others wait.** A submission supersedes only its requester's own pending request
+  (`Superseded`, the requester notified). While another person's request waits — or one whose requester Beacon could not
+  name — a save, a restore and an AI actor's refinement of the query answer `409` ("Another change to this query is
+  waiting for review; a reviewer must approve or reject it first."): a reviewer approves or rejects it, or its requester
+  withdraws it, before anyone else's change is submitted. Pending requests that already exist count as their recorded
+  requester's.
 - **New queries go live only after approval.** A query created with steps, or a new query's first save, is submitted
   as its first version; until it is approved the query has no steps and runs nothing.
 - **Restore and AI refinements are changes**: a restore is submitted for approval ("Restore of version N"), and so is an
   AI actor's refinement or new query, with the actor's creator as its requester. Saving a query whose stored SQL is not
   its active version's (never versioned, or changed before this version outside a versioned save) submits that SQL for
   approval.
+- **AI actors' SQL is validated without running it.** An AI actor's new query or refinement passes the checks of a save
+  (the execution gate and the source's metadata) and the source's own non-executing validation — `EXPLAIN` without
+  `ANALYZE` on PostgreSQL, MySQL and Snowflake, `sp_describe_first_result_set` on SQL Server and Azure Synapse, a plan or
+  a description of the result and never a row; SQLite has none and is left to the gate — instead of a preview run, for
+  autonomous actors and in strict mode alike: its SQL never executes before a reviewer approves it. SQL that fails is
+  refused before it is submitted.
 - **AI actors' plans and subscriptions.** Approving a plan needs the Approver permission (an Admin holds it) and someone
   other than the actor's creator and the plan's revision requesters; the creator still rejects or asks for a revision. A
   plan is decided only from `PendingApproval` (`409` otherwise). An actor subscribes only to a query whose active version
@@ -1099,7 +1112,7 @@ an approval of a version without a hash records it. Rolling it back drops the fo
     `RestoreQueryVersionResult(int VersionNumber, bool SubmittedForApproval, int SupersededRequests)`.
   - `SavedQueryRunnableVersion.WhereHasRunnableVersion` and `ForQuery` take an optional `bool requireApprovedHash`
     (strict mode; see `SavedQueryRunnableVersion.RequiresApprovedHash`) — source compatible, recompile.
-  - The `AiActorService` constructor takes `IQueryVersionService` and `BeaconConfiguration`.
+  - The `AiActorService` constructor takes `IQueryVersionService`, `IQueryProposalCheck` and `BeaconConfiguration`.
   - `IQueryService.CreateQuery` submits a new query's content for approval while the workflow is on.
 - Obsolete and ignored: `ApproveQueryChangeCommand.ReviewerUserId` / `ReviewerName`, `RejectQueryChangeCommand.ReviewerUserId` /
   `ReviewerName`, `RestoreQueryVersionCommand.UserId`. Obsolete: `IQueryService.AddQueryStep`, `UpdateQueryStep`,
@@ -1109,8 +1122,11 @@ an approval of a version without a hash records it. Rolling it back drops the fo
     and `QueryVersionStatus.Superseded` (`5`).
   - `QueryVersion.ContentHash`; `QueryApprovalRequest.BaseVersionId`, `ApprovedContentHash` and `ContributorUserIds`.
   - `IQueryVersionService.SubmitNewQueryAsync(Query query, QueryData proposed, QueryChangeSubmission submission, CancellationToken)`.
-  - `QueryChangeSubmission(RequesterUserId, RequesterDisplayName, Source, Reason, Summary)` with `ExpectedBaseVersionId`,
-    `SupersedesOthers` (default `true`) and `ContributorUserIds`; `QueryVersionChange(Version, SupersededRequests)`;
+  - `IQueryProposalCheck.RejectionAsync(QueryDraft proposal, CancellationToken)` (registered with `TryAdd`): checks a
+    proposed query without running it — the checks of a save and the source's non-executing validation.
+  - `QueryChangeSubmission(RequesterUserId, RequesterDisplayName, Source, Reason, Summary)` with `ExpectedBaseVersionId`
+    and `ContributorUserIds` (a submission supersedes only its requester's own pending request; another requester's
+    refuses it); `QueryVersionChange(Version, SupersededRequests)`;
     `QueryApprovalDecision(RequestId, Status, RequesterUserId, ReviewerUserId)`.
   - `ApprovalRequestDetail.ContentHash`, `IsOwnRequest`, `MayApprove`, `ApproveBlockedReason` and `IsStale`;
     `ApproveQueryChangeCommand.ExpectedContentHash`.
@@ -1132,7 +1148,8 @@ an approval of a version without a hash records it. Rolling it back drops the fo
   - Approve, reject and restore answer `409` for a decided, superseded, stale or pre-upgrade request, a changed proposal
     or other content than reviewed, a step the save check refuses or a never-approved restore source, and `403` for an
     own change, one the caller shaped, or a request without a requester. A save answers `409` for a stale editor, another
-    person's pending request, a requester Beacon cannot name or a concurrent write.
+    person's pending request, a requester Beacon cannot name or a concurrent write; a restore with the workflow on also
+    while another person's request waits.
 
 ## Migration from Previous Versions
 

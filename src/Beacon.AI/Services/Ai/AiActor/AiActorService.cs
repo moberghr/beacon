@@ -53,6 +53,7 @@ public class AiActorService : IAiActorServiceExtended
     private readonly IRunAsScope _runAs;
     private readonly IExecutionAccessCheck _executionAccess;
     private readonly IStepSqlSaveCheck _saveCheck;
+    private readonly IQueryProposalCheck _proposalCheck;
     private readonly IQueryVersionService _versionService;
     private readonly BeaconConfiguration _configuration;
     private readonly ILogger<AiActorService> _logger;
@@ -73,6 +74,7 @@ public class AiActorService : IAiActorServiceExtended
         IRunAsScope runAs,
         IExecutionAccessCheck executionAccess,
         IStepSqlSaveCheck saveCheck,
+        IQueryProposalCheck proposalCheck,
         IQueryVersionService versionService,
         BeaconConfiguration configuration,
         ILogger<AiActorService> logger)
@@ -86,6 +88,7 @@ public class AiActorService : IAiActorServiceExtended
         _runAs = runAs;
         _executionAccess = executionAccess;
         _saveCheck = saveCheck;
+        _proposalCheck = proposalCheck;
         _versionService = versionService;
         _configuration = configuration;
         _logger = logger;
@@ -1166,8 +1169,8 @@ public class AiActorService : IAiActorServiceExtended
             return;
         }
 
-        // Validated as a draft before anything is stored, through the same gates as an editor's preview: a query whose SQL
-        // does not run is never written (nor deleted again).
+        // Validated before anything is stored — with the approval workflow on, without running it (DraftFailureAsync): a
+        // query whose SQL does not pass is never written (nor deleted again).
         var failure = await DraftFailureAsync(
             0,
             [
@@ -1476,8 +1479,9 @@ public class AiActorService : IAiActorServiceExtended
                 })
             .ToList();
 
-        // Validated as a draft, through the same gates as an editor's preview: the stored query never runs the refined SQL
-        // before it is saved (or approved), and a refinement that fails changes nothing.
+        // Validated before anything is stored — with the approval workflow on, without running it (DraftFailureAsync): the
+        // stored query never runs the refined SQL before it is saved (or approved), and a refinement that fails changes
+        // nothing.
         var failure = await DraftFailureAsync(queryId, refinedSteps, query.FinalQuery, cancellationToken);
         if (failure != null)
         {
@@ -1508,7 +1512,6 @@ public class AiActorService : IAiActorServiceExtended
                 },
                 new QueryChangeSubmission(actor.CreatedByUserId, null, AiActorChangeSource, reason, "AI actor refinement")
                 {
-                    SupersedesOthers = false,
                     ContributorUserIds = contributors
                 },
                 cancellationToken);
@@ -1548,20 +1551,26 @@ public class AiActorService : IAiActorServiceExtended
         action.ResultEntityId = queryId;
     }
 
-    // Why a draft of the steps does not run (the error the preview reports, or what it threw), or null when it runs.
+    // Why the proposed steps would not run, or null when they would. With the approval workflow on nothing runs: SQL nobody
+    // reviewed is checked as a save checks it and by its source's own non-executing validation (IQueryProposalCheck: a plan
+    // or a description of the result, never a row). Without the workflow the draft runs as an editor's preview does (the
+    // error it reports, or what it threw).
     private async Task<string?> DraftFailureAsync(int queryId, List<QueryStepData> steps, string? finalQuery, CancellationToken cancellationToken)
     {
+        var draft = new QueryDraft
+        {
+            Steps = steps,
+            FinalQuery = finalQuery
+        };
+
         try
         {
-            var result = await _queryService.PreviewQuery(
-                queryId,
-                new QueryDraft
-                {
-                    Steps = steps,
-                    FinalQuery = finalQuery
-                },
-                ValidationPage.Instance,
-                cancellationToken);
+            if (_configuration.ApprovalWorkflow.Enabled)
+            {
+                return await _proposalCheck.RejectionAsync(draft, cancellationToken);
+            }
+
+            var result = await _queryService.PreviewQuery(queryId, draft, ValidationPage.Instance, cancellationToken);
 
             return result.Success ? null : result.ErrorMessage ?? "Unknown error";
         }

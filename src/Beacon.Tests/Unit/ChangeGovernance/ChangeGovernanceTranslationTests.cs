@@ -415,6 +415,7 @@ public class ChangeGovernanceTranslationTests
             Mock.Of<IRunAsScope>(),
             TestProjectAccess.ExecutionAllowed(),
             Mock.Of<IStepSqlSaveCheck>(),
+            Mock.Of<IQueryProposalCheck>(MockBehavior.Strict),
             Mock.Of<IQueryVersionService>(MockBehavior.Strict),
             new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
             NullLogger<AiActorService>.Instance);

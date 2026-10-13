@@ -13,10 +13,10 @@ namespace Beacon.Core.Services;
 /// Descriptions, the query's own name and the data sources' display names are left out — they change nothing a run
 /// executes — so the same content hashes alike whether it is read from the stored steps, an edit or a version's snapshot.
 /// A missing final query and an empty one are the same content, as they are to a run; so are a missing step name and an
-/// empty one. Line endings in the SQL and the final query are normalised (CRLF and CR read as LF); any other whitespace
-/// is content. The approval workflow decides with it whether an edit changes what runs (<see cref="SameAs"/>), stores it
-/// on every version (<see cref="QueryVersion.ContentHash"/>) and on an approval, and compares a run's stored steps with
-/// the reviewed version.
+/// empty one. The SQL and the final query are hashed character for character, whitespace and line endings included: a CRLF
+/// and an LF are different content (inside a string literal they match different values). The approval workflow decides
+/// with it whether an edit changes what runs (<see cref="SameAs"/>), stores it on every version
+/// (<see cref="QueryVersion.ContentHash"/>) and on an approval, and compares a run's stored steps with the reviewed version.
 /// </summary>
 internal static class QueryContentHash
 {
@@ -107,14 +107,14 @@ internal static class QueryContentHash
     private static QueryContent Of(string? finalQuery, IEnumerable<ContentStep> steps)
     {
         var canonical = new CanonicalContent(
-            NormalisedLineEndings(finalQuery),
+            finalQuery ?? string.Empty,
             steps
                 .Select(x =>
                     new CanonicalStep(
                         x.Order,
                         x.DataSourceId,
                         x.Name ?? string.Empty,
-                        NormalisedLineEndings(x.Sql),
+                        x.Sql ?? string.Empty,
                         x.Parameters
                             .Select(y => new CanonicalParameter(y.Name ?? string.Empty, (int)y.Type, y.Placeholder ?? string.Empty))
                             .OrderBy(y => y.Name, StringComparer.Ordinal)
@@ -128,14 +128,6 @@ internal static class QueryContentHash
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
 
         return new QueryContent(hash, canonical.Steps.Count == 0 && canonical.FinalQuery.Length == 0);
-    }
-
-    // The same SQL saved from Windows and from anywhere else is the same content; every other character counts.
-    private static string NormalisedLineEndings(string? sql)
-    {
-        return (sql ?? string.Empty)
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n');
     }
 
     private sealed record ContentStep(int Order, int DataSourceId, string? Name, string? Sql, IReadOnlyList<ContentParameter> Parameters);

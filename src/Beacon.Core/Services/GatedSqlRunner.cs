@@ -146,6 +146,39 @@ internal sealed class GatedSqlRunner(
         return new GatedSqlRun(result.Rows ?? [], report, dialect, result.ExecutionTimeMs, TimedOut: false);
     }
 
+    /// <summary>
+    /// Checks a statement on its data source without running it, for SQL that may not run before it is reviewed. The
+    /// statement passes the verdict <see cref="RunAsync"/> acts on (nothing reaches the provider when it is refused), then
+    /// the provider's own non-executing validation (<see cref="IDataSourceProvider.ValidateQueryAsync"/>), never an
+    /// execution: <c>EXPLAIN</c> without <c>ANALYZE</c> on PostgreSQL, MySQL and Snowflake and
+    /// <c>sp_describe_first_result_set</c> on SQL Server and Azure Synapse, which plan the statement or describe its result
+    /// and return none of its rows, and a local parse on the other providers. An engine without such a validation (the
+    /// provider reports it skipped) is left to the gate. Null when the statement passes; otherwise why not, a database
+    /// error redacted as <see cref="RunAsync"/> redacts one.
+    /// </summary>
+    /// <param name="sql">The statement as it would run, flattened and with no bind markers: a dry run binds no values.</param>
+    public async Task<string?> ValidationFailureAsync(DataSource dataSource, string sql, CancellationToken cancellationToken)
+    {
+        var request = new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), MaxRows: 1);
+        var report = Evaluate(request);
+        if (report.Blocked)
+        {
+            return report.BlockReason ?? "The SQL was rejected.";
+        }
+
+        var validation = await providerFactory
+            .GetProvider(dataSource.DataSourceType)
+            .ValidateQueryAsync(dataSource, sql, cancellationToken);
+        if (validation.IsValid || validation.Skipped)
+        {
+            return null;
+        }
+
+        var error = validation.Errors is { Count: > 0 } ? string.Join("; ", validation.Errors) : "Query validation failed.";
+
+        return await CallerErrorAsync(request, error, cancellationToken);
+    }
+
     // A host data source's error is already Beacon's own generic text.
     private async Task<string> CallerErrorAsync(GatedSqlRequest request, string error, CancellationToken cancellationToken)
     {

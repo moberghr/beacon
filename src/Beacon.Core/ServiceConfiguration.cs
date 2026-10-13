@@ -180,6 +180,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDataSourceService, DataSourceService>();
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<IStoredQueryPreview, QueryService>();
+        services.TryAddTransient<IQueryProposalCheck, QueryService>();
         services.TryAddTransient<IQueryExecutionPreviewService, QueryExecutionPreviewService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();

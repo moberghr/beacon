@@ -31,13 +31,13 @@ public interface IQueryVersionService
     /// it to the live query — as a PendingApproval version with its content hash and a pending approval request naming
     /// the requester, the other people who shaped it and the query's active version (the base the change was made on), in
     /// one transaction that first takes the query's row, as approving and rejecting do, so submissions and decisions on
-    /// one query never interleave. The query's earlier pending requests are superseded (their requesters are notified):
-    /// one request per query waits for a decision; a submission that may not supersede someone else's request is refused
-    /// instead (409, <see cref="QueryChangeSubmission.SupersedesOthers"/>). When the stored SQL the change would replace
-    /// is in no version yet, it is recorded first as an Archived baseline. Refused when there is no requester and the
-    /// host does not allow self-approval (409: nobody could approve it), when the editor's base is no longer the active
-    /// version (409), when another change to the query was written at the same moment (409), and when the steps' orders
-    /// do not run 1, 2, 3, … or a step names a data source that does not exist. The live query is not touched.
+    /// one query never interleave. One request per query waits for a decision: a submission replaces only its requester's
+    /// own pending request (superseded, the requester notified), and is refused (409) while another requester's request
+    /// waits — a reviewer approves or rejects that one first. When the stored SQL the change would replace is in no
+    /// version yet, it is recorded first as an Archived baseline. Refused when there is no requester and the host does not
+    /// allow self-approval (409: nobody could approve it), when the editor's base is no longer the active version (409),
+    /// when another change to the query was written at the same moment (409), and when the steps' orders do not run 1, 2,
+    /// 3, … or a step names a data source that does not exist. The live query is not touched.
     /// </summary>
     Task<QueryVersionChange> SubmitForApprovalAsync(int queryId, QueryData proposed, QueryChangeSubmission submission, CancellationToken cancellationToken = default);
     /// <summary>
@@ -89,9 +89,9 @@ internal class QueryVersionService(
     internal const string StaleEditorMessage =
         "The query changed after this edit was loaded: its active version is no longer the one the edit was made on. Reload the query and make the change again.";
 
-    /// <summary>Why a submission that may not supersede someone else's pending request is refused.</summary>
+    /// <summary>Why a submission is refused while another requester's change to the query waits for review.</summary>
     internal const string OtherPendingMessage =
-        "Another person's change to this query is waiting for approval. It is approved, rejected or withdrawn before this change is submitted.";
+        "Another change to this query is waiting for review; a reviewer must approve or reject it first.";
 
     /// <summary>Why a submission that lost a race with another write of the query's versions is refused.</summary>
     internal const string ConcurrentWriteMessage = "Another change to this query was written at the same moment. Submit the change again.";
@@ -582,9 +582,10 @@ internal class QueryVersionService(
 
     // One unit of work, serialised per query: the query's row is taken first (as approving and rejecting take it), so a
     // concurrent submission or decision waits here instead of interleaving; the active version is read after it. The
-    // earlier pending proposals are superseded, the stored SQL the change replaces is recorded when no version holds it,
-    // and the new version and its request are written with the base they were made on, so two submissions never leave two
-    // requests both waiting. newQuery: a query created with the submission (nothing to take, supersede or record).
+    // requester's own earlier pending proposals are superseded (anyone else's refuses the submission), the stored SQL the
+    // change replaces is recorded when no version holds it, and the new version and its request are written with the base
+    // they were made on, so two submissions never leave two requests both waiting. newQuery: a query created with the
+    // submission (nothing to take, supersede or record).
     private async Task<QueryVersionChange> SubmitAsync(
         BeaconContext context,
         int queryId,
@@ -658,11 +659,15 @@ internal class QueryVersionService(
                             x.RequestedByUserId))
                     .ToListAsync(cancellationToken);
 
-                if (!submission.SupersedesOthers && pending.Any(x => !IsSameRequester(x.RequestedByUserId, submission.RequesterUserId)))
+                // A submission replaces only its requester's own pending request: while anyone else's waits (or one whose
+                // requester Beacon could not name), it is refused, so nobody's change is withdrawn by another person's save.
+                if (pending.Any(x => !IsSameRequester(x.RequestedByUserId, submission.RequesterUserId)))
                 {
                     throw new BeaconConflictException(OtherPendingMessage);
                 }
 
+                // Every pending request is the requester's own from here (the row lock keeps new ones out): superseding
+                // the query's pending requests supersedes exactly those.
                 await context.QueryVersions
                     .Where(x => x.QueryId == queryId)
                     .Where(x => x.Status == QueryVersionStatus.PendingApproval)

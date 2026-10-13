@@ -10,8 +10,8 @@ namespace Beacon.Tests.Unit.ChangeGovernance;
 /// <summary>
 /// The content hash covers exactly what a run executes — the steps in run order with their names, data sources, SQL and
 /// parameters (name, type, placeholder), and the final query — and reads the same from the stored steps, an edit and a
-/// version's snapshot, so a version recorded from one compares with the others. Line endings are normalised; any other
-/// whitespace is content.
+/// version's snapshot, so a version recorded from one compares with the others. Every character of the SQL is content,
+/// whitespace and line endings included.
 /// </summary>
 [TestFixture]
 public class QueryContentHashTests
@@ -118,24 +118,34 @@ public class QueryContentHashTests
         StoredQuery((12, 1, "SELECT 2"), (11, 1, "SELECT 1")).Hash.Should().Be(listed.Hash, "stored steps sharing an order run by id");
     }
 
-    // The same SQL saved from Windows and from anywhere else is the same content; any other whitespace is content.
+    // Every character the SQL holds is content, line endings included: inside a string literal a CRLF and an LF match
+    // different values, so the SQL is hashed exactly as it is stored and runs.
     [Test]
-    public void LineEndingsAreNormalised_AndOtherWhitespaceIsContent()
+    public void EveryCharacter_LineEndingsIncluded_IsContent()
     {
         var unix = QueryContentHash.Of("SELECT *\nFROM @result1", [Step(sql: "SELECT {n}\nFROM orders")]);
-        var windows = QueryContentHash.Of("SELECT *\r\nFROM @result1", [Step(sql: "SELECT {n}\r\nFROM orders")]);
-        var classicMac = QueryContentHash.Of("SELECT *\rFROM @result1", [Step(sql: "SELECT {n}\rFROM orders")]);
 
-        windows.SameAs(unix).Should().BeTrue();
-        classicMac.SameAs(unix).Should().BeTrue();
         new[]
             {
+                QueryContentHash.Of("SELECT *\r\nFROM @result1", [Step(sql: "SELECT {n}\nFROM orders")]),
+                QueryContentHash.Of("SELECT *\nFROM @result1", [Step(sql: "SELECT {n}\r\nFROM orders")]),
+                QueryContentHash.Of("SELECT *\nFROM @result1", [Step(sql: "SELECT {n}\rFROM orders")]),
                 QueryContentHash.Of("SELECT *\nFROM @result1", [Step(sql: "SELECT {n} \nFROM orders")]),
                 QueryContentHash.Of("SELECT *\nFROM @result1", [Step(sql: "SELECT {n}\n\nFROM orders")]),
                 QueryContentHash.Of("SELECT *\nFROM @result1", [Step(sql: "SELECT {n}\n\tFROM orders")]),
                 QueryContentHash.Of("SELECT  *\nFROM @result1", [Step(sql: "SELECT {n}\nFROM orders")]),
             }
-            .Should().OnlyContain(x => !x.SameAs(unix), "whitespace other than a line ending is part of the SQL");
+            .Should().OnlyContain(x => !x.SameAs(unix), "every character of the SQL is part of what runs");
+    }
+
+    // A literal whose CRLF became an LF matches other rows: the change has its own hash, so it needs its own review.
+    [Test]
+    public void ALineEndingChangedInsideAStringLiteral_IsAChange()
+    {
+        var windows = QueryContentHash.Of(null, [Step(sql: "SELECT id FROM notes WHERE body = 'paid\r\nlate'", parameters: [])]);
+        var unix = QueryContentHash.Of(null, [Step(sql: "SELECT id FROM notes WHERE body = 'paid\nlate'", parameters: [])]);
+
+        unix.SameAs(windows).Should().BeFalse();
     }
 
     // Two parameters of one name but different types bind differently: each is part of the content.

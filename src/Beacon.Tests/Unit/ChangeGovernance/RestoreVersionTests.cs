@@ -140,6 +140,31 @@ public class RestoreVersionTests
         store.Saved.OfType<QueryStep>().Should().BeEmpty();
     }
 
+    // A restore is a submission like a save: it replaces the restorer's own pending request, and answers 409 while another
+    // requester's change waits, which stays pending.
+    [TestCase("ext-ben", true)]
+    [TestCase("ext-ada", false)]
+    public async Task Restoring_WithTheWorkflowOn_ReplacesOnlyTheRestorersOwnPendingRequest(string pendingRequester, bool refused)
+    {
+        var store = new GovernanceStore();
+        var old = store.AddVersion(1, QueryVersionStatus.Archived, "SELECT 0");
+        var active = store.Activate(store.AddVersion(2, QueryVersionStatus.Active));
+        var waiting = store.AddRequest(store.AddVersion(3, QueryVersionStatus.PendingApproval, "SELECT 9"), pendingRequester, active.Id);
+
+        var act = () => TestQueryServices.VersionService(store.Factory(), configuration: WorkflowOn()).RestoreVersionAsync(old.Id, "ext-ada", CancellationToken.None);
+
+        if (refused)
+        {
+            await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(QueryVersionService.OtherPendingMessage);
+            waiting.Status.Should().Be(ApprovalStatus.Pending);
+            store.Saved.Should().BeEmpty();
+            return;
+        }
+
+        (await act.Should().NotThrowAsync()).Subject.SupersededRequests.Should().Be(1);
+        waiting.Status.Should().Be(ApprovalStatus.Superseded);
+    }
+
     // History must hold the stored SQL a restore replaces: stored SQL no version holds (changed outside a versioned save)
     // is recorded as an Archived baseline first, with the workflow on (before the proposal) and off (before the restore).
     [TestCase(true)]

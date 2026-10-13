@@ -6,7 +6,9 @@ namespace Beacon.Core.Models.Queries;
 /// Who asks for a query change and why, as an approval request records it (<c>IQueryVersionService.SubmitForApprovalAsync</c>).
 /// </summary>
 /// <param name="RequesterUserId">The requester's <c>Users.ExternalId</c> (<c>BeaconActor.UserId</c>); an AI actor's creator for
-/// its changes. A submission without one is refused unless the host allows self-approval: nobody could approve it.</param>
+/// its changes. A submission without one is refused unless the host allows self-approval: nobody could approve it. The
+/// submission replaces only this requester's own pending request of the query, and is refused (409) while another
+/// requester's waits.</param>
 /// <param name="RequesterDisplayName">The name to record when the requester has no stored user (a host without Beacon user
 /// management): the display name the requester's own session presents, never another person's. A stored user is named by
 /// their label.</param>
@@ -25,13 +27,6 @@ public sealed record QueryChangeSubmission(
     /// version, the submission is refused (409): the editor is stale. Null: made on whatever version is active.
     /// </summary>
     public int? ExpectedBaseVersionId { get; init; }
-
-    /// <summary>
-    /// True (the default): the submission supersedes every pending request of the query. False: it supersedes only the
-    /// requester's own, and is refused (409) while someone else's request waits — for a submission nobody asked to make
-    /// over another person's (stored SQL brought under review by an unrelated save, an AI actor's refinement).
-    /// </summary>
-    public bool SupersedesOthers { get; init; } = true;
 
     /// <summary>
     /// Besides the requester, the people who shaped the change (<c>Users.ExternalId</c>): for an AI actor's change made by

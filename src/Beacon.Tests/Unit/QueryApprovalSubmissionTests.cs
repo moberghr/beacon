@@ -17,8 +17,9 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// With the approval workflow on, saving a change files a PendingApproval version holding the submitted content (not the
 /// stored query, which approving would put back), checked like a direct save, with a request naming its requester (the
-/// caller, by the id Beacon records people by) and the active version it was made on; the query's earlier pending
-/// requests are superseded, all in one transaction. The live query is left alone until approved.
+/// caller, by the id Beacon records people by) and the active version it was made on; the requester's own earlier pending
+/// request is superseded, all in one transaction, and while another requester's request waits the submission is refused.
+/// The live query is left alone until approved.
 /// </summary>
 [TestFixture]
 public class QueryApprovalSubmissionTests
@@ -62,13 +63,13 @@ public class QueryApprovalSubmissionTests
     }
 
     [Test]
-    public async Task SubmitForApprovalAsync_RecordsTheProposalWithItsHashRequesterAndBase_AndSupersedesTheEarlierPendingRequest()
+    public async Task SubmitForApprovalAsync_RecordsTheProposalWithItsHashRequesterAndBase_AndSupersedesTheRequestersEarlierPendingRequest()
     {
         var store = new GovernanceStore();
         store.User(3, "ext-ada", "Ada Lovelace");
         var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
         var earlier = store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9");
-        var earlierRequest = store.AddRequest(earlier, "ext-ben", active.Id);
+        var earlierRequest = store.AddRequest(earlier, "ext-ada", active.Id);
         var service = TestQueryServices.VersionService(store.Factory());
 
         await service.SubmitForApprovalAsync(
@@ -109,7 +110,7 @@ public class QueryApprovalSubmissionTests
     {
         var store = new GovernanceStore();
         var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
-        var own = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ben", active.Id);
+        var own = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ada", active.Id);
         var other = new Query { Id = 8, Name = "Refunds" };
         var otherProposal = new QueryVersion { Id = 800, QueryId = 8, Query = other, VersionNumber = 1, Status = QueryVersionStatus.PendingApproval, Name = "Refunds", StepsJson = "[]" };
         var otherRequest = new QueryApprovalRequest { Id = 801, QueryId = 8, Query = other, QueryVersionId = 800, QueryVersion = otherProposal, Status = ApprovalStatus.Pending, RequestedByUserId = "ext-ben" };
@@ -187,21 +188,21 @@ public class QueryApprovalSubmissionTests
         store.Saved.OfType<QueryApprovalRequest>().Should().ContainSingle().Which.RequestedByUserId.Should().BeNull();
     }
 
-    // Superseding is said: the response counts the requests replaced, and each requester is told (ApprovalUpdated
-    // "superseded").
+    // Superseding is said: the response counts the requests replaced, and their requester is told (ApprovalUpdated
+    // "superseded"), so the requester's other sessions refresh.
     [Test]
     public async Task ASubmission_TellsTheRequesterOfEachRequestItSupersedes()
     {
         var store = new GovernanceStore();
         var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
-        var earlier = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ben", active.Id);
+        var earlier = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ada", active.Id);
         var notifier = new Mock<IApprovalNotifier>();
 
         var change = await TestQueryServices.VersionService(store.Factory(), notifier: notifier.Object)
             .SubmitForApprovalAsync(GovernanceStore.QueryId, GovernanceStore.Edit("SELECT 2"), Submission("ext-ada"), CancellationToken.None);
 
         change.SupersededRequests.Should().Be(1);
-        notifier.Verify(x => x.ApprovalUpdatedAsync(earlier.Id, "superseded", null, "ext-ben", It.IsAny<CancellationToken>()), Times.Once);
+        notifier.Verify(x => x.ApprovalUpdatedAsync(earlier.Id, "superseded", null, "ext-ada", It.IsAny<CancellationToken>()), Times.Once);
         notifier.VerifyNoOtherCalls();
     }
 
@@ -211,7 +212,7 @@ public class QueryApprovalSubmissionTests
     {
         var store = new GovernanceStore();
         var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
-        store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ben", active.Id);
+        store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ada", active.Id);
         var notifier = new Mock<IApprovalNotifier>();
         notifier
             .Setup(x => x.ApprovalUpdatedAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -224,20 +225,20 @@ public class QueryApprovalSubmissionTests
         store.Offline.Commits.Should().Be(1);
     }
 
-    // A submission nobody asked to make over someone else's pending change (stored SQL brought under review by a save that
-    // changes nothing that runs, an AI refinement) is refused instead of superseding it; the requester's own pending
-    // request it still replaces.
+    // A submission replaces only its requester's own pending request: while another requester's waits (or one whose
+    // requester Beacon could not name) it is refused, and the waiting request stays as it was.
     [TestCase("ext-ben", true)]
+    [TestCase(null, true)]
     [TestCase("ext-ada", false)]
     [TestCase("EXT-ADA", false)]
-    public async Task ASubmissionThatMayNotSupersedeOthers_IsRefusedOnlyWhileSomeoneElsesRequestWaits(string pendingRequester, bool refused)
+    public async Task ASubmission_IsRefusedWhileAnotherRequestersRequestWaits_AndSupersedesOnlyItsRequestersOwn(string? pendingRequester, bool refused)
     {
         var store = new GovernanceStore();
         var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
         var earlier = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), pendingRequester, active.Id);
 
         var act = () => TestQueryServices.VersionService(store.Factory())
-            .SubmitForApprovalAsync(GovernanceStore.QueryId, GovernanceStore.Edit("SELECT 2"), Submission("ext-ada") with { SupersedesOthers = false }, CancellationToken.None);
+            .SubmitForApprovalAsync(GovernanceStore.QueryId, GovernanceStore.Edit("SELECT 2"), Submission("ext-ada"), CancellationToken.None);
 
         if (refused)
         {
@@ -250,6 +251,51 @@ public class QueryApprovalSubmissionTests
 
         (await act.Should().NotThrowAsync()).Subject.SupersededRequests.Should().Be(1);
         earlier.Status.Should().Be(ApprovalStatus.Superseded);
+    }
+
+    // A second editor's save never withdraws the first editor's pending change: it answers 409 and the first request still
+    // waits for its decision.
+    [Test]
+    public async Task UpdateQuery_ByASecondEditor_WhileTheFirstEditorsChangeWaits_Is409AndTheFirstStaysPending()
+    {
+        var store = new GovernanceStore();
+        var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
+        var first = store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9");
+        var firstRequest = store.AddRequest(first, "ext-ben", active.Id);
+
+        var act = () => BuildService(store, TestQueryServices.VersionService(store.Factory(), configuration: WorkflowOn()))
+            .UpdateQuery(GovernanceStore.Edit("SELECT 2"), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(QueryVersionService.OtherPendingMessage);
+        firstRequest.Status.Should().Be(ApprovalStatus.Pending);
+        first.Status.Should().Be(QueryVersionStatus.PendingApproval);
+        store.Saved.Should().BeEmpty();
+        store.Query.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 1");
+    }
+
+    // Once a reviewer rejected the first editor's change, the second editor's save is submitted, superseding nothing.
+    [Test]
+    public async Task UpdateQuery_ByASecondEditor_AfterTheFirstEditorsChangeWasRejected_IsSubmitted()
+    {
+        var store = new GovernanceStore();
+        var active = store.Activate(store.AddVersion(1, QueryVersionStatus.Active));
+        var firstRequest = store.AddRequest(store.AddVersion(2, QueryVersionStatus.PendingApproval, "SELECT 9"), "ext-ben", active.Id);
+        var service = BuildService(store, TestQueryServices.VersionService(store.Factory(), configuration: WorkflowOn()));
+
+        var refused = () => service.UpdateQuery(GovernanceStore.Edit("SELECT 2"), CancellationToken.None);
+        await refused.Should().ThrowAsync<BeaconConflictException>();
+
+        await TestQueryServices.ApprovalService(store.Factory(), TestProjectAccess.Actors(9, "ext-cid"))
+            .RejectAsync(firstRequest.Id, "not this one", CancellationToken.None);
+        var response = await service.UpdateQuery(GovernanceStore.Edit("SELECT 2"), CancellationToken.None);
+
+        response.Message.Should().Be("Changes submitted for approval");
+        firstRequest.Status.Should().Be(ApprovalStatus.Rejected);
+        store.Saved.OfType<QueryApprovalRequest>().Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            Status = ApprovalStatus.Pending,
+            RequestedByUserId = "ext-ada",
+        }, x => x.ExcludingMissingMembers());
     }
 
     // The editor's base is compared again after the query's row is taken: a version that went live in between makes the
@@ -416,10 +462,12 @@ public class QueryApprovalSubmissionTests
 
     private static QueryChangeSubmission Submission(string? requester) => new(requester, null, "UserEdit", "Submitted for approval", "SQL query modified");
 
+    private static BeaconConfiguration WorkflowOn() => new() { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } };
+
     private static QueryService BuildService(GovernanceStore store, IQueryVersionService versions) =>
         TestQueryServices.QueryService(
             store.Factory(),
             versions: versions,
-            configuration: new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            configuration: WorkflowOn(),
             userContext: Mock.Of<IBeaconUserContext>(x => x.UserId == "u1" && x.DisplayName == "Ana Admin"));
 }

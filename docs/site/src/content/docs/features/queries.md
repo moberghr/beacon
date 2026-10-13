@@ -300,10 +300,11 @@ what a query runs goes live only after a second person approves it.
 
 **What counts as a change.** The query's executable content: its steps (added, removed, reordered), each step's name,
 data source, SQL and parameters (name, type, placeholder), and the final query. Descriptions and the query's own name
-change nothing that runs; a missing final query and an empty one are the same, and so are line endings (`CRLF` and `LF`)
-— any other whitespace is part of the SQL. Step orders run 1, 2, 3, … without gaps or repeats; a save, a submission, a
-restore or an approval of other orders is refused. Without the workflow, every such save writes a new active version, so
-history holds every executable change.
+change nothing that runs; a missing final query and an empty one are the same. Every character of the SQL and the final
+query is content, whitespace and line endings included: a `CRLF` turned into an `LF` is a change (inside a string
+literal it matches other values). Step orders run 1, 2, 3, … without gaps or repeats; a save, a submission, a restore or
+an approval of other orders is refused. Without the workflow, every such save writes a new active version, so history
+holds every executable change.
 
 **Names and descriptions are not reviewed content.** A save that changes only the query's name or description (or a
 step's description) goes live directly, with the workflow on too — unless the stored SQL is not its active version's,
@@ -314,16 +315,18 @@ approving it rewrites the live ones from the approved version.
 content hash (SHA-256 of the executable content), and an approval request naming the requester (the signed-in user,
 named by display name) and the query's active version the change was made on. The live query is not touched; when its
 stored SQL is in no version yet, it is recorded first as an Archived baseline, so history holds what an approval would
-replace. A query has one pending request: a new submission supersedes the earlier one (`Superseded`, never applied), its
-requester is notified (an `ApprovalUpdated` event with status `superseded`), and the save's answer says how many requests
-it replaced. Saving a query whose stored SQL is not its active version's — never versioned, or changed before this
-version through a path that bypassed review — submits that SQL for approval too, so a save brings it under review; such a
-save, which changes nothing that runs, never replaces another person's pending request (`409` while one waits). A
-submission is refused (`409`) when Beacon cannot name its requester (an API key without an active owner, an AI actor
-without a creator) unless the host allows self-approval, when the editor sent the version it loaded (`baseVersionId`,
-from the detail's `activeVersionId` — the query editor sends it on every save) and another version went live since
-(reload the query and make the change again), and when another write of the query's versions happened at the same
-moment (submit again).
+replace. A query has one pending request, and a submission replaces only its requester's own: their earlier request is
+superseded (`Superseded`, never applied), they are notified (an `ApprovalUpdated` event with status `superseded`), and
+the save's answer says how many requests it replaced. While another person's request waits — or one whose requester
+Beacon could not name — every submission of the query (a save, a restore, an AI actor's refinement) is refused (`409`:
+"Another change to this query is waiting for review; a reviewer must approve or reject it first."); a reviewer approves
+or rejects it, or its requester withdraws it, before anyone else's change is submitted. Saving a query whose stored SQL
+is not its active version's — never versioned, or changed before this version through a path that bypassed review —
+submits that SQL for approval too, so a save brings it under review. A submission is refused (`409`) when Beacon cannot
+name its requester (an API key without an active owner, an AI actor without a creator) unless the host allows
+self-approval, when the editor sent the version it loaded (`baseVersionId`, from the detail's `activeVersionId` — the
+query editor sends it on every save) and another version went live since (reload the query and make the change again),
+and when another write of the query's versions happened at the same moment (submit again).
 
 **New queries.** With the workflow on, a new query goes live only once approved: a query created with steps
 (`IQueryService.CreateQuery`) is created with nothing live and its content submitted as its first version, and a query
@@ -366,19 +369,25 @@ than the proposal holds, answers `409`, so a decision applies exactly what the r
 
 **Restoring a version** (`POST /beacon/api/query-versions/{id}/restore`) puts back only a version that was live (Active
 or Archived): a pending, rejected or superseded proposal was never approved and answers `409`, and its version page
-offers no Restore. The version's steps pass the save check again. With the workflow on, the restore is submitted
-for approval ("Restore of version N") and the response says `submittedForApproval: true` and how many pending requests
-it replaced (`supersededRequests`); the page then says the restore was submitted, not that it went live. Otherwise it
-goes live as a new active version. Either way the stored SQL it replaces is recorded first when no version holds it.
-Restoring a query someone else locked needs **Manage** on the query (overriding the lock); the lock holder and an
-unlocked query need Write.
+offers no Restore. The version's steps pass the save check again. With the workflow on, the restore is submitted for
+approval ("Restore of version N") like a save — `409` while another person's change waits — and the response says
+`submittedForApproval: true` and how many of the restorer's own pending requests it replaced (`supersededRequests`); the
+page then says the restore was submitted, not that it went live. Otherwise it goes live as a new active version. Either
+way the stored SQL it replaces is recorded first when no version holds it. Restoring a query someone else locked needs
+**Manage** on the query (overriding the lock); the lock holder and an unlocked query need Write.
 
-**AI actors.** An actor's refinement of a query is validated as a draft (through the same gates as an editor's preview;
-the stored query never runs SQL nobody saved). With the workflow on it is submitted for approval with the actor's
-creator as the requester, so the creator cannot approve it, and never replaces another person's pending request (the
-action fails while one waits); a new query an actor creates has nothing live until its SQL is approved, and an actor
-subscribes only to a query whose active version was approved for exactly its content. Without the workflow a refinement
-is a versioned save attributed to the creator. See [AI Actors](/features/ai-actors/#query-change-approvals).
+**AI actors.** With the workflow on, an actor's new query or refinement is validated without running any of it — SQL
+nobody reviewed never executes: each step passes the checks of a save (blocked keywords; the execution gate in the
+source's dialect — the regex guardrail, one read-only statement, the [database-name rule](#database-names), the host
+policy; the source's metadata) and then the source's own non-executing validation, which plans the statement or
+describes its result and returns none of its rows: `EXPLAIN` (without `ANALYZE`) on PostgreSQL, MySQL and Snowflake,
+`sp_describe_first_result_set` on SQL Server and Azure Synapse; SQLite has none and is left to the gate. SQL that fails
+is refused before anything is submitted. Without the workflow the draft runs as an editor's preview does (through the
+same gates; the stored query never runs SQL nobody saved). With the workflow on the change is submitted for approval
+with the actor's creator as the requester, so the creator cannot approve it, and never replaces another person's pending
+request (the action fails while one waits); a new query an actor creates has nothing live until its SQL is approved, and
+an actor subscribes only to a query whose active version was approved for exactly its content. Without the workflow a
+refinement is a versioned save attributed to the creator. See [AI Actors](/features/ai-actors/#query-change-approvals).
 
 **Runs execute reviewed SQL.** The rule covers the runs that happen without the person who wrote the SQL: subscription
 runs (scheduled, a test delivery, and the subscriptions an AI actor creates) and [saved-query MCP
@@ -462,7 +471,7 @@ Function and type names follow the same rule. A data source without a configured
 
 ### How a query runs
 
-Every statement Beacon runs for a query — a preview (stored, draft or paged), a subscription run or its test delivery, an AI actor's check of the query it wrote, a data migration's source read — goes through the same execution gate as the MCP tools, then the data source's read-only path:
+Every statement Beacon runs for a query — a preview (stored, draft or paged), a subscription run or its test delivery, an AI actor's check of the query it wrote (with the approval workflow off; with it on that check runs nothing, see [AI actors](#approval-workflow)), a data migration's source read — goes through the same execution gate as the MCP tools, then the data source's read-only path:
 
 1. **The execution gate**, with read-only enforcement always on: a length cap, a refusal of control characters (other than tab and line breaks) and Unicode noncharacters, the regex guardrail, the read-only parser in the data source's dialect (one `SELECT`, no writes, no locking hints, no side-effecting or cross-connection functions), the [database-name rule](#database-names), the host policy for a host data source, and a row cap written into the SQL itself (`LIMIT` / `TOP`). The text judged is the text that runs: placeholders bound as parameters, `--` line comments removed (as the data source's dialect reads them) and line breaks flattened, so a comment line never swallows the clause after it. The regex guardrail reads the statement without its comments — a step may start with `-- Revenue by month` or explain itself with `/* … */`, even naming a write it does not make — while MySQL executable comments (`/*! … */`) and optimizer hints (`/*+ … */`) stay and are judged; the parser always reads the SQL as written. An `END` that closes no `CASE` is refused (the parser would stop reading there), and on SQL Server and Azure Synapse so is an unquoted alias that is a statement keyword, such as `SELECT 1 COMMIT` — quote it (`[COMMIT]`) to use it as a name.
 2. **The read-only path** of the provider: on PostgreSQL and MySQL the statement runs inside a `READ ONLY` session and transaction (on PostgreSQL as a batch of exactly one command, so a second statement is refused), so the database itself refuses a write the parser missed. SQL Server has no such mode: the statement runs inside a transaction that is always rolled back, which undoes such a write but does not refuse it, and a statement that ends that transaction fails the run. Azure Synapse and Snowflake run it plainly; BigQuery and Databricks refuse anything their own dialect's parser does not read as a single `SELECT`, and BigQuery runs only what a dry run reports as a `SELECT`. On every engine but PostgreSQL and MySQL a read-only login is the database-level boundary, and the data source pages say so; on PostgreSQL and MySQL the engine's read-only session is defence in depth, and a read-only login is still required ([Read-only guarantees per engine](/features/data-sources/#read-only-guarantees-per-engine)).
