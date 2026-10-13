@@ -89,10 +89,11 @@ public class QueryVersionLifecycleTests
         store.Versions.AddRange([Version(1, QueryVersionStatus.Active), Version(2, QueryVersionStatus.Active)]);
         var proposal = Version(3, QueryVersionStatus.PendingApproval);
         proposal.StepsJson = "[]";
+        proposal.ContentHash = QueryContentHash.Of(null, Array.Empty<QueryStepSnapshot>()).Hash;
         store.Versions.Add(proposal);
-        store.Requests.Add(new QueryApprovalRequest { Id = 90, QueryId = QueryId, QueryVersionId = proposal.Id, QueryVersion = proposal });
+        store.Requests.Add(new QueryApprovalRequest { Id = 90, QueryId = QueryId, Query = store.Query, QueryVersionId = proposal.Id, QueryVersion = proposal, Status = ApprovalStatus.Pending, RequestedByUserId = "ext-ben", BaseVersionId = store.Query.ActiveVersionId });
 
-        await store.ApprovalService().ApproveAsync(90, "rev", "Reviewer", null, CancellationToken.None);
+        await store.ApprovalService().ApproveAsync(90, null, proposal.ContentHash, CancellationToken.None);
 
         store.Versions.Where(x => x.VersionNumber < 3).Should().OnlyContain(x => x.Status == QueryVersionStatus.Archived);
         proposal.Status.Should().Be(QueryVersionStatus.Active);
@@ -110,7 +111,9 @@ public class QueryVersionLifecycleTests
         await store.VersionService().RestoreVersionAsync(old.Id, "u1", CancellationToken.None);
 
         store.Versions.Should().OnlyContain(x => x.Status == QueryVersionStatus.Archived);
-        store.Saved.OfType<QueryVersion>().Should().ContainSingle().Which.Status.Should().Be(QueryVersionStatus.Active);
+        store.Saved.OfType<QueryVersion>().Where(x => x.Status == QueryVersionStatus.Active).Should().ContainSingle();
+        store.Saved.OfType<QueryVersion>().Should().HaveCount(2, "the stored SQL no version holds is recorded as an Archived baseline first")
+            .And.ContainSingle(x => x.ChangeSource == QueryVersionService.BaselineSource && x.Status == QueryVersionStatus.Archived);
     }
 
     [Test]
@@ -130,7 +133,7 @@ public class QueryVersionLifecycleTests
 
         versions.Verify(x => x.EnsureBaselineVersionAsync(QueryId, It.IsAny<CancellationToken>()), Times.Once);
         versions.Verify(
-            x => x.CreateVersionAsync(QueryId, "u1", "UserEdit", null, QueryVersionStatus.Active, It.IsAny<CancellationToken>()),
+            x => x.CreateVersionAsync(QueryId, "ext-ada", "UserEdit", null, QueryVersionStatus.Active, It.IsAny<CancellationToken>()),
             Times.Once);
         versions.Verify(
             x => x.CreateVersionAsync(It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), QueryVersionStatus.Archived, It.IsAny<CancellationToken>()),
@@ -182,10 +185,9 @@ public class QueryVersionLifecycleTests
             ],
         };
 
-        public QueryVersionService VersionService() =>
-            new(Factory(), UserContext(), NullLogger<QueryVersionService>.Instance);
+        public QueryVersionService VersionService() => TestQueryServices.VersionService(Factory(), UserContext());
 
-        public QueryApprovalService ApprovalService() => new(Factory(), VersionService());
+        public QueryApprovalService ApprovalService() => TestQueryServices.ApprovalService(Factory());
 
         public QueryService QueryService(IQueryVersionService versions) =>
             TestQueryServices.QueryService(
@@ -210,12 +212,14 @@ public class QueryVersionLifecycleTests
                 [typeof(QueryVersion)] = RecordingBeaconContext.MemorySet(Versions, Saved),
                 [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), Saved),
                 [typeof(QueryApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, Saved),
+                [typeof(QueryStep)] = RecordingBeaconContext.MemorySet(Query.Steps, Saved),
+                [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(new List<BeaconUser>(), Saved),
             };
 
             var factory = new Mock<IDbContextFactory<BeaconContext>>();
             factory
                 .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new RecordingBeaconContext(sets, Saved));
+                .ReturnsAsync(() => new RecordingBeaconContext(sets, Saved, new SqlCapture()));
             return factory.Object;
         }
 

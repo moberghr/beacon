@@ -88,6 +88,25 @@ public sealed record BeaconActor(string? UserId, bool IsAdmin)
     }
 
     /// <summary>
+    /// True when <paramref name="recordedUserId"/>, an id Beacon recorded for a person (a change's requester or reviewer),
+    /// names this caller by any id its request presents: its <see cref="UserId"/>, a session id (what earlier versions
+    /// recorded for a session), or its <c>Users.Id</c> (what earlier versions recorded for an API key's owner), ignoring
+    /// case (an identity provider may change the case of a subject it issues). Broader than <see cref="Is"/>, for refusing
+    /// someone their own approval: a false match only refuses.
+    /// </summary>
+    public bool IsRecordedAs(string? recordedUserId)
+    {
+        if (string.IsNullOrEmpty(recordedUserId))
+        {
+            return false;
+        }
+
+        return (UserId != null && string.Equals(UserId, recordedUserId, StringComparison.OrdinalIgnoreCase))
+            || SessionIds.Contains(recordedUserId, StringComparer.OrdinalIgnoreCase)
+            || (BeaconUserId is { } id && recordedUserId == id.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
     /// True when a task's stored assignee names this caller: its <see cref="UserId"/>, or, for a signed-in session, one
     /// of its session ids, which earlier versions stored as the assignee of a task claimed through the UI.
     /// </summary>

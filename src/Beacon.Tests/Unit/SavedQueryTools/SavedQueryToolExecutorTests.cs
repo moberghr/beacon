@@ -534,7 +534,7 @@ public class SavedQueryToolExecutorTests
     {
         // The tool was listed while project 1 linked both of its sources; one link is removed before it runs.
         _data.Query(1, "orders_by_customer", [Step(1, 10, "SELECT id FROM orders"), Step(2, 11, "SELECT id FROM customers")], finalQuery: "SELECT * FROM result1");
-        var listed = await new SavedQueryToolSource(_data.Store.Factory().Object).GetToolsAsync([ProjectId], CancellationToken.None);
+        var listed = await new SavedQueryToolSource(_data.Store.Factory().Object, new Beacon.Core.BeaconConfiguration()).GetToolsAsync([ProjectId], CancellationToken.None);
         var tool = listed.Should().ContainSingle().Subject;
         _data.Store.ListFor<ProjectDataSource>().RemoveAll(x => x.ProjectId == ProjectId && x.DataSourceId == 11);
 

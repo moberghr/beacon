@@ -102,6 +102,9 @@ public static class BeaconApiEndpoints
         // Warns at startup about stored values still encrypted with a previous encryption key.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, EncryptionKeyStartupWarnings>());
 
+        // Notes at startup how query changes are governed (approval workflow off, self-approval, strict runs).
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, ApprovalWorkflowStartupNote>());
+
         return services;
     }
 

@@ -26,10 +26,12 @@ internal sealed class RejectAiActorPlanHandler(
         // Rejecting closes the actor's pending plan: the actor's creator's or an Admin's.
         await AiActorOwnership.EnsureCreatorOrAdminOfPlanAsync(actorAccessor, contextFactory, request.PlanId, logger, cancellationToken);
 
+        // Recorded as the caller Beacon names (Users.ExternalId), never an id the request carries.
+        var reviewer = await actorAccessor.GetCurrentAsync(cancellationToken);
         var options = new RejectPlanOptions
         {
             PlanId = request.PlanId,
-            UserId = request.UserId,
+            UserId = reviewer.UserId,
             Reason = request.Reason
         };
 

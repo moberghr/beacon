@@ -9,9 +9,14 @@ namespace Beacon.Tests.Common;
 /// <c>sets</c> are served from in-memory lists that support EF's async operators; every other set is the real EF
 /// set, which only tracks. SaveChanges records the added entities in <c>saved</c> instead of writing them, and
 /// changes to served entities land on the list's objects, so later contexts see them. With an <c>offline</c> capture
-/// it never opens a connection, and transactions are stand-ins.
+/// it never opens a connection, and transactions are stand-ins. <c>onSave</c> is told about every SaveChanges, for tests
+/// that count units of work.
 /// </summary>
-internal sealed class RecordingBeaconContext(IReadOnlyDictionary<Type, object> sets, List<object> saved, SqlCapture? offline = null)
+internal sealed class RecordingBeaconContext(
+    IReadOnlyDictionary<Type, object> sets,
+    List<object> saved,
+    SqlCapture? offline = null,
+    Action? onSave = null)
     : BeaconContext(offline == null ? Options : OfflineOptions(offline), "beacon")
 {
     // An unserved set is the real EF set: it never connects (SqlCapture.NeverConnects), so reading one fails at once.
@@ -41,6 +46,7 @@ internal sealed class RecordingBeaconContext(IReadOnlyDictionary<Type, object> s
             .Select(x => x.Entity)
             .ToList();
         saved.AddRange(added);
+        onSave?.Invoke();
         return Task.FromResult(added.Count);
     }
 

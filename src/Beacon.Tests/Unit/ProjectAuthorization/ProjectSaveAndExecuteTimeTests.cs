@@ -185,7 +185,7 @@ public class ProjectSaveAndExecuteTimeTests
             .ThenNoRows()
             .ThenScalar(1)
             .ThenRows([11, 5, "q", 2, (int)ApprovalStatus.Pending, "ada", created, "recorded"]);
-        var service = new QueryApprovalService(capture.Factory(), Mock.Of<IQueryVersionService>());
+        var service = TestQueryServices.ApprovalService(capture.Factory());
 
         var page = await service.GetPendingApprovalsAsync(new Paging(), null, Member.For(ProjectAction.Read), CancellationToken.None);
 
@@ -214,7 +214,7 @@ public class ProjectSaveAndExecuteTimeTests
                 [12, 5, "q", 2, (int)ApprovalStatus.Pending, "ada", created, "two sources, one project"],
                 [13, 6, "r", 1, (int)ApprovalStatus.Pending, "ada", created, "openly reachable"],
                 [10, 5, "q", 1, (int)ApprovalStatus.Pending, "ada", created, "held by a project"]);
-        var service = new QueryApprovalService(capture.Factory(), Mock.Of<IQueryVersionService>());
+        var service = TestQueryServices.ApprovalService(capture.Factory());
 
         var page = await service.GetPendingApprovalsAsync(new Paging(), null, Member.For(ProjectAction.Read), CancellationToken.None);
 

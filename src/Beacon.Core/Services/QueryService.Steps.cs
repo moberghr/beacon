@@ -27,8 +27,20 @@ internal partial class QueryService
     /// <summary>Why a run whose final query ran out of time failed.</summary>
     internal const string FinalQueryTimedOutMessage = "The final query timed out.";
 
+    /// <summary>What a save answers when, with the approval workflow on, it waits for approval.</summary>
+    internal const string SubmittedForApprovalMessage = "Changes submitted for approval";
+
+    /// <summary>What creating a query answers when, with the approval workflow on, its SQL waits for approval.</summary>
+    internal const string NewQuerySubmittedMessage = "Query created; its SQL was submitted for approval and runs once approved";
+
+    /// <summary>Why the single-step mutators are refused while the approval workflow is on.</summary>
+    internal const string StepMutatorRefusal =
+        "A query's steps are changed by saving the query, which the approval workflow reviews; changing one step directly is refused while the workflow is on.";
+
     public async Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken)
     {
+        RefuseWhileApprovalWorkflowIsOn();
+
         // The save check: the execution gate and, where metadata exists, the source's own tables and columns (§1.5).
         await EnsureStepsPassTheGateAsync([stepData], cancellationToken);
 
@@ -59,6 +71,8 @@ internal partial class QueryService
 
     public async Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken)
     {
+        RefuseWhileApprovalWorkflowIsOn();
+
         // The save check: the execution gate and, where metadata exists, the source's own tables and columns (§1.5).
         await EnsureStepsPassTheGateAsync([stepData], cancellationToken);
 
@@ -95,6 +109,8 @@ internal partial class QueryService
 
     public async Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken)
     {
+        RefuseWhileApprovalWorkflowIsOn();
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var queryStep = await context.QuerySteps
@@ -113,6 +129,15 @@ internal partial class QueryService
     }
 
     // ===== PRIVATE HELPER METHODS FOR CROSS-DATA-SOURCE EXECUTION =====
+
+    // These write live steps without a version or a review: with the workflow on they would put unreviewed SQL live.
+    private void RefuseWhileApprovalWorkflowIsOn()
+    {
+        if (beaconConfiguration.ApprovalWorkflow.Enabled)
+        {
+            throw new BeaconConflictException(StepMutatorRefusal);
+        }
+    }
 
     private async Task<Query> GetQueryWithSteps(int queryId, CancellationToken cancellationToken)
     {
@@ -151,8 +176,10 @@ internal partial class QueryService
         var dataSourceExecutionTimes = new Dictionary<string, double>();
         var dataSourceIdsRead = new List<int>();
         var hasFinalQuery = !string.IsNullOrEmpty(finalQuery);
+        // Run order, as the content hash reads it: by step order, then by id for stored steps that share one.
         var steps = query.Steps
             .OrderBy(x => x.StepOrder)
+            .ThenBy(x => x.Id)
             .ToList();
         // The steps' PII result columns (the SQL's PII names and host-masked columns, and with detection on their own names
         // and their SQL's aliasing): the final query reads them back by name, and its result columns filled from them are

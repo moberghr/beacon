@@ -321,12 +321,15 @@ public class MigrationJobAccessTests
             ]
         };
 
-        var preview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
-        var stepPreview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object).ExecuteTemporaryStepPreview(steps, 2, null, CancellationToken.None));
+        var stored = new RecordingStoredQueryPreview();
+
+        var preview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object, stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
+        var stepPreview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object, stored).ExecuteTemporaryStepPreview(steps, 2, null, CancellationToken.None));
 
         await preview.Should().ThrowAsync<BeaconNotFoundException>();
         await stepPreview.Should().ThrowAsync<BeaconNotFoundException>();
-        queries.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never, "nothing runs on a source the caller may not query");
+        stored.TemporaryQueries.Should().BeEmpty("nothing runs on a source the caller may not query");
+        queries.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [TestCase(false, true, true)]
@@ -447,11 +450,11 @@ public class MigrationJobAccessTests
         return execution;
     }
 
-    private static QueryExecutionPreviewService Preview(IServiceProvider services, IQueryService queries)
+    private static QueryExecutionPreviewService Preview(IServiceProvider services, IQueryService queries, RecordingStoredQueryPreview? stored = null)
     {
         return new QueryExecutionPreviewService(
             queries,
-            new RecordingStoredQueryPreview(),
+            stored ?? new RecordingStoredQueryPreview(),
             services.GetRequiredService<ProjectRequestAuthorizer>(),
             NullLogger<QueryExecutionPreviewService>.Instance);
     }

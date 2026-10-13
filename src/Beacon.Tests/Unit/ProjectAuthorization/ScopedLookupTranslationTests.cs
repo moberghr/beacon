@@ -150,7 +150,7 @@ public class ScopedLookupTranslationTests
     public async Task QueryVersionAuthorLabel_Translates()
     {
         var capture = new SqlCapture().AnsweringCountsWithOne();
-        var service = new QueryVersionService(capture.Factory(), Mock.Of<IBeaconUserContext>(), NullLogger<QueryVersionService>.Instance);
+        var service = TestQueryServices.VersionService(capture.Factory());
 
         await service.GetVersionsAsync(1, new GetQueryVersionsQuery { QueryId = 1 }, ProjectSet.All, CancellationToken.None);
 

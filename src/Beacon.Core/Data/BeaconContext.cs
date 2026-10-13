@@ -920,6 +920,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ReviewedByUserName).HasMaxLength(200);
             entity.Property(e => e.ReviewComment).HasMaxLength(2000);
             entity.Property(e => e.ChangeSummary).HasMaxLength(2000);
+            entity.Property(e => e.ApprovedContentHash).HasMaxLength(64);
 
             // Indexes
             entity.HasIndex(e => new { e.QueryId, e.Status });
@@ -972,6 +973,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.CreatedByUserName).HasMaxLength(200);
             entity.Property(e => e.ChangeSource).HasMaxLength(50);
             entity.Property(e => e.ChangeReason).HasMaxLength(2000);
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             // Unique version number per query
             entity.HasIndex(e => new { e.QueryId, e.VersionNumber }).IsUnique();

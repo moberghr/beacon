@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Loader2, UserX, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Loader2, ShieldAlert, UserX, X } from 'lucide-react';
 import { Banner, Pill, Card, Modal } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
@@ -105,6 +105,14 @@ export function SubscriptionDetailPanel({
         </header>
 
         <div className="p-5 flex flex-col gap-4">
+          {row.notApproved && (
+            <Banner
+              tone="warn"
+              icon={<ShieldAlert />}
+              title="Not approved"
+              sub="The last run was skipped: this query's change is not approved. Save the query to submit its SQL for approval, or restore a version and approve it."
+            />
+          )}
           {row.ownerNotAuthorized && (
             <Banner
               tone="warn"

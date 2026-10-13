@@ -145,7 +145,8 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
                 Steps = queryData.Steps.Where(s => s.StepOrder <= stepOrder).ToList()
             };
 
-            var createResponse = await _queryService.CreateQuery(tempQuery, cancellationToken);
+            // Stored live whatever the approval workflow: it runs once, here, and is deleted below.
+            var createResponse = await _storedPreview.CreateTemporaryQuery(tempQuery, cancellationToken);
             if (!createResponse.Success)
             {
                 return null;
@@ -204,7 +205,8 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
                 FinalQueryDataSourceId = queryData.FinalQueryDataSourceId
             };
 
-            var createResponse = await _queryService.CreateQuery(tempQuery, cancellationToken);
+            // Stored live whatever the approval workflow: it runs once, here, and is deleted below.
+            var createResponse = await _storedPreview.CreateTemporaryQuery(tempQuery, cancellationToken);
             if (!createResponse.Success)
             {
                 return null;

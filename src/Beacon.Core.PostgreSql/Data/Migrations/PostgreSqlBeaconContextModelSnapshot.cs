@@ -4368,10 +4368,23 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_content_hash");
+
+                    b.Property<int?>("BaseVersionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("base_version_id");
+
                     b.Property<string>("ChangeSummary")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("change_summary");
+
+                    b.PrimitiveCollection<string[]>("ContributorUserIds")
+                        .HasColumnType("text[]")
+                        .HasColumnName("contributor_user_ids");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
@@ -4892,6 +4905,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
                         .HasColumnName("change_source");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
 
                     b.Property<string>("CreatedByUserId")
                         .HasMaxLength(100)

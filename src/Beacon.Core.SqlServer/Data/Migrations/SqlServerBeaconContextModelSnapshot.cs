@@ -3428,9 +3428,19 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int?>("BaseVersionId")
+                        .HasColumnType("int");
+
                     b.Property<string>("ChangeSummary")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.PrimitiveCollection<string>("ContributorUserIds")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
@@ -3836,6 +3846,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("ChangeSource")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<string>("CreatedByUserId")
                         .HasMaxLength(100)

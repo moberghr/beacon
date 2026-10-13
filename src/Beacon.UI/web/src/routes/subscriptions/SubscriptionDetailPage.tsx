@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, CalendarClock, UserX } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ShieldAlert, UserX } from 'lucide-react';
 import { Banner, Button } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
@@ -112,6 +112,15 @@ export default function SubscriptionDetailPage() {
         onReactivate={onReactivate}
         onChangeOwner={canChangeOwner ? () => setChangingOwner(true) : undefined}
       />
+
+      {subscription.notApproved && (
+        <Banner
+          tone="warn"
+          icon={<ShieldAlert />}
+          title="The last run was skipped: this query's change is not approved"
+          sub="Save the query to submit its SQL for approval, or restore a version and approve it."
+        />
+      )}
 
       {subscription.ownerNotAuthorized && (
         <Banner

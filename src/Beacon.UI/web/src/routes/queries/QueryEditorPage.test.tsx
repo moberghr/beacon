@@ -55,6 +55,7 @@ const QUERY_DETAIL = {
   finalQueryDataSourceId: null,
   aiActorId: null,
   aiActorName: null,
+  activeVersionId: 21,
   isLocked: false,
   subscriptions: [],
   notificationHistory: [],
@@ -236,6 +237,42 @@ describe('QueryEditorPage', () => {
     fireEvent.change(screen.getByDisplayValue('SELECT * FROM finance.public.orders'), { target: { value: 'SELECT * FROM public.orders' } });
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(screen.queryByText('The query was not saved')).not.toBeInTheDocument());
+  });
+
+  it('saves on the version it loaded, and shows why a save made on a stale version is refused (409)', async () => {
+    stubEditorEndpoints();
+    const reason =
+      'The query changed after this edit was loaded: its active version is no longer the one the edit was made on. Reload the query and make the change again.';
+    let body: { baseVersionId?: number | null } | null = null;
+    mswServer.use(
+      http.put('*/beacon/api/queries/99', async ({ request }) => {
+        body = (await request.json()) as typeof body;
+        return HttpResponse.json({ title: reason, status: 409 }, { status: 409 });
+      }),
+    );
+
+    renderEditor();
+    fireEvent.change(await screen.findByDisplayValue('SELECT 1'), { target: { value: 'SELECT 2' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The query was not saved');
+    expect(alert).toHaveTextContent(reason);
+    await waitFor(() => expect(body?.baseVersionId).toBe(21));
+  });
+
+  it('says when a new query\'s first version waits for approval', async () => {
+    stubEditorEndpoints();
+    mswServer.use(
+      http.get('*/beacon/api/queries/99', () => HttpResponse.json({ ...QUERY_DETAIL, steps: [], activeVersionId: null })),
+      http.get('*/beacon/api/queries/99/versions', () =>
+        HttpResponse.json({ items: [{ id: 30, versionNumber: 1, status: 3, name: 'Sample editor query' }], totalCount: 1, pageCount: 1 }),
+      ),
+    );
+
+    renderEditor();
+
+    expect(await screen.findByText("This query's first version is waiting for approval; nothing runs until it is approved.")).toBeInTheDocument();
   });
 
   it('leaves without asking when nothing changed', async () => {

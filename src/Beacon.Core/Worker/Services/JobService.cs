@@ -11,6 +11,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Helpers.File;
+using Beacon.Core.Models;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 
@@ -68,9 +69,21 @@ internal class JobService(
         }
         catch (ExecutionRefusedException ex) when (isScheduledRun)
         {
-            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, cancellationToken);
+            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, NotificationFailureReasons.OwnerNotAuthorized, cancellationToken);
 
             return;
+        }
+        catch (QueryNotReviewedException ex)
+        {
+            // With the approval workflow on, the stored SQL is not the reviewed version: nothing ran. Recorded for a run a
+            // request asks for too, which then answers 409.
+            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, NotificationFailureReasons.NotApproved, cancellationToken);
+            if (isScheduledRun)
+            {
+                return;
+            }
+
+            throw new BeaconConflictException(ex.Message);
         }
 
         // Set subscription specific parameters
@@ -559,12 +572,14 @@ internal class JobService(
             .ExecuteUpdateAsync(x => x.SetProperty(y => y.OwnerNotAuthorizedSince, DateTime.UtcNow), cancellationToken);
     }
 
-    // A scheduled run its owner may no longer make: recorded as skipped, with the data sources it would have read so the
-    // readers of the subscription see it, and nothing else happens (no task, no baseline, no delivery, no AI actor).
+    // A run that may not happen (a scheduled run its owner may no longer make, a run of SQL the approval workflow has not
+    // approved): recorded as skipped with a neutral reason, with the data sources it would have read so the readers of
+    // the subscription see it, and nothing else happens (no task, no baseline, no delivery, no AI actor).
     private static async Task RecordSkippedRunAsync(
         BeaconContext context,
         int subscriptionId,
         IReadOnlyList<int> dataSourceIds,
+        string reason,
         CancellationToken cancellationToken)
     {
         var skipped = new QueryExecutionHistory
@@ -574,7 +589,7 @@ internal class JobService(
             CompiledSql = string.Empty,
             NotificationStatus = NotificationStatus.Skipped,
             ExecutionTimeMs = 0,
-            Comment = NotificationFailureReasons.OwnerNotAuthorized,
+            Comment = reason,
             DataSourceIds = dataSourceIds
                 .Distinct()
                 .Order()

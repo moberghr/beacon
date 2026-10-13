@@ -13,10 +13,16 @@ cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `a
 1. Write the query as usual. Parameters are `{name}` placeholders in the step SQL, with a type (Number, DateTime,
    String) and a description — the description becomes the argument's description in the tool schema.
 2. Get a version **approved** (see [the approval rule](#which-version-runs)). With the approval workflow enabled,
-   saving SQL changes submits a version for approval; an Approver (or an Admin) approves it on the Approvals page.
+   saving SQL changes submits a version for approval; an Approver (or an Admin) other than the requester approves it on
+   the Approvals page (see [Queries → Approval workflow](/features/queries/#approval-workflow)).
 3. On the query's detail page, a **SecurityAdmin** (or an Admin) opens the **MCP tool** card, ticks *Expose as MCP
    tool*, sets a name and (optionally) a description, and saves. The card shows which approved version calls run, or why
-   none can.
+   none can. While the approval workflow is on, publishing is a third pair of eyes: whoever requested or approved the
+   version the tool runs cannot enable the tool, nor can a caller Beacon cannot name (an API key without an active
+   owner), who could be either (`403`), unless the host allows self-approval (`ApprovalWorkflow.AllowSelfApproval`).
+   The check is made when the tool is enabled: once published, the tool serves whichever version is approved next,
+   whoever requested or approved that one. With the workflow off nobody approves a change, and enabling is not checked
+   against approvals.
 
 The same through the API (the SecurityAdmin policy, see [Functional permissions](/features/authorization/#functional-permissions); anyone but an Admin publishes only a query they can read, `404` otherwise):
 
@@ -33,7 +39,7 @@ Rules the endpoint enforces:
 | --- | --- |
 | `name` | `^[a-z][a-z0-9_]{2,40}$`; the MCP tool is `q_<name>`. Unique across live (non-archived) queries — so it is unique in every project and always names one query. Required to enable. Two concurrent saves of the same name get the same "already used" error (`400`), never a `500`. |
 | `description` | Optional, at most 1000 characters. Falls back to the approved version's description, then its name. |
-| `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below). Disabling is always allowed; the name stays reserved while it is set. Disabling with a name another query already uses succeeds and keeps the query's stored name. |
+| `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below), and, while the approval workflow is on, a signed-in caller with a user id who neither requested nor approved that version (`403` otherwise, unless the host allows self-approval; checked when enabling, not again when a later version is approved). Disabling is always allowed, by anyone who may publish; the name stays reserved while it is set. Disabling with a name another query already uses succeeds and keeps the query's stored name. |
 
 The query detail DTO (`GET /beacon/api/queries/{id}`) carries `mcpToolEnabled`, `mcpToolName`,
 `mcpToolDescription`, `mcpToolRunnableVersionNumber` and `mcpToolIssue`. `mcpToolIssue` explains why the query is not
@@ -45,20 +51,30 @@ not silently stay invisible.
 ## Which version runs
 
 A tool runs **only** the query's active version, and only when an approval request for **exactly that version** was
-approved. Nothing else is callable:
+approved. In the workflow's strict mode (`ApprovalWorkflow.RequireApprovedVersionToRun`) the approval must also have
+recorded the version's content hash, which binds it to exactly the content the reviewer approved: an approval recorded
+before Beacon kept content hashes names the version but not what it approved, so strict mode does not run that tool until
+the version is approved again (restore it and approve the submission). Outside strict mode such an
+approval still counts, and with the workflow on the host logs a startup Warning naming those tools (at most 20, with
+their count). In strict mode the startup Warning counts instead the queries with a tool or a subscription whose active
+version is not approved for its content hash. Nothing else is callable:
 
 | Version state | Callable? |
 | --- | --- |
-| Active, its approval request Approved | **Yes** — this is the only runnable version |
+| Active, its approval request Approved (in strict mode: for the version's content hash) | **Yes** — this is the only runnable version |
+| Active, approved before Beacon kept content hashes | Outside strict mode only (named in the startup Warning) |
 | Pending approval (a later edit) | No — the tool keeps running the approved version until the edit is approved |
-| Rejected | No |
-| Active without an approval (edited while the approval workflow was off, or restored from history) | No |
+| Rejected, or superseded by a newer submission | No |
+| Active without an approval (edited while the approval workflow was off, or restored from history while it was off) | No |
 | Draft / no version | No |
 
 A query with no runnable version is **not listed** as a tool at all, even when enabled. The tool executes the
 approved version's **snapshot** (its stored steps and final query), not the live step rows, so an unreviewed change
 to the live query can never change what the tool runs. In practice: enable the approval workflow
-(`options.ApprovalWorkflow.Enabled = true`) on hosts that use saved-query tools.
+(`options.ApprovalWorkflow.Enabled = true`) on hosts that use saved-query tools. With the workflow on, a version restore is
+submitted for approval like an edit, so restoring an older version never makes it callable without a new approval.
+Subscriptions follow the same rule in the workflow's strict mode
+(`ApprovalWorkflow.RequireApprovedVersionToRun`, see [Queries → Approval workflow](/features/queries/#approval-workflow)).
 
 A version is also not callable when its parameters cannot form a tool: a parameter without a placeholder, a name
 that is not a plain identifier, the reserved name `project_id`, or the same parameter declared with different types

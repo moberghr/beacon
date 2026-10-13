@@ -44,18 +44,23 @@ public class ScheduledWorkVisibilityTests
             .ThenScalar(2)
             .ThenRows(
                 [7, created, "Late payments", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 2, 0, 0],
-                [8, created, "Daily orders", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 3, 0, 0])
+                [8, created, "Daily orders", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 3, 0, 0],
+                [9, created, "Refunds", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 2, 0, 0])
             .ThenRows(
-                [7, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0],
-                [8, (int)NotificationStatus.NotificationSent, DateTime.UtcNow.AddHours(-1), 4]);
+                [7, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.OwnerNotAuthorized],
+                [8, (int)NotificationStatus.NotificationSent, DateTime.UtcNow.AddHours(-1), 4, DBNull.Value],
+                [9, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.NotApproved]);
         var service = new ControlTowerService(capture.Factory(), new MemoryCache(new MemoryCacheOptions()));
 
         var page = await service.GetSubscriptionHealthOverview(new GetControlTowerDataRequest { Readable = ProjectSet.All }, CancellationToken.None);
 
-        page.Items.Should().HaveCount(2);
+        page.Items.Should().HaveCount(3);
         page.Items.Single(x => x.SubscriptionId == 7).OwnerNotAuthorized.Should().BeTrue();
         page.Items.Single(x => x.SubscriptionId == 7).LastExecutionStatus.Should().Be(NotificationStatus.Skipped);
         page.Items.Single(x => x.SubscriptionId == 8).OwnerNotAuthorized.Should().BeFalse();
+        page.Items.Single(x => x.SubscriptionId == 9).OwnerNotAuthorized.Should().BeFalse("a run skipped for an unapproved change is not about its owner");
+        page.Items.Single(x => x.SubscriptionId == 9).LastExecutionStatus.Should().Be(NotificationStatus.Skipped);
+        page.Items.Where(x => x.NotApproved).Select(x => x.SubscriptionId).Should().Equal([9], "only the run skipped for an unapproved change says so");
     }
 
     [Test]
@@ -100,7 +105,8 @@ public class ScheduledWorkVisibilityTests
 
         await act.Should().ThrowAsync<InvalidOperationException>("the fake database returns no row");
         var sql = database.Commands.Should().ContainSingle().Subject.Text;
-        sql.Should().MatchRegex(@"EXISTS \(\s+SELECT 1\s+FROM \(\s+SELECT q\d*\.notification_status\s+FROM beacon\.query_execution_history AS q\d*\s+WHERE s\.id = q\d*\.subscription_id\s+ORDER BY q\d*\.created_time DESC\s+LIMIT 1\s+\) AS q\d*\s+WHERE q\d*\.notification_status = 8\)", "the last run decides, and a skipped run is stored as status 8");
+        sql.Should().MatchRegex(@"EXISTS \(\s+SELECT 1\s+FROM \(\s+SELECT q\d*\.comment, q\d*\.notification_status\s+FROM beacon\.query_execution_history AS q\d*\s+WHERE s\.id = q\d*\.subscription_id\s+ORDER BY q\d*\.created_time DESC\s+LIMIT 1\s+\) AS q\d*\s+WHERE q\d*\.notification_status = 8 AND \(q\d*\.comment <> 'Skipped: query change not approved\. Save the query to submit its SQL for approval, or restore a version and approve it\.' OR q\d*\.comment IS NULL\)\)", "the last run decides, a skipped run is stored as status 8, and a run skipped for an unapproved change is not about the owner");
+        sql.Should().MatchRegex(@"WHERE q\d*\.notification_status = 8 AND q\d*\.comment = 'Skipped: query change not approved\.", "the last run skipped for an unapproved change is said apart");
     }
 
     [TestCase(true)]
@@ -117,12 +123,14 @@ public class ScheduledWorkVisibilityTests
                 Status = "Active",
                 OwnerUserId = "ext-ada",
                 OwnerDisplayName = "Ada Lovelace",
-                OwnerNotAuthorized = skipped
+                OwnerNotAuthorized = skipped,
+                NotApproved = !skipped
             });
 
         var result = await new GetSubscriptionDetailHandler(service.Object).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
 
         result.Detail.OwnerNotAuthorized.Should().Be(skipped);
+        result.Detail.NotApproved.Should().Be(!skipped);
     }
 
     [Test]

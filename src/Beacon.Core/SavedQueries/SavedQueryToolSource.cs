@@ -53,7 +53,7 @@ internal sealed record SavedQueryToolRow(
     string StepsJson,
     string? FinalQuery);
 
-internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> contextFactory) : ISavedQueryToolSource
+internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> contextFactory, BeaconConfiguration configuration) : ISavedQueryToolSource
 {
     public async Task<IReadOnlyList<SavedQueryToolDefinition>> GetToolsAsync(IReadOnlyCollection<int> projectIds, CancellationToken cancellationToken)
     {
@@ -64,7 +64,7 @@ internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> cont
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var rows = await BuildEnabledToolsQuery(context)
+        var rows = await BuildEnabledToolsQuery(context, SavedQueryRunnableVersion.RequiresApprovedHash(configuration))
             .ToListAsync(cancellationToken);
 
         var candidates = rows
@@ -128,12 +128,13 @@ internal sealed class SavedQueryToolSource(IDbContextFactory<BeaconContext> cont
         return tools;
     }
 
-    internal static IQueryable<SavedQueryToolRow> BuildEnabledToolsQuery(BeaconContext context)
+    /// <param name="requireApprovedHash">Strict mode (<see cref="SavedQueryRunnableVersion.RequiresApprovedHash"/>).</param>
+    internal static IQueryable<SavedQueryToolRow> BuildEnabledToolsQuery(BeaconContext context, bool requireApprovedHash = false)
     {
         return context.Queries
             .Where(x => x.McpToolEnabled)
             .Where(x => x.McpToolName != null)
-            .WhereHasRunnableVersion(context)
+            .WhereHasRunnableVersion(context, requireApprovedHash)
             .OrderBy(x => x.McpToolName)
             .Select(x =>
                 new SavedQueryToolRow(

@@ -292,6 +292,126 @@ Test queries without scheduling:
 4. Check execution time
 5. Verify data is as expected
 
+## Approval workflow
+
+With the approval workflow on (`options.EnableApprovalWorkflow()` or `options.ApprovalWorkflow.Enabled = true` in
+`AddBeaconServices`; off by default — see [Configuration](/getting-started/configuration/#approval-workflow)), a change to
+what a query runs goes live only after a second person approves it.
+
+**What counts as a change.** The query's executable content: its steps (added, removed, reordered), each step's name,
+data source, SQL and parameters (name, type, placeholder), and the final query. Descriptions and the query's own name
+change nothing that runs; a missing final query and an empty one are the same, and so are line endings (`CRLF` and `LF`)
+— any other whitespace is part of the SQL. Step orders run 1, 2, 3, … without gaps or repeats; a save, a submission, a
+restore or an approval of other orders is refused. Without the workflow, every such save writes a new active version, so
+history holds every executable change.
+
+**Names and descriptions are not reviewed content.** A save that changes only the query's name or description (or a
+step's description) goes live directly, with the workflow on too — unless the stored SQL is not its active version's,
+when the save submits it (see below). A submitted change carries the name and description it was saved with, and
+approving it rewrites the live ones from the approved version.
+
+**Submitting.** Saving a change files a *PendingApproval* version holding exactly the submitted content, with its
+content hash (SHA-256 of the executable content), and an approval request naming the requester (the signed-in user,
+named by display name) and the query's active version the change was made on. The live query is not touched; when its
+stored SQL is in no version yet, it is recorded first as an Archived baseline, so history holds what an approval would
+replace. A query has one pending request: a new submission supersedes the earlier one (`Superseded`, never applied), its
+requester is notified (an `ApprovalUpdated` event with status `superseded`), and the save's answer says how many requests
+it replaced. Saving a query whose stored SQL is not its active version's — never versioned, or changed before this
+version through a path that bypassed review — submits that SQL for approval too, so a save brings it under review; such a
+save, which changes nothing that runs, never replaces another person's pending request (`409` while one waits). A
+submission is refused (`409`) when Beacon cannot name its requester (an API key without an active owner, an AI actor
+without a creator) unless the host allows self-approval, when the editor sent the version it loaded (`baseVersionId`,
+from the detail's `activeVersionId` — the query editor sends it on every save) and another version went live since
+(reload the query and make the change again), and when another write of the query's versions happened at the same
+moment (submit again).
+
+**New queries.** With the workflow on, a new query goes live only once approved: a query created with steps
+(`IQueryService.CreateQuery`) is created with nothing live and its content submitted as its first version, and a query
+created empty (as the query page creates it) submits its steps with its first save. Until that version is approved the
+query has no steps and runs nothing.
+
+**Reviewing** (`GET /beacon/api/approvals/{id}`, open to an Approver even without read access to the query). The detail
+holds the proposed version, the query's active version and the step-by-step diff between them (`autoDiff.stepDiffs`:
+each step's SQL, data source and parameters, paired by their place in the run, so two steps that swap places show as two
+changes); a query without an active version has no diff, and the review shows every proposed step as new. It also holds
+the proposed content's hash (`contentHash`) and, for the caller, `isOwnRequest`, `mayApprove`, `approveBlockedReason`
+and `isStale`, which the approval pages use to offer or withhold **Approve** — the server decides again on approval.
+Approving sends the hash back (`expectedContentHash`, required): an approval that names no content, or other content
+than the proposal holds, answers `409`, so a decision applies exactly what the reviewer was shown.
+
+**Deciding** (`POST /beacon/api/approvals/{id}/approve` or `/reject`, the **Approver** permission; an Admin holds it):
+
+- The requester never approves their own change, whichever way either of them signed in (a session, an API key's
+  owner; ids compared ignoring case), nor does anyone else who shaped it (for an AI actor's change made by approving
+  its plan: the plan's reviewer and whoever asked for its revisions, recorded on the request as its contributors); a
+  request without a recorded requester can be rejected, not approved — submit it again. Admins are no exception. Hosts
+  with a single approver can allow self-approval (`AllowSelfApproval`).
+- Four eyes binds per Beacon user (`Users.ExternalId`): two accounts are two people to Beacon, so do not give one person
+  two identities that can approve. API keys hold no functional permission and MCP offers no approval tool, so neither
+  approves a change.
+- Only a pending request is decided: a second decision, or one on a superseded request, answers `409` and never
+  overwrites the first. A request recorded before Beacon kept a change's base and content hash can be rejected, not
+  approved — submit the change again.
+- An approval applies the change only on top of the version it was made on: once another version went live, the
+  request is stale (`409`) and the change is submitted again.
+- The proposed version must still hold the content it was submitted with (its hash) and the content the reviewer was
+  shown (`expectedContentHash`), its step orders must run 1, 2, 3, …, and every step passes the save check again (the
+  execution gate and the source's metadata) — otherwise `409`.
+- Submitting, approving and rejecting take the query's row first, so they run one after the other on one query; two
+  writes that still race for a version number answer `409`, never `500`.
+- The decision, the move of the query to the proposal, its steps and the version statuses commit in one transaction:
+  a failure or a cancelled request leaves the query as it was. The approval records the content hash it approved.
+- Rejecting marks the proposal Rejected; a version that is live is never marked Rejected. The requester may reject
+  (withdraw) their own request.
+
+**Restoring a version** (`POST /beacon/api/query-versions/{id}/restore`) puts back only a version that was live (Active
+or Archived): a pending, rejected or superseded proposal was never approved and answers `409`, and its version page
+offers no Restore. The version's steps pass the save check again. With the workflow on, the restore is submitted
+for approval ("Restore of version N") and the response says `submittedForApproval: true` and how many pending requests
+it replaced (`supersededRequests`); the page then says the restore was submitted, not that it went live. Otherwise it
+goes live as a new active version. Either way the stored SQL it replaces is recorded first when no version holds it.
+Restoring a query someone else locked needs **Manage** on the query (overriding the lock); the lock holder and an
+unlocked query need Write.
+
+**AI actors.** An actor's refinement of a query is validated as a draft (through the same gates as an editor's preview;
+the stored query never runs SQL nobody saved). With the workflow on it is submitted for approval with the actor's
+creator as the requester, so the creator cannot approve it, and never replaces another person's pending request (the
+action fails while one waits); a new query an actor creates has nothing live until its SQL is approved, and an actor
+subscribes only to a query whose active version was approved for exactly its content. Without the workflow a refinement
+is a versioned save attributed to the creator. See [AI Actors](/features/ai-actors/#query-change-approvals).
+
+**Runs execute reviewed SQL.** The rule covers the runs that happen without the person who wrote the SQL: subscription
+runs (scheduled, a test delivery, and the subscriptions an AI actor creates) and [saved-query MCP
+tools](/features/saved-query-tools/#which-version-runs), which run an approved version's snapshot. Interactive previews
+(a query's preview, the editor's run of its saved or unsaved steps) execute the caller's live SQL under the caller's own
+permissions and are not compared. With the workflow on, a subscription run executes the stored steps only
+when they are the content of the query's active version; a run that would be refused first reads the steps and the
+active version once more (an approval may have landed between the two reads). Otherwise nothing runs: the run is
+recorded as *Skipped* with the remedy ("Skipped: query change not approved. Save the query to submit its SQL for
+approval, or restore a version and approve it."), the subscription's detail and its Control Tower row report
+`notApproved` (the subscription page shows a banner), the host logs a Warning, and a test delivery answers `409`. An
+active version whose snapshot cannot be read matches no stored SQL; its Warning says so apart (restore a readable version
+and approve it). A query stored before the workflow was on and never versioned since is not compared outside strict
+mode: it runs as stored, each run logs a Warning, and the host counts such queries at startup — save the query to submit
+its SQL for approval. In **strict mode** (`RequireApprovedVersionToRun`, recommended for regulated deployments) a run
+also needs the active version to carry an approved request for exactly its content — the rule
+[saved-query tools](/features/saved-query-tools/#which-version-runs) follow — so a never-versioned query, a version that
+went live while the workflow was off, and a version approved before Beacon recorded content hashes do not run until
+approved (restore the active version to submit it). The host counts at startup the queries whose runs this skips (see
+[Configuration](/getting-started/configuration/#approval-workflow)).
+
+**Recovering drifted SQL.** When stored SQL changed outside a versioned save, the save that brings it under review (or
+the restore that replaces it) records whoever saves or restores as its requester. Beacon cannot tell who made the drift: that person
+should not approve the recovery submission — have another Approver review it.
+
+**Publishing as an MCP tool** is checked when the tool is enabled: while the workflow is on, whoever requested or approved
+the version the tool runs cannot enable it. A version approved later is served without a new check. See
+[Saved-query tools](/features/saved-query-tools/#expose-a-query).
+
+**Direct step changes.** `IQueryService.AddQueryStep`, `UpdateQueryStep` and `DeleteQueryStep` change one live step
+without a version or a review: they are refused (`409`) while the workflow is on, are obsolete, and will be removed; save
+the query instead.
+
 ## Query Best Practices
 
 ### Performance

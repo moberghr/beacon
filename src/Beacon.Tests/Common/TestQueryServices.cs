@@ -11,6 +11,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -103,7 +104,8 @@ internal static class TestQueryServices
         int? executionRowCeiling = null,
         int? finalQueryTimeoutSeconds = null,
         ISqlExecutionGate? gate = null,
-        TimeSpan? statementTimeout = null)
+        TimeSpan? statementTimeout = null,
+        ILogger<QueryService>? logger = null)
     {
         var guard = hostGuard ?? new HostDataSourceGuard(new TestHostDataSources());
         var databases = configuredDatabases ?? TestConfiguredDatabases.None;
@@ -112,7 +114,7 @@ internal static class TestQueryServices
         return new QueryService(
             contextFactory,
             executionLogger ?? Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
+            logger ?? NullLogger<QueryService>.Instance,
             NullLoggerFactory.Instance,
             versions ?? Mock.Of<IQueryVersionService>(),
             configuration ?? new BeaconConfiguration(),
@@ -130,6 +132,48 @@ internal static class TestQueryServices
             ExecutionRowCeiling = executionRowCeiling ?? Constants.Query.MaxExecutionRows,
             FinalQueryTimeoutSeconds = finalQueryTimeoutSeconds ?? Constants.Query.StatementTimeoutSeconds
         };
+    }
+
+    /// <summary>
+    /// <see cref="QueryVersionService"/> with a save check that accepts every step unless one is given, and the approval
+    /// workflow as <paramref name="configuration"/> sets it (off by default); superseded requesters are told through
+    /// <paramref name="notifier"/> when one is given.
+    /// </summary>
+    public static QueryVersionService VersionService(
+        IDbContextFactory<BeaconContext> contextFactory,
+        IBeaconUserContext? userContext = null,
+        BeaconConfiguration? configuration = null,
+        IStepSqlSaveCheck? saveCheck = null,
+        IApprovalNotifier? notifier = null)
+    {
+        return new QueryVersionService(
+            contextFactory,
+            userContext ?? Mock.Of<IBeaconUserContext>(),
+            configuration ?? new BeaconConfiguration(),
+            saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
+            NullLogger<QueryVersionService>.Instance,
+            notifier);
+    }
+
+    /// <summary>
+    /// <see cref="QueryApprovalService"/> deciding as <paramref name="actors"/>' caller (a stored user, "ext-ada", by
+    /// default), with a save check that accepts every step unless one is given.
+    /// </summary>
+    public static QueryApprovalService ApprovalService(
+        IDbContextFactory<BeaconContext> contextFactory,
+        IBeaconActorAccessor? actors = null,
+        BeaconConfiguration? configuration = null,
+        IStepSqlSaveCheck? saveCheck = null,
+        IQueryVersionService? versions = null)
+    {
+        return new QueryApprovalService(
+            contextFactory,
+            versions ?? Mock.Of<IQueryVersionService>(),
+            actors ?? TestProjectAccess.Actors(),
+            Mock.Of<IBeaconUserContext>(),
+            saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
+            configuration ?? new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            NullLogger<QueryApprovalService>.Instance);
     }
 
     /// <summary>The gate a final query on the in-memory join store passes, as QueryService asks it (read-only on).</summary>

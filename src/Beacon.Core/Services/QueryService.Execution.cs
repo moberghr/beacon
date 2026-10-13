@@ -25,16 +25,24 @@ internal partial class QueryService
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var subscription = await context.Subscriptions
-            .Include(x => x.Recipients)
-            .Include(x => x.Query)
-                .ThenInclude(q => q.Steps)
-                    .ThenInclude(s => s.DataSource)
-            .Include(x => x.Query)
-                .ThenInclude(q => q.Steps)
-                    .ThenInclude(s => s.Parameters)
-            .Where(x => x.Id == subscriptionId)
-            .SingleAsync(cancellationToken);
+        var subscription = await SubscriptionToRunAsync(context, subscriptionId, cancellationToken);
+
+        // With the approval workflow on, a run executes reviewed SQL only: the steps loaded here must be the content of the
+        // query's active version (and, in strict mode, its approved content), or nothing runs. An approval that commits
+        // between reading the steps and reading the active version replaces both, so a run that would be refused reads
+        // them once more first.
+        var workflow = beaconConfiguration.ApprovalWorkflow;
+        ActiveVersionContent? active = null;
+        if (workflow.Enabled)
+        {
+            active = await ReviewedQueryContent.ActiveVersionAsync(context, subscription.QueryId, cancellationToken);
+            if (ReviewedQueryContent.RunRefusal(QueryContentHash.Of(subscription.Query), active, workflow.RequireApprovedVersionToRun) != null)
+            {
+                await using var reread = await contextFactory.CreateDbContextAsync(cancellationToken);
+                subscription = await SubscriptionToRunAsync(reread, subscriptionId, cancellationToken);
+                active = await ReviewedQueryContent.ActiveVersionAsync(reread, subscription.QueryId, cancellationToken);
+            }
+        }
 
         // Re-checked on the steps loaded here, which are the ones that run, before any of them does: the run's actor (a
         // scheduled run's owner, or the caller of a request) may still run stored SQL on every data source they read.
@@ -46,6 +54,44 @@ internal partial class QueryService
         if (!await executionAccess.AllowsAsync(ProjectAction.Run, dataSourceIds, "subscription", subscriptionId, cancellationToken))
         {
             throw new ExecutionRefusedException(dataSourceIds, "Running this subscription's query is not allowed.");
+        }
+
+        if (workflow.Enabled)
+        {
+            if (ReviewedQueryContent.RunRefusal(QueryContentHash.Of(subscription.Query), active, workflow.RequireApprovedVersionToRun) != null)
+            {
+                // A version whose snapshot cannot be read is never the reviewed content: said apart, as its remedy differs.
+                if (active != null && active.Hash == null)
+                {
+                    logger.LogWarning(
+                        "Subscription {SubscriptionId} not run: the snapshot of active version {VersionId} of query {QueryId} cannot be read, so no stored SQL matches it. Restore a readable version and approve it",
+                        subscriptionId,
+                        active.VersionId,
+                        subscription.QueryId);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Subscription {SubscriptionId} not run: the stored SQL of query {QueryId} is not its approved version (active version {VersionId}, strict {Strict}). Save the query to submit its stored SQL for approval, or restore a version and approve it",
+                        subscriptionId,
+                        subscription.QueryId,
+                        active?.VersionId,
+                        workflow.RequireApprovedVersionToRun);
+                }
+
+                throw new QueryNotReviewedException(dataSourceIds);
+            }
+
+            // A query stored before the workflow was on and never versioned since runs as stored outside strict mode: said
+            // on every run, until a save submits its SQL for review (or strict mode stops it).
+            if (active == null && subscription.Query.Steps.Count > 0)
+            {
+                logger.LogWarning(
+                    "Subscription {SubscriptionId} runs query {QueryId}, whose stored SQL no version records and nobody reviewed: save the query to submit it for approval, or turn on {Option}",
+                    subscriptionId,
+                    subscription.QueryId,
+                    nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.RequireApprovedVersionToRun));
+            }
         }
 
         // Rows reach recipients, notifications, stored results and tasks, so they are PII-masked as the strictest live
@@ -152,49 +198,86 @@ internal partial class QueryService
             .Where(x => x.Id == queryData.QueryId)
             .SingleAsync(cancellationToken);
 
-        // Determine if SQL has changed (for versioning)
-        var sqlChanged = HasSqlChanged(query, queryData);
+        // An editor that loaded another version than the active one would overwrite, or submit over, what went live since.
+        if (queryData.BaseVersionId != null && queryData.BaseVersionId != query.ActiveVersionId)
+        {
+            throw new BeaconConflictException(QueryVersionService.StaleEditorMessage);
+        }
 
-        if (sqlChanged)
+        // Whether the save changes what runs: the full executable content (the step set, its order, names, data sources,
+        // SQL and parameters, and the final query) the save would store, against the stored query.
+        var proposedSteps = ProposedSteps(query, queryData);
+        var live = QueryContentHash.Of(query);
+        var proposed = QueryContentHash.Of(queryData.FinalQuery, proposedSteps);
+        var sqlChanged = !live.SameAs(proposed);
+
+        // With the approval workflow on, stored SQL that is not its active version's (no version yet, or changed outside
+        // a versioned save) is submitted as well when saved, so a save brings it under review instead of keeping it live.
+        var workflow = beaconConfiguration.ApprovalWorkflow;
+        var submitsUnreviewed = workflow.Enabled
+            && !sqlChanged
+            && !proposed.IsEmpty
+            && !ReviewedQueryContent.IsActiveContent(live, await ReviewedQueryContent.ActiveVersionAsync(context, query.Id, cancellationToken));
+
+        if (sqlChanged || submitsUnreviewed)
         {
             // Check the edit before anything is written — a direct save and a submission alike.
-            foreach (var stepData in queryData.Steps)
+            var orders = QueryStepOrders.RefusalFor(proposedSteps.Select(x => x.StepOrder));
+            if (orders != null)
+            {
+                throw new InvalidOperationException(orders);
+            }
+
+            foreach (var stepData in proposedSteps)
             {
                 QueryValidator.CheckForFlaggedWords(stepData.SqlValue, readOnlyAstValidator.MaxSqlChars);
             }
 
-            await EnsureStepsPassTheGateAsync(LegacyStepOrSteps(queryData), cancellationToken);
+            await EnsureStepsPassTheGateAsync(proposedSteps, cancellationToken);
+        }
 
-            // History must already hold the SQL this edit replaces; the active version normally does.
-            await queryVersionService.EnsureBaselineVersionAsync(query.Id, cancellationToken);
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
-            // When approval workflow is enabled, create a PendingApproval version instead of applying changes directly.
-            // Approving applies the version's steps to the live query, so the version must hold the submitted edit —
-            // snapshotting the stored query would approve the old SQL back in.
-            if (beaconConfiguration.ApprovalWorkflow.Enabled)
-            {
-                var pendingVersion = await queryVersionService.CreateProposedVersionAsync(
-                    query.Id, queryData, userContext.UserId, "UserEdit", "Submitted for approval", cancellationToken);
-
-                // Create the approval request
-                await using var approvalContext = await contextFactory.CreateDbContextAsync(cancellationToken);
-                approvalContext.QueryApprovalRequests.Add(new Data.Entities.QueryApprovalRequest
+        // When approval workflow is enabled, submit a PendingApproval version instead of applying changes directly.
+        // Approving applies the version's steps to the live query, so the version holds the submitted content (the whole
+        // step set the save would store) — snapshotting the stored query would approve the old SQL back in. The submission
+        // records the stored SQL it would replace when no version holds it. Stored SQL brought under review by a save that
+        // changes nothing that runs never replaces someone else's pending change.
+        if (workflow.Enabled && (sqlChanged || submitsUnreviewed))
+        {
+            var change = await queryVersionService.SubmitForApprovalAsync(
+                query.Id,
+                new QueryData
                 {
                     QueryId = query.Id,
-                    QueryVersionId = pendingVersion.Id,
-                    Status = Data.Enums.ApprovalStatus.Pending,
-                    RequestedByUserId = userContext.UserId,
-                    RequestedByUserName = userContext.DisplayName ?? userContext.UserName,
-                    ChangeSummary = "SQL query modified"
-                });
-                await approvalContext.SaveChangesAsync(cancellationToken);
-
-                return new BaseResponse
+                    Name = queryData.Name,
+                    Description = queryData.Description,
+                    FinalQuery = queryData.FinalQuery,
+                    Steps = proposedSteps.ToList()
+                },
+                new QueryChangeSubmission(
+                    actor.UserId,
+                    userContext.DisplayName,
+                    "UserEdit",
+                    "Submitted for approval",
+                    sqlChanged ? "SQL query modified" : "Stored SQL submitted for review")
                 {
-                    Message = "Changes submitted for approval",
-                    Success = true
-                };
-            }
+                    ExpectedBaseVersionId = queryData.BaseVersionId,
+                    SupersedesOthers = sqlChanged
+                },
+                cancellationToken);
+
+            return new BaseResponse
+            {
+                Message = SubmittedMessage(change.SupersededRequests),
+                Success = true
+            };
+        }
+
+        if (sqlChanged)
+        {
+            // History must already hold the SQL this edit replaces; the active version normally does.
+            await queryVersionService.EnsureBaselineVersionAsync(query.Id, cancellationToken);
         }
 
         // Update basic query properties
@@ -292,7 +375,7 @@ internal partial class QueryService
         if (sqlChanged)
         {
             await queryVersionService.CreateVersionAsync(
-                query.Id, userContext.UserId, "UserEdit", null,
+                query.Id, actor.UserId, "UserEdit", null,
                 Data.Enums.QueryVersionStatus.Active, cancellationToken);
         }
 
@@ -303,54 +386,64 @@ internal partial class QueryService
         };
     }
 
-    private static bool HasSqlChanged(Query query, QueryData queryData)
+    // What a save that went to approval answers: that it waits, and how many pending requests of the query it replaced
+    // (their requesters are notified).
+    private static string SubmittedMessage(int supersededRequests)
     {
-        // Check FinalQuery change
-        if (query.FinalQuery != queryData.FinalQuery) return true;
-
-        // Check step SQL changes
-        if (!queryData.Steps.Any() && !string.IsNullOrEmpty(queryData.SqlValue))
+        return supersededRequests switch
         {
-            // Legacy single-step mode
-            var firstStep = query.Steps.OrderBy(s => s.StepOrder).FirstOrDefault();
-            return firstStep == null || firstStep.SqlValue != queryData.SqlValue || firstStep.DataSourceId != queryData.DataSourceId;
-        }
-
-        foreach (var stepData in queryData.Steps)
-        {
-            var existingStep = query.Steps.FirstOrDefault(s => s.Id == stepData.StepId);
-            if (existingStep == null) return true;
-            if (existingStep.SqlValue != stepData.SqlValue) return true;
-            if (existingStep.DataSourceId != stepData.DataSourceId) return true;
-        }
-
-        return false;
+            0 => SubmittedForApprovalMessage,
+            1 => $"{SubmittedForApprovalMessage}; they replace 1 pending request for this query",
+            _ => $"{SubmittedForApprovalMessage}; they replace {supersededRequests} pending requests for this query"
+        };
     }
 
-    // The legacy single-step form (no steps, the SQL on the query itself) as the step it updates.
-    private static IReadOnlyList<QueryStepData> LegacyStepOrSteps(QueryData queryData)
+    // The step set a save stores: the edit's steps, or, in the legacy single-step form (no steps, the SQL on the query
+    // itself), the stored steps with the first taking the SQL, data source and parameters, as the save applies it.
+    private static IReadOnlyList<QueryStepData> ProposedSteps(Query query, QueryData queryData)
     {
         if (queryData.Steps.Any() || string.IsNullOrEmpty(queryData.SqlValue))
         {
             return queryData.Steps;
         }
 
-        return
-        [
-            new QueryStepData
-            {
-                SqlValue = queryData.SqlValue,
-                DataSourceId = queryData.DataSourceId,
-                Parameters = queryData.Parameters
-                    .Select(x =>
-                        new QueryStepParameterData
-                        {
-                            Name = x.Name,
-                            Placeholder = x.Placeholder
-                        })
-                    .ToList()
-            }
-        ];
+        var steps = query.Steps
+            .OrderBy(x => x.StepOrder)
+            .ToList();
+
+        return steps
+            .Select((x, i) =>
+                new QueryStepData
+                {
+                    StepId = x.Id,
+                    StepOrder = x.StepOrder,
+                    Name = x.Name ?? string.Empty,
+                    Description = x.Description,
+                    SqlValue = i == 0 ? queryData.SqlValue : x.SqlValue,
+                    DataSourceId = i == 0 ? queryData.DataSourceId : x.DataSourceId,
+                    Parameters = i == 0
+                        ? queryData.Parameters
+                            .Select(y =>
+                                new QueryStepParameterData
+                                {
+                                    Name = y.Name,
+                                    Type = y.Type,
+                                    Description = y.Description,
+                                    Placeholder = y.Placeholder
+                                })
+                            .ToList()
+                        : x.Parameters
+                            .Select(y =>
+                                new QueryStepParameterData
+                                {
+                                    Name = y.Name,
+                                    Type = y.Type,
+                                    Description = y.Description,
+                                    Placeholder = y.Placeholder
+                                })
+                            .ToList()
+                })
+            .ToList();
     }
 
     // ===== ENHANCED METHODS FOR CROSS-PROJECT FUNCTIONALITY =====
@@ -387,6 +480,21 @@ internal partial class QueryService
     /// The PII settings for work on <paramref name="dataSourceIds"/> outside any project: the global settings, tightened to
     /// the strictest live project that links any of them (<see cref="ISharedSourceSettings.GetDataSourceSettingsAsync"/>).
     /// </summary>
+    // The subscription a run executes, with its recipients and its query's steps (data sources and parameters).
+    private static Task<Subscription> SubscriptionToRunAsync(BeaconContext context, int subscriptionId, CancellationToken cancellationToken)
+    {
+        return context.Subscriptions
+            .Include(x => x.Recipients)
+            .Include(x => x.Query)
+                .ThenInclude(x => x.Steps)
+                    .ThenInclude(x => x.DataSource)
+            .Include(x => x.Query)
+                .ThenInclude(x => x.Steps)
+                    .ThenInclude(x => x.Parameters)
+            .Where(x => x.Id == subscriptionId)
+            .SingleAsync(cancellationToken);
+    }
+
     private async Task<McpSettingsData> PiiSettingsAsync(IReadOnlyCollection<int> dataSourceIds, CancellationToken cancellationToken)
     {
         McpSettingsData? settings = null;

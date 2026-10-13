@@ -3,7 +3,7 @@ import { fetchJson, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { fetchPagedList, listQueryString } from '@/lib/paging';
 import { usePagedList } from '@/lib/usePagedList';
-import { ChangeSource, ParameterType } from '@/lib/enums';
+import { ChangeSource, ParameterType, QueryVersionStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
 // ---------- Versions ----------
@@ -13,6 +13,7 @@ export interface QueryVersionSummary {
   id: number;
   versionNumber: number;
   label: string | null;
+  status: QueryVersionStatus;
   name: string;
   createdTime: string;
   /** Author's display name or a neutral "User {id}" label; null for the pre-edit baseline snapshot and versions saved before it was recorded. */
@@ -35,6 +36,7 @@ export interface QueryVersionDetail {
   id: number;
   versionNumber: number;
   label: string | null;
+  status: QueryVersionStatus;
   name: string;
   description: string | null;
   finalQuery: string | null;
@@ -56,6 +58,25 @@ export function useQueryVersionsList(queryId: number | undefined, urlPrefix?: st
     enabled: typeof queryId === 'number' && Number.isFinite(queryId),
   });
 }
+
+/**
+ * Whether a query with nothing live (no steps, no active version) has its first version waiting for approval: with the
+ * approval workflow on a new query runs nothing until then. One small read, made only when `nothingLive`.
+ */
+export function useFirstVersionPending(queryId: number | undefined, nothingLive: boolean) {
+  return useQuery({
+    queryKey: ['queries', queryId, 'versions', 'first-pending'],
+    queryFn: async () => {
+      const page = await fetchPagedList<QueryVersionSummary>(`/beacon/api/queries/${queryId}/versions`, { pageSize: 5 });
+      return page.items.some(x => x.status === QueryVersionStatus.PendingApproval);
+    },
+    enabled: nothingLive && typeof queryId === 'number' && Number.isFinite(queryId),
+  });
+}
+
+/** What a query whose first version waits for approval says, on its page and in its editor. */
+export const FIRST_VERSION_PENDING_MESSAGE =
+  "This query's first version is waiting for approval; nothing runs until it is approved.";
 
 export function useQueryVersionDetailQuery(versionId: number | undefined) {
   return useQuery({
@@ -81,17 +102,54 @@ export function useQueryVersionDiffQuery(
   });
 }
 
+export const QUERY_VERSION_STATUS_LABEL: Record<QueryVersionStatus, string> = {
+  [QueryVersionStatus.Active]: 'Active',
+  [QueryVersionStatus.Archived]: 'Archived',
+  [QueryVersionStatus.PendingApproval]: 'Pending approval',
+  [QueryVersionStatus.Rejected]: 'Rejected',
+  [QueryVersionStatus.Superseded]: 'Superseded',
+};
+
+/** Only a version that was live can be restored: a pending, rejected or superseded proposal was never approved. */
+export function isRestorable(status: QueryVersionStatus | undefined): boolean {
+  return status === QueryVersionStatus.Active || status === QueryVersionStatus.Archived;
+}
+
+/** What a restore answers: the new version's number, and whether it waits for approval instead of going live. */
+export interface RestoreQueryVersionResult {
+  /** The new version's number (named `queryId` on the wire since the first release). */
+  queryId: number;
+  submittedForApproval: boolean;
+  supersededRequests: number;
+}
+
+/** The toast for a restore: submitted for approval (and how many pending requests it replaced), or live. */
+export function restoreMessage(result: RestoreQueryVersionResult): string {
+  if (!result.submittedForApproval) {
+    return 'Version restored';
+  }
+
+  const replaced = result.supersededRequests ?? 0;
+  if (replaced <= 0) {
+    return 'Restore submitted for approval';
+  }
+
+  return `Restore submitted for approval; it replaces ${replaced} pending request${replaced === 1 ? '' : 's'}`;
+}
+
 export function useRestoreQueryVersion(queryId: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<number, unknown>({
+    createSimpleMutation<number, RestoreQueryVersionResult>({
       qc,
-      mutationFn: (versionId) => beaconApi().restoreQueryVersion(versionId),
+      mutationFn: async (versionId) =>
+        unwrap<RestoreQueryVersionResult>(await beaconApi().restoreQueryVersion(versionId)),
       invalidate: [
         ['query', queryId],
         ['queries', queryId, 'versions'],
+        ['approvals'],
       ],
-      successMsg: 'Version restored',
+      successMsg: (_, result) => restoreMessage(result),
       errorFallback: 'Restore failed',
     }),
   );
@@ -160,6 +218,8 @@ export interface QueryDetail {
   finalQueryDataSourceId: number | null;
   aiActorId: number | null;
   aiActorName: string | null;
+  /** The version the query's stored SQL is live as; null before its first version went live. */
+  activeVersionId: number | null;
   isLocked: boolean;
   /** Exposed as the MCP tool `q_<mcpToolName>`. */
   mcpToolEnabled: boolean;
@@ -336,6 +396,11 @@ export interface UpdateQueryPayload {
   steps: UpdateQueryStepPayload[];
   finalQuery: string | null;
   finalQueryDataSourceId: number | null;
+  /**
+   * The active version the edit was loaded on: a save made on another version than the query's active one is refused
+   * (409), so a stale editor never overwrites, or submits over, what went live since.
+   */
+  baseVersionId?: number | null;
 }
 
 export interface UpdateQueryResult {

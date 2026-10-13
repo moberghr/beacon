@@ -81,6 +81,12 @@ public class SubscriptionDetailsData
     public bool OwnerNotAuthorized { get; set; }
 
     /// <summary>
+    /// The last run was skipped because, with the approval workflow on, the query's stored SQL is not its approved version
+    /// (save the query to submit it for approval, or restore a version and approve it).
+    /// </summary>
+    public bool NotApproved { get; set; }
+
+    /// <summary>
     /// Anomaly detection configuration for this subscription
     /// </summary>
     public AnomalyConfigData? AnomalyConfig { get; set; }

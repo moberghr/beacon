@@ -39,9 +39,25 @@ const DETAIL = {
     createdByUserName: 'Ana Analyst',
     changeSource: null,
     changeReason: null,
+    steps: [
+      {
+        stepOrder: 1,
+        sqlValue: 'SELECT * FROM invoices WHERE open = true',
+        dataSourceId: 4,
+        dataSourceName: 'finance-db',
+        name: 'Open',
+        description: null,
+        parameters: [],
+      },
+    ],
   },
   currentActiveVersion: null,
   autoDiff: null,
+  contentHash: 'hash-11',
+  isOwnRequest: false,
+  mayApprove: true,
+  approveBlockedReason: null,
+  isStale: false,
 };
 
 function serveApprovals() {
@@ -96,7 +112,8 @@ describe('approvals and the Approver permission', () => {
 
     renderDetail();
 
-    expect(await screen.findByText('Proposed SQL')).toBeInTheDocument();
+    expect(await screen.findByText('Proposed change')).toBeInTheDocument();
+    expect(screen.getByText('Proposed SQL')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Open invoices' })).toHaveAttribute('href', '/queries/3');
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
   });

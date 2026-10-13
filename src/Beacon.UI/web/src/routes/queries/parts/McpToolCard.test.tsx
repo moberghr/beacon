@@ -20,6 +20,7 @@ function detail(overrides: Partial<QueryDetail> = {}): QueryDetail {
     finalQueryDataSourceId: null,
     aiActorId: null,
     aiActorName: null,
+    activeVersionId: 3,
     isLocked: false,
     mcpToolEnabled: false,
     mcpToolName: null,

@@ -398,9 +398,9 @@ The Admin role's duties are split into six **functional permissions**. An Admin 
 
 | Permission | What it opens |
 |---|---|
-| **Approver** | Approve and reject query changes (`POST /approvals/{id}/approve`, `/reject`); read the approval requests of **every** project (`GET /approvals/pending`, `GET /approvals/{id}`) |
+| **Approver** | Approve and reject query changes (`POST /approvals/{id}/approve`, `/reject`) — never their own (see [Queries → Approval workflow](/features/queries/#approval-workflow)); with the approval workflow on, approve the plans of AI actors they did not create; read the approval requests of **every** project (`GET /approvals/pending`, `GET /approvals/{id}`) |
 | **Auditor** | Read the MCP audit (`GET /mcp/audit`), the MCP settings and project settings (`GET /mcp/settings`, `GET /mcp/projects/{projectId}/settings`), the admin settings with secrets masked (`GET /admin-settings`) and every user's API keys (`GET /api-keys/admin`) |
-| **SecurityAdmin** | Read and change the MCP settings and project settings; read and change the admin settings **except the LLM provider, endpoint, region, authentication mode and credentials** ([Admin Settings](/features/admin-settings/#who-may-do-what)); test the stored LLM connection; create, change and delete recipients; publish a saved query it can read as an MCP tool (`PUT /queries/{id}/mcp-tool`); set a repository access token (`PUT /projects/repositories/{id}/token`, and on project creation) |
+| **SecurityAdmin** | Read and change the MCP settings and project settings; read and change the admin settings **except the LLM provider, endpoint, region, authentication mode and credentials** ([Admin Settings](/features/admin-settings/#who-may-do-what)); test the stored LLM connection; create, change and delete recipients; publish a saved query it can read as an MCP tool (`PUT /queries/{id}/mcp-tool`) — with the approval workflow on, not when it requested or approved the version the tool runs; set a repository access token (`PUT /projects/repositories/{id}/token`, and on project creation) |
 | **UserAdmin** | Manage users (`/users/*`, including `PUT /users/{id}/roles`; creating an internal user and changing what a user signs in with stay an Admin's), list and revoke any user's API keys, change the owner of a subscription, data contract or AI actor, manage the members of **any** project, restrict a project (`PUT /projects/{id}/access`) |
 | **DataSourceAdmin** | Create, test and delete data sources; link a data source no open project holds (restricted-only or unlinked) into a project it is the admin of, when it can read the source; change a shared data source's state with Write only where it acts; force a metadata refresh without the cooldown |
 | **MigrationOperator** | Data migration (`/migrations/*`, mapped only while the host runs migrations), for the jobs whose data sources it reads, and the Home migration totals of those jobs |
@@ -442,7 +442,7 @@ With `Beacon:Authorization:SeparationOfDuties:Enabled: true` (off by default), a
 - whatever way a caller came to hold both permissions of a pair (roles assigned before the switch, a mapped permission), it holds **neither** of them, and a warning is logged at most once an hour per caller;
 - the startup log says that separation of duties is on and, best effort, how many active users already hold a conflicting pair through their stored roles.
 
-Admins hold every permission by construction and are not separated.
+Admins hold every permission by construction and are not separated by these pairs; with the approval workflow on, it still separates them from their own query changes (an Admin does not approve a change they requested or shaped, nor publish as an MCP tool a version they requested or approved — see [Upgrading: change governance](#upgrading-change-governance)).
 
 ### Host seams for permissions
 
@@ -1009,6 +1009,130 @@ This version splits the Admin role into [functional permissions](#functional-per
   settings; `IQueryGuardrailService.IsPiiColumn` and `PiiValueScreen.ContainsPiiValue` match more. The REST and OpenAPI
   shapes are unchanged; `GET /beacon/api/data-sources/{id}/metadata` and the refresh return `sampleValues` to an Admin
   only.
+
+## Upgrading: change governance
+
+This version makes the query change approval workflow a working four-eyes control and applies it to every path that
+changes what a query runs. It stays **opt-in** (see [Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow));
+the rules are in [Queries → Approval workflow](/features/queries/#approval-workflow).
+
+**Without any configuration:**
+
+- **Startup note.** With the workflow off, startup logs a Warning outside Development (Information in Development).
+- **Every executable change is versioned.** A save that changes a step's order, name, data source or parameters, removes
+  or adds a step, or changes the final query writes a new active version, as a SQL change always did. Step orders must run
+  1, 2, 3, … without gaps or repeats: a save that changes what runs, a restore or an approval of other orders is refused
+  (`409`), so renumber such a query's steps (save them as 1, 2, 3, …) before its next content change, and do not restore
+  or approve a version recorded with such orders. The baseline that records the SQL an edit replaces is not written twice
+  when a version that was live already holds the same content.
+- **Restore** puts back only a version that was live: restoring a pending, rejected or superseded version answers `409`.
+  The restored steps pass the save check again (`409` with the reason otherwise). Restoring a query another user locked
+  needs Manage on the query (overriding the lock); the lock holder needs Write, as for an unlocked query.
+- **AI actors** validate a refinement and a new query as a draft before anything is stored (the stored query is no longer
+  changed to try the SQL). A refinement is saved as a new active version attributed to the actor's creator.
+- **The editor sends the version it loaded** (`baseVersionId`); a save made on a version that is no longer active answers
+  `409` — reload and make the change again.
+
+**With the workflow on:**
+
+- **Four eyes.** The requester and the reviewer are the signed-in users (recorded by `Users.ExternalId`, named by
+  their label), never ids the request carries. Nobody approves their own change, nor one they shaped (an AI plan's
+  reviewer and revision requesters) — **Admins included**: an Admin can no longer approve their own change. A host with a
+  single person who can approve needs a second Approver or `AllowSelfApproval` (off by default; a startup Warning says
+  when it is on, and another when fewer than two users can approve). A submission Beacon cannot name a requester for (an
+  API key without an active owner, an AI actor without a creator) is refused.
+- **The decision binds to what was reviewed.** The approval detail carries the proposal's content hash and the
+  step-by-step diff; `POST /beacon/api/approvals/{id}/approve` must send that hash back (`expectedContentHash`), or it
+  answers `409`. A client that approved with a comment only must be updated.
+- **Decisions are final.** Approve and reject act only on a pending request (`409` otherwise); an approval is refused as
+  stale (`409`) once another version went live after the request was made, and when the proposal no longer holds the
+  content it was submitted with; every step passes the save check again. The decision, the query's steps and the version
+  statuses commit in one transaction.
+- **Pending requests made before this version must be submitted again.** They record neither the version they were made
+  on nor their content hash, so they can be rejected, not approved: reject them and save (or restore) the change again.
+- **One pending request per query.** A new submission supersedes the earlier pending one (`Superseded`) and notifies its
+  requester; pending requests that already exist are left as they are until the next submission for the query. A save
+  that only brings unreviewed stored SQL under review, and an AI refinement, never supersede another person's request
+  (`409` while one waits).
+- **New queries go live only after approval.** A query created with steps, or a new query's first save, is submitted
+  as its first version; until it is approved the query has no steps and runs nothing.
+- **Restore and AI refinements are changes**: a restore is submitted for approval ("Restore of version N"), and so is an
+  AI actor's refinement or new query, with the actor's creator as its requester. Saving a query whose stored SQL is not
+  its active version's (never versioned, or changed before this version outside a versioned save) submits that SQL for
+  approval.
+- **AI actors' plans and subscriptions.** Approving a plan needs the Approver permission (an Admin holds it) and someone
+  other than the actor's creator and the plan's revision requesters; the creator still rejects or asks for a revision. A
+  plan is decided only from `PendingApproval` (`409` otherwise). An actor subscribes only to a query whose active version
+  was approved for exactly its content.
+- **Runs execute reviewed SQL.** A subscription run whose query's stored steps are not its active version's content is
+  not run and is recorded as *Skipped* ("Skipped: query change not approved. Save the query to submit its SQL for
+  approval, or restore a version and approve it."); the subscription detail and Control Tower rows report `notApproved`,
+  and a test delivery answers `409`. In strict mode (`ApprovalWorkflow.RequireApprovedVersionToRun`, recommended for
+  regulated deployments) a run also needs an approved request for exactly the active version's content: versions approved
+  before this version recorded no content hash and do not run until approved again (restore the active version to
+  submit it), nor do queries never versioned. The startup Warnings count the queries affected.
+- **MCP tools**: while the workflow is on, whoever requested or approved the version a tool runs cannot enable the tool
+  (`403`), nor can a caller without a user id; another SecurityAdmin (or Admin) publishes it. `AllowSelfApproval` lifts
+  this. The check is made when the tool is enabled.
+- **Direct step changes** (`IQueryService.AddQueryStep`, `UpdateQueryStep`, `DeleteQueryStep`) are refused (`409`).
+
+**Migration.** `AddQueryChangeIntegrity` (PostgreSQL `20261013120000`, SQL Server `20261013120001`) adds four nullable
+columns: `query_versions.content_hash` (the SHA-256 of a version's executable content), and on
+`query_approval_requests` `base_version_id`, `approved_content_hash` and `contributor_user_ids` (the people besides the
+requester who shaped a change: a text array on PostgreSQL, JSON text on SQL Server). Existing rows are not rewritten: a
+version without a hash is compared by the hash of its snapshot, a request without a base and a hash is reject-only, and
+an approval of a version without a hash records it. Rolling it back drops the four columns.
+
+**Public API.**
+
+- Changed (breaking for callers and implementers):
+  - `IQueryApprovalService.ApproveAsync(int requestId, string? comment, string? expectedContentHash, CancellationToken)`
+    and `RejectAsync(int requestId, string? comment, CancellationToken)` decide as the current caller (the reviewer id and
+    name parameters are gone) and return a `QueryApprovalDecision`; approving requires the content hash the reviewer was
+    shown.
+  - `IQueryVersionService.CreateProposedVersionAsync` is replaced by
+    `SubmitForApprovalAsync(int queryId, QueryData proposed, QueryChangeSubmission submission, CancellationToken)`,
+    which also files the request and returns a `QueryVersionChange`; `RestoreVersionAsync` returns a `QueryVersionChange`
+    (the new version — Active, or PendingApproval when submitted — and the number of requests it superseded) instead of
+    the version's number.
+  - `RestoreQueryVersionCommand` is an `IRequest<RestoreQueryVersionResult>`:
+    `RestoreQueryVersionResult(int VersionNumber, bool SubmittedForApproval, int SupersededRequests)`.
+  - `SavedQueryRunnableVersion.WhereHasRunnableVersion` and `ForQuery` take an optional `bool requireApprovedHash`
+    (strict mode; see `SavedQueryRunnableVersion.RequiresApprovedHash`) — source compatible, recompile.
+  - The `AiActorService` constructor takes `IQueryVersionService` and `BeaconConfiguration`.
+  - `IQueryService.CreateQuery` submits a new query's content for approval while the workflow is on.
+- Obsolete and ignored: `ApproveQueryChangeCommand.ReviewerUserId` / `ReviewerName`, `RejectQueryChangeCommand.ReviewerUserId` /
+  `ReviewerName`, `RestoreQueryVersionCommand.UserId`. Obsolete: `IQueryService.AddQueryStep`, `UpdateQueryStep`,
+  `DeleteQueryStep` (to be removed).
+- New:
+  - `ApprovalWorkflowOptions.AllowSelfApproval` and `RequireApprovedVersionToRun`; `ApprovalStatus.Superseded` (`4`)
+    and `QueryVersionStatus.Superseded` (`5`).
+  - `QueryVersion.ContentHash`; `QueryApprovalRequest.BaseVersionId`, `ApprovedContentHash` and `ContributorUserIds`.
+  - `IQueryVersionService.SubmitNewQueryAsync(Query query, QueryData proposed, QueryChangeSubmission submission, CancellationToken)`.
+  - `QueryChangeSubmission(RequesterUserId, RequesterDisplayName, Source, Reason, Summary)` with `ExpectedBaseVersionId`,
+    `SupersedesOthers` (default `true`) and `ContributorUserIds`; `QueryVersionChange(Version, SupersededRequests)`;
+    `QueryApprovalDecision(RequestId, Status, RequesterUserId, ReviewerUserId)`.
+  - `ApprovalRequestDetail.ContentHash`, `IsOwnRequest`, `MayApprove`, `ApproveBlockedReason` and `IsStale`;
+    `ApproveQueryChangeCommand.ExpectedContentHash`.
+  - `QueryData.BaseVersionId`; `QueryDetailsData.ActiveVersionId`.
+  - `SubscriptionDetailsData.NotApproved`, `SubscriptionDetail.NotApproved` (an optional last positional parameter),
+    `ControlTowerSubscriptionHealthData.NotApproved`; `NotificationFailureReasons.NotApproved`.
+  - `SavedQueryRunnableVersion.RequiresApprovedHash(BeaconConfiguration)`; `BeaconActor.IsRecordedAs`;
+    `AiActorService.AiActorChangeSource`, `PlanNotPendingMessage` and `NotApprovedForSubscriptionMessage`.
+- REST and OpenAPI:
+  - `GET /beacon/api/approvals/{id}` adds `contentHash`, `isOwnRequest`, `mayApprove`, `approveBlockedReason` and
+    `isStale`; `POST /beacon/api/approvals/{id}/approve` takes `expectedContentHash` besides `comment` (required to
+    approve; ignored by `/reject`).
+  - `PUT /beacon/api/queries/{id}` (`QueryData`) takes `baseVersionId`; `GET /beacon/api/queries/{id}` returns
+    `activeVersionId`.
+  - `POST /beacon/api/query-versions/{id}/restore` returns `submittedForApproval` and `supersededRequests` besides
+    `queryId` (which holds the new version's number, as before).
+  - The subscription detail and the Control Tower subscription rows return `notApproved`.
+  - The `ApprovalStatus` enum gains `4` (Superseded) and `QueryVersionStatus` gains `5` (Superseded).
+  - Approve, reject and restore answer `409` for a decided, superseded, stale or pre-upgrade request, a changed proposal
+    or other content than reviewed, a step the save check refuses or a never-approved restore source, and `403` for an
+    own change, one the caller shaped, or a request without a requester. A save answers `409` for a stale editor, another
+    person's pending request, a requester Beacon cannot name or a concurrent write.
 
 ## Migration from Previous Versions
 

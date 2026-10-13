@@ -616,6 +616,49 @@ A host that used data migration before must set `Beacon:Migrations:Enabled` to `
 destination as a migration write target; until then its jobs do not run.
 :::
 
+## Approval Workflow
+
+The query change approval workflow (maker-checker on what queries run) is **off unless the host turns it on**, in code:
+Beacon cannot tell a new installation from an existing one, so turning it on is the host's decision. See
+[Queries → Approval workflow](/features/queries/#approval-workflow) for what it covers.
+
+```csharp
+builder.Services.AddBeaconServices(builder.Configuration, options =>
+{
+    // ...
+    options.EnableApprovalWorkflow(workflow =>
+    {
+        workflow.RequireApprovedVersionToRun = true; // strict mode, recommended for regulated deployments
+    });
+});
+```
+
+| Option (`options.ApprovalWorkflow.*`) | Description | Default |
+|--------|-------------|---------|
+| `Enabled` | Every change to a query's executable content (an edit, a new query, a version restore, an AI actor's refinement or new query) waits for a second person's approval; subscription runs execute only stored SQL that is the query's active version; approving an AI actor's plan takes an Approver other than its creator; publishing a query as an MCP tool is refused to whoever requested or approved the version it runs. | `false` |
+| `AllowSelfApproval` | Lets the requester of a change (and whoever shaped it: an AI plan's reviewer and revision requesters) approve it, publish the query as an MCP tool, an AI actor's creator and a plan's revision requesters approve its plans, and a caller Beacon cannot name submit a change. For a host with a single person who can approve. | `false` |
+| `RequireApprovedVersionToRun` | Strict mode: a subscription runs only when its query's active version carries an approved request for exactly its content (the approval recorded the version's content hash) and the stored SQL is that content — the rule saved-query MCP tools then follow too; a run that may not is recorded as skipped. Without it, a run whose stored SQL differs from the active version is still refused, a query never versioned runs as stored, and a tool may run a version approved before Beacon recorded content hashes. Recommended for regulated deployments. | `false` |
+
+**Startup notes.** Beacon logs once at startup how query changes are governed: the workflow off is a **Warning**
+outside Development (Information in Development); `AllowSelfApproval` on is a **Warning**; with the workflow on, an
+Information line names the run rule (strict or not). With the workflow on, once the host has started, Beacon counts in
+the background what the rules leave open and logs a **Warning** for each count above zero (counts, option names and
+tool names only — never SQL):
+
+| Warning | Logged when | Remedy |
+|---------|-------------|--------|
+| Queries never versioned | Queries with steps and no active version (stored before the workflow was on). Outside strict mode they run as stored, each run logged; in strict mode they do not run. | Save each query to submit its SQL, and approve it. |
+| Queries with subscriptions whose stored SQL is not their active version's content | Always with the workflow on: every run of them is skipped. | Save the query to submit its stored SQL for approval, or restore a version and approve the restore. |
+| Active versions not approved for their content hash | Strict mode only: queries with a subscription or an enabled MCP tool whose active version went live while the workflow was off or was approved before Beacon kept content hashes; neither runs. | Restore the active version and approve the restore. |
+| Fewer than two users can approve | `AllowSelfApproval` off and Beacon user management on, counting enabled users who hold the Approver permission (or Admin) through their stored roles; skipped when permissions come from identity-provider roles. | Give a second user the Approver role (or Admin), or turn on `AllowSelfApproval` on a host with one approver. |
+| MCP tools on approvals without a content hash | Outside strict mode: enabled tools whose active version's approval recorded no hash; names up to 20 tools. | Restore the version and approve the restore; strict mode would stop these tools until then. |
+
+A count that cannot be read (the database is unreachable at startup, say) is logged as **Information**, never a
+failure. Each subscription run adds its own **Warning**: a run of a never-versioned query outside strict mode; a run
+refused because the stored SQL is not the approved version, naming the remedy (save the query to submit its SQL, or
+restore a version and approve it); and a run refused because the active version's snapshot cannot be read (restore a
+readable version and approve it).
+
 ## AI / LLM Configuration (Optional — Experimental)
 
 :::caution[Experimental]

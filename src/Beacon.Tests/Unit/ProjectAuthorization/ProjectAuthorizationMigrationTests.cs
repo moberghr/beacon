@@ -24,9 +24,11 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// migration adds one nullable timestamp that existing contracts leave empty. The migration-writes migration marks no data
 /// source as a migration write target: it adds one boolean that existing rows leave false. The last one adds the users'
 /// security stamp, one nullable column that existing users leave empty, and the flag that a user must choose a new
-/// password, which existing users leave false. The last one only changes the default of the global MCP settings' sample
-/// value collection to off, for a row created from then on; it rewrites no stored row, and its target model is the
-/// snapshot. Each earlier migration's target model differs from the next one's only by that next migration.
+/// password, which existing users leave false. The next one only changes the default of the global MCP settings' sample
+/// value collection to off, for a row created from then on; it rewrites no stored row. The last one adds the query change
+/// integrity columns — a version's content hash, a request's base version, approved hash and contributors — all
+/// nullable, which existing rows leave empty, and its target model is the snapshot. Each earlier migration's target model
+/// differs from the next one's only by that next migration.
 /// </summary>
 [TestFixture]
 public class ProjectAuthorizationMigrationTests
@@ -51,8 +53,8 @@ public class ProjectAuthorizationMigrationTests
             .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
             .Skip(1)
             .Should().Equal(
-                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff")],
-                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp and sample-default migrations follow it");
+                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff"), IdEndingWith(migrations, "_AddQueryChangeIntegrity")],
+                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp, sample-default and change-integrity migrations follow it");
     }
 
     [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
@@ -145,7 +147,7 @@ public class ProjectAuthorizationMigrationTests
     // stored settings row, so an existing installation keeps the value it has.
     [TestCase(false, "mcp_settings", "enable_sample_value_collection", "boolean")]
     [TestCase(true, "McpSettings", "EnableSampleValueCollection", "bit")]
-    public void TheSampleDefaultMigration_OnlyTurnsTheColumnDefaultOff_AndItsTargetModelIsTheSnapshot(bool sqlServer, string table, string column, string type)
+    public void TheSampleDefaultMigration_OnlyTurnsTheColumnDefaultOff_AndItsTargetModelIsTheOneBeforeTheNext(bool sqlServer, string table, string column, string type)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -167,11 +169,71 @@ public class ProjectAuthorizationMigrationTests
         differences.Should().ContainSingle("the migration's target model differs from the one before only by the default")
             .Which.Should().BeOfType<AlterColumnOperation>()
             .Which.Should().BeEquivalentTo(new { Table = table, Name = column, DefaultValue = (object?)false }, x => x.ExcludingMissingMembers());
+        var next = MigrationNamed(context, migrations, "_AddQueryChangeIntegrity");
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Should().HaveCount(4, "the next migration's target model differs from its target model only by that migration")
+            .And.AllBeOfType<AddColumnOperation>();
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        NextAfter(migrations, "_DefaultSampleValueCollectionOff").Should().EndWith("_AddQueryChangeIntegrity", "it sorts after every earlier migration");
+    }
+
+    // The query change integrity columns: additive and nullable, so existing versions keep no hash (computed from their
+    // snapshot when needed) and existing requests no base, approved hash or contributors. No index, no key: the base
+    // version is a recorded id, the contributors recorded ids.
+    [TestCase(false, "query_versions", "content_hash", "query_approval_requests", "approved_content_hash", "base_version_id", "contributor_user_ids", "character varying(64)", "integer", "text[]")]
+    [TestCase(true, "QueryVersions", "ContentHash", "QueryApprovalRequests", "ApprovedContentHash", "BaseVersionId", "ContributorUserIds", "nvarchar(64)", "int", "nvarchar(max)")]
+    public void TheChangeIntegrityMigration_AddsFourNullableColumns_AndItsTargetModelIsTheSnapshot(
+        bool sqlServer,
+        string versions,
+        string contentHash,
+        string requests,
+        string approvedHash,
+        string baseVersion,
+        string contributors,
+        string hashType,
+        string intType,
+        string idsType)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+        var previous = MigrationNamed(context, migrations, "_DefaultSampleValueCollectionOff");
+
+        var migration = MigrationNamed(context, migrations, "_AddQueryChangeIntegrity");
+
+        migration.UpOperations.Should().AllBeOfType<AddColumnOperation>().Which.Should().BeEquivalentTo(
+            new[]
+            {
+                new { Schema = "beacon", Table = versions, Name = contentHash, ColumnType = hashType, MaxLength = (int?)64, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = requests, Name = approvedHash, ColumnType = hashType, MaxLength = (int?)64, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = requests, Name = baseVersion, ColumnType = intType, MaxLength = (int?)null, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = requests, Name = contributors, ColumnType = idsType, MaxLength = (int?)null, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null }
+            },
+            x => x.ExcludingMissingMembers().WithStrictOrdering());
+        migration.DownOperations.Should().AllBeOfType<DropColumnOperation>().Which.Should().BeEquivalentTo(
+            new[]
+            {
+                new { Schema = "beacon", Table = versions, Name = contentHash },
+                new { Schema = "beacon", Table = requests, Name = approvedHash },
+                new { Schema = "beacon", Table = requests, Name = baseVersion },
+                new { Schema = "beacon", Table = requests, Name = contributors }
+            },
+            x => x.ExcludingMissingMembers().WithStrictOrdering());
+        var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(Initialized(previous.TargetModel!, initializer).GetRelationalModel(), target)
+            .Should().AllBeOfType<AddColumnOperation>()
+            .Which.Select(x => $"{x.Table}.{x.Name} {x.ColumnType} {x.IsNullable}")
+            .Should().BeEquivalentTo(
+                migration.UpOperations.OfType<AddColumnOperation>().Select(x => $"{x.Table}.{x.Name} {x.ColumnType} {x.IsNullable}"),
+                "the migration's Up is exactly what its target model adds");
         context.GetService<IMigrationsModelDiffer>()
             .GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).Last().Should().EndWith("_DefaultSampleValueCollectionOff", "it sorts after every earlier migration");
+        Ordered(migrations).Last().Should().EndWith("_AddQueryChangeIntegrity", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]

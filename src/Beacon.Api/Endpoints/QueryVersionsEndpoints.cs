@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Beacon.Core.Handlers.QueryVersions;
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -28,17 +27,18 @@ internal static class QueryVersionsEndpoints
                 m.Send(new DiffQueryVersionsQuery { VersionIdA = versionIdA, VersionIdB = versionIdB }, ct))
             .WithName("DiffQueryVersions");
 
-        versions.MapPost("/{id:int}/restore", async (int id, HttpContext http, IMediator m, CancellationToken ct) =>
+        versions.MapPost("/{id:int}/restore", async (int id, IMediator m, CancellationToken ct) =>
         {
-            // UserId comes from the authenticated principal, never the request body —
-            // otherwise a client can stamp any user id into the audit trail.
-            var userId = http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var queryId = await m.Send(new RestoreQueryVersionCommand { VersionId = id, UserId = userId }, ct);
-            return new RestoreQueryVersionResponse(queryId);
+            // The restoring user is the request's caller, resolved by the handler — never an id the request carries.
+            var result = await m.Send(new RestoreQueryVersionCommand { VersionId = id }, ct);
+            return new RestoreQueryVersionResponse(result.VersionNumber, result.SubmittedForApproval, result.SupersededRequests);
         }).WithName("RestoreQueryVersion");
 
         return group;
     }
 }
 
-internal sealed record RestoreQueryVersionResponse(int QueryId);
+/// <param name="QueryId">The new version's number (named so since the first release).</param>
+/// <param name="SubmittedForApproval">The approval workflow is on: the restore waits for approval and nothing went live.</param>
+/// <param name="SupersededRequests">How many pending requests of the query the submitted restore replaced.</param>
+internal sealed record RestoreQueryVersionResponse(int QueryId, bool SubmittedForApproval, int SupersededRequests);

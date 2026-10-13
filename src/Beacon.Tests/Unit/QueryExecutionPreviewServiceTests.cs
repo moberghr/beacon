@@ -21,6 +21,22 @@ public class QueryExecutionPreviewServiceTests
 
     private static readonly ListRequest SecondPage = new Paging { Page = 1, PageSize = 20, Sort = "-name" };
 
+    // A preview of unsaved steps runs a temporary query once and deletes it: it is stored live through the preview seam,
+    // never through IQueryService.CreateQuery, which with the approval workflow on would store nothing live to run.
+    [Test]
+    public async Task ATemporaryPreview_StoresItsQueryThroughThePreviewSeam()
+    {
+        var queryService = new Mock<IQueryService>();
+        var stored = new RecordingStoredQueryPreview();
+        var draft = new QueryData { Name = "draft", Steps = [new QueryStepData { StepOrder = 1, DataSourceId = 3, SqlValue = "SELECT 1" }] };
+
+        await CreateService(queryService, stored).ExecuteTemporaryQueryPreview(draft, CancellationToken.None);
+        await CreateService(queryService, stored).ExecuteTemporaryStepPreview(draft, 1, null, CancellationToken.None);
+
+        stored.TemporaryQueries.Should().HaveCount(2).And.OnlyContain(x => x.Steps.Single().SqlValue == "SELECT 1");
+        queryService.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Test]
     public async Task ExecuteQueryPreview_ExecutionThrows_ReturnsFailedResultWithCause()
     {

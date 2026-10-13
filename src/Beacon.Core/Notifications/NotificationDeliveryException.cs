@@ -51,6 +51,13 @@ public static class NotificationFailureReasons
     /// </summary>
     public const string OwnerNotAuthorized = "Skipped: owner not authorized.";
 
+    /// <summary>
+    /// Not a delivery failure: the comment of a run skipped before anything ran because, with the approval workflow on,
+    /// the query's stored SQL is not its approved version (<see cref="Data.Enums.NotificationStatus.Skipped"/>). It names
+    /// the remedy: a save submits the stored SQL for approval, a restore of a version submits that version.
+    /// </summary>
+    public const string NotApproved = "Skipped: query change not approved. Save the query to submit its SQL for approval, or restore a version and approve it.";
+
     private static readonly Regex RecordedComment = BuildRecordedCommentPattern();
 
     /// <summary>The reason for an HTTP response that was not a success: only the status class is kept.</summary>
@@ -121,7 +128,8 @@ public static class NotificationFailureReasons
                 DestinationNotAllowed,
                 DestinationUnreadable,
                 DestinationNotEncrypted,
-                OwnerNotAuthorized
+                OwnerNotAuthorized,
+                NotApproved
             }
             .Concat(Enumerable.Range(1, 5).Select(x => ForStatus((HttpStatusCode)(x * 100))))
             .Select(Regex.Escape);

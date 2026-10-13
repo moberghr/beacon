@@ -33,6 +33,8 @@ export interface ControlTowerSubscriptionHealthData {
   lastResultCount: number | null;
   /** The subscription's owner may no longer run its query, so its scheduled runs are skipped until an Admin assigns another. */
   ownerNotAuthorized: boolean;
+  /** The last run was skipped: with the approval workflow on, the query's stored SQL is not its approved version. */
+  notApproved?: boolean;
   unresolvedTaskCount: number;
   totalTaskCount: number;
   anomalyCount30Days: number;

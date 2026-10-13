@@ -30,9 +30,15 @@ const DETAIL = {
     createdByUserName: 'Ana Analyst',
     changeSource: null,
     changeReason: null,
+    steps: [],
   },
   currentActiveVersion: null,
   autoDiff: null,
+  contentHash: 'hash-11',
+  isOwnRequest: false,
+  mayApprove: true,
+  approveBlockedReason: null,
+  isStale: false,
 };
 
 function mockDetail() {
@@ -109,6 +115,6 @@ describe('ReviewApprovalDialog', () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled();
     });
-    expect(captured).toMatchObject({ comment: 'LGTM' });
+    expect(captured).toMatchObject({ comment: 'LGTM', expectedContentHash: 'hash-11' });
   });
 });

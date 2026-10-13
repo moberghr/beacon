@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -46,6 +46,8 @@ import {
   usePreviewQueryMutation,
   usePreviewStepMutation,
   useUpdateQueryMutation,
+  FIRST_VERSION_PENDING_MESSAGE,
+  useFirstVersionPending,
 } from './queries';
 import { StepParameterDialog } from './parts/StepParameterDialog';
 import { QueryRunPanel } from './parts/QueryRunPanel';
@@ -118,7 +120,7 @@ function stepFromWire(s: QueryStep): EditorStep {
   };
 }
 
-function toPayload(state: EditorState, queryId: number): UpdateQueryPayload {
+function toPayload(state: EditorState, queryId: number, baseVersionId: number | null = null): UpdateQueryPayload {
   const steps: UpdateQueryStepPayload[] = state.steps.map((s, idx) => ({
     stepId: s.stepId,
     stepOrder: idx + 1,
@@ -143,6 +145,7 @@ function toPayload(state: EditorState, queryId: number): UpdateQueryPayload {
     steps,
     finalQuery: state.finalQuery,
     finalQueryDataSourceId: state.finalQueryDataSourceId,
+    baseVersionId,
   };
 }
 
@@ -163,6 +166,9 @@ export default function QueryEditorPage() {
   const validId = Number.isFinite(id) ? id : undefined;
 
   const detail = useQueryDetailQuery(validId);
+  // With the approval workflow on, a new query has nothing live until its first version is approved.
+  const nothingLive = detail.data != null && detail.data.steps.length === 0 && (detail.data.activeVersionId ?? null) == null;
+  const firstVersionPending = useFirstVersionPending(validId, nothingLive);
   const defaultDataSource = useDefaultDataSource().data ?? null;
   const update = useUpdateQueryMutation();
   const previewStep = usePreviewStepMutation(validId);
@@ -181,9 +187,13 @@ export default function QueryEditorPage() {
   // source is configured for.
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The active version the edit was loaded on (not whatever a background refetch brings): a save sends it, and the
+  // server refuses the save once another version went live.
+  const baseVersionRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (detail.data && state == null) {
+      baseVersionRef.current = detail.data.activeVersionId ?? null;
       setState(fromDetail(detail.data));
     }
   }, [detail.data, state]);
@@ -309,9 +319,10 @@ export default function QueryEditorPage() {
   const save = async () => {
     if (validId == null) return;
     const stateAtSave = state;
-    await update.mutateAsync(toPayload(state, validId));
+    await update.mutateAsync(toPayload(state, validId, baseVersionRef.current));
     const fresh = await detail.refetch();
     if (fresh.data) {
+      baseVersionRef.current = fresh.data.activeVersionId ?? null;
       const freshState = fromDetail(fresh.data);
       setState(prev => (prev === stateAtSave ? freshState : prev));
     }
@@ -436,6 +447,15 @@ export default function QueryEditorPage() {
 
       {saveError && (
         <Banner tone="crit" icon={<AlertTriangle />} role="alert" title="The query was not saved" sub={saveError} />
+      )}
+
+      {nothingLive && firstVersionPending.data === true && (
+        <Banner
+          tone="info"
+          icon={<AlertTriangle />}
+          title={FIRST_VERSION_PENDING_MESSAGE}
+          sub="Saving a change submits it for approval and replaces the pending submission."
+        />
       )}
 
       <Card>

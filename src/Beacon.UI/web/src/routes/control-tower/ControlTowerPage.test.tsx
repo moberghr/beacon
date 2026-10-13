@@ -145,4 +145,27 @@ describe('ControlTowerPage', () => {
     expect(await within(panel).findByText('Skipped')).toBeInTheDocument();
     expect(within(panel).getByText('Skipped: owner not authorized.')).toBeInTheDocument();
   });
+
+  it('flags a subscription whose last run was skipped because its query change is not approved', async () => {
+    serve([
+      healthRow({}),
+      healthRow({
+        subscriptionId: 2,
+        queryName: 'revenue-join',
+        healthStatus: HealthStatus.Amber,
+        lastExecutionStatus: NotificationStatus.Skipped,
+        notApproved: true,
+      }),
+    ]);
+
+    renderWithProviders(<ControlTowerPage />, { initialEntries: ['/control-tower'] });
+
+    expect(await screen.findByText('revenue-join')).toBeInTheDocument();
+    expect(screen.getAllByText('Not approved')).toHaveLength(1);
+    expect(screen.queryByText('Owner not authorized')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('revenue-join'));
+    const panel = await screen.findByRole('dialog', { name: 'revenue-join' });
+    expect(within(panel).getByText(/this query's change is not approved/i)).toBeInTheDocument();
+  });
 });

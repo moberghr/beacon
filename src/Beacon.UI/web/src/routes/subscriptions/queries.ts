@@ -166,6 +166,10 @@ export interface SubscriptionDetail {
   ownerDisplayName: string | null;
   /** The owner may no longer run the query, so scheduled runs are skipped until an Admin assigns another owner. */
   ownerNotAuthorized: boolean;
+  /**
+   * The last run was skipped because, with the approval workflow on, the query's stored SQL is not its approved version.
+   */
+  notApproved?: boolean;
 }
 
 interface GetSubscriptionDetailResult {

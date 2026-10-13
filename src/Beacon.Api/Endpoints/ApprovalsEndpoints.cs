@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Approvals;
@@ -30,16 +29,14 @@ internal static class ApprovalsEndpoints
             int id,
             ApproveRejectRequest body,
             IMediator m,
-            HttpContext http,
             CancellationToken ct) =>
         {
-            var (userId, userName) = ResolveActor(http);
+            // The reviewer is the request's caller, resolved by the service — never an id the request carries.
             await m.Send(new ApproveQueryChangeCommand
             {
                 RequestId = id,
-                ReviewerUserId = userId,
-                ReviewerName = userName,
                 Comment = body.Comment,
+                ExpectedContentHash = body.ExpectedContentHash,
             }, ct);
             return TypedResults.NoContent();
         }).WithName("ApproveQueryChange")
@@ -49,15 +46,12 @@ internal static class ApprovalsEndpoints
             int id,
             ApproveRejectRequest body,
             IMediator m,
-            HttpContext http,
             CancellationToken ct) =>
         {
-            var (userId, userName) = ResolveActor(http);
+            // The reviewer is the request's caller, resolved by the service — never an id the request carries.
             await m.Send(new RejectQueryChangeCommand
             {
                 RequestId = id,
-                ReviewerUserId = userId,
-                ReviewerName = userName,
                 Comment = body.Comment,
             }, ct);
             return TypedResults.NoContent();
@@ -66,15 +60,9 @@ internal static class ApprovalsEndpoints
 
         return group;
     }
-
-    private static (string? UserId, string? UserName) ResolveActor(HttpContext context)
-    {
-        var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var userName = context.User.FindFirst(ClaimTypes.Name)?.Value
-            ?? context.User.FindFirst("preferred_username")?.Value
-            ?? context.User.Identity?.Name;
-        return (userId, userName);
-    }
 }
 
-internal sealed record ApproveRejectRequest(string? Comment);
+/// <param name="Comment">The reviewer's note, shown with the decision.</param>
+/// <param name="ExpectedContentHash">Approving: the <c>contentHash</c> of the request's detail the reviewer was shown
+/// (required; 409 when the proposal holds other content). Ignored when rejecting.</param>
+internal sealed record ApproveRejectRequest(string? Comment, string? ExpectedContentHash = null);

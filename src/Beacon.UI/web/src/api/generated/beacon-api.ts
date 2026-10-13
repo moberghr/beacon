@@ -17052,6 +17052,11 @@ export interface ApprovalRequestDetail {
   proposedVersion?: QueryVersionDetail;
   currentActiveVersion?: QueryVersionDetail | null;
   autoDiff?: QueryVersionDiff | null;
+  contentHash?: string | null;
+  isOwnRequest?: boolean;
+  mayApprove?: boolean;
+  approveBlockedReason?: string | null;
+  isStale?: boolean;
 
   [key: string]: any;
 }
@@ -17073,6 +17078,7 @@ export enum ApprovalStatus {
   Pending = 1,
   Approved = 2,
   Rejected = 3,
+  Superseded = 4,
 }
 
 export interface ApproveAiActorPlanResult {
@@ -17092,6 +17098,7 @@ export interface ApproveAiActorPlanResult {
 
 export interface ApproveRejectRequest {
   comment: string | null;
+  expectedContentHash?: string | null;
 
   [key: string]: any;
 }
@@ -17258,6 +17265,7 @@ export interface ControlTowerSubscriptionHealthData {
   lastExecutionStatus?: NotificationStatus | null;
   lastResultCount?: number | null;
   ownerNotAuthorized?: boolean;
+  notApproved?: boolean;
   unresolvedTaskCount?: number;
   totalTaskCount?: number;
   anomalyCount30Days?: number;
@@ -19260,6 +19268,7 @@ export interface QueryData {
   steps?: QueryStepData[];
   finalQuery?: string | null;
   finalQueryDataSourceId?: number | null;
+  baseVersionId?: number | null;
   isMultiStep?: boolean;
   isCrossDataSource?: boolean;
   isCrossDatabase?: boolean;
@@ -19287,6 +19296,7 @@ export interface QueryDetailsData {
   finalQueryDataSourceId?: number | null;
   aiActorId?: number | null;
   aiActorName?: string | null;
+  activeVersionId?: number | null;
   isLocked?: boolean;
   mcpToolEnabled?: boolean;
   mcpToolName?: string | null;
@@ -19456,6 +19466,7 @@ export enum QueryVersionStatus {
   Archived = 2,
   PendingApproval = 3,
   Rejected = 4,
+  Superseded = 5,
 }
 
 export interface QueryVersionSummary {
@@ -19570,6 +19581,8 @@ export interface ResolveTaskBody {
 
 export interface RestoreQueryVersionResponse {
   queryId: number;
+  submittedForApproval: boolean;
+  supersededRequests: number;
 
   [key: string]: any;
 }
@@ -19936,6 +19949,7 @@ export interface SubscriptionDetail {
   hasOwner: boolean;
   ownerDisplayName: string | null;
   ownerNotAuthorized: boolean;
+  notApproved?: boolean;
 
   [key: string]: any;
 }

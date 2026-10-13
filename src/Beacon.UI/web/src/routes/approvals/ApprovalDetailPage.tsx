@@ -6,14 +6,18 @@ import {
   ArrowLeftRight,
   Check,
   Database,
+  History,
+  Info,
   Layers,
 } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
 import {
+  Banner,
   Button,
   Card,
   CardBody,
   CardHead,
+  CardSub,
   CardTitle,
   Field,
   PageHeader,
@@ -29,17 +33,20 @@ import {
   useApproveQueryChange,
   useRejectQueryChange,
 } from './queries';
+import { ApprovalChangeDiff } from './ApprovalChangeDiff';
 
 const STATUS_LABEL: Record<ApprovalStatus, string> = {
   [ApprovalStatus.Pending]: 'Pending',
   [ApprovalStatus.Approved]: 'Approved',
   [ApprovalStatus.Rejected]: 'Rejected',
+  [ApprovalStatus.Superseded]: 'Superseded',
 };
 
 const STATUS_TONE: Record<ApprovalStatus, PillProps['tone']> = {
   [ApprovalStatus.Pending]: 'neutral',
   [ApprovalStatus.Approved]: 'ok',
   [ApprovalStatus.Rejected]: 'crit',
+  [ApprovalStatus.Superseded]: 'neutral',
 };
 
 export default function ApprovalDetailPage() {
@@ -68,7 +75,8 @@ export default function ApprovalDetailPage() {
     try {
       const trimmed = comment.trim() || null;
       if (action === 'approve') {
-        await approve.mutateAsync({ id: numericId, comment: trimmed });
+        // Bound to what this page shows: the server refuses (409) when the proposal holds other content.
+        await approve.mutateAsync({ id: numericId, comment: trimmed, expectedContentHash: data?.contentHash ?? null });
         toast.success('Approval granted');
       } else {
         await reject.mutateAsync({ id: numericId, comment: trimmed });
@@ -83,6 +91,7 @@ export default function ApprovalDetailPage() {
   const data = detail.data;
   const isPending = data?.status === ApprovalStatus.Pending;
   const busy = approve.isPending || reject.isPending;
+  const mayApprove = isPending && data?.mayApprove === true;
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -166,33 +175,42 @@ export default function ApprovalDetailPage() {
             </CardBody>
           </Card>
 
-          {data.proposedVersion?.finalQuery && (
-            <Card>
-              <CardHead>
-                <Database className="size-3.5 text-text-muted" />
-                <CardTitle>Proposed SQL</CardTitle>
-              </CardHead>
-              <CardBody>
-                <pre className="bg-surface-2 border border-border rounded-sm p-3 text-xs m-0 whitespace-pre-wrap overflow-auto max-h-[400px] mono">
-                  {data.proposedVersion.finalQuery}
-                </pre>
-              </CardBody>
-            </Card>
+          {data.status === ApprovalStatus.Superseded && (
+            <Banner
+              tone="info"
+              icon={<History />}
+              title="A newer submission replaced this request"
+              sub="It can no longer be decided. The newer request for this query is in the approvals list."
+            />
           )}
 
-          {data.currentActiveVersion?.finalQuery && data.currentActiveVersion.finalQuery !== data.proposedVersion?.finalQuery && (
-            <Card>
-              <CardHead>
-                <Database className="size-3.5 text-text-muted" />
-                <CardTitle>Current active SQL</CardTitle>
-              </CardHead>
-              <CardBody>
-                <pre className="bg-surface-2 border border-border rounded-sm p-3 text-xs m-0 whitespace-pre-wrap overflow-auto max-h-[400px] mono">
-                  {data.currentActiveVersion.finalQuery}
-                </pre>
-              </CardBody>
-            </Card>
+          {isPending && data.isStale && (
+            <Banner
+              tone="warn"
+              icon={<AlertTriangle />}
+              title="The query changed since this request was made"
+              sub="Its active version is no longer the one this change was made on, so it cannot be approved: reject it, or submit the change again."
+            />
           )}
+
+          {isPending && canReview && !mayApprove && !data.isStale && data.approveBlockedReason && (
+            <Banner tone="info" icon={<Info />} title="You cannot approve this request" sub={data.approveBlockedReason} />
+          )}
+
+          <Card>
+            <CardHead>
+              <Database className="size-3.5 text-text-muted" />
+              <CardTitle>Proposed change</CardTitle>
+              <CardSub>
+                {data.currentActiveVersion
+                  ? `v${data.currentActiveVersion.versionNumber} → v${data.proposedVersion.versionNumber}`
+                  : `v${data.proposedVersion.versionNumber}, the query's first version`}
+              </CardSub>
+            </CardHead>
+            <CardBody>
+              <ApprovalChangeDiff detail={data} />
+            </CardBody>
+          </Card>
 
           {isPending && canReview && (
             <Card>
@@ -221,7 +239,8 @@ export default function ApprovalDetailPage() {
                   <Button
                     variant="primary"
                     onClick={() => handleAction('approve')}
-                    disabled={busy}
+                    disabled={busy || !mayApprove}
+                    title={mayApprove ? undefined : data.approveBlockedReason ?? undefined}
                   >
                     {approve.isPending ? 'Approving…' : 'Approve'}
                   </Button>

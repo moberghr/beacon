@@ -169,6 +169,11 @@ export default function ControlTowerPage() {
                 Owner not authorized
               </Pill>
             )}
+            {r.notApproved && (
+              <Pill tone="warn" title="Runs are skipped until the query's change is approved">
+                Not approved
+              </Pill>
+            )}
           </div>
         </div>
       ),

@@ -13,6 +13,7 @@ using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.Subscriptions;
 using Beacon.Core.Services;
@@ -38,10 +39,12 @@ public class AiActorOwnershipTests
     private Mock<IAiActorServiceExtended> _service = null!;
     private List<AiActor> _actors = null!;
     private List<BeaconUser> _users = null!;
+    private string? _revisionRequester;
 
     [SetUp]
     public void SetUp()
     {
+        _revisionRequester = null;
         _service = new Mock<IAiActorServiceExtended>();
         _service
             .Setup(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
@@ -226,6 +229,117 @@ public class AiActorOwnershipTests
         }
     }
 
+    // With the approval workflow on, approving a plan (which executes its actions) takes a second person: an Approver (an
+    // Admin holds the permission) other than the actor's creator.
+    [TestCase("ext-ben", "Approver", true)]
+    [TestCase("ext-admin", RoleService.RoleNames.Admin, true)]
+    [TestCase("ext-ana", "Approver", false)]
+    [TestCase("ext-ana", null, false)]
+    [TestCase("ext-ben", RoleService.RoleNames.Editor, false)]
+    public async Task ApprovePlan_WithTheWorkflowOn_IsAnApproversOtherThanTheCreator(string caller, string? role, bool allowed)
+    {
+        var workflowOn = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } };
+
+        var act = () => ApproveHandler(Interactive(caller, role), workflowOn).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = caller }, CancellationToken.None);
+
+        if (allowed)
+        {
+            await act.Should().NotThrowAsync();
+            _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+        }
+        else
+        {
+            await act.Should().ThrowAsync<BeaconForbiddenException>();
+            _service.VerifyNoOtherCalls();
+        }
+    }
+
+    // Whoever asked for a revision of the plan shaped it with their feedback: with the workflow on they do not approve it
+    // (nor, through the plan's chain, the query changes it makes); another Approver does.
+    [TestCase("ext-ben", false)]
+    [TestCase("ext-admin", true)]
+    public async Task ApprovePlan_WithTheWorkflowOn_IsNotTheRevisionRequestersInItsChain(string caller, bool allowed)
+    {
+        _revisionRequester = "ext-ben";
+        var workflowOn = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } };
+        var role = caller == "ext-admin" ? RoleService.RoleNames.Admin : "Approver";
+
+        var act = () => ApproveHandler(Interactive(caller, role), workflowOn).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = caller }, CancellationToken.None);
+
+        if (allowed)
+        {
+            await act.Should().NotThrowAsync();
+            _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+            return;
+        }
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        _service.VerifyNoOtherCalls();
+    }
+
+    // The creator is the creator however they present themselves: a creator recorded by an earlier version as an API key's
+    // numeric owner id, or as a session's own id, does not approve the actor's plan by signing in another way.
+    [TestCase("1")]
+    [TestCase("session-ana")]
+    [TestCase("EXT-ANA")]
+    public async Task ApprovePlan_WithTheWorkflowOn_ByTheCreatorUnderAnotherOfTheirIds_IsRefused(string recordedCreator)
+    {
+        _actors[0].CreatedByUserId = recordedCreator;
+        var creator = new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 1, IsActiveUser = true, SessionIds = ["session-ana"] };
+
+        var act = () => PlanApproval(FixedActor(creator)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        _service.VerifyNoOtherCalls();
+    }
+
+    // A caller Beacon cannot name could be the creator: holding the Approver permission does not let it approve a plan.
+    [Test]
+    public async Task ApprovePlan_WithTheWorkflowOn_ByACallerWithoutAUserId_IsRefused()
+    {
+        var act = () => PlanApproval(FixedActor(BeaconActor.Nobody)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        _service.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task ApprovePlan_ByARevisionRequester_WhenTheHostAllowsSelfApproval_Proceeds()
+    {
+        _revisionRequester = "ext-ben";
+        var selfApproval = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, AllowSelfApproval = true } };
+
+        var act = () => ApproveHandler(Interactive("ext-ben", "Approver"), selfApproval).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ben" }, CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+    }
+
+    // A plan records its reviewer as the caller Beacon names, never an id the request carries: that is the id the query
+    // changes it makes compare their approvers with.
+    [Test]
+    public async Task DecidingAPlan_RecordsTheCallerAsBeaconNamesThem_NotTheIdTheRequestCarries()
+    {
+        await ApproveHandler(Interactive("ext-ana")).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "someone-else" }, CancellationToken.None);
+        await RejectHandler(Interactive("ext-ana")).Handle(new RejectAiActorPlanCommand { PlanId = PlanId, UserId = "someone-else", Reason = "no" }, CancellationToken.None);
+        await new RequestPlanRevisionHandler(_service.Object, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive("ext-ana")), Factory())
+            .Handle(new RequestPlanRevisionCommand { PlanId = PlanId, UserId = "someone-else", Feedback = "narrower" }, CancellationToken.None);
+
+        _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.UserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
+        _service.Verify(x => x.RejectPlanAsync(It.Is<RejectPlanOptions>(y => y.UserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
+        _service.Verify(x => x.RequestPlanRevisionAsync(It.Is<RequestRevisionOptions>(y => y.UserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task ApprovePlan_WithTheWorkflowOnAndSelfApprovalAllowed_IsTheCreatorsWhoIsAnApprover()
+    {
+        var selfApproval = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, AllowSelfApproval = true } };
+
+        var act = () => ApproveHandler(Interactive("ext-ana", "Approver"), selfApproval).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ana" }, CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [TestCase("ext-ana", null, true)]
     [TestCase("ext-admin", RoleService.RoleNames.Admin, true)]
     [TestCase("ext-ben", RoleService.RoleNames.Editor, false)]
@@ -397,9 +511,27 @@ public class AiActorOwnershipTests
         yield return () => new ExecuteAiActorThinkCycleHandler(_service.Object, NullLogger<ExecuteAiActorThinkCycleHandler>.Instance, caller, factory).Handle(new ExecuteAiActorThinkCycleCommand { ActorId = ActorId }, CancellationToken.None);
     }
 
-    private ApproveAiActorPlanHandler ApproveHandler(ClaimsPrincipal caller)
+    private ApproveAiActorPlanHandler ApproveHandler(ClaimsPrincipal caller, BeaconConfiguration? configuration = null)
     {
-        return new ApproveAiActorPlanHandler(_service.Object, NullLogger<ApproveAiActorPlanHandler>.Instance, Actor(caller), Factory());
+        return new ApproveAiActorPlanHandler(
+            _service.Object,
+            NullLogger<ApproveAiActorPlanHandler>.Instance,
+            Actor(caller),
+            TestPermissions.ForPrincipal(caller),
+            Factory(),
+            configuration ?? new BeaconConfiguration());
+    }
+
+    // Plan approval with the workflow on, by a caller holding the Approver permission.
+    private ApproveAiActorPlanHandler PlanApproval(IBeaconActorAccessor caller)
+    {
+        return new ApproveAiActorPlanHandler(
+            _service.Object,
+            NullLogger<ApproveAiActorPlanHandler>.Instance,
+            caller,
+            TestPermissions.Holding(BeaconPermissions.Approver),
+            Factory(),
+            new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } });
     }
 
     private RejectAiActorPlanHandler RejectHandler(ClaimsPrincipal caller)
@@ -445,9 +577,19 @@ public class AiActorOwnershipTests
         return factory.Object;
     }
 
+    // The plan, and, when a revision requester is set, the parent plan they sent back for revision.
     private List<AiActorPlan> Plans()
     {
-        return [new AiActorPlan { Id = PlanId, AiActorId = ActorId, AiActor = _actors[0], Analysis = "a", ActionsJson = "[]" }];
+        if (_revisionRequester == null)
+        {
+            return [new AiActorPlan { Id = PlanId, AiActorId = ActorId, AiActor = _actors[0], Analysis = "a", ActionsJson = "[]" }];
+        }
+
+        return
+        [
+            new AiActorPlan { Id = PlanId - 1, AiActorId = ActorId, AiActor = _actors[0], Status = AiActorPlanStatus.RevisionRequested, ReviewedByUserId = _revisionRequester, Analysis = "a", ActionsJson = "[]" },
+            new AiActorPlan { Id = PlanId, AiActorId = ActorId, AiActor = _actors[0], ParentPlanId = PlanId - 1, Analysis = "a", ActionsJson = "[]" }
+        ];
     }
 
     private List<Subscription> Subscriptions()

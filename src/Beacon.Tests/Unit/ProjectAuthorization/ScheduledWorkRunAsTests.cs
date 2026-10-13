@@ -510,6 +510,8 @@ public class ScheduledWorkRunAsTests
             sp.GetRequiredService<IRunAsScope>(),
             sp.GetRequiredService<IExecutionAccessCheck>(),
             Mock.Of<IStepSqlSaveCheck>(),
+            Mock.Of<IQueryVersionService>(),
+            new Beacon.Core.BeaconConfiguration(),
             NullLogger<AiActorService>.Instance);
 
         await service.ExecuteThinkCycleBackgroundAsync(actor.Id);

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle } from 'lucide-react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, Clock } from 'lucide-react';
+import { Banner } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { describeError, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { sortToParam, toggleSort, type SortState } from '@/lib/paging';
-import { useQueryDetailQuery, usePreviewQueryMutation, type QueryPreviewResult } from './queries';
+import {
+  FIRST_VERSION_PENDING_MESSAGE,
+  useFirstVersionPending,
+  useQueryDetailQuery,
+  usePreviewQueryMutation,
+  type QueryPreviewResult,
+} from './queries';
 import { QueryHero } from './parts/QueryHero';
 import { QueryKpiGrid } from './parts/QueryKpiGrid';
 import { QueryPerfRow } from './parts/QueryPerfRow';
@@ -31,6 +38,9 @@ export default function QueryDetailPage() {
   const detail = useQueryDetailQuery(validId);
   const query = detail.data;
   const previewMutation = usePreviewQueryMutation(validId);
+  // With the approval workflow on, a new query has nothing live until its first version is approved.
+  const nothingLive = query != null && query.steps.length === 0 && (query.activeVersionId ?? null) == null;
+  const firstVersionPending = useFirstVersionPending(validId, nothingLive);
 
   const editHref = `/queries/${id}/edit`;
 
@@ -148,6 +158,15 @@ export default function QueryDetailPage() {
         onExecute={onExecute}
         onAddSubscription={onAddSubscription}
       />
+
+      {nothingLive && firstVersionPending.data === true && (
+        <Banner
+          tone="info"
+          icon={<Clock />}
+          title={FIRST_VERSION_PENDING_MESSAGE}
+          sub={<Link to={`/queries/${id}/versions`}>See its versions</Link>}
+        />
+      )}
 
       {previewOpen && (
         <QueryRunPanel

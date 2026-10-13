@@ -6,6 +6,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
@@ -383,10 +384,18 @@ internal class SubscriptionService(
                     .Where(y => y.ExternalId == x.OwnerUserId)
                     .Select(UserLabel.OfUser)
                     .FirstOrDefault(),
+                // The last run was skipped for its owner (not because its query's change is not approved).
                 OwnerNotAuthorized = x.QueryExecutionHistory!
                     .OrderByDescending(y => y.CreatedTime)
                     .Take(1)
-                    .Any(y => y.NotificationStatus == NotificationStatus.Skipped),
+                    .Where(y => y.NotificationStatus == NotificationStatus.Skipped)
+                    .Any(y => y.Comment != NotificationFailureReasons.NotApproved),
+                // The last run was skipped because the query's stored SQL is not its approved version.
+                NotApproved = x.QueryExecutionHistory!
+                    .OrderByDescending(y => y.CreatedTime)
+                    .Take(1)
+                    .Where(y => y.NotificationStatus == NotificationStatus.Skipped)
+                    .Any(y => y.Comment == NotificationFailureReasons.NotApproved),
                 Parameters = x.Parameters.Select(y => new SubscriptionParameterData()
                 {
                     QueryPlaceholder = y.QueryPlaceholder,

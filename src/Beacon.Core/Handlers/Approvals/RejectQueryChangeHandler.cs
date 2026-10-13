@@ -13,7 +13,8 @@ internal sealed class RejectQueryChangeHandler(
 {
     public async Task Handle(RejectQueryChangeCommand request, CancellationToken cancellationToken)
     {
-        await approvalService.RejectAsync(request.RequestId, request.ReviewerUserId, request.ReviewerName, request.Comment, cancellationToken);
+        // The reviewer is the request's caller, never an id the request carries.
+        var decision = await approvalService.RejectAsync(request.RequestId, request.Comment, cancellationToken);
 
         // The decision is already persisted above; the push is a side-channel that tells open
         // browser tabs about it. A host that never registered a notifier (Beacon.Api supplies one
@@ -29,8 +30,8 @@ internal sealed class RejectQueryChangeHandler(
             return;
         }
 
-        var detail = await approvalService.GetApprovalDetailAsync(request.RequestId, cancellationToken);
-        await approvalNotifier.ApprovalUpdatedAsync(request.RequestId, "rejected", request.ReviewerUserId, detail?.RequestedByUserId, cancellationToken);
+        // Both are recorded by Users.ExternalId, the id the realtime hub names a signed-in user by.
+        await approvalNotifier.ApprovalUpdatedAsync(request.RequestId, "rejected", decision.ReviewerUserId, decision.RequesterUserId, cancellationToken);
     }
 }
 
@@ -38,7 +39,12 @@ internal sealed class RejectQueryChangeHandler(
 public record RejectQueryChangeCommand : IRequest
 {
     public required int RequestId { get; init; }
+
+    [Obsolete("Ignored: the reviewer is the request's caller.")]
     public string? ReviewerUserId { get; init; }
+
+    [Obsolete("Ignored: the reviewer is named by their user label.")]
     public string? ReviewerName { get; init; }
+
     public string? Comment { get; init; }
 }

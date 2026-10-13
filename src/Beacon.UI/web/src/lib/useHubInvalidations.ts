@@ -1,4 +1,6 @@
-import { useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import type { ApprovalUpdatedEvent } from './hub';
 import { useHubEvent, useHubReconnected } from './useHubEvent';
 
 type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreated';
@@ -10,10 +12,28 @@ type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreate
  * so co-locating the mapping prevents drift and orphaned listeners.
  */
 const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
-  ApprovalUpdated: [['approvals']],
+  // A decision moves a query's live steps and versions; a newer submission supersedes a pending one.
+  ApprovalUpdated: [['approvals'], ['query'], ['queries']],
   JobStatusChanged: [['control-tower'], ['migration-jobs'], ['migration-executions']],
   NotificationCreated: [['control-tower'], ['notifications']],
 };
+
+/** What the requester of a pending change is told when a newer submission of the same query replaced it. */
+export const SUPERSEDED_MESSAGE = 'Your pending change was replaced by a newer submission';
+
+/**
+ * An approval request changed: refetch what shows it, and tell the requester when a newer submission superseded their
+ * pending change (the server sends "superseded" to that requester only).
+ */
+export function handleApprovalUpdated(qc: QueryClient, event: ApprovalUpdatedEvent | undefined): void {
+  for (const key of INVALIDATIONS.ApprovalUpdated) {
+    qc.invalidateQueries({ queryKey: key });
+  }
+
+  if (event?.status === 'superseded') {
+    toast.info(SUPERSEDED_MESSAGE);
+  }
+}
 
 /**
  * Mount once at the app shell. Subscribes to every hub event in
@@ -25,10 +45,8 @@ const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
 export function useHubInvalidations(): void {
   const qc = useQueryClient();
 
-  useHubEvent('ApprovalUpdated', () => {
-    for (const key of INVALIDATIONS.ApprovalUpdated) {
-      qc.invalidateQueries({ queryKey: key });
-    }
+  useHubEvent('ApprovalUpdated', event => {
+    handleApprovalUpdated(qc, event);
   });
 
   useHubEvent('JobStatusChanged', () => {

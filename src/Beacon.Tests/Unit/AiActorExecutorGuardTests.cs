@@ -229,6 +229,8 @@ public class AiActorExecutorGuardTests
             Mock.Of<IRunAsScope>(),
             TestProjectAccess.ExecutionAllowed(),
             saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
+            Mock.Of<IQueryVersionService>(),
+            new Beacon.Core.BeaconConfiguration(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

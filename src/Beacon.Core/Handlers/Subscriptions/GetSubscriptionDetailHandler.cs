@@ -67,7 +67,8 @@ internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscrip
             anomaly,
             data.OwnerUserId != null,
             data.OwnerDisplayName,
-            data.OwnerNotAuthorized);
+            data.OwnerNotAuthorized,
+            data.NotApproved);
 
         return new GetSubscriptionDetailResult(detail);
     }
@@ -87,7 +88,8 @@ public record GetSubscriptionDetailResult(SubscriptionDetail Detail);
 /// A subscription's detail. <c>HasOwner</c>: an owner is recorded (its scheduled runs run as the owner, checked against
 /// the owner's access at every run); <c>OwnerDisplayName</c>: the owner's display name, or a neutral "User {id}" label,
 /// never an external id or user name (null when no owner or no matching user); <c>OwnerNotAuthorized</c>: the last
-/// scheduled run was skipped because the owner may no longer run the query.
+/// scheduled run was skipped because the owner may no longer run the query; <c>NotApproved</c>: the last run was skipped
+/// because, with the approval workflow on, the query's stored SQL is not its approved version.
 /// </summary>
 public record SubscriptionDetail(
     int Id,
@@ -113,7 +115,8 @@ public record SubscriptionDetail(
     SubscriptionDetailAnomalyConfig? AnomalyConfig,
     bool HasOwner,
     string? OwnerDisplayName,
-    bool OwnerNotAuthorized);
+    bool OwnerNotAuthorized,
+    bool NotApproved = false);
 
 public record SubscriptionDetailParameter(string? QueryPlaceholder, string? Value);
 

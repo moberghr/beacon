@@ -80,7 +80,7 @@ public class PeopleLabelTests
             CreatedByUserName = "ada@corp.example"
         };
 
-        return new QueryVersionService(Factory([version], users), Mock.Of<IBeaconUserContext>(), NullLogger<QueryVersionService>.Instance);
+        return TestQueryServices.VersionService(Factory([version], users));
     }
 
     private static BeaconUser Author(string? displayName)

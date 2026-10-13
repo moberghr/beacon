@@ -40,6 +40,8 @@ public class AiActorServiceProposeOnlyTests
             Mock.Of<IRunAsScope>(),
             TestProjectAccess.ExecutionAllowed(),
             Mock.Of<IStepSqlSaveCheck>(),
+            Mock.Of<IQueryVersionService>(),
+            new Beacon.Core.BeaconConfiguration(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

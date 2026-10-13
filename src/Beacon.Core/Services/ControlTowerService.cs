@@ -88,7 +88,13 @@ internal class ControlTowerService(
                     LastExecutionTime = hasLastExecution ? lastExecution.CreatedTime : null,
                     LastExecutionStatus = hasLastExecution ? lastExecution.NotificationStatus : null,
                     LastResultCount = hasLastExecution ? lastExecution.ResultCount : null,
-                    OwnerNotAuthorized = hasLastExecution && lastExecution.NotificationStatus == NotificationStatus.Skipped,
+                    // A run skipped because its query's change is not approved is not about the owner.
+                    OwnerNotAuthorized = hasLastExecution
+                        && lastExecution.NotificationStatus == NotificationStatus.Skipped
+                        && lastExecution.Comment != NotificationFailureReasons.NotApproved,
+                    NotApproved = hasLastExecution
+                        && lastExecution.NotificationStatus == NotificationStatus.Skipped
+                        && lastExecution.Comment == NotificationFailureReasons.NotApproved,
                     UnresolvedTaskCount = item.UnresolvedTaskCount,
                     TotalTaskCount = item.TotalTaskCount,
                     AnomalyCount30Days = anomalyCountsBySubscription.GetValueOrDefault(item.Id, 0),
@@ -413,7 +419,7 @@ internal class ControlTowerService(
             .ThenBy(x => x.Id);
     }
 
-    private static async Task<Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount)>>
+    private static async Task<Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount, string? Comment)>>
         LoadLastExecutions(BeaconContext context, List<int> pageIds, CancellationToken cancellationToken)
     {
         if (pageIds.Count == 0)
@@ -430,13 +436,14 @@ internal class ControlTowerService(
                     SubscriptionId = g.Key,
                     NotificationStatus = g.OrderByDescending(y => y.CreatedTime).Select(y => y.NotificationStatus).First(),
                     CreatedTime = g.OrderByDescending(y => y.CreatedTime).Select(y => y.CreatedTime).First(),
-                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First()
+                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First(),
+                    Comment = g.OrderByDescending(y => y.CreatedTime).Select(y => y.Comment).First()
                 })
             .ToListAsync(cancellationToken);
 
         return rows.ToDictionary(
             x => x.SubscriptionId,
-            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount));
+            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount, x.Comment));
     }
 
     private static async Task<Dictionary<int, List<AnomalySparklinePoint>>> LoadAnomalySparklines(

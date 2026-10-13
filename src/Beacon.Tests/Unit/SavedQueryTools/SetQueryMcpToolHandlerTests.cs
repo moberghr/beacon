@@ -1,12 +1,15 @@
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Queries;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using NUnit.Framework;
 using Beacon.Tests.Common;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
@@ -207,7 +210,7 @@ public class SetQueryMcpToolHandlerTests
         var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
         var authorizer = TestProjectAccess.Authorizer(ProjectAccessScope.None, new MissingResolver(), new SqlCapture().Factory());
 
-        var act = () => new SetQueryMcpToolHandler(data.Store.Factory().Object, authorizer, NullLogger<SetQueryMcpToolHandler>.Instance)
+        var act = () => new SetQueryMcpToolHandler(data.Store.Factory().Object, authorizer, TestProjectAccess.Actors(), new BeaconConfiguration(), NullLogger<SetQueryMcpToolHandler>.Instance)
             .Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconNotFoundException>();
@@ -215,8 +218,153 @@ public class SetQueryMcpToolHandlerTests
         data.Store.SaveCount.Should().Be(0);
     }
 
-    private static SetQueryMcpToolHandler Handler(SavedQueryTestData data) =>
-        new(data.Store.Factory().Object, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted), NullLogger<SetQueryMcpToolHandler>.Instance);
+    // Publishing is a third pair of eyes: neither the requester nor the approver of the version the tool runs enables it.
+    [TestCase("ext-ada", null)]
+    [TestCase(null, "ext-ada")]
+    public async Task Enabling_ByTheRequesterOrApproverOfTheActiveVersion_IsRefused(string? requestedBy, string? reviewedBy)
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var approval = data.Store.ListFor<QueryApprovalRequest>().Single();
+        approval.RequestedByUserId = requestedBy ?? "ext-ben";
+        approval.ReviewedByUserId = reviewedBy ?? "ext-ben";
+
+        var act = () => Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        query.McpToolEnabled.Should().BeFalse();
+        data.Store.SaveCount.Should().Be(0);
+    }
+
+    [Test]
+    public async Task Enabling_BySomeoneOtherThanTheRequesterAndApprover_Succeeds()
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var approval = data.Store.ListFor<QueryApprovalRequest>().Single();
+        approval.RequestedByUserId = "ext-ben";
+        approval.ReviewedByUserId = "ext-cid";
+
+        await Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task Enabling_ByTheRequester_WhenTheHostAllowsSelfApproval_Succeeds()
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        data.Store.ListFor<QueryApprovalRequest>().Single().RequestedByUserId = "ext-ada";
+        var selfApproval = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, AllowSelfApproval = true } };
+
+        await Handler(data, selfApproval).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeTrue();
+    }
+
+    // A caller Beacon cannot name (an API key without an active owner) could be the requester or the approver: it publishes
+    // nothing while self-approval is off.
+    [Test]
+    public async Task Enabling_ByACallerWithoutAUserId_IsRefused()
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var approval = data.Store.ListFor<QueryApprovalRequest>().Single();
+        approval.RequestedByUserId = "ext-ben";
+        approval.ReviewedByUserId = "ext-cid";
+        var nobody = new Mock<IBeaconActorAccessor>();
+        nobody.Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>())).ReturnsAsync(BeaconActor.Nobody);
+
+        var act = () => Handler(data, actors: nobody.Object).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        query.McpToolEnabled.Should().BeFalse();
+        data.Store.SaveCount.Should().Be(0);
+    }
+
+    // Strict mode: the version a tool runs must be approved for exactly its content; an approval recorded before Beacon kept
+    // hashes names the version but not what it approved.
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public async Task Enabling_InStrictMode_NeedsAnApprovalOfTheVersionsHash(bool approvedForItsHash, bool refused)
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        query.ActiveVersion!.ContentHash = new string('a', 64);
+        var approval = data.Store.ListFor<QueryApprovalRequest>().Single();
+        approval.RequestedByUserId = "ext-ben";
+        approval.ReviewedByUserId = "ext-cid";
+        approval.ApprovedContentHash = approvedForItsHash ? query.ActiveVersion.ContentHash : null;
+        var strict = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, RequireApprovedVersionToRun = true } };
+
+        var act = () => Handler(data, strict).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        if (refused)
+        {
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage($"*{SavedQueryRunnableVersion.NoRunnableVersionIssue}");
+            query.McpToolEnabled.Should().BeFalse();
+            return;
+        }
+
+        await act.Should().NotThrowAsync();
+        query.McpToolEnabled.Should().BeTrue();
+    }
+
+    // With the approval workflow on, the requester is refused under any id their request presents: here the numeric
+    // Users.Id an earlier version recorded for the caller's API key.
+    [Test]
+    public async Task Enabling_ByTheRequesterUnderAnotherOfTheirIds_IsRefused()
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var approval = data.Store.ListFor<QueryApprovalRequest>().Single();
+        approval.RequestedByUserId = "3";
+        approval.ReviewedByUserId = "ext-cid";
+
+        var act = () => Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        query.McpToolEnabled.Should().BeFalse();
+    }
+
+    // With the workflow off nobody approves a change, so there is no second pair of eyes to keep: the requester and approver
+    // check applies only while the workflow is on, and whoever may publish enables the tool of a version approved earlier.
+    [TestCase("ext-ada")]
+    [TestCase("3")]
+    public async Task Enabling_WithTheWorkflowOff_IsNotCheckedAgainstTheRequesterOrApprover(string requestedBy)
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var approval = data.Store.ListFor<QueryApprovalRequest>().Single();
+        approval.RequestedByUserId = requestedBy;
+        approval.ReviewedByUserId = "ext-ada";
+
+        await Handler(data, new BeaconConfiguration()).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task Disabling_ByTheRequester_IsAlwaysAllowed()
+    {
+        var data = Seed();
+        var query = data.Query(1, "loan_book", [Step(1, 10, "SELECT 1")]);
+        data.Store.ListFor<QueryApprovalRequest>().Single().RequestedByUserId = "ext-ada";
+
+        await Handler(data).Handle(new SetQueryMcpToolCommand(1, false, "loan_book", null, null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeFalse();
+    }
+
+    // The caller is "ext-ada", a stored user, unless actors says otherwise.
+    private static SetQueryMcpToolHandler Handler(SavedQueryTestData data, BeaconConfiguration? configuration = null, IBeaconActorAccessor? actors = null) =>
+        new(
+            data.Store.Factory().Object,
+            TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted),
+            actors ?? TestProjectAccess.Actors(),
+            configuration ?? new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            NullLogger<SetQueryMcpToolHandler>.Instance);
 
     // Resolves every resource into a project the caller does not read.
     private sealed class MissingResolver : IProjectResourceResolver

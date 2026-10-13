@@ -27,6 +27,12 @@ public record ControlTowerSubscriptionHealthData
     /// </summary>
     public bool OwnerNotAuthorized { get; init; }
 
+    /// <summary>
+    /// The last run was skipped because, with the approval workflow on, the subscription's query's stored SQL is not its
+    /// approved version: save the query to submit it for approval, or restore a version and approve it.
+    /// </summary>
+    public bool NotApproved { get; init; }
+
     // Task Metrics
     public int UnresolvedTaskCount { get; init; }
     public int TotalTaskCount { get; init; }

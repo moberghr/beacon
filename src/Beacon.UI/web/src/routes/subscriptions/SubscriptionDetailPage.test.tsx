@@ -400,4 +400,37 @@ describe('SubscriptionDetailPage', () => {
       await waitFor(() => expect(screen.getAllByText('Skipped')).toHaveLength(2));
     });
   });
+
+  describe('query change not approved', () => {
+    it('says the last run was skipped because the query change is not approved, and names the remedy', async () => {
+      mswServer.use(
+        signedIn([]),
+        http.get('*/beacon/api/subscriptions/42', () =>
+          HttpResponse.json(detailPayload({ hasOwner: true, ownerDisplayName: 'Ada Lovelace', notApproved: true })),
+        ),
+        noExecutions,
+      );
+
+      renderDetail();
+
+      expect(await screen.findByText("The last run was skipped: this query's change is not approved")).toBeInTheDocument();
+      expect(screen.getByText(/save the query to submit its sql for approval, or restore a version and approve it/i)).toBeInTheDocument();
+      expect(screen.queryByText(/owner not authorized/i)).not.toBeInTheDocument();
+    });
+
+    it('shows no such banner while the query runs its approved version', async () => {
+      mswServer.use(
+        signedIn([]),
+        http.get('*/beacon/api/subscriptions/42', () =>
+          HttpResponse.json(detailPayload({ hasOwner: true, ownerDisplayName: 'Ada Lovelace', notApproved: false })),
+        ),
+        noExecutions,
+      );
+
+      renderDetail();
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
+      expect(screen.queryByText(/change is not approved/i)).not.toBeInTheDocument();
+    });
+  });
 });

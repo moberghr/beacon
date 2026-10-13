@@ -42,6 +42,13 @@ public class QueryVersion : BaseEntity
 
     public string? ChangeReason { get; set; }
 
+    /// <summary>
+    /// SHA-256 (lowercase hex) of the version's executable content — its steps in order with their names, data sources,
+    /// SQL and parameters, and the final query — as <c>QueryContentHash</c> computes it. Null for versions recorded before
+    /// Beacon kept it: their hash is computed from <see cref="StepsJson"/> and <see cref="FinalQuery"/> when needed.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     // Navigation
     public Query Query { get; set; } = null!;
 }
