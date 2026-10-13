@@ -352,7 +352,7 @@ public class CrossDatabaseCallSiteTests
         executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AskExecutionResult("### Results (1 row)\n", null, 1, true, [new Dictionary<string, object?> { ["id"] = 1 }]));
-        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), NullLogger<AskSqlPipeline>.Instance);
+        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), NullLogger<AskSqlPipeline>.Instance);
 
         Generates(generation, Foreign);
         var foreign = await pipeline.RunAsync(Mock.Of<ILlmProvider>(), DataSourceId, ProjectId, "orders?", new McpSettingsData(), executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
@@ -513,6 +513,7 @@ public class CrossDatabaseCallSiteTests
             knowledge.Object,
             generation.Object,
             TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLoggerFactory.Instance,
             NullLogger<CrossSourceQueryService>.Instance);
     }

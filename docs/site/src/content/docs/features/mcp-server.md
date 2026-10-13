@@ -496,18 +496,18 @@ or screened, and each is logged:
 | Value matches (`value-matches`, `## Value matches`) for literal-looking words of the question | value grounding on (off by default), same sharing rule; live probes only for callers who may query | PII, secret-like and financial-amount column names are never probed or matched; a PII- or credential-shaped hit is dropped |
 | Distinct column values in documentation prompts (`column-values`, enum discovery) | sample-value collection on for the project and every project sharing the source | the same name and value rules |
 | Result rows in the eval judge's prompt (`result-rows`) | the eval judge on (off by default) and content retention on | PII columns masked, at most 20 rows |
-| Database errors in repair prompts and in lesson extraction (`database-errors` for lesson extraction) | an `ask` repair after a failed dry run or execution; the learning job mining failed `ask` signals | redacted by class ([Database errors](#database-errors)); under the lock lesson extraction sends only the class and code |
-| Stored documentation of the business-domain, data-model and glossary sections (`stored-documentation`), which can list values discovered in the data | knowledge answers, contextual-retrieval blurbs of documentation chunks, a documentation instruction on such a section | under the lock these sections are left out of knowledge answers and blurbs, and an instruction on one is refused (`400`); regenerate the documentation instead |
+| Database errors in repair prompts and in lesson extraction (`database-errors` for lesson extraction) | an `ask` or cross-source `ask` repair after a failed dry run or execution; the learning job mining failed `ask` signals | redacted by class ([Database errors](#database-errors)); under the lock repair prompts and lesson extraction send only the class and code |
+| Stored documentation of the business-domain, data-model and glossary sections (`stored-documentation`), which can list values discovered in the data | knowledge answers — the documentation, its chunks and the project search results cut from these sections (keyword and semantic); contextual-retrieval blurbs of documentation chunks; a documentation instruction on such a section | under the lock these sections, their chunks and their search results are left out of knowledge answers and blurbs, and an instruction on one is refused (`400`); regenerate the documentation instead |
 
 - **The deployment lock `Beacon:Mcp:ForbidRowDataToLlm`** (off by default) pins sample-value collection, value grounding
   and the eval judge off for the global settings and every project: no sample is collected or shown, no value is probed,
-  documentation discovers no column values, the judge sees no rows, lesson extraction sends only an error's class and
-  code, and stored documentation sections that can list discovered values stay out of every prompt. A request that would
-  turn one of the three settings on answers `409`, and a project override of one is refused even when it agrees with the
-  lock; a save under the lock keeps the values stored before it (globally and per project), so lifting the lock restores
-  them. After startup the host logs one warning listing the stored rows the lock overrides (global row and project ids),
-  and one naming the projects whose stored documentation still has value-listing sections — values discovered before the
-  lock stay in that documentation until it is regenerated.
+  documentation discovers no column values, the judge sees no rows, repair prompts and lesson extraction send only an
+  error's class and code, and stored documentation sections that can list discovered values stay out of every prompt. A
+  request that would turn one of the three settings on answers `409`, and a project override of one is refused even when
+  it agrees with the lock; a save under the lock keeps the values stored before it (globally and per project), so
+  lifting the lock restores them. After startup the host logs one warning listing the stored rows the lock overrides
+  (global row and project ids), and one naming the projects whose stored documentation still has value-listing sections
+  — values discovered before the lock stay in that documentation until it is regenerated.
 - **Egress log.** Every request whose prompt carries row data is logged at Information with event id `7123`
   (`RowDataSentToLlm`) as it is handed to the provider — the data may leave even when the provider then fails, so a
   failure adds a Warning under the same event with the failure's type and code. Each record names the categories, the
@@ -536,15 +536,23 @@ it leaves its hands:
   division-by-zero error — keeps its message with quoted text, key and row details and unquoted values replaced by
   `<value>`. Quoted text survives only in an error about a name, and only when every part of it is a name of the
   statement or the catalog.
-- An error Beacon does not recognise is replaced like a value-carrying one when it holds a quote or the word `value`,
-  and redacted like a value-free one otherwise. The whole message is redacted before it is cut to 2,000 characters; an
-  error that cannot be screened in time is replaced as a whole and counted (`beacon.error_redaction.fallbacks`).
+- An error Beacon does not recognise is replaced like a value-carrying one, whatever it says — quoted or not:
+  `Database error (unrecognised): not an error Beacon recognises. The database's message is withheld because it can quote row values.`
+  So is an error the statement's own code raised, whose wording is its author's: a SQLSTATE of class `P0`
+  (PostgreSQL's `RAISE`, Databricks' `raise_error`), SQL Server's errors 50000 and above (`THROW`, `RAISERROR`) and
+  MySQL's SQLSTATE class `45` (`SIGNAL`) keep only their code, even when the text reads like a name, syntax or
+  permission error. Where the driver leaves the code out of the message, Beacon puts it in front
+  (`Msg 50000, Level 16, State 1: …`, `45000: …`), also in the raw message a caller reads while PII detection is off.
+- Beacon's own fixed texts that arrive with the database's errors (a host source's failure, a read stopped at the row
+  ceiling, a refused read of a migration write target) hold no value and are kept. The whole message is redacted
+  before it is cut to 2,000 characters; an error that cannot be screened in time is replaced as a whole and counted
+  (`beacon.error_redaction.fallbacks`).
 
 Where the redacted form is used:
 
 | Where the error goes | Redacted |
 |---|---|
-| Repair prompts (`ask`, cross-source `ask`) and lesson extraction | always (under the lock, lesson extraction gets the class and code only) |
+| Repair prompts (`ask`, cross-source `ask`) and lesson extraction | always; under the lock `Beacon:Mcp:ForbidRowDataToLlm` only the class and code (`Database error 42703 (undefined column).`) |
 | Learning signals (`ask`, `query`, `dry_run`, cross-source) and the stored history of ad-hoc queries | always |
 | The error returned by `ask`, `query`, `dry_run`, cross-source queries, saved-query tools and REST previews and executions, and the audit row | while PII detection is on for the project (or the strictest project sharing the source); the raw message otherwise |
 | Host data sources | never the database's message: `Query failed on the host database.` |
@@ -568,7 +576,9 @@ exceptions it wraps and the method that threw it (`PostgresException (error code
   `enableValueGrounding` now stores `false` (the default) for it; send every field you read. The settings page shows
   both switches and sends back every setting it loaded, the ones it does not show included.
 - **Errors.** Database errors returned to callers and written to the audit are in the generic class form above while PII
-  detection is on, and learning signals and ad-hoc query history always hold the redacted form. Failure logs name the
+  detection is on, and learning signals and ad-hoc query history always hold the redacted form. An error of no class
+  Beacon recognises is now withheld even without a quote in it, and an error raised by the statement's own code
+  (SQL Server 50000 and above, MySQL SQLSTATE class 45) reaches a caller led by its code. Failure logs name the
   failure as `Type (error code …, inner …, at …)` instead of separate type and code fields.
 - **Masking.** Banking identifiers (`iban`, `oib`, `jmbg` as whole name segments, `account_number`) are PII names: query
   results mask such columns on every path while PII detection is on. Data-quality custom SQL masks a text value (an

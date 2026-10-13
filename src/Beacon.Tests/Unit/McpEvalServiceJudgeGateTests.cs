@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Eval;
@@ -8,6 +9,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -350,6 +352,7 @@ public class McpEvalServiceJudgeGateTests
             sqlGen.Object,
             TestSqlGate.Create(guardrail.Object),
             TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
 
         var service = new McpEvalService(

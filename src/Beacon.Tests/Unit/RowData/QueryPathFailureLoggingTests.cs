@@ -3,6 +3,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Connector.Api;
 using Beacon.Connector.Api.Services;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
@@ -14,6 +15,7 @@ using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 
@@ -82,7 +84,7 @@ public class QueryPathFailureLoggingTests
         executor
             .Setup(x => x.ExecuteAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
-        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), log.For<AskSqlPipeline>());
+        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), log.For<AskSqlPipeline>());
 
         await pipeline.RunAsync(Mock.Of<ILlmProvider>(), 7, 3, "how many?", new McpSettingsData(), executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
 

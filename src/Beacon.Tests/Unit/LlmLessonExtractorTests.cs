@@ -209,6 +209,21 @@ public class LlmLessonExtractorTests
         log.Entries.Should().BeEmpty();
     }
 
+    // An error the statement's own code raised holds its author's values unquoted: the prompt gets its class and code, with
+    // or without the lock.
+    [TestCase(false, "Database error P0001 (unrecognised): not an error Beacon recognises.")]
+    [TestCase(true, "Database error P0001 (unrecognised).")]
+    public async Task ExtractAsync_WithholdsARaisedError(bool forbidRowData, string sent)
+    {
+        var (llm, prompts) = RecordingProvider();
+
+        await Extractor(llm, forbidRowData).ExtractAsync(Cluster with { Error = "P0001: permission denied for ivan.horvat@bank.example" }, CancellationToken.None);
+
+        prompts.Should().ContainSingle()
+            .Which.Should().Contain(sent)
+            .And.NotContain("ivan.horvat@bank.example");
+    }
+
     private static (ILlmProvider Provider, List<string> Prompts) RecordingProvider()
     {
         var prompts = new List<string>();

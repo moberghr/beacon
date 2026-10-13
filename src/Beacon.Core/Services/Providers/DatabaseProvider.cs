@@ -12,6 +12,7 @@ using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Validation;
+using DatabaseErrorRedactor = Beacon.Core.Services.Security.DatabaseErrorRedactor;
 
 namespace Beacon.Core.Services.Providers;
 
@@ -665,8 +666,9 @@ internal class DatabaseProvider(
 
     // A server or conversion error message can quote row values, so the log never carries the message or the
     // exception: only its type and the driver's error code (§1.11). The caller of an ordinary source still gets the
-    // message; a host data source is reached by agents that may be prompt-injected and could quote masked or
-    // unexposed columns, so its caller gets the generic text.
+    // message, led by its code when the statement's own code raised it (DatabaseErrorRedactor.TextOf); a host data source
+    // is reached by agents that may be prompt-injected and could quote masked or unexposed columns, so its caller gets the
+    // generic text.
     private string DescribeFailure(DataSource dataSource, Exception ex, string what, LogLevel level)
     {
         logger.Log(
@@ -677,7 +679,7 @@ internal class DatabaseProvider(
             dataSource.Id,
             FailureCodes.Describe(ex));
 
-        return dataSource.HostManagedKey == null ? ex.Message : HostQueryFailedMessage;
+        return dataSource.HostManagedKey == null ? DatabaseErrorRedactor.TextOf(ex) : HostQueryFailedMessage;
     }
 
     // With batches on, MySQL runs every statement of a command, so `COMMIT; <write>` would end the read-only transaction

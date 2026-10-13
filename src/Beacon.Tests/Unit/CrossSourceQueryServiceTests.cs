@@ -8,6 +8,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
 using Beacon.Connector.PostgreSql;
 using Beacon.Core;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -23,6 +24,7 @@ using Beacon.Tests.Common;
 using Beacon.Tests.Unit.HostData;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ProviderValidationResult = Beacon.Core.Models.Providers.QueryValidationResult;
 
 namespace Beacon.Tests.Unit;
@@ -479,6 +481,30 @@ public class CrossSourceQueryServiceTests
         log.Contains("Horvat").Should().BeFalse();
     }
 
+    // While row data may not reach the provider, the dry-run repair prompt gets the error's class and code only; the stored
+    // signal keeps the redacted error.
+    [Test]
+    public async Task UnderTheRowDataLock_TheDryRunRepairPromptGetsTheErrorsClassOnly()
+    {
+        Generates("SELECT id FROM orders");
+        _provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = [ErrorQuotingAValue] });
+        string? repairError = null;
+        _sqlGen
+            .Setup(x => x.RetryWithErrorAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => repairError = error)
+            .ReturnsAsync((string?)null);
+
+        await CreateService(forbidRowData: true).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+
+        repairError.Should().Be("Database error 22P02 (data exception).");
+        _signal.Build().DryRunError.Should().Be(RedactedError);
+    }
+
     // Each source's prompts go through a provider that logs its own data source and categories, never a value.
     [Test]
     public async Task EachSourcesPrompts_AreLoggedWithThatSourceAndItsCategories()
@@ -582,7 +608,8 @@ public class CrossSourceQueryServiceTests
         IHostDataSourceGuard? hostGuard = null,
         Dictionary<string, HashSet<string>>? warehouseCatalog = null,
         ILlmRowDataEgress? egress = null,
-        Microsoft.Extensions.Logging.ILogger<CrossSourceQueryService>? logger = null)
+        Microsoft.Extensions.Logging.ILogger<CrossSourceQueryService>? logger = null,
+        bool forbidRowData = false)
     {
         var warehouseHostKey = hostGuard == null ? null : HostKey;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -627,6 +654,7 @@ public class CrossSourceQueryServiceTests
             knowledgeGraph.Object,
             _sqlGen.Object,
             egress ?? TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
             NullLoggerFactory.Instance,
             logger ?? NullLogger<CrossSourceQueryService>.Instance);
     }

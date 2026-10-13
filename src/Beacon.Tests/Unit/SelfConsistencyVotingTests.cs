@@ -1,10 +1,12 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Services.Security;
@@ -650,6 +652,7 @@ public class SelfConsistencyVotingTests
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

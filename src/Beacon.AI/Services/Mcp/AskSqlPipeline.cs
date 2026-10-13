@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Eval;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
@@ -25,6 +27,7 @@ internal sealed class AskSqlPipeline(
     ISqlGenerationService sqlGenerationService,
     ISqlExecutionGate gate,
     ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<AskSqlPipeline> logger) : IAskSqlPipeline
 {
     // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
@@ -58,6 +61,14 @@ internal sealed class AskSqlPipeline(
         string RedactedError(string error, string sql)
         {
             return DatabaseErrorRedactor.Redact(error, DatabaseErrorRedactor.KnownNames(sql, smartContext.SchemaCatalog), logger);
+        }
+
+        // While row data may not reach the LLM provider, a repair prompt gets only the error's class and code.
+        string PromptError(string error, string sql)
+        {
+            return deploymentOptions.Value.ForbidRowDataToLlm
+                ? DatabaseErrorRedactor.ClassOnly(error, logger)
+                : RedactedError(error, sql);
         }
 
         // What the caller reads of a database error: redacted while PII detection is on.
@@ -318,7 +329,7 @@ internal sealed class AskSqlPipeline(
             logger.LogInformation("Dry-run validation failed, retrying ({ErrorClass})", DatabaseErrorRedactor.ClassOnly(rawDryRunError, logger));
 
             var dryRunRetry = await sqlGenerationService.RetryWithErrorAsync(
-                promptProvider, systemPrompt, generatedSql, redactedDryRunError,
+                promptProvider, systemPrompt, generatedSql, PromptError(rawDryRunError, dryRunSql),
                 fullContext, null, question, ct);
 
             var dryRunRepairSql = (string?)null;
@@ -354,7 +365,7 @@ internal sealed class AskSqlPipeline(
                 : null;
 
             var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                promptProvider, systemPrompt, generatedSql, redactedExecutionError,
+                promptProvider, systemPrompt, generatedSql, PromptError(execResult.ErrorMessage, generatedSql),
                 fullContext, tablesContext, question, ct);
 
             if (retriedSql != null)

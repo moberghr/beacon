@@ -125,6 +125,7 @@ public class ProjectAskToolRepairFlowTests
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             log.For<AskSqlPipeline>());
 
         await pipeline.RunAsync(
@@ -215,6 +216,72 @@ public class ProjectAskToolRepairFlowTests
 
     private const string RedactedError = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
 
+    private const string NameError = "42P01: relation \"orders\" does not exist";
+
+    private const string RaisedError = "Msg 50000, Level 16, State 1: Customer ivan.horvat@bank.example is blocked";
+
+    private const string WithheldRaisedError = "Database error 50000 (unrecognised): not an error Beacon recognises. The database's message is withheld because it can quote row values.";
+
+    // A repair prompt gets the database's error redacted — a name error keeps the names it knows — or, while row data may not
+    // reach the provider, its class and code only; after a dry run and after execution alike. The repair steps the stored
+    // signal is built from keep the redacted error either way.
+    [TestCase(false, NameError, RedactedError)]
+    [TestCase(true, "Database error 42P01 (undefined table).", "Database error 22P02 (data exception).")]
+    public async Task TheRepairPrompts_GetTheRedactedError_OrUnderTheRowDataLockItsClassOnly(bool forbidRowData, string dryRunPrompt, string executionPrompt)
+    {
+        var prompts = new List<string>();
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NameError);
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, CorrectedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompts.Add(error))
+            .ReturnsAsync(CorrectedSql);
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), CorrectedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompts.Add(error))
+            .ReturnsAsync((string?)null);
+
+        var outcome = await CreatePipeline(forbidRowData: forbidRowData).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        prompts.Should().Equal(dryRunPrompt, executionPrompt);
+        outcome.Repairs.Select(x => x.Error).Should().Equal(NameError, RedactedError);
+    }
+
+    // An error the statement's own code raised holds its author's values unquoted: the caller (detection on), the repair
+    // prompt and the repair steps the stored signal is built from all get its class and code.
+    [Test]
+    public async Task ARaisedExecutionError_IsWithheldFromTheCallerTheRepairPromptAndTheRepairSteps()
+    {
+        SetupCleanDryRun();
+        _settings.EnablePiiDetection = true;
+        string? prompted = null;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, RaisedError, 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompted = error)
+            .ReturnsAsync((string?)null);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        prompted.Should().Be(WithheldRaisedError);
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "execution").Which.Error.Should().Be(WithheldRaisedError);
+        outcome.Text.Should().Contain($"**Execution Error:** {WithheldRaisedError}").And.NotContain("ivan.horvat@bank.example");
+    }
+
     // Every request whose prompt carries the context's row data is logged before it is sent, with ids and categories only.
     [Test]
     public async Task EveryPromptCarryingRowData_IsLoggedWithIdsAndCategoriesOnly()
@@ -243,6 +310,7 @@ public class ProjectAskToolRepairFlowTests
             generation,
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
 
         await pipeline.RunAsync(llm.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
@@ -339,14 +407,14 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AskExecutionResult(null, "execution error", 0, false));
+            .ReturnsAsync(new AskExecutionResult(null, "42601: syntax error at end of input", 0, false));
 
         var outcome = await CreatePipeline().RunAsync(
             _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-        outcome.Text.Should().Contain("**Execution Error:** execution error");
+        outcome.Text.Should().Contain("**Execution Error:** 42601: syntax error at end of input");
         outcome.EmptyResultRetried.Should().BeFalse();
     }
 
@@ -879,13 +947,14 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync((string?)null);
     }
 
-    private AskSqlPipeline CreatePipeline(ILogger<AskSqlPipeline>? logger = null)
+    private AskSqlPipeline CreatePipeline(ILogger<AskSqlPipeline>? logger = null, bool forbidRowData = false)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
             logger ?? NullLogger<AskSqlPipeline>.Instance);
     }
 

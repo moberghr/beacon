@@ -45,7 +45,24 @@ public class AdHocQueryErrorRedactionTests
         log.Contains("Horvat").Should().BeFalse();
     }
 
-    private static DataSourceService Service(bool piiDetectionOn, List<string?> history, LogRecorder log)
+    // An error the statement's own code raised, as the database provider passes it on, holds its author's values unquoted:
+    // withheld from the caller while detection is on, and from the history always.
+    [TestCase("P0001: Customer ivan.horvat@bank.example is blocked", "P0001")]
+    [TestCase("45000: Customer ivan.horvat@bank.example is blocked", "45000")]
+    [TestCase("Msg 50000, Level 16, State 1: Customer ivan.horvat@bank.example is blocked", "50000")]
+    public async Task ARaisedError_IsWithheldFromTheCallerAndTheHistory(string error, string code)
+    {
+        var history = new List<string?>();
+        var service = Service(piiDetectionOn: true, history, new LogRecorder(), error);
+
+        var result = await service.ExecuteAdHocQuery(DataSourceId, "SELECT total FROM accounts", CancellationToken.None);
+
+        var withheld = $"Database error {code} (unrecognised): not an error Beacon recognises. The database's message is withheld because it can quote row values.";
+        result.Error.Should().Be(withheld);
+        history.Should().ContainSingle().Which.Should().Be(withheld);
+    }
+
+    private static DataSourceService Service(bool piiDetectionOn, List<string?> history, LogRecorder log, string error = ErrorQuotingAValue)
     {
         var dataSource = new DataSource
         {
@@ -66,7 +83,7 @@ public class AdHocQueryErrorRedactionTests
         var provider = new Mock<IDataSourceProvider>();
         provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = ErrorQuotingAValue });
+            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = error });
         var settings = new Mock<ISharedSourceSettings>();
         settings
             .Setup(x => x.GetDataSourceSettingsAsync(DataSourceId, It.IsAny<CancellationToken>()))

@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
@@ -24,6 +26,7 @@ internal sealed class CrossSourceQueryService(
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -374,17 +377,20 @@ internal sealed class CrossSourceQueryService(
             return sql;
         }
 
-        // The repair prompt and the stored signal get the error without the values it quotes; the log its class only.
+        // The repair prompt and the stored signal get the error without the values it quotes — the prompt only its class and
+        // code while row data may not reach the LLM provider; the log its class only.
         var redactedError = DatabaseErrorRedactor.Redact(dryRunError, DatabaseErrorRedactor.KnownNames(sql, sourceContext.SchemaCatalog), logger);
+        var classOnly = DatabaseErrorRedactor.ClassOnly(dryRunError, logger);
         logger.LogInformation(
             "Dry-run failed for data source {DataSourceId}, retrying ({ErrorClass})",
             dataSource.Id,
-            DatabaseErrorRedactor.ClassOnly(dryRunError, logger));
+            classOnly);
         signal.SetDryRunFailed(redactedError);
 
+        var promptError = deploymentOptions.Value.ForbidRowDataToLlm ? classOnly : redactedError;
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
         var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-            llmProvider, systemPrompt, sql, redactedError, sourceContext.FullContext, null, question, ct);
+            llmProvider, systemPrompt, sql, promptError, sourceContext.FullContext, null, question, ct);
 
         if (retriedSql == null)
         {

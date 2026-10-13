@@ -10,8 +10,9 @@ namespace Beacon.AI.Services.Mcp;
 /// <summary>
 /// Answers a knowledge question from the project's stored documentation, schema and search results. Stored documentation
 /// of the sections that can list values discovered in the data (<see cref="ProjectDocSectionTypes.ListingValues"/>) is row
-/// data: a prompt that carries it is logged by the row-data egress log, and while row data may not reach the LLM provider
-/// (<c>Beacon:Mcp:ForbidRowDataToLlm</c>) those sections stay out of the prompt.
+/// data — as the export, as chunks and as search results cut from it: a prompt that carries it is logged by the row-data
+/// egress log, and while row data may not reach the LLM provider (<c>Beacon:Mcp:ForbidRowDataToLlm</c>) those sections stay
+/// out of the prompt.
 /// </summary>
 internal sealed class KnowledgeAnswerService(
     IKnowledgeGraphService knowledgeGraph,
@@ -37,12 +38,16 @@ internal sealed class KnowledgeAnswerService(
         await Task.WhenAll(projectContextTask, searchTask, docChunksTask, docTask);
 
         var projectContext = projectContextTask.Result;
-        var searchResults = searchTask.Result;
+        var searchResults = searchTask.Result
+            .Where(x => !forbidRowData || x.SectionType?.ListsValues() != true)
+            .ToList();
         var docChunks = docChunksTask.Result
             .Where(x => !forbidRowData || x.SectionType?.ListsValues() != true)
             .ToList();
         var documentation = docTask.Result;
-        var sendsListedValues = false;
+
+        // A search result's snippet is the stored text of its section, so one cut from a value-listing section carries it.
+        var sendsListedValues = searchResults.Any(x => x.SectionType?.ListsValues() == true);
 
         var context = "";
 
@@ -51,7 +56,7 @@ internal sealed class KnowledgeAnswerService(
         // documentation. Fall back to today's char-truncation when nothing is indexed / the embedder is off.
         if (docChunks.Count > 0)
         {
-            sendsListedValues = docChunks.Any(x => x.SectionType?.ListsValues() == true);
+            sendsListedValues |= docChunks.Any(x => x.SectionType?.ListsValues() == true);
             context += "## Project Documentation\n\n";
             foreach (var chunk in docChunks)
             {
@@ -64,7 +69,7 @@ internal sealed class KnowledgeAnswerService(
         else if (!string.IsNullOrEmpty(documentation))
         {
             // The whole documentation holds the sections that can list values, unless the lock left them out.
-            sendsListedValues = !forbidRowData;
+            sendsListedValues |= !forbidRowData;
             context += "## Project Documentation\n\n";
             context += documentation.Length > 6000 ? documentation[..6000] + "\n\n[... truncated ...]\n" : documentation;
             context += "\n\n";

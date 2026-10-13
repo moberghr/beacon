@@ -1,10 +1,12 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -406,6 +408,7 @@ public class AskSqlPipelineTests
             _sqlGeneration.Object,
             gate ?? TestSqlGate.Create(_guardrail.Object, hostGuard),
             TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

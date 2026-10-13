@@ -14,10 +14,10 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit.RowData;
 
 /// <summary>
-/// A database error as it leaves Beacon, judged by its class: an error that carries values keeps only its class, its code
-/// and a generic description; an error about a name keeps the names it knows; any other error keeps its text with every
-/// quoted span, key and row detail, record, unquoted value and JSON context redacted. Per engine, and for every shape a
-/// value can hide in. And the egress log of row data sent to the LLM provider: ids and categories, never a value.
+/// A database error as it leaves Beacon, judged by its class: an error that carries values, and an error of no class Beacon
+/// recognises, keeps only its class, its code and a generic description; an error about a name keeps the names it knows;
+/// any other value-free error keeps its text with every quoted span, key and row detail, record, unquoted value and JSON
+/// context redacted; Beacon's own fixed texts pass. Per engine, and for every shape a value can hide in. And the egress log of row data sent to the LLM provider: ids and categories, never a value.
 /// </summary>
 [TestFixture]
 public class DatabaseErrorRedactorTests
@@ -127,6 +127,8 @@ public class DatabaseErrorRedactorTests
     [TestCase("22P02: invalid input syntax for type integer: \"Ivan Horvat\"")]
     [TestCase("[CAST_INVALID_INPUT] The value 'Ivan Horvat' of the type \"STRING\" cannot be cast to \"INT\" because it is malformed. SQLSTATE: 22018")]
     [TestCase("Something odd happened with 'Ivan Horvat'")]
+    [TestCase("P0001: Customer Ivan Horvat is blocked")]
+    [TestCase("Msg 50000, Level 16, State 1: Customer Ivan Horvat is blocked")]
     [TestCase("42703: column \"o.totl\" does not exist")]
     [TestCase("Incorrect syntax near 'Ivan Horvat'.")]
     public void RedactingTwice_KeepsTheFirstResult(string error)
@@ -160,23 +162,52 @@ public class DatabaseErrorRedactorTests
             .Should().Be($"Database error (conversion error): a value could not be converted to the target type. {Withheld}");
     }
 
+    // An error of no class Beacon recognises is withheld whatever it says: quoted, unquoted, with or without the word value.
     [TestCase("Something odd happened with 'Ivan Horvat'")]
     [TestCase("Something odd happened with \"Ivan Horvat\"")]
     [TestCase("Value: Ivan Horvat; row 1")]
     [TestCase("the value Ivan Horvat was refused")]
-    public void AnUnrecognisedErrorWithAQuoteOrAValue_IsWithheld(string error)
+    [TestCase("Customer ivan.horvat@bank.example is blocked")]
+    [TestCase("Account HR1210010051863000160 is frozen")]
+    [TestCase("The owner is Ivan Horvat")]
+    public void AnUnrecognisedError_IsWithheld_WhateverItSays(string error)
     {
-        DatabaseErrorRedactor.Redact(error, Known)
-            .Should().Be($"Database error (unrecognised): not an error Beacon recognises. {Withheld}");
+        var redacted = DatabaseErrorRedactor.Redact(error, Known);
+
+        redacted.Should().Be($"Database error (unrecognised): not an error Beacon recognises. {Withheld}");
+        DatabaseErrorRedactor.ForCaller(error, Sql, redact: true).Should().Be(redacted);
     }
 
+    // A credential written into an error no rule knows is withheld with the rest of it.
+    [Test]
+    public void AnUnrecognisedErrorHoldingACredential_IsWithheld()
+    {
+        var redacted = DatabaseErrorRedactor.Redact($"Connector refused key {TestCredentials.ProviderSecretKey}", Known);
+
+        redacted.Should().Be($"Database error (unrecognised): not an error Beacon recognises. {Withheld}");
+    }
+
+    // A timeout is a recognised value-free class; Beacon's own fixed texts hold no value.
     [TestCase("The query timed out.")]
     [TestCase("Step execution timed out")]
     [TestCase(Beacon.Core.Services.Providers.DatabaseProvider.HostResultMismatchMessage)]
-    [TestCase("Query failed on the host database.")]
-    public void AnErrorWithoutQuotesOrValues_IsKeptAsItIs(string error)
+    [TestCase(Beacon.Core.Services.Providers.DatabaseProvider.HostQueryFailedMessage)]
+    [TestCase(Beacon.Core.Services.Providers.DatabaseProvider.MySqlReadOnlyNotClosedMessage)]
+    [TestCase(Beacon.Core.Services.Providers.DatabaseProvider.SqlServerTransactionEndedMessage)]
+    [TestCase(Beacon.Core.Services.MigrationWriteTargets.ReadRefusedMessage)]
+    public void ATimeoutOrBeaconsOwnText_IsKeptAsItIs(string error)
     {
         DatabaseErrorRedactor.Redact(error, Known).Should().Be(error);
+    }
+
+    // The row ceiling's text passes only as Beacon writes it.
+    [Test]
+    public void TheRowCeilingsText_PassesOnlyAsBeaconWritesIt()
+    {
+        var ceiling = Beacon.Core.Services.Providers.DatabaseProvider.MoreRowsThanMessage(1000);
+
+        DatabaseErrorRedactor.Redact(ceiling, Known).Should().Be(ceiling);
+        DatabaseErrorRedactor.Redact($"{ceiling} Ivan Horvat", Known).Should().NotContain("Horvat");
     }
 
     // The shapes a value takes inside an error that is kept.
@@ -213,7 +244,7 @@ public class DatabaseErrorRedactorTests
     [Test]
     public void ALongError_IsCut()
     {
-        DatabaseErrorRedactor.Redact(new string('x', 5000), []).Should().HaveLength(2000);
+        DatabaseErrorRedactor.Redact("42601: syntax error " + new string('x', 5000), []).Should().HaveLength(2000);
     }
 
     // The value sits across the 2,000-character cut: the error is redacted first, so no part of it survives the cut.
@@ -241,6 +272,7 @@ public class DatabaseErrorRedactorTests
     [TestCase("42703: column \"o.totl\" does not exist", "Database error 42703 (undefined column).")]
     [TestCase("Conversion failed when converting the nvarchar value 'Ivan Horvat' to data type int.", "Database error 245 (conversion error).")]
     [TestCase("Value: Ivan Horvat", "Database error (unrecognised).")]
+    [TestCase("P0001: permission denied for Ivan Horvat", "Database error P0001 (unrecognised).")]
     public void ClassOnly_KeepsNoneOfTheText(string error, string classOnly)
     {
         DatabaseErrorRedactor.ClassOnly(error).Should().Be(classOnly);

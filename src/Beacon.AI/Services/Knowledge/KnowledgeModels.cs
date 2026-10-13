@@ -83,6 +83,13 @@ public record SearchResult
 
     /// <summary>Title of a host-imported document ("imported_doc" results only).</summary>
     public string? DocumentTitle { get; init; }
+
+    /// <summary>
+    /// The type of the documentation section a "documentation" result comes from — the keyword arm's own section, the
+    /// semantic arm's chunk's source section — so a prompt built from it can tell a section that can list values discovered
+    /// in the data (<see cref="ProjectDocSectionTypes.ListingValues"/>). Null for every other result.
+    /// </summary>
+    public ProjectDocSectionType? SectionType { get; init; }
 }
 
 public record LineageInfo

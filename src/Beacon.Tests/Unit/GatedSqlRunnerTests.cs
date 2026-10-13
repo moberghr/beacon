@@ -78,11 +78,12 @@ public class GatedSqlRunnerTests
     [Test]
     public async Task AFailureOnTheDataSource_ThrowsWithTheProvidersMessage()
     {
-        var runner = Runner(Answering(new ProviderQueryResult { Success = false, ErrorMessage = "relation does not exist" }).Object, TestConfiguredDatabases.None);
+        const string error = "42P01: relation \"accounts\" does not exist";
+        var runner = Runner(Answering(new ProviderQueryResult { Success = false, ErrorMessage = error }).Object, TestConfiguredDatabases.None);
 
         var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10), CancellationToken.None);
 
-        await act.Should().ThrowAsync<QueryExecutionFailedException>().WithMessage("relation does not exist");
+        await act.Should().ThrowAsync<QueryExecutionFailedException>().WithMessage(error);
     }
 
     // The database's error quotes a row value: while the source's effective PII detection is on (the request's settings,

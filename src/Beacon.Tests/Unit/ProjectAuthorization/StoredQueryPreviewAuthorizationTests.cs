@@ -112,9 +112,10 @@ public class StoredQueryPreviewAuthorizationTests
 
     private sealed record Paging : ListRequest;
 
+    // Shaped like a value-free database error (a syntax error), which the caller's redacted error keeps as it is.
     private sealed class ExecutionReachedException() : Exception(Text)
     {
-        public const string Text = "The step reached its connection.";
+        public const string Text = "42601: syntax error: the step reached its connection";
     }
 
     /// <summary>Query 5 with one step on the open source 4, as in-memory rows the services read through their own contexts.</summary>

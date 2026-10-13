@@ -1,6 +1,9 @@
+using System.Data.Common;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Services.Providers;
 using Beacon.Core.Telemetry;
 
 namespace Beacon.Core.Services.Security;
@@ -20,8 +23,13 @@ namespace Beacon.Core.Services.Security;
 /// division-by-zero error — keeps its message, with quoted text, key and row details, brace records, unquoted values and
 /// JSON context replaced by <see cref="Placeholder"/>. Quoted text survives only in an error about a name (a column, table
 /// or function that does not exist or is ambiguous), and only when every dotted part of it is a known name.</item>
-/// <item>An error of no class Beacon recognises is replaced like a value-carrying one when it holds a quote or the word
-/// <c>value</c>, and redacted like a value-free one otherwise.</item>
+/// <item>An error of no class Beacon recognises is replaced like a value-carrying one (<c>unrecognised</c>), whatever it
+/// says. So is an error the statement's own code raised — PostgreSQL's class P0 (<c>RAISE</c>), SQL Server's errors 50000
+/// and above (<c>THROW</c>, <c>RAISERROR</c>), MySQL's SQLSTATE class 45 (<c>SIGNAL</c>) — whose wording is its author's,
+/// so it is never read as a class Beacon knows (<see cref="TextOf"/> puts the code in front where the driver leaves it
+/// out).</item>
+/// <item>Beacon's own fixed texts that reach the screens beside the database's errors (a host source's failure, a read
+/// stopped at the row ceiling, a refused read of a migration write target …) hold no value and are kept as they are.</item>
 /// </list>
 /// The whole message is redacted before it is cut to 2,000 characters, a quoted span may run across lines, and a quote
 /// that never closes takes the rest of the message with it. An error that cannot be screened in time is replaced as a
@@ -56,6 +64,9 @@ public static partial class DatabaseErrorRedactor
     private const string ConversionPrefix = "a value could not be converted to ";
     private const string AnyTargetType = "the target type";
 
+    // SQL Server's first user-defined error number: THROW takes 50000 and above, RAISERROR with a message text raises 50000.
+    private const int FirstSqlServerUserError = 50000;
+
     private enum ErrorKind
     {
         // About a name of the statement: quoted names it knows are kept.
@@ -67,7 +78,7 @@ public static partial class DatabaseErrorRedactor
         // Carries row values: replaced by its class, code and description.
         Value,
 
-        // Not recognised: replaced when it holds a quote or "value", else redacted like NoValue.
+        // Not recognised, or raised by the statement's own code: replaced like Value.
         Unrecognised
     }
 
@@ -169,6 +180,16 @@ public static partial class DatabaseErrorRedactor
             ]),
         StringComparer.Ordinal);
 
+    // Beacon's own fixed texts that reach the screens beside the database's errors: they hold no value, so they are kept.
+    private static readonly HashSet<string> BeaconMessages = new(StringComparer.Ordinal)
+    {
+        DatabaseProvider.HostQueryFailedMessage,
+        DatabaseProvider.HostResultMismatchMessage,
+        DatabaseProvider.MySqlReadOnlyNotClosedMessage,
+        DatabaseProvider.SqlServerTransactionEndedMessage,
+        MigrationWriteTargets.ReadRefusedMessage
+    };
+
     // The target types a conversion's description may name: only a word Beacon knows as a type name is ever repeated.
     private static readonly HashSet<string> TypeNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -191,6 +212,13 @@ public static partial class DatabaseErrorRedactor
     [GeneratedRegex(@"\bSQL\s?STATE\s*[:=]?\s*(?<code>[0-9A-Z]{5})\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex NamedSqlState();
 
+    [GeneratedRegex(@"^The query returned more than (?<ceiling>[0-9]{1,9}) rows,", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex MoreRowsThanLead();
+
+    // The lead TextOf writes for a SQL Server error, in the form SQL Server's own tools print.
+    [GeneratedRegex(@"^\s*Msg (?<number>[0-9]{1,10}), Level [0-9]{1,3}, State [0-9]{1,3}:\s", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex SqlServerMessageLead();
+
     // A Databricks / Spark error class: upper-case words joined by underscores, optionally with a sub-class.
     [GeneratedRegex(@"\[(?<class>[A-Z]+(?:_[A-Z]+)+(?:\.[A-Z]+(?:_[A-Z]+)*)?)\]", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ErrorClassName();
@@ -212,9 +240,6 @@ public static partial class DatabaseErrorRedactor
 
     [GeneratedRegex(@"(?<lead>\bvalues?[ \t]*[:=][ \t]*)(?![""'`<\s])[^;\r\n]+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex UnquotedValue();
-
-    [GeneratedRegex(@"\bvalues?\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
-    private static partial Regex ValueWord();
 
     [GeneratedRegex(@"'(?:[^']|'')*'", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex SqlStringLiteral();
@@ -266,6 +291,39 @@ public static partial class DatabaseErrorRedactor
                     : Describe(Classify(text), withDescription: false);
             },
             logger);
+    }
+
+    /// <summary>
+    /// The text Beacon passes on for a statement that failed with <paramref name="exception"/>: its message, led by the
+    /// error's code when the statement's own code raised the error and the message does not name it — SQL Server's errors
+    /// 50000 and above as <c>Msg 50000, Level 16, State 1:</c>, a MySQL SQLSTATE of class 45 as <c>45000:</c> (PostgreSQL's
+    /// message already starts with its SQLSTATE) — so the error is withheld whatever its author wrote into it.
+    /// </summary>
+    public static string TextOf(Exception exception)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            if (current is SqlException sqlServer)
+            {
+                var raised = sqlServer.Errors
+                    .Cast<SqlError>()
+                    .Where(x => x.Number >= FirstSqlServerUserError)
+                    .FirstOrDefault();
+
+                return raised == null
+                    ? exception.Message
+                    : $"Msg {raised.Number}, Level {raised.Class}, State {raised.State}: {exception.Message}";
+            }
+
+            if (current is DbException { SqlState: { Length: > 0 } sqlState })
+            {
+                return !IsRaisedSqlState(sqlState) || exception.Message.TrimStart().StartsWith(sqlState, StringComparison.Ordinal)
+                    ? exception.Message
+                    : $"{sqlState}: {exception.Message}";
+            }
+        }
+
+        return exception.Message;
     }
 
     /// <summary>
@@ -340,14 +398,14 @@ public static partial class DatabaseErrorRedactor
     private static string RedactCore(string error, IReadOnlyCollection<string> knownNames)
     {
         var text = Bounded(error);
-        if (text == UnscreenedMessage || IsOwnOutput(text, out _))
+        if (text == UnscreenedMessage || IsOwnOutput(text, out _) || IsBeaconMessage(text))
         {
             return text;
         }
 
         var errorClass = Classify(text);
 
-        if (errorClass.Kind == ErrorKind.Value || (errorClass.Kind == ErrorKind.Unrecognised && HoldsQuoteOrValue(text)))
+        if (errorClass.Kind is ErrorKind.Value or ErrorKind.Unrecognised)
         {
             return $"{Describe(errorClass, withDescription: true)} {Withheld}";
         }
@@ -372,6 +430,14 @@ public static partial class DatabaseErrorRedactor
             : NamedSqlState().Match(text) is { Success: true } named
                 ? named.Groups["code"].Value
                 : null;
+
+        // An error the statement's own code raised says whatever its author wrote: its wording is never read as a class.
+        var raisedCode = RaisedErrorCode(text, sqlState);
+        if (raisedCode != null)
+        {
+            return new ErrorClass(ErrorKind.Unrecognised, "unrecognised", raisedCode);
+        }
+
         var className = ErrorClassName().Match(text) is { Success: true } bracketed
             ? bracketed.Groups["class"].Value
             : null;
@@ -398,6 +464,27 @@ public static partial class DatabaseErrorRedactor
         }
 
         return new ErrorClass(ErrorKind.Unrecognised, "unrecognised", sqlState);
+    }
+
+    // The code of an error the statement's own code raised: a SQLSTATE of class P0 (PostgreSQL's RAISE, Databricks'
+    // raise_error) or of MySQL's class 45 (SIGNAL), or a SQL Server error number of 50000 and above as TextOf leads it.
+    private static string? RaisedErrorCode(string text, string? sqlState)
+    {
+        if (sqlState != null && IsRaisedSqlState(sqlState))
+        {
+            return sqlState;
+        }
+
+        return SqlServerMessageLead().Match(text) is { Success: true } lead
+            && long.TryParse(lead.Groups["number"].Value, out var number)
+            && number >= FirstSqlServerUserError
+                ? lead.Groups["number"].Value
+                : null;
+    }
+
+    private static bool IsRaisedSqlState(string sqlState)
+    {
+        return sqlState.StartsWith("P0", StringComparison.OrdinalIgnoreCase) || sqlState.StartsWith("45", StringComparison.Ordinal);
     }
 
     // Every engine that reports a SQLSTATE: classes 22 and 23 carry values (division by zero excepted); the name errors of
@@ -544,6 +631,18 @@ public static partial class DatabaseErrorRedactor
         return true;
     }
 
+    private static bool IsBeaconMessage(string text)
+    {
+        if (BeaconMessages.Contains(text))
+        {
+            return true;
+        }
+
+        return MoreRowsThanLead().Match(text) is { Success: true } lead
+            && int.TryParse(lead.Groups["ceiling"].Value, out var ceiling)
+            && text == DatabaseProvider.MoreRowsThanMessage(ceiling);
+    }
+
     private static bool IsOwnDescription(string description)
     {
         if (description is DateTimeValue or OutOfRange or TooLong or Duplicate or NotNull or Integrity or DataValue or NotRecognised)
@@ -571,19 +670,6 @@ public static partial class DatabaseErrorRedactor
         return description == null
             ? $"Database error{code} ({errorClass.Name})."
             : $"Database error{code} ({errorClass.Name}): {description}.";
-    }
-
-    private static bool HoldsQuoteOrValue(string text)
-    {
-        for (var i = 0; i < text.Length; i++)
-        {
-            if (text[i] is '"' or '`' || (text[i] == '\'' && OpensSingleQuote(text, i)))
-            {
-                return true;
-            }
-        }
-
-        return ValueWord().IsMatch(text);
     }
 
     // Quoted text, scanned rather than matched so a span may run across lines and hold quote characters: double quotes and

@@ -850,7 +850,8 @@ internal sealed class KnowledgeGraphService(
                 TableName = string.Empty,
                 Description = TruncateContent(doc.Content, 200),
                 Relevance = 0.5,
-                DocIdentity = $"docsection:{doc.Id}"
+                DocIdentity = $"docsection:{doc.Id}",
+                SectionType = doc.SectionType
             });
         }
 
@@ -1027,6 +1028,25 @@ internal sealed class KnowledgeGraphService(
 
         var chunksById = chunks.ToDictionary(x => x.Id);
 
+        // A chunk of generated documentation carries its section's type, which says whether its text can list values
+        // discovered in the data; an imported document's chunk has no section.
+        var sectionIds = chunks
+            .Select(x => x.SourceSectionId)
+            .Where(x => x != 0)
+            .Distinct()
+            .ToList();
+        var sectionTypes = sectionIds.Count == 0
+            ? new Dictionary<int, ProjectDocSectionType>()
+            : await context.ProjectDocumentationSections
+                .Where(x => sectionIds.Contains(x.Id))
+                .Select(x =>
+                    new
+                    {
+                        x.Id,
+                        x.SectionType
+                    })
+                .ToDictionaryAsync(x => x.Id, x => x.SectionType, ct);
+
         var results = new List<SearchResult>();
         foreach (var hit in hits)
         {
@@ -1065,7 +1085,8 @@ internal sealed class KnowledgeGraphService(
                 TableName = string.Empty,
                 Description = TruncateContent(chunk.ChunkText, 200),
                 Relevance = 0,
-                DocIdentity = $"docsection:{chunk.SourceSectionId}"
+                DocIdentity = $"docsection:{chunk.SourceSectionId}",
+                SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
             });
         }
 
@@ -1122,7 +1143,7 @@ internal sealed class KnowledgeGraphService(
             .OrderBy(x => x.Title)
             .ThenBy(x => x.Id)
             .Select(x =>
-                new DocSectionSearchRow(x.Id, x.Documentation.Project.Name, x.Title, x.Content))
+                new DocSectionSearchRow(x.Id, x.Documentation.Project.Name, x.Title, x.Content, x.SectionType))
             .Take(maxResults);
     }
 
@@ -2588,6 +2609,6 @@ internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, s
 
 internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description);
 
-internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content);
+internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content, ProjectDocSectionType SectionType);
 
 internal sealed record ImportedDocSearchRow(int Id, string ProjectName, string Path, string Title, string? MatchingChunk);
