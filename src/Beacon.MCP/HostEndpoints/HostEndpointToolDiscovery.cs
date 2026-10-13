@@ -26,7 +26,7 @@ namespace Beacon.MCP.HostEndpoints;
 
 /// <summary>
 /// Turns the host's endpoints that carry <see cref="IBeaconToolMetadata"/> into tool descriptors: name and read-only
-/// checks, the HTTP method, one MCP argument per bound value (from ApiExplorer when it describes the endpoint, else
+/// (or opted-in write) checks, the HTTP method, one MCP argument per bound value (from ApiExplorer when it describes the endpoint, else
 /// from the action's parameters) and the input JSON schema. Every problem is collected and thrown together, so a
 /// misconfigured host fails startup with the whole list.
 /// </summary>
@@ -67,12 +67,14 @@ internal sealed partial class HostEndpointToolDiscovery(
     /// Null when the host has no authorization services; every endpoint then reads as naming none.
     /// </param>
     /// <param name="trustedAuthenticationSchemes"><see cref="HostEndpointToolOptions.TrustedAuthenticationSchemes"/>.</param>
+    /// <param name="allowWriteTools"><see cref="HostEndpointToolOptions.AllowWriteTools"/>.</param>
     public IReadOnlyList<HostEndpointToolDescriptor> Discover(
         IEnumerable<Endpoint> endpoints,
         IReadOnlyList<ApiDescription> apiDescriptions,
         bool hasFallbackPolicy,
         Func<Endpoint, IReadOnlyCollection<string>>? authenticationSchemes = null,
-        IReadOnlyCollection<string>? trustedAuthenticationSchemes = null)
+        IReadOnlyCollection<string>? trustedAuthenticationSchemes = null,
+        bool allowWriteTools = false)
     {
         var trusted = new HashSet<string>(trustedAuthenticationSchemes ?? [], StringComparer.Ordinal);
         var failures = new List<string>();
@@ -103,9 +105,17 @@ internal sealed partial class HostEndpointToolDiscovery(
                 owners[metadata.Name] = display;
             }
 
-            if (!metadata.IsReadOnlyDeclared || !metadata.ReadOnly)
+            if (!metadata.IsReadOnlyDeclared)
             {
-                endpointFailures.Add("ReadOnly must be declared true — only read-only endpoints can be exposed, and Beacon never infers it from the HTTP verb");
+                endpointFailures.Add("ReadOnly must be declared explicitly — true for a read-only endpoint, false for a write tool (which also needs HostEndpointToolOptions.AllowWriteTools); Beacon never infers it from the HTTP verb");
+            }
+            else if (!metadata.ReadOnly && !allowWriteTools)
+            {
+                endpointFailures.Add("it is declared ReadOnly = false (a write tool) and write tools are off; set HostEndpointToolOptions.AllowWriteTools = true to expose write tools, or declare ReadOnly = true if the endpoint changes nothing");
+            }
+            else if (metadata.ReadOnly && metadata.Destructive)
+            {
+                endpointFailures.Add("it is declared both ReadOnly = true and Destructive = true; Destructive applies only to write tools (ReadOnly = false)");
             }
 
             if (!HasAuthorizationDecision(endpoint) && !hasFallbackPolicy)
@@ -202,7 +212,9 @@ internal sealed partial class HostEndpointToolDiscovery(
             endpoint.Metadata.GetMetadata<IEndpointDescriptionMetadata>()?.Description)
             ?? $"Calls {httpMethod} {route} on the host application.";
 
-        var description = $"{summary.Trim()}\n\nRead-only host endpoint {httpMethod} {route}, run with your host permissions.";
+        var description = metadata.ReadOnly
+            ? $"{summary.Trim()}\n\nRead-only host endpoint {httpMethod} {route}, run with your host permissions."
+            : $"{summary.Trim()}\n\nWrite host endpoint {httpMethod} {route}: it changes data in the host application, as you, with your host permissions. Call it only when the user asked for this change.";
 
         return new HostEndpointToolDescriptor(
             metadata.Name,
@@ -211,7 +223,10 @@ internal sealed partial class HostEndpointToolDiscovery(
             httpMethod,
             endpoint,
             parameters,
-            BuildInputSchema(parameters));
+            BuildInputSchema(parameters),
+            metadata.ReadOnly,
+            !metadata.ReadOnly && metadata.Destructive,
+            !metadata.ReadOnly && metadata.Idempotent);
     }
 
     private static string ChooseHttpMethod(Endpoint endpoint)

@@ -31,6 +31,15 @@ public sealed class HostEndpointToolOptions
     /// </summary>
     public List<string> TrustedAuthenticationSchemes { get; set; } = [];
 
+    /// <summary>
+    /// Expose endpoints declared <c>ReadOnly = false</c> as write tools. Off by default: such an endpoint then fails
+    /// startup. When on, a write tool carries <c>readOnlyHint = false</c> (so MCP clients ask the user before calling
+    /// it), runs only for a mapped Entra <b>user</b> caller (a system caller is refused and never sees it), and is
+    /// audited as <c>api_&lt;name&gt;:write</c>. The endpoint keeps its own validation and authorization; Beacon adds
+    /// none. Default false.
+    /// </summary>
+    public bool AllowWriteTools { get; set; }
+
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(ProjectName))

@@ -66,7 +66,8 @@ internal sealed class HostEndpointToolRegistry
             apiDescriptions,
             hasFallbackPolicy,
             policyProvider == null ? null : x => AuthenticationSchemesOf(x, policyProvider),
-            options.TrustedAuthenticationSchemes);
+            options.TrustedAuthenticationSchemes,
+            options.AllowWriteTools);
     }
 
     // The same combined policy HostEndpointDispatcher.AuthorizeAsync evaluates (minus requirement-only metadata, which
@@ -159,7 +160,7 @@ internal sealed class HostEndpointToolCatalog(
         }
 
         var tools = registry.Tools
-            .Select(x => new HostEndpointToolSummary(x.Name, x.ToolName, x.FirstDescriptionLine()))
+            .Select(x => new HostEndpointToolSummary(x.Name, x.ToolName, x.FirstDescriptionLine()) { ReadOnly = x.ReadOnly })
             .ToList();
 
         return new HostEndpointToolListing(tools, registry.IsCatalogMode);

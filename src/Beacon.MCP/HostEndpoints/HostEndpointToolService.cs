@@ -14,7 +14,8 @@ namespace Beacon.MCP.HostEndpoints;
 /// <summary>
 /// Lists and calls the host endpoint tools for one MCP request: fails closed unless the caller is a mapped
 /// (Entra user or system) caller authorized for the tools' project, builds the host principal, dispatches, maps the
-/// response to a tool result, and writes an audit row for every outcome (§1.7).
+/// response to a tool result, and writes an audit row for every outcome (§1.7). Write tools
+/// (<see cref="HostEndpointToolOptions.AllowWriteTools"/>) are listed to and run for user callers only.
 /// </summary>
 internal sealed class HostEndpointToolService(
     HostEndpointToolRegistry registry,
@@ -70,19 +71,34 @@ internal sealed class HostEndpointToolService(
 
     public async Task<IReadOnlyList<Tool>> ListToolsAsync(CancellationToken cancellationToken)
     {
-        if (registry.Tools.Count == 0 || (await ResolveAccessAsync(cancellationToken)).Error != null)
+        if (registry.Tools.Count == 0)
         {
             return [];
         }
 
+        var access = await ResolveAccessAsync(cancellationToken);
+        if (access.Error != null)
+        {
+            return [];
+        }
+
+        var visible = VisibleTools(access.Caller!);
         if (!registry.IsCatalogMode)
         {
-            return registry.Tools
+            return visible
                 .Select(x => x.ToProtocolTool())
                 .ToList();
         }
 
-        return [CatalogTool(SearchToolName, "Search the host application's read-only endpoints", SearchDescription(), SearchInputSchema), CatalogTool(CallToolName, "Call a host application endpoint", "Run one host endpoint tool found with search_api, as your host identity. Pass its name and arguments matching its input schema.", CallInputSchema)];
+        var writes = visible
+            .Where(x => !x.ReadOnly)
+            .ToList();
+
+        return
+        [
+            CatalogTool(SearchToolName, writes.Count == 0 ? "Search the host application's read-only endpoints" : "Search the host application's endpoints", SearchDescription(visible.Count, writes.Count), SearchInputSchema, ReadOnlyAnnotations()),
+            CatalogTool(CallToolName, "Call a host application endpoint", CallDescription(writes.Count), CallInputSchema, CallAnnotations(writes))
+        ];
     }
 
     public async Task<CallToolResult> CallAsync(string toolName, IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken)
@@ -124,12 +140,21 @@ internal sealed class HostEndpointToolService(
     private async Task<CallToolResult> InvokeAsync(HostEndpointToolDescriptor tool, IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken)
     {
         var sw = Stopwatch.StartNew();
+        var auditTool = tool.AuditToolName;
         var access = await ResolveAccessAsync(cancellationToken);
         if (access.Error != null)
         {
-            await AuditAsync(tool.ToolName, arguments, access.ProjectId, sw, access.Error);
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, access.Error);
 
             return ToolHelper.Error(access.Error);
+        }
+
+        if (!IsVisibleTo(tool, access.Caller!))
+        {
+            var refused = $"Forbidden: {tool.ToolName} changes data in the host application, and write tools run only for a signed-in user; a system caller cannot call them.";
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, refused);
+
+            return ToolHelper.Error(refused);
         }
 
         HostEndpointRequestParts parts;
@@ -139,7 +164,7 @@ internal sealed class HostEndpointToolService(
         }
         catch (HostEndpointArgumentException ex)
         {
-            await AuditAsync(tool.ToolName, arguments, access.ProjectId, sw, ex.Message);
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, ex.Message);
 
             return ToolHelper.Error(ex.Message);
         }
@@ -148,7 +173,7 @@ internal sealed class HostEndpointToolService(
         if (principal == null)
         {
             const string refused = "Forbidden: the host application gives this caller no identity for endpoint tools.";
-            await AuditAsync(tool.ToolName, arguments, access.ProjectId, sw, refused);
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, refused);
 
             return ToolHelper.Error(refused);
         }
@@ -160,15 +185,27 @@ internal sealed class HostEndpointToolService(
         }
         catch (OperationCanceledException)
         {
-            await AuditAsync(tool.ToolName, arguments, access.ProjectId, sw, "Cancelled by the caller.");
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, "Cancelled by the caller.");
             throw;
         }
 
         var (toolResult, auditError) = MapResult(tool, result, options.MaxResponseBytes, options.RequestTimeout);
-        await AuditAsync(tool.ToolName, arguments, access.ProjectId, sw, auditError);
+        await AuditAsync(auditTool, arguments, access.ProjectId, sw, auditError);
 
         return toolResult;
     }
+
+    /// <summary>
+    /// Write tools are for user callers only: a system identity (a routine, a pipeline) acting with standing host
+    /// permissions has no person who asked for the change and no client prompting one to confirm it.
+    /// </summary>
+    internal static bool IsVisibleTo(HostEndpointToolDescriptor tool, McpCaller caller) =>
+        tool.ReadOnly || caller.Kind == McpCallerKind.User;
+
+    private List<HostEndpointToolDescriptor> VisibleTools(McpCaller caller) =>
+        registry.Tools
+            .Where(x => IsVisibleTo(x, caller))
+            .ToList();
 
     private async Task<CallToolResult> SearchAsync(IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken)
     {
@@ -188,23 +225,39 @@ internal sealed class HostEndpointToolService(
             ? Math.Clamp(requested, 1, MaxSearchResults)
             : DefaultSearchResults;
 
-        var matches = Search(registry.Tools, query, limit);
+        var visible = VisibleTools(access.Caller!);
+        var matches = Search(visible, query, limit);
         var payload = new JsonObject
         {
             ["tools"] = new JsonArray(matches
-                .Select(x => (JsonNode?)new JsonObject
-                {
-                    ["name"] = x.Name,
-                    ["description"] = x.Description,
-                    ["input_schema"] = JsonNode.Parse(x.InputSchema.GetRawText())
-                })
+                .Select(x => (JsonNode?)SearchResult(x))
                 .ToArray()),
-            ["total_tools"] = registry.Tools.Count
+            ["total_tools"] = visible.Count
         };
 
         await AuditAsync(SearchToolName, arguments, access.ProjectId, sw, null);
 
         return ToolHelper.Success(payload.ToJsonString(), payload);
+    }
+
+    private static JsonObject SearchResult(HostEndpointToolDescriptor tool)
+    {
+        var result = new JsonObject
+        {
+            ["name"] = tool.Name,
+            ["description"] = tool.Description,
+            ["read_only"] = tool.ReadOnly
+        };
+
+        if (!tool.ReadOnly)
+        {
+            result["destructive"] = tool.Destructive;
+            result["idempotent"] = tool.Idempotent;
+        }
+
+        result["input_schema"] = JsonNode.Parse(tool.InputSchema.GetRawText());
+
+        return result;
     }
 
     internal static IReadOnlyList<HostEndpointToolDescriptor> Search(IReadOnlyList<HostEndpointToolDescriptor> tools, string query, int limit)
@@ -380,24 +433,50 @@ internal sealed class HostEndpointToolService(
             ct: CancellationToken.None);
     }
 
-    private string SearchDescription() =>
-        $"Search the {registry.Tools.Count} read-only endpoints of the host application (project '{options.ProjectName}') exposed as tools. " +
-        $"Returns each match's name, description and input schema; run one with {CallToolName}.";
+    private string SearchDescription(int total, int writes) =>
+        (writes == 0
+            ? $"Search the {total} read-only endpoints of the host application (project '{options.ProjectName}') exposed as tools. "
+            : $"Search the {total} endpoints of the host application (project '{options.ProjectName}') exposed as tools; {writes} of them change data (read_only: false). ") +
+        $"Returns each match's name, description, read_only flag and input schema; run one with {CallToolName}.";
 
-    private static Tool CatalogTool(string name, string title, string description, JsonElement schema) =>
+    private static string CallDescription(int writes) =>
+        writes == 0
+            ? $"Run one host endpoint tool found with {SearchToolName}, as your host identity. Pass its name and arguments matching its input schema."
+            : $"Run one host endpoint tool found with {SearchToolName}, as your host identity. Pass its name and arguments matching its input schema. " +
+              "A tool with read_only: false changes data in the host application: call it only when the user asked for that change.";
+
+    private static ToolAnnotations ReadOnlyAnnotations() =>
+        new()
+        {
+            ReadOnlyHint = true,
+            DestructiveHint = false,
+            IdempotentHint = true,
+            OpenWorldHint = false
+        };
+
+    /// <summary>
+    /// <c>call_api</c> can reach every visible tool, so its hints are the most permissive of them: once one write tool
+    /// is reachable it is not read-only (clients then ask before each call), and destructive when any write tool is.
+    /// </summary>
+    private static ToolAnnotations CallAnnotations(IReadOnlyList<HostEndpointToolDescriptor> writes) =>
+        writes.Count == 0
+            ? ReadOnlyAnnotations()
+            : new ToolAnnotations
+            {
+                ReadOnlyHint = false,
+                DestructiveHint = writes.Any(x => x.Destructive),
+                IdempotentHint = false,
+                OpenWorldHint = false
+            };
+
+    private static Tool CatalogTool(string name, string title, string description, JsonElement schema, ToolAnnotations annotations) =>
         new()
         {
             Name = name,
             Title = title,
             Description = description,
             InputSchema = schema,
-            Annotations = new ToolAnnotations
-            {
-                ReadOnlyHint = true,
-                DestructiveHint = false,
-                IdempotentHint = true,
-                OpenWorldHint = false
-            }
+            Annotations = annotations
         };
 
     private sealed record HostEndpointAccess(int? ProjectId, McpCaller? Caller, System.Security.Claims.ClaimsPrincipal? McpPrincipal, string? Error);
