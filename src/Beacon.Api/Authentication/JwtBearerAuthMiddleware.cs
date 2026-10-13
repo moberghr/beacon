@@ -29,6 +29,7 @@ internal sealed class JwtBearerAuthMiddleware(
     ILogger<JwtBearerAuthMiddleware> logger)
 {
     private const string BearerPrefix = "Bearer ";
+    private const string SigningKeysRetryAfterSeconds = "30";
 
     public async Task InvokeAsync(
         HttpContext context,
@@ -64,17 +65,33 @@ internal sealed class JwtBearerAuthMiddleware(
             return;
         }
 
-        // Validate the token
+        // Validate the token. The provider never throws for a bad token (malformed, wrong algorithm, unknown key...):
+        // every such value comes back as a failed result, so a hostile bearer value is a 401, never a 500.
         var result = await jwtProvider.ValidateTokenAsync(token);
         if (!result.Success || result.User == null)
         {
             logger.LogDebug("JWT bearer token validation failed: {Error}", result.ErrorMessage);
 
-            // For API requests, return 401
+            // For API requests, return 401 (or 503 when the signing keys could not be retrieved)
             if (IsApiRequest(context))
             {
+                if (result.SigningKeysUnavailable)
+                {
+                    // The token was never judged: a 401 would make an OAuth client discard a possibly valid token
+                    // and re-run its authorization flow, which cannot fix an unreachable JWKS endpoint.
+                    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                    context.Response.Headers.RetryAfter = SigningKeysRetryAfterSeconds;
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        error = "temporarily_unavailable",
+                        message = result.ErrorMessage
+                    });
+                    return;
+                }
+
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.Headers.WWWAuthenticate = "Bearer";
+                // RFC 6750 §3.1. On /beacon/mcp, UseMcpResourceMetadataChallenge appends resource_metadata to it.
+                context.Response.Headers.WWWAuthenticate = "Bearer error=\"invalid_token\"";
                 await context.Response.WriteAsJsonAsync(new
                 {
                     error = "unauthorized",
@@ -142,6 +159,13 @@ internal sealed class JwtBearerAuthMiddleware(
 
     private static bool IsApiRequest(HttpContext context)
     {
+        // MCP clients do not always send Accept: application/json, and they cannot follow a host's login redirect:
+        // a rejected token on the MCP route is always answered here.
+        if (context.Request.Path.StartsWithSegments(McpDiscoveryPaths.McpPath))
+        {
+            return true;
+        }
+
         // Check if this is an API request (JSON expected)
         var acceptHeader = context.Request.Headers.Accept.FirstOrDefault();
         if (acceptHeader?.Contains("application/json") == true)
