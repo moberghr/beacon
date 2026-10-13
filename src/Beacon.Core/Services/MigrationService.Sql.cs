@@ -497,23 +497,7 @@ DO UPDATE SET {updateSet}";
 
     private DynamicDbContext CreateBulkContextWithConnection(DbConnection connection, DbTransaction transaction, DatabaseEngineType engineType, string? tableName = null, List<string>? primaryKeys = null)
     {
-        var options = engineType switch
-        {
-            DatabaseEngineType.PostgreSQL => new DbContextOptionsBuilder<DynamicDbContext>()
-                .UseNpgsql(connection)
-                .Options,
-            DatabaseEngineType.MySQL => new DbContextOptionsBuilder<DynamicDbContext>()
-                .UseMySql(connection, ServerVersion.AutoDetect(connection.ConnectionString))
-                .Options,
-            DatabaseEngineType.MSSQL => new DbContextOptionsBuilder<DynamicDbContext>()
-                .UseSqlServer(connection)
-                .Options,
-            _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
-        };
-
-        var context = new DynamicDbContext(options, tableName, primaryKeys);
-        context.Database.UseTransaction(transaction);
-        return context;
+        return bulkContextFactory.Create(connection, transaction, engineType, tableName, primaryKeys);
     }
 
     private List<ExpandoObject> ConvertToExpandoObjects(List<Dictionary<string, object?>> data)

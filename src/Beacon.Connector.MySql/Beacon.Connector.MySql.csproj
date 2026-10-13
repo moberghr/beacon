@@ -12,5 +12,12 @@
   <ItemGroup>
     <PackageReference Include="MySql.Data" />
     <PackageReference Include="Dapper" />
+    <!-- Pomelo 9.0.0 is the newest release and targets EF Core 9; no EF Core 10 build exists yet, so restoring it
+         against EF Core 10 raises NU1608. It is referenced HERE, not in Beacon.Core, so only hosts that add the
+         MySQL connector inherit that warning. Used by MySqlMigrationBulkContextProvider for migration bulk writes;
+         that path is runtime-UNVERIFIED on EF Core 10 — revisit when Pomelo ships an EF Core 10 build.
+         The direct Relational reference lifts Pomelo's EF 9 range to the EF 10 Beacon.Core needs (else NU1107). -->
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
 </Project>

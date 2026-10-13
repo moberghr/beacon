@@ -34,6 +34,7 @@ internal partial class MigrationService(
     IQueryService queryService,
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
+    MigrationBulkContextFactory bulkContextFactory,
     ILogger<MigrationService> logger) : IMigrationService
 {
     public async Task<CreateMigrationJobResponse> CreateMigrationJob(CreateMigrationJobRequest request, CancellationToken cancellationToken)
