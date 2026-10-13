@@ -20,9 +20,11 @@ using Beacon.Core.Models;
 namespace Beacon.Tests.Unit.Tasks;
 
 /// <summary>
-/// Alert tasks are resolved, snoozed and reprioritised by their assignee or an Admin; an unassigned task is claimed by
-/// assigning it to oneself; reassigning someone else's task is an Admin's; with Beacon user management the assignee
-/// must be an active user; and a resolution is never overwritten. The caller is identified by its Users.ExternalId,
+/// Alert tasks are resolved by their assignee (anyone else claims the task first), and by an Admin only while nobody is
+/// assigned; they are snoozed and reprioritised by their assignee or an Admin; an unassigned task is claimed by assigning
+/// it to oneself; reassigning someone else's task is an Admin's; with Beacon user management the assignee must be an
+/// active user; a resolution is never overwritten; and a run that returns no rows resolves its task with no resolver and
+/// a fixed note. The caller is identified by its Users.ExternalId,
 /// whatever credential it uses, and a task assigned by an earlier version under an id the session presents is still
 /// the caller's.
 /// </summary>
@@ -65,15 +67,59 @@ public class TaskWorkRulesTests
         task.ResolvedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
     }
 
+    // The assignee owns the work: an Admin reassigns someone else's task to themselves before resolving it.
     [Test]
-    public async Task Resolve_ByAnAdminWhoIsNotTheAssignee_IsAllowed()
+    public async Task Resolve_ByAnAdminWhoIsNotTheAssignee_IsRefused()
     {
         var task = AddTask(assignee: "ext-ana");
 
-        await ResolveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
+        var act = () => ResolveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(TaskWorkRules.AdminResolveRefusedMessage);
+        task.Resolved.Should().BeFalse();
+        task.ResolvedByUserId.Should().BeNull();
+    }
+
+    [Test]
+    public async Task Resolve_ByAnAdmin_OfAnUnassignedTask_RecordsTheAdmin()
+    {
+        var task = AddTask(assignee: null);
+
+        await ResolveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ResolveTaskCommand(TaskId, "noise"), CancellationToken.None);
 
         task.Resolved.Should().BeTrue();
         task.ResolvedByUserId.Should().Be("ext-admin");
+        task.AssigneeUserId.Should().BeNull("resolving does not assign the task");
+    }
+
+    [Test]
+    public async Task Resolve_ByAnAdminWhoReassignedTheTaskToThemselves_RecordsTheAdmin()
+    {
+        var task = AddTask(assignee: "ext-ana");
+        var admin = Interactive("ext-admin", RoleService.RoleNames.Admin);
+
+        await AssignHandler(admin).Handle(new AssignTaskCommand(TaskId, "ext-admin"), CancellationToken.None);
+        await ResolveHandler(admin).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
+
+        task.Resolved.Should().BeTrue();
+        task.ResolvedByUserId.Should().Be("ext-admin");
+    }
+
+    // Claim, then resolve: anyone with write permission resolves a task once it is theirs.
+    [Test]
+    public async Task Resolve_ByANonAdmin_AfterClaimingTheTask_RecordsThem()
+    {
+        var task = AddTask(assignee: null);
+        var editor = Interactive("ext-ben", RoleService.RoleNames.Editor);
+        var unclaimed = () => ResolveHandler(editor).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
+
+        await unclaimed.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(TaskWorkRules.ResolveRefusedMessage);
+
+        await AssignHandler(editor).Handle(new AssignTaskCommand(TaskId, "ext-ben"), CancellationToken.None);
+        await ResolveHandler(editor).Handle(new ResolveTaskCommand(TaskId, "handled"), CancellationToken.None);
+
+        task.Resolved.Should().BeTrue();
+        task.ResolvedByUserId.Should().Be("ext-ben");
     }
 
     [TestCase("ext-ana")]
@@ -99,7 +145,7 @@ public class TaskWorkRulesTests
         task.ResolvedByUserId = "ext-ana";
         task.ResolutionNotes = "original";
 
-        var act = () => ResolveHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new ResolveTaskCommand(TaskId, "rewritten"), CancellationToken.None);
+        var act = () => ResolveHandler(Interactive("ext-ana")).Handle(new ResolveTaskCommand(TaskId, "rewritten"), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*already resolved*");
         task.ResolvedByUserId.Should().Be("ext-ana");
@@ -131,7 +177,7 @@ public class TaskWorkRulesTests
     [Test]
     public async Task Resolve_ByAnAdminWithoutAResolvableUser_IsRefused_AndNoResolverIsLeftEmpty()
     {
-        var task = AddTask(assignee: "ext-ana");
+        var task = AddTask(assignee: null);
         var adminWithoutId = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, RoleService.RoleNames.Admin)], "Cookies"));
 
         var act = () => ResolveHandler(adminWithoutId).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None);
@@ -183,6 +229,37 @@ public class TaskWorkRulesTests
         await missing.Should().ThrowAsync<Beacon.Core.Models.BeaconException>().WithMessage("Task 404 not found");
         task.ResolutionNotes.Should().Be("first");
         task.ResolvedByUserId.Should().Be("ext-ana");
+    }
+
+    // A run that returns no rows resolves its open task: nobody resolved it, so no resolver is recorded, and the note says
+    // why. A resolver left from an earlier resolution of a reopened task is not kept.
+    [Test]
+    public async Task AutoResolve_RecordsNoResolver_AndTheFixedNote()
+    {
+        var task = AddTask(assignee: "ext-ana");
+        task.ResolvedByUserId = "ext-ben";
+        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance);
+
+        await service.CreateOrUpdateTask(task.SubscriptionId, resultCount: 0, CancellationToken.None);
+
+        task.Resolved.Should().BeTrue();
+        task.ResolvedByUserId.Should().BeNull();
+        task.ResolutionNotes.Should().Be(TaskService.AutoResolveMessage);
+        task.ResolvedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
+        task.AssigneeUserId.Should().Be("ext-ana", "auto-resolving changes nobody's assignment");
+    }
+
+    [Test]
+    public async Task AutoResolve_LeavesATaskWithRowsOpen()
+    {
+        var task = AddTask(assignee: null);
+        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance);
+
+        await service.CreateOrUpdateTask(task.SubscriptionId, resultCount: 2, CancellationToken.None);
+
+        task.Resolved.Should().BeFalse();
+        task.ResolvedByUserId.Should().BeNull();
+        task.LatestResultCount.Should().Be(2);
     }
 
     // --- snooze and priority ------------------------------------------------------------------------------------

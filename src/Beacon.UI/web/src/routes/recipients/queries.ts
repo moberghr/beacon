@@ -3,6 +3,7 @@ import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
 import { NotificationType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import type { ChangeApprovalOutcome, RecipientHeaderView } from '@/routes/approvals/queries';
 
 export const NOTIFICATION_TYPE_LABEL: Record<number, string> = {
   [NotificationType.Teams]: 'Teams',
@@ -27,6 +28,19 @@ export interface RecipientEntry {
   bodyTemplate: string | null;
   secretsUnreadable?: boolean;
   subscriptionCount: number;
+  /** With the approval workflow on: where it delivers waits for a second person's approval, so deliveries skip it. */
+  awaitingApproval?: boolean;
+  /** The pending change request of where it delivers, if one waits (an Approver opens it). */
+  pendingApprovalRequestId?: number | null;
+  /** While it waits and no request of it is pending: the last decision on it (a rejection: change it and save again). */
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
+  /**
+   * Admins and SecurityAdmins only: a short keyed fingerprint of where it delivers (type, destination and headers), the
+   * one an Approver is shown, to compare out of band; null when it cannot be read, and for anyone else.
+   */
+  definitionFingerprint?: string | null;
+  /** Admins and SecurityAdmins only: each custom header's name with a fingerprint of its value (never the value). */
+  headerFingerprints?: RecipientHeaderView[] | null;
 }
 
 export interface RecipientFormValues {
@@ -59,11 +73,11 @@ export interface RecipientOption {
 export function useCreateRecipient() {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<RecipientFormValues, { id: number }>({
+    createSimpleMutation<RecipientFormValues, { id: number; awaitingApproval: boolean; message: string | null }>({
       qc,
       mutationFn: async (values) => {
         const r = await beaconApi().createRecipient(values as never);
-        return { id: r.id ?? 0 };
+        return { id: r.id ?? 0, awaitingApproval: r.awaitingApproval ?? false, message: r.message ?? null };
       },
       invalidate: [RECIPIENTS_KEY],
       errorFallback: 'Create recipient failed',

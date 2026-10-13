@@ -55,7 +55,7 @@ When a run returns **0 rows** while a task is open, Beacon resolves it automatic
 Auto-resolved: Query returned 0 results
 ```
 
-The resolved timestamp is set to the time of the run. No user action is required — if the data problem fixed itself (or someone fixed it upstream), the task closes itself.
+The resolved timestamp is set to the time of the run. No user action is required — if the data problem fixed itself (or someone fixed it upstream), the task closes itself. An auto-resolved task records **no resolver** (nobody resolved it) and always that fixed note; it keeps its assignee.
 
 :::note
 Auto-resolved tasks stay in the task history with their resolution notes intact, so you can always see when a condition cleared and how long it was open.
@@ -63,7 +63,7 @@ Auto-resolved tasks stay in the task history with their resolution notes intact,
 
 ### Manual Resolution
 
-An open task is resolved by its assignee or an Admin, from the task detail page (assign an unassigned task to yourself first):
+An open task is resolved by its **assignee**: claim it first (assign it to yourself), then resolve it. An Admin may also resolve a task **nobody is assigned to**; a task assigned to someone else is resolved by that person, or an Admin reassigns it to themselves first. The task page offers **Resolve** only to those who may (the server refuses everyone else with `403`, saying to claim the task first — or, for an Admin, to reassign it to themselves first; a task that does not exist is refused alike, except to an Admin, who is told it was not found):
 
 1. Open the task and click **Resolve** (or press `R`)
 2. Optionally add **resolution notes** (up to 2000 characters) describing what was done
@@ -134,6 +134,7 @@ From the detail page's side rail and actions:
 
 - **Assign** — anyone who can edit may take an unassigned task by assigning it to themselves; the assignee may hand the task over or release it; assigning a task to someone else, or reassigning (or re-confirming) a task that is assigned to someone else, is an Admin's. With Beacon user management the assignee must be an existing, enabled user; a host without it accepts the id its sessions present.
 - **Watch / Unwatch** — follow a task you're not assigned to; the watcher count is visible on the task
+- **Resolve** — the assignee; an Admin only while nobody is assigned (see [Manual Resolution](#manual-resolution))
 - **Snooze** — suppress the task until a chosen time (useful when a fix is deployed but the next run hasn't confirmed it yet); the assignee or an Admin
 - **Priority** — set `Critical`, `High`, `Normal`, or `Low`; the assignee or an Admin
 
@@ -152,6 +153,10 @@ Working a task is now limited to its assignee or an Admin. Resolve, snooze and p
 - Refused assignee and Admin checks are logged at Warning with the task id and the caller's user id.
 - Snoozing a task and setting its priority fail (400) when the task is resolved, or was resolved or reassigned between the check and the write.
 - `GET /tasks/{id}/executions` and `GET /tasks/{id}/result-history` list only the runs the caller may read: project-restricted API keys and MCP callers no longer see other projects' runs, or runs recorded before Beacon kept the data sources a run read. `ITaskService.GetTaskExecutionHistory` and `ITaskService.GetResultCountHistory` take a `StoredRunScope`.
+:::
+
+:::caution[Upgrading: resolving tasks]
+Resolving is now claim-then-resolve: a task is resolved by its assignee, and by an Admin only while nobody is assigned. An Admin no longer resolves a task assigned to someone else directly — reassign it to yourself first (`POST /tasks/{id}/assign`), then resolve it; the refusal (`403`) says so. Snoozing and setting the priority are unchanged (the assignee or an Admin). An auto-resolved task explicitly records no resolver, also when it was resolved by someone before and reopened. `ITaskService.ResolveTask` is unchanged: it checks nothing, so a host calling it decides who may resolve.
 :::
 
 ### Keyboard Shortcuts

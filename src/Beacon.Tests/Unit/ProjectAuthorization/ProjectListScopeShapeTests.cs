@@ -41,6 +41,7 @@ public class ProjectListScopeShapeTests
         [typeof(GetQueryChangeHistoryQuery)] = new GetQueryChangeHistoryQuery { QueryId = 5 },
         [typeof(GetQueryVersionsQuery)] = new GetQueryVersionsQuery { QueryId = 5 },
         [typeof(GetPendingApprovalsQuery)] = new GetPendingApprovalsQuery(),
+        [typeof(GetChangeApprovalsQuery)] = new GetChangeApprovalsQuery(),
         [typeof(GetQueryFoldersQuery)] = new GetQueryFoldersQuery(),
         [typeof(GetDataSourcesQuery)] = new GetDataSourcesQuery(),
         [typeof(GetSubscriptionsQuery)] = new GetSubscriptionsQuery(),

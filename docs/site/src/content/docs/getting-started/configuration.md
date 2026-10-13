@@ -638,19 +638,47 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 | `Enabled` | Every change to a query's executable content (an edit, a new query, a version restore, an AI actor's refinement or new query) waits for a second person's approval; subscription runs execute only stored SQL that is the query's active version; approving an AI actor's plan takes an Approver other than its creator; publishing a query as an MCP tool is refused to whoever requested or approved the version it runs. | `false` |
 | `AllowSelfApproval` | Lets the requester of a change (and whoever shaped it: an AI plan's reviewer and revision requesters) approve it, publish the query as an MCP tool, an AI actor's creator and a plan's revision requesters approve its plans, and a caller Beacon cannot name submit a change. For a host with a single person who can approve. | `false` |
 | `RequireApprovedVersionToRun` | Strict mode: a subscription runs only when its query's active version carries an approved request for exactly its content (the approval recorded the version's content hash) and the stored SQL is that content — the rule saved-query MCP tools then follow too; a run that may not is recorded as skipped. Without it, a run whose stored SQL differs from the active version is still refused, a query never versioned runs as stored, and a tool may run a version approved before Beacon recorded content hashes. Recommended for regulated deployments. | `false` |
+| `CoversMigrationJobs` | With the workflow on, a migration job created runs (manually or on any schedule) only once a second person approved exactly its definition; a refused run is recorded as failed. See [Data Migration → Approval of new jobs](/features/data-migration/#approval-of-new-jobs). | `true` |
+| `CoversCustomSqlRules` | With the workflow on, a data contract's Custom SQL rule that is new, or whose SQL or data source changed, is left out of every evaluation until a second person approved exactly that SQL. See [Data Quality → Approval of Custom SQL](/features/data-quality/#approval-of-custom-sql). | `true` |
+| `CoversRecipientDestinations` | With the workflow on, a recipient created, or whose type, destination or headers changed, receives nothing until a second person approved exactly where it delivers; deliveries skip it meanwhile. Attaching a recipient to a subscription or data contract is not reviewed. See [Notifications → Approval of new and changed destinations](/features/notifications/#approval-of-new-and-changed-destinations). | `true` |
+
+Each `Covers…` switch applies only while `Enabled` is on; turning one off leaves that kind of change unreviewed, as it was
+before. Migration jobs, Custom SQL rules and recipients that exist when the workflow (or a switch) is turned on are not
+governed: they keep working with no approval and no data change, until they are next created or changed under the
+workflow. A change made while the workflow (or the kind's switch) is off is not reviewed later. These changes are
+reviewed with the same rules as query changes — the reviewer is an Approver (or an Admin) other than the requester
+(unless `AllowSelfApproval`), a request is decided once, and an approval names the payload the reviewer was shown — on
+the **Approvals** page, filtered by kind.
+
+:::caution[Turning a switch (or the workflow) off releases what it held]
+Turning a `Covers…` switch off, or the workflow itself, does not approve anything, but nothing of that kind is held any
+more: migration jobs that were created and never approved, or whose request was rejected, **run** as they are; Custom
+SQL rules waiting for approval (or rejected) **are evaluated**; recipients whose new destination waits (or was rejected)
+**receive deliveries**. Their pending requests stay listed, and Beacon warns about all of them at every startup (below).
+Turning the switch on again holds them again until they are approved.
+
+A save made while the kind is not covered is not reviewed and settles what it changes: a recipient whose destination is
+changed stops being governed (it delivers as any recipient did before the workflow) and its pending requests are
+**superseded**; a contract save that changes which Custom SQL rules wait supersedes the pending request that no longer
+matches them. Either way this happens whoever requested them, and the requesters are told. A save that leaves the reviewed
+definition as it was supersedes nothing. Migration jobs cannot be changed, so nothing of theirs is superseded.
+:::
 
 **Startup notes.** Beacon logs once at startup how query changes are governed: the workflow off is a **Warning**
 outside Development (Information in Development); `AllowSelfApproval` on is a **Warning**; with the workflow on, an
-Information line names the run rule (strict or not). With the workflow on, once the host has started, Beacon counts in
-the background what the rules leave open and logs a **Warning** for each count above zero (counts, option names and
-tool names only — never SQL):
+Information line names the run rule (strict or not), another the other changes it reviews (migration jobs, Custom SQL
+rules, recipient destinations), and another the `Covers…` options a host turned off. Once the host has started, Beacon
+counts in the background what the rules leave open and logs a **Warning** for each count above zero (counts, option
+names and tool names only — never SQL, destinations or names of resources). The first row is counted whether or not the
+workflow is on; the others only while it is on:
 
 | Warning | Logged when | Remedy |
 |---------|-------------|--------|
+| Changes a switch that is off releases | For each kind the workflow does not cover now (every kind while it is off): the migration jobs, enabled Custom SQL rules or recipients the workflow governed that hold a definition nobody approved (created and never approved, changed, or rejected) — they run, are evaluated or receive deliveries as they are — and that kind's pending requests. The Warning names the option that is off (`ApprovalWorkflow.Enabled` while the workflow is off). | Turn the option on to hold them until they are approved, or review them (a rejected job is deleted, a rule or destination changed back or saved again). |
 | Queries never versioned | Queries with steps and no active version (stored before the workflow was on). Outside strict mode they run as stored, each run logged; in strict mode they do not run. | Save each query to submit its SQL, and approve it. |
 | Queries with subscriptions whose stored SQL is not their active version's content | Always with the workflow on: every run of them is skipped. | Save the query to submit its stored SQL for approval, or restore a version and approve the restore. |
 | Active versions not approved for their content hash | Strict mode only: queries with a subscription or an enabled MCP tool whose active version went live while the workflow was off or was approved before Beacon kept content hashes; neither runs. | Restore the active version and approve the restore. |
-| Fewer than two users can approve | `AllowSelfApproval` off and Beacon user management on, counting enabled users who hold the Approver permission (or Admin) through their stored roles; skipped when permissions come from identity-provider roles. | Give a second user the Approver role (or Admin), or turn on `AllowSelfApproval` on a host with one approver. |
+| Fewer than two users can approve | `AllowSelfApproval` off and Beacon user management on, counting enabled users who hold the Approver permission (or Admin) through their stored roles; skipped when permissions come from identity-provider roles. The same approvers decide every kind of change the workflow reviews — query changes and the migration jobs, Custom SQL rules and recipient destinations it covers — so with one approver none of them can be approved. | Give a second user the Approver role (or Admin), or turn on `AllowSelfApproval` on a host with one approver. |
 | MCP tools on approvals without a content hash | Outside strict mode: enabled tools whose active version's approval recorded no hash; names up to 20 tools. | Restore the version and approve the restore; strict mode would stop these tools until then. |
 
 A count that cannot be read (the database is unreachable at startup, say) is logged as **Information**, never a

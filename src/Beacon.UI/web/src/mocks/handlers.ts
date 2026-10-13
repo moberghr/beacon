@@ -31,7 +31,7 @@
  * - data-sources, data-sources/:id/metadata
  * - notifications (filters by ?subscriptionId), notifications/:id
  * - tasks, tasks/:id (+ executions / related / result-history / comments)
- * - approvals/pending, approvals/:id
+ * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id
  * - subscriptions, subscriptions/:id, subscriptions/:id/anomaly-chart
  * - recipients
  * - ai-actors, ai-actors/:id
@@ -50,6 +50,7 @@ import {
   AnomalyDetectionMethod,
   AnomalySensitivity,
   ApprovalStatus,
+  ChangeApprovalKind,
   BedrockAuthMode,
   ChangeSource,
   DatabaseEngineType,
@@ -832,6 +833,58 @@ const listHandlers = [
         changeSummary: `Mock change (source: ${ChangeSource.User}) — widened revenue window`,
       },
     ]))),
+  // Changes of migration jobs, Custom SQL rules and recipients. Keep BEFORE /approvals/:id, which would match
+  // /approvals/changes too.
+  http.get('/beacon/api/approvals/changes', ({ request }) => {
+    const kind = Number(new URL(request.url).searchParams.get('kind') ?? ChangeApprovalKind.MigrationJob);
+    return HttpResponse.json(paged([
+      {
+        id: 31,
+        kind,
+        resourceId: 4,
+        resourceName: kind === ChangeApprovalKind.RecipientDestination ? 'Mock ops webhook' : 'Mock nightly copy',
+        status: ApprovalStatus.Pending,
+        requestedByUserName: 'Mock Operator',
+        createdTime: iso(0, 3),
+        changeSummary: kind === ChangeApprovalKind.MigrationJob ? 'Migration job created' : 'Mock change',
+      },
+    ]));
+  }),
+  http.get('/beacon/api/approvals/changes/:id', ({ params }) =>
+    HttpResponse.json({
+      id: Number(params.id),
+      kind: ChangeApprovalKind.MigrationJob,
+      resourceId: 4,
+      resourceName: 'Mock nightly copy',
+      resourceExists: true,
+      status: ApprovalStatus.Pending,
+      requestedByUserName: 'Mock Operator',
+      reviewedByUserName: null,
+      reviewedAt: null,
+      reviewComment: null,
+      changeSummary: 'Migration job created',
+      createdTime: iso(0, 3),
+      previousMigrationJob: null,
+      proposedMigrationJob: {
+        sourceDataSourceId: 1,
+        sourceDataSourceName: 'Mock warehouse',
+        queryText: 'SELECT id, total FROM orders',
+        destinationDataSourceId: 2,
+        destinationDataSourceName: 'Mock reporting',
+        destinationTable: 'orders_copy',
+        mode: 1,
+        transformationScript: null,
+      },
+      previousCustomSqlRules: null,
+      proposedCustomSqlRules: null,
+      previousRecipientDestination: null,
+      proposedRecipientDestination: null,
+      payloadHash: 'mock-payload-hash',
+      isOwnRequest: false,
+      mayApprove: true,
+      approveBlockedReason: null,
+      isStale: false,
+    })),
   // ApprovalDetailPage (ApprovalRequestDetail, unwrapped). Keep AFTER the
   // /approvals/pending handler — both match two path segments.
   http.get('/beacon/api/approvals/:id', ({ params }) => {

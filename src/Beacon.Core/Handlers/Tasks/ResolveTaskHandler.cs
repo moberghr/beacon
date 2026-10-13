@@ -27,9 +27,9 @@ internal sealed class ResolveTaskHandler(
                     x.Resolved
                 })
             .FirstOrDefaultAsync(cancellationToken)
-            ?? throw TaskWorkRules.Missing(actor, request.Id, "resolve", logger);
+            ?? throw TaskWorkRules.MissingToResolve(actor, request.Id, logger);
 
-        TaskWorkRules.EnsureCanWork(actor, request.Id, task.AssigneeUserId, "resolve", logger);
+        TaskWorkRules.EnsureCanResolve(actor, request.Id, task.AssigneeUserId, logger);
 
         // The resolver is recorded as the caller, and a resolution without one is not recorded.
         var resolvedByUserId = actor.UserId
@@ -64,8 +64,8 @@ internal sealed class ResolveTaskHandler(
 }
 
 /// <summary>
-/// Resolves an open task. Allowed for the task's assignee or an Admin; the resolver is recorded as the signed-in caller.
-/// Resolving a task that is already resolved fails.
+/// Resolves an open task. Allowed for the task's assignee (anyone else claims it first), and for an Admin while nobody is
+/// assigned; the resolver is recorded as the signed-in caller. Resolving a task that is already resolved fails.
 /// </summary>
 public record ResolveTaskCommand(int Id, string? ResolutionNotes) : IRequest, IProjectAuthorizedRequest
 {

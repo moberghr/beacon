@@ -1,7 +1,10 @@
+using Beacon.Core.Data.Enums;
+
 namespace Beacon.Core;
 
 /// <summary>
-/// The query change approval workflow. Opt-in (<see cref="Enabled"/>): a host cannot tell a new installation from an
+/// The change approval workflow: query changes, and (each with its own switch, all on by default) migration jobs, Custom
+/// SQL rules and recipient destinations. Opt-in (<see cref="Enabled"/>): a host cannot tell a new installation from an
 /// existing one, so turning it on is the host's decision; a startup note says when it is off.
 /// </summary>
 public class ApprovalWorkflowOptions
@@ -32,4 +35,39 @@ public class ApprovalWorkflowOptions
     /// deployments.
     /// </summary>
     public bool RequireApprovedVersionToRun { get; set; } = false;
+
+    /// <summary>
+    /// With the workflow on, a migration job created (or whose definition — source, steps, destination, mode,
+    /// transformation — changed) runs only once a second person approved exactly that definition; until then every run of
+    /// it, manual or scheduled, is refused and recorded as failed. Default: true. Jobs stored before Beacon reviewed
+    /// migration jobs, or last saved with this switch off, run as before.
+    /// </summary>
+    public bool CoversMigrationJobs { get; set; } = true;
+
+    /// <summary>
+    /// With the workflow on, a data contract's Custom SQL rule that is new, or whose SQL or data source changed, stays out
+    /// of every evaluation until a second person approved exactly that SQL on that data source. Default: true. Rules stored
+    /// before Beacon reviewed them, or last saved with this switch off, run as before.
+    /// </summary>
+    public bool CoversCustomSqlRules { get; set; } = true;
+
+    /// <summary>
+    /// With the workflow on, a recipient created (or whose type, destination or headers changed) receives nothing until a
+    /// second person approved exactly where it delivers: deliveries skip it meanwhile, each skip logged. Default: true.
+    /// Attaching an existing recipient to a subscription or data contract is not reviewed. Recipients stored before Beacon
+    /// reviewed them, or last saved with this switch off, deliver as before.
+    /// </summary>
+    public bool CoversRecipientDestinations { get; set; } = true;
+
+    /// <summary>True when the workflow is on and covers changes of <paramref name="kind"/>.</summary>
+    public bool Covers(ChangeApprovalKind kind)
+    {
+        return Enabled && kind switch
+        {
+            ChangeApprovalKind.MigrationJob => CoversMigrationJobs,
+            ChangeApprovalKind.CustomSqlRules => CoversCustomSqlRules,
+            ChangeApprovalKind.RecipientDestination => CoversRecipientDestinations,
+            _ => false
+        };
+    }
 }

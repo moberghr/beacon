@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using Beacon.Tests.Common;
 using NUnit.Framework;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -104,7 +105,7 @@ public class RecipientServiceTests
 
     private static RecipientService Service(RecipientStore store)
     {
-        return new RecipientService(NotificationTestKit.Factory(store), NotificationTestKit.Editor());
+        return new RecipientService(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()));
     }
 
     private static RecipientData Data(string name, string destination, NotificationType type, string? headers = null, int? recipientId = null)

@@ -46,7 +46,7 @@ public class ApprovalWorkflowStartupNoteTests
         var warnings = recorder.Entries.Where(x => x.Level == LogLevel.Warning).Select(x => x.Message).ToList();
         warnings.Should().HaveCount(3);
         warnings.Should().ContainSingle(x => x.StartsWith("1 queries hold stored SQL that no version records", StringComparison.Ordinal));
-        warnings.Should().ContainSingle(x => x.StartsWith("1 active users can approve a query change", StringComparison.Ordinal));
+        warnings.Should().ContainSingle(x => x.StartsWith("1 active users can approve a change", StringComparison.Ordinal));
         warnings.Should().ContainSingle(x => x.StartsWith("1 MCP tools run a version whose approval recorded no content hash", StringComparison.Ordinal))
             .Which.Should().Contain("q_orders");
         recorder.Entries.Select(x => x.Message).Should().NotContain(x => x.Contains("SELECT", StringComparison.Ordinal));
@@ -66,6 +66,25 @@ public class ApprovalWorkflowStartupNoteTests
         await Note(recorder, new ApprovalWorkflowOptions { Enabled = true }).NoteCountsAsync(Services(store), CancellationToken.None);
 
         recorder.Entries.Should().NotContain(x => x.Level == LogLevel.Warning);
+    }
+
+    // Too few approvers hold up every change the workflow holds: query changes and each other kind it covers, named.
+    [Test]
+    public async Task TooFewApprovers_NamesEveryKindOfChangeTheWorkflowHolds_AndNotOneItsSwitchLeavesOut()
+    {
+        var store = new GovernanceStore();
+        store.Users.Add(Approver(3, "ext-ada"));
+        using var everyKind = new LogRecorder();
+        using var withoutJobs = new LogRecorder();
+
+        await Note(everyKind, new ApprovalWorkflowOptions { Enabled = true }).NoteCountsAsync(Services(store), CancellationToken.None);
+        await Note(withoutJobs, new ApprovalWorkflowOptions { Enabled = true, CoversMigrationJobs = false }).NoteCountsAsync(Services(store), CancellationToken.None);
+
+        ApproverWarning(everyKind).Should().Contain(
+            "the workflow holds query changes, new migration jobs, new and changed Custom SQL rules, new recipients and changed destinations until a second person approves them");
+        ApproverWarning(withoutJobs).Should().Contain(
+            "the workflow holds query changes, new and changed Custom SQL rules, new recipients and changed destinations until a second person approves them")
+            .And.NotContain("migration jobs");
     }
 
     // Under separation of duties a user holding both permissions of a conflicting pair holds neither; a disabled user
@@ -198,6 +217,12 @@ public class ApprovalWorkflowStartupNoteTests
         return version;
     }
 
+    private static string ApproverWarning(LogRecorder recorder) =>
+        recorder.Entries
+            .Where(x => x.Level == LogLevel.Warning)
+            .Should().ContainSingle(x => x.Message.StartsWith("1 active users can approve a change", StringComparison.Ordinal))
+            .Which.Message;
+
     // A host with Beacon user management, whose stored roles say who can approve.
     private static ApprovalWorkflowStartupNote Note(LogRecorder recorder, ApprovalWorkflowOptions workflow) =>
         new(
@@ -265,6 +290,102 @@ public class ApprovalWorkflowStartupNoteTests
 
         ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), new ApprovalWorkflowOptions { Enabled = true }, isDevelopment: false);
 
-        recorder.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Information);
+        recorder.Entries.Should().HaveCount(2).And.OnlyContain(x => x.Level == LogLevel.Information);
+        recorder.Entries[1].Message.Should().Contain("migration jobs").And.Contain("Custom SQL rules").And.Contain("recipients");
     }
+
+    // A host may leave a kind of change out of the workflow: the note names the option, and says nothing else is left out.
+    [Test]
+    public void AKindLeftOut_IsNamedByItsOption()
+    {
+        using var recorder = new LogRecorder();
+        var workflow = new ApprovalWorkflowOptions { Enabled = true, CoversRecipientDestinations = false };
+
+        ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), workflow, isDevelopment: false);
+
+        recorder.Entries.Should().HaveCount(3).And.OnlyContain(x => x.Level == LogLevel.Information);
+        recorder.Entries[1].Message.Should().Contain("migration jobs").And.Contain("Custom SQL rules").And.NotContain("recipients");
+        recorder.Entries[2].Message.Should().Contain("ApprovalWorkflow.CoversRecipientDestinations").And.NotContain("CoversMigrationJobs");
+    }
+
+    // With the workflow off nothing is reviewed, whatever the switches say: only the off note is written.
+    [Test]
+    public void TheWorkflowOff_NotesNoKind()
+    {
+        using var recorder = new LogRecorder();
+
+        ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), new ApprovalWorkflowOptions { Enabled = false }, isDevelopment: false);
+
+        recorder.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Warning);
+    }
+
+    // Turning the workflow off releases what it held: each kind's governed resources that hold a change nobody approved,
+    // and its pending requests, are counted in a Warning naming the option. Approved and ungoverned ones are not counted.
+    [Test]
+    public async Task TheWorkflowOff_WarnsWithTheCountsOfWhatItReleases()
+    {
+        var store = HeldResources();
+        using var recorder = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = false }).NoteCountsAsync(ReleaseServices(store), CancellationToken.None);
+
+        recorder.Entries.Where(x => x.Level == LogLevel.Warning).Select(x => x.Message).Should().Equal(
+            "1 migration jobs the approval workflow governed hold a change nobody approved (new, changed or rejected), and 1 of their change requests are pending: with ApprovalWorkflow.Enabled off they run as they are, unreviewed. Turn it on to hold them until they are approved",
+            "1 enabled Custom SQL rules the approval workflow governed hold a change nobody approved (new, changed or rejected), and 0 of their change requests are pending: with ApprovalWorkflow.Enabled off they are evaluated as they are, unreviewed. Turn it on to hold them until they are approved",
+            "1 recipients the approval workflow governed hold a change nobody approved (new, changed or rejected), and 1 of their change requests are pending: with ApprovalWorkflow.Enabled off they receive deliveries as they are, unreviewed. Turn it on to hold them until they are approved");
+    }
+
+    // A switch that is off releases only its kind.
+    [Test]
+    public async Task ASwitchOff_WarnsAboutItsKindOnly()
+    {
+        var store = HeldResources();
+        using var recorder = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = true, CoversRecipientDestinations = false }).NoteCountsAsync(ReleaseServices(store), CancellationToken.None);
+
+        recorder.Entries.Where(x => x.Level == LogLevel.Warning).Where(x => x.Message.Contains("the approval workflow governed", StringComparison.Ordinal)).Should().ContainSingle()
+            .Which.Message.Should().StartWith("1 recipients the approval workflow governed").And.Contain("ApprovalWorkflow.CoversRecipientDestinations");
+    }
+
+    [Test]
+    public async Task NothingReleased_IsNotWarnedAbout()
+    {
+        var store = new ChangeApprovalStore();
+        var job = store.AddJob();
+        job.ApprovedDefinitionHash = Beacon.Core.ChangeApprovals.MigrationJobDefinition.Of(job).Hash;
+        store.AddRecipient();
+        using var recorder = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = false }).NoteCountsAsync(ReleaseServices(store), CancellationToken.None);
+
+        recorder.Entries.Should().NotContain(x => x.Level == LogLevel.Warning);
+    }
+
+    // One governed and unapproved resource of each kind, a pending request of the job and of the recipient, and approved or
+    // ungoverned ones beside them.
+    private static ChangeApprovalStore HeldResources()
+    {
+        var store = new ChangeApprovalStore();
+        var job = store.AddJob(approvedDefinitionHash: Beacon.Core.ChangeApprovals.ChangeApprovalHashes.NothingApproved);
+        var approvedJob = store.AddJob("SELECT 2");
+        approvedJob.ApprovedDefinitionHash = Beacon.Core.ChangeApprovals.MigrationJobDefinition.Of(approvedJob).Hash;
+        store.AddJob("SELECT 3");
+        store.AddContract(
+            ChangeApprovalStore.CustomSql("SELECT 1 AS passed", "waiting", Beacon.Core.ChangeApprovals.ChangeApprovalHashes.NothingApproved),
+            ChangeApprovalStore.CustomSql("SELECT 2 AS passed", "grandfathered"));
+        var recipient = store.AddRecipient("https://hooks.example.com/b", ChangeApprovalStore.HookHash("https://hooks.example.com/a"));
+        store.AddRecipient("https://hooks.example.com/a", ChangeApprovalStore.HookHash("https://hooks.example.com/a"));
+        store.AddRequest(ChangeApprovalKind.MigrationJob, job.Id, "a", "ext-ben");
+        store.AddRequest(ChangeApprovalKind.RecipientDestination, recipient.Id, "b", "ext-ben");
+
+        return store;
+    }
+
+    private static ServiceProvider ReleaseServices(ChangeApprovalStore store) =>
+        new ServiceCollection()
+            .AddSingleton(store.Factory())
+            .AddSingleton(store.Protector)
+            .AddSingleton(TestChangeApprovals.Hasher)
+            .BuildServiceProvider();
 }

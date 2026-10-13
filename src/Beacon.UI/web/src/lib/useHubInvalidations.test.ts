@@ -12,14 +12,22 @@ describe('handleApprovalUpdated', () => {
     vi.mocked(toast.info).mockClear();
   });
 
-  it('tells the requester their pending change was superseded, and refetches approvals and queries', () => {
+  it('tells the requester their pending change was superseded, and refetches approvals and what they govern', () => {
     const qc = new QueryClient();
     const invalidate = vi.spyOn(qc, 'invalidateQueries');
 
     handleApprovalUpdated(qc, { approvalId: 7, status: 'superseded' });
 
     expect(toast.info).toHaveBeenCalledWith(SUPERSEDED_MESSAGE);
-    expect(invalidate.mock.calls.map(x => x[0]?.queryKey)).toEqual([['approvals'], ['query'], ['queries']]);
+    expect(invalidate.mock.calls.map(x => x[0]?.queryKey)).toEqual([
+      ['approvals'],
+      ['query'],
+      ['queries'],
+      ['migration-jobs'],
+      ['recipients'],
+      ['data-quality'],
+      ['subscriptions'],
+    ]);
   });
 
   it('refetches without a toast for a decision', () => {

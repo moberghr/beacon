@@ -6,6 +6,8 @@ import { Stepper } from '@/components/ui/Stepper';
 import { Button, Card, Pill } from '@/components/beacon';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { NOTIFICATION_TYPE_LABEL, type RecipientEntry } from '@/routes/recipients/queries';
+import { AwaitingApprovalPill, DecisionComment, REJECTED_REMEDY, isRejected } from '@/routes/approvals/AwaitingApproval';
+import { ChangeApprovalKind } from '@/lib/enums';
 import {
   useAddSubscriptionRecipients,
   useRemoveSubscriptionRecipient,
@@ -75,6 +77,25 @@ export function RecipientsTab({ subscription, canWrite, isAdmin }: RecipientsTab
                 />
               </div>
               <div className="font-semibold">{r.name}</div>
+              {r.awaitingApproval && (
+                <div className="flex flex-col gap-1">
+                  <span className="flex">
+                    <AwaitingApprovalPill
+                      kind={ChangeApprovalKind.RecipientDestination}
+                      requestId={r.pendingApprovalRequestId}
+                      lastDecision={r.lastApprovalDecision}
+                    />
+                  </span>
+                  {isRejected({ requestId: r.pendingApprovalRequestId, lastDecision: r.lastApprovalDecision }) && r.lastApprovalDecision ? (
+                    <span className="text-text-muted text-xs">
+                      {REJECTED_REMEDY[ChangeApprovalKind.RecipientDestination]}: deliveries skip this recipient.
+                      <DecisionComment decision={r.lastApprovalDecision} />
+                    </span>
+                  ) : (
+                    <span className="text-text-muted text-xs">Deliveries skip this recipient until its destination is approved.</span>
+                  )}
+                </div>
+              )}
               {r.description && (
                 <div className="text-text-muted text-xs">{r.description}</div>
               )}

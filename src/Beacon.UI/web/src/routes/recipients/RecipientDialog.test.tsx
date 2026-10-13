@@ -2,10 +2,46 @@ import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
+import { toast } from 'sonner';
 import { renderWithProviders } from '@/test/render';
 import { RecipientDialog } from './RecipientDialog';
 
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
 describe('RecipientDialog', () => {
+  it('says a new recipient was submitted for approval when the server says so', async () => {
+    const message = 'Submitted for approval: the recipient receives no deliveries until a second person approves where it delivers.';
+    mswServer.use(
+      http.post('*/beacon/api/recipients', () => HttpResponse.json({ id: 42, awaitingApproval: true, message })),
+    );
+    const onClose = vi.fn();
+    renderWithProviders(<RecipientDialog open onClose={onClose} />);
+
+    fireEvent.input(screen.getByLabelText(/^Name/), { target: { value: 'Ops Team' } });
+    fireEvent.input(screen.getByLabelText(/Email address/), { target: { value: 'ops@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /create recipient/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toast.success).toHaveBeenCalledWith("Created recipient 'Ops Team'");
+    expect(toast.info).toHaveBeenCalledWith(message);
+  });
+
+  it('says nothing about approval when the server does not', async () => {
+    vi.mocked(toast.info).mockClear();
+    mswServer.use(http.post('*/beacon/api/recipients', () => HttpResponse.json({ id: 43, awaitingApproval: false, message: null })));
+    const onClose = vi.fn();
+    renderWithProviders(<RecipientDialog open onClose={onClose} />);
+
+    fireEvent.input(screen.getByLabelText(/^Name/), { target: { value: 'Risk' } });
+    fireEvent.input(screen.getByLabelText(/Email address/), { target: { value: 'risk@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /create recipient/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
   it('POSTs the new recipient and calls onClose on success', async () => {
     let captured: unknown = null;
     mswServer.use(

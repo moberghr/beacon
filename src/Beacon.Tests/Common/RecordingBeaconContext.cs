@@ -78,6 +78,9 @@ internal sealed class RecordingBeaconContext(
         set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());
         set.Setup(x => x.Add(It.IsAny<T>())).Callback<T>(saved.Add);
         set.Setup(x => x.Remove(It.IsAny<T>())).Callback<T>(x => rows.Remove(x));
+
+        // As EF's own set: a query started with AsQueryable() is the set itself.
+        set.Setup(x => x.AsQueryable()).Returns(() => set.Object);
         return set.Object;
     }
 }

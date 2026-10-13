@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock } from 'lucide-react';
 import { Pill, type PillProps } from '@/components/beacon';
@@ -5,14 +6,18 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
+import { RunComment } from '@/routes/notifications/RunComment';
 import {
   NOTIFICATION_STATUS_LABEL,
   useSubscriptionExecutionsList,
+  type SubscriptionDetailRecipient,
   type SubscriptionExecutionEntry,
 } from '../queries';
 
 interface ExecutionsTabProps {
   subscriptionId: number;
+  /** The subscription's recipients: a run's notes name the recipients they are about. */
+  recipients?: SubscriptionDetailRecipient[];
 }
 
 const COLUMNS: Column<SubscriptionExecutionEntry>[] = [
@@ -58,7 +63,7 @@ const COLUMNS: Column<SubscriptionExecutionEntry>[] = [
   },
 ];
 
-const GRID_TEMPLATE = '1.4fr 1.2fr 0.8fr 1fr';
+const GRID_TEMPLATE = '1.2fr 1fr 0.7fr 0.8fr 2fr';
 
 function pillTone(status: number): PillProps['tone'] {
   switch (status) {
@@ -69,14 +74,30 @@ function pillTone(status: number): PillProps['tone'] {
   }
 }
 
-export function ExecutionsTab({ subscriptionId }: ExecutionsTabProps) {
+export function ExecutionsTab({ subscriptionId, recipients }: ExecutionsTabProps) {
   const list = useSubscriptionExecutionsList(subscriptionId);
+  const columns = useMemo<Column<SubscriptionExecutionEntry>[]>(() => {
+    const names = new Map((recipients ?? []).map(x => [x.id, x.name]));
+
+    return [
+      ...COLUMNS,
+      {
+        key: 'notes',
+        header: 'Notes',
+        // Why a run notified fewer recipients than it has, or nobody: the reasons the server recorded.
+        render: e => e.comment
+          ? <RunComment comment={e.comment} recipientNames={names} />
+          : <span className="text-text-muted">—</span>,
+      },
+    ];
+  }, [recipients]);
+
   if (list.isLoading) {
     return <div className="p-4 text-text-muted">Loading executions…</div>;
   }
   return (
     <DataTable
-      columns={COLUMNS}
+      columns={columns}
       rows={list.items}
       rowKey={e => e.id}
       {...list.tableProps}

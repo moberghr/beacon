@@ -35,6 +35,7 @@ const NewProjectPage = lazyWithRetry(() => import('./routes/projects/NewProjectP
 const NewMigrationJobPage = lazyWithRetry(() => import('./routes/migration-jobs/NewMigrationJobPage'));
 const MigrationJobDetailPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobDetailPage'));
 const ApprovalDetailPage = lazyWithRetry(() => import('./routes/approvals/ApprovalDetailPage'));
+const ChangeApprovalDetailPage = lazyWithRetry(() => import('./routes/approvals/ChangeApprovalDetailPage'));
 const AiActorEditPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorEditPage'));
 const AdminSettingsPage = lazyWithRetry(() => import('./routes/admin-settings/AdminSettingsPage'));
 const SettingsPage = lazyWithRetry(() => import('./routes/settings/SettingsPage'));
@@ -114,6 +115,7 @@ export default function App() {
                   <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
                   <Route path="/approvals" element={lazyRoute(ApprovalsListPage)} />
                   <Route path="/approvals/:id" element={lazyRoute(ApprovalDetailPage)} />
+                  <Route path="/approvals/changes/:id" element={lazyRoute(ChangeApprovalDetailPage)} />
                   <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
                   <Route path="/users" element={lazyRoute(UsersListPage)} />
                   <Route path="/subscriptions" element={lazyRoute(SubscriptionsListPage)} />

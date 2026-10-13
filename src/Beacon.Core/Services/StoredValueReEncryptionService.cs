@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
@@ -9,7 +11,9 @@ namespace Beacon.Core.Services;
 /// <summary>
 /// Moves stored values off the keys listed in <c>Beacon:PreviousEncryptionKeys</c>: every encrypted value at rest
 /// (data-source connection data, repository access tokens, sensitive settings, recipient destinations and headers) that
-/// only a previous key decrypts is re-encrypted with <c>Beacon:EncryptionKey</c>. Idempotent and safe to run repeatedly or
+/// only a previous key decrypts is re-encrypted with <c>Beacon:EncryptionKey</c>, and every keyed hash of where a governed
+/// recipient delivers (its approved hash, its pending change request's) that matches the definition it holds only under a
+/// previous key is recomputed under the current key. Idempotent and safe to run repeatedly or
 /// from several replicas: each write is conditional on the stored value being unchanged, so a concurrent save wins (it is
 /// already encrypted with the current key). Values no configured key decrypts are counted and logged by id, never
 /// changed. Once a run reports no value left under a previous key, the previous keys can be removed from the
@@ -39,7 +43,8 @@ public sealed record StoredValueReEncryptionResult(int UnderPreviousKeys, int Re
 internal sealed class StoredValueReEncryptionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
-    ILogger<StoredValueReEncryptionService> logger) : IStoredValueReEncryptionService
+    ILogger<StoredValueReEncryptionService> logger,
+    RecipientDestinationHasher? hasher = null) : IStoredValueReEncryptionService
 {
     public async Task<StoredValueReEncryptionResult> ReEncryptAsync(CancellationToken cancellationToken)
     {
@@ -170,12 +175,89 @@ internal sealed class StoredValueReEncryptionService(
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.HeadersJson, value), cancellationToken), cancellationToken);
         }
 
+        if (hasher != null)
+        {
+            await RehashRecipientApprovalsAsync(context, run, hasher, new RecipientSecretProtector(run.Encryption), cancellationToken);
+        }
+
         return run.Result();
+    }
+
+    // The keyed hashes of where governed recipients deliver (approved, and of their pending requests) that match the
+    // recipient's definition only under a previous key: rewritten under the current key, each conditional on being
+    // unchanged. A hash of a definition the recipient no longer holds cannot be recomputed (its plaintext is not stored);
+    // it keeps matching under the previous key while that key is configured.
+    private static async Task RehashRecipientApprovalsAsync(
+        BeaconContext context,
+        Run run,
+        RecipientDestinationHasher hasher,
+        RecipientSecretProtector protector,
+        CancellationToken cancellationToken)
+    {
+        var governed = await context.Recipients
+            .IgnoreQueryFilters()
+            .Where(x => x.ApprovedDestinationHash != null)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.NotificationType,
+                    x.Destination,
+                    x.HeadersJson,
+                    x.ApprovedDestinationHash
+                })
+            .ToListAsync(cancellationToken);
+        var canonicals = governed
+            .Select(x => (x.Id, x.ApprovedDestinationHash, Canonical: RecipientDestinationDefinition.CanonicalOfStored(protector, x.NotificationType, x.Destination, x.HeadersJson)))
+            .Where(x => x.Canonical != null)
+            .ToDictionary(x => x.Id);
+
+        foreach (var (id, approved, canonical) in canonicals.Values)
+        {
+            if (!hasher.Matches(approved, canonical!) || hasher.IsCurrent(approved, canonical!))
+            {
+                continue;
+            }
+
+            await run.RewriteAsync("recipient approval", id, () => context.Recipients
+                .IgnoreQueryFilters()
+                .Where(x => x.Id == id)
+                .Where(x => x.ApprovedDestinationHash == approved)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ApprovedDestinationHash, hasher.Hash(canonical!)), cancellationToken), cancellationToken);
+        }
+
+        var requests = await context.ChangeApprovalRequests
+            .Where(x => x.Kind == ChangeApprovalKind.RecipientDestination)
+            .Where(x => x.Status == ApprovalStatus.Pending)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.ResourceId,
+                    x.DefinitionHash
+                })
+            .ToListAsync(cancellationToken);
+        foreach (var request in requests)
+        {
+            if (!canonicals.TryGetValue(request.ResourceId, out var recipient)
+                || !hasher.Matches(request.DefinitionHash, recipient.Canonical!)
+                || hasher.IsCurrent(request.DefinitionHash, recipient.Canonical!))
+            {
+                continue;
+            }
+
+            await run.RewriteAsync("recipient change request", request.Id, () => context.ChangeApprovalRequests
+                .Where(x => x.Id == request.Id)
+                .Where(x => x.DefinitionHash == request.DefinitionHash)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.DefinitionHash, hasher.Hash(recipient.Canonical!)), cancellationToken), cancellationToken);
+        }
     }
 
     // The counts of one run, and the re-encryption of one value (or, without write, only its count).
     private sealed class Run(EncryptionService encryption, ILogger logger, bool write)
     {
+        public EncryptionService Encryption => encryption;
+
         private int _underPreviousKeys;
         private int _reEncrypted;
         private int _skipped;
@@ -222,6 +304,13 @@ internal sealed class StoredValueReEncryptionService(
                 return;
             }
 
+            await RewriteAsync(kind, id, () => writeIfUnchanged(prefix + encryption.Encrypt(encryption.Decrypt(cipherText))), cancellationToken);
+        }
+
+        // A value found under a previous key (a cipher text, or a keyed hash) is counted and, with write, rewritten under the
+        // current key by writeIfUnchanged (a conditional update that answers the rows it wrote).
+        public async Task RewriteAsync(string kind, int id, Func<Task<int>> writeIfUnchanged, CancellationToken cancellationToken)
+        {
             _underPreviousKeys++;
             if (!write)
             {
@@ -230,7 +319,7 @@ internal sealed class StoredValueReEncryptionService(
 
             try
             {
-                var rows = await writeIfUnchanged(prefix + encryption.Encrypt(encryption.Decrypt(cipherText)));
+                var rows = await writeIfUnchanged();
                 if (rows > 0)
                 {
                     _reEncrypted++;

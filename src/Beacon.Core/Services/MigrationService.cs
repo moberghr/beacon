@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
@@ -35,7 +36,10 @@ public interface IMigrationService
 /// read-only provider path), within its own row budget (<see cref="MigrationOptions.MaxRows"/>), and writes only to a
 /// migration write target (<see cref="MigrationWriteTargets"/>), connecting with that data source's credentials — the only
 /// place Beacon connects with them. Nothing is created or run while the deployment does not run migrations
-/// (<see cref="MigrationOptions.Enabled"/>).
+/// (<see cref="MigrationOptions.Enabled"/>). While the change approval workflow covers migration jobs
+/// (<see cref="ApprovalWorkflowOptions.CoversMigrationJobs"/>), a job created is submitted for approval (the caller is its
+/// requester) and a job runs only while its definition is the one a second person approved
+/// (<see cref="MigrationJob.ApprovedDefinitionHash"/>); a refused run is recorded as failed.
 /// </summary>
 internal partial class MigrationService(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -44,8 +48,13 @@ internal partial class MigrationService(
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
     ILogger<MigrationService> logger,
-    IOptions<MigrationOptions> migrationOptions) : IMigrationService
+    IOptions<MigrationOptions> migrationOptions,
+    ChangeApprovalSubmitter changeApprovals) : IMigrationService
 {
+    /// <summary>Why a run of a job whose definition is not approved is refused (the failed run's message).</summary>
+    internal const string NotApprovedMessage =
+        "Not run: the job's definition waits for approval. A second person approves it on the approvals page; until then the job does not run.";
+
     private readonly MigrationOptions _options = migrationOptions.Value;
 
     public async Task<CreateMigrationJobResponse> CreateMigrationJob(CreateMigrationJobRequest request, CancellationToken cancellationToken)
@@ -54,6 +63,10 @@ internal partial class MigrationService(
         {
             return new CreateMigrationJobResponse(0, false, MigrationWriteTargets.DisabledMessage);
         }
+
+        // Before anything is validated or written: under the workflow the caller is the job's requester, and a caller
+        // Beacon cannot name creates nothing (403).
+        var requester = await changeApprovals.RequesterAsync(ChangeApprovalKind.MigrationJob, null, cancellationToken);
 
         try
         {
@@ -66,7 +79,7 @@ internal partial class MigrationService(
 
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-            var migrationJob = new MigrationJob
+            MigrationJob NewJob() => new()
             {
                 Name = request.Name,
                 Description = request.Description,
@@ -82,15 +95,17 @@ internal partial class MigrationService(
                 ValidateBeforeExecution = request.ValidateBeforeExecution,
                 TransformationScript = request.TransformationScript,
                 ChangedBy = userContext.UserId ?? userContext.UserName ?? "system",
-                ChangedOn = DateTime.UtcNow
+                ChangedOn = DateTime.UtcNow,
+                ApprovedDefinitionHash = requester == null ? null : ChangeApprovalHashes.NothingApproved
             };
 
-            context.MigrationJobs.Add(migrationJob);
-            await context.SaveChangesAsync(cancellationToken);
+            var migrationJob = requester == null
+                ? await CreateAsync(context, NewJob, cancellationToken)
+                : await CreateForApprovalAsync(context, requester, NewJob, cancellationToken);
 
             logger.LogInformation("Created migration job {Name} with ID {Id}", request.Name, migrationJob.Id);
 
-            return new CreateMigrationJobResponse(migrationJob.Id, true, null, validationResult);
+            return new CreateMigrationJobResponse(migrationJob.Id, true, null, validationResult) { AwaitingApproval = requester != null };
         }
         catch (Exception ex)
         {
@@ -128,27 +143,24 @@ internal partial class MigrationService(
                 return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: "Migration job is disabled");
             }
 
+            // Under the workflow a job runs only the definition a second person approved, whoever runs it and however (a
+            // manual run, a schedule): a refused run never starts, and is recorded as a failed run with the reason.
+            if (changeApprovals.Covers(ChangeApprovalKind.MigrationJob)
+                && !ChangeApprovalHashes.Allows(migrationJob.ApprovedDefinitionHash, MigrationJobDefinition.Of(migrationJob).Hash))
+            {
+                logger.LogWarning("Migration job {MigrationJobId} was not run: its definition is not approved", migrationJob.Id);
+
+                return await RecordRefusedRunAsync(context, migrationJob, request, NotApprovedMessage, cancellationToken);
+            }
+
             // Writes only into a write target, from sources that are not one; a refused run never starts, and is recorded as a
             // failed run so the job's history shows why it did not copy anything.
             var targetRefusal = await TargetRefusalAsync(context, migrationJob, cancellationToken);
             if (targetRefusal != null)
             {
                 logger.LogWarning("Migration job {MigrationJobId} was not run: its destination is not a migration write target, or a source it reads is one", migrationJob.Id);
-                var refusedAt = DateTime.UtcNow;
-                var refused = new MigrationExecutionHistory
-                {
-                    MigrationJobId = migrationJob.Id,
-                    StartedAt = refusedAt,
-                    CompletedAt = refusedAt,
-                    Status = MigrationStatus.Failed,
-                    ExecutedQuery = migrationJob.QueryText,
-                    QueryParameters = request.Parameters != null ? System.Text.Json.JsonSerializer.Serialize(request.Parameters) : null,
-                    ErrorMessage = targetRefusal
-                };
-                context.MigrationExecutions.Add(refused);
-                await context.SaveChangesAsync(cancellationToken);
 
-                return new ExecuteMigrationJobResponse(refused.Id, MigrationStatus.Failed, ErrorMessage: targetRefusal);
+                return await RecordRefusedRunAsync(context, migrationJob, request, targetRefusal, cancellationToken);
             }
 
             // Create execution record
@@ -398,6 +410,79 @@ internal partial class MigrationService(
             logger.LogError("Error deleting migration job {Id} ({Failure})", id, FailureCodes.Describe(ex));
             return new BaseResponse { Success = false, Message = ex.Message };
         }
+    }
+
+    private static async Task<MigrationJob> CreateAsync(BeaconContext context, Func<MigrationJob> newJob, CancellationToken cancellationToken)
+    {
+        var migrationJob = newJob();
+        context.MigrationJobs.Add(migrationJob);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return migrationJob;
+    }
+
+    // The job and its request in one unit of work: the job's save gives it the id its request names, and both commit
+    // together. Through the execution strategy, so a host that enables retry-on-failure gets a retried unit; a retry starts
+    // from a clean tracker and a new job.
+    private async Task<MigrationJob> CreateForApprovalAsync(
+        BeaconContext context,
+        ChangeRequester requester,
+        Func<MigrationJob> newJob,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async () =>
+        {
+            context.ChangeTracker.Clear();
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+            var migrationJob = newJob();
+            context.MigrationJobs.Add(migrationJob);
+            await context.SaveChangesAsync(cancellationToken);
+
+            var definition = MigrationJobDefinition.Of(migrationJob);
+            var proposal = new ChangeProposal(
+                ChangeApprovalKind.MigrationJob,
+                migrationJob.Id,
+                migrationJob.Name,
+                PreviousDefinitionHash: null,
+                definition.Hash,
+                NeedsApproval: true,
+                definition.View(),
+                Previous: null,
+                "Migration job created");
+            await changeApprovals.SubmitAsync(context, requester, proposal, cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return migrationJob;
+        });
+    }
+
+    // A run refused before it started, recorded as a failed run so the job's history shows why it copied nothing.
+    private static async Task<ExecuteMigrationJobResponse> RecordRefusedRunAsync(
+        BeaconContext context,
+        MigrationJob migrationJob,
+        ExecuteMigrationJobRequest request,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var refusedAt = DateTime.UtcNow;
+        var refused = new MigrationExecutionHistory
+        {
+            MigrationJobId = migrationJob.Id,
+            StartedAt = refusedAt,
+            CompletedAt = refusedAt,
+            Status = MigrationStatus.Failed,
+            ExecutedQuery = migrationJob.QueryText,
+            QueryParameters = request.Parameters != null ? JsonSerializer.Serialize(request.Parameters) : null,
+            ErrorMessage = reason
+        };
+        context.MigrationExecutions.Add(refused);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return new ExecuteMigrationJobResponse(refused.Id, MigrationStatus.Failed, ErrorMessage: reason);
     }
 
     // Why the job may not run as stored: its destination is not a write target (or no longer exists), or a source it

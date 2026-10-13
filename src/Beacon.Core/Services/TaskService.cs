@@ -15,7 +15,11 @@ namespace Beacon.Core.Services;
 
 public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogger<TaskService> logger) : ITaskService
 {
-    private const string AutoResolveMessage = "Auto-resolved: Query returned 0 results";
+    /// <summary>
+    /// The fixed note of a task resolved by a run that returned no rows. Such a resolution records no resolver: nobody
+    /// resolved it.
+    /// </summary>
+    internal const string AutoResolveMessage = "Auto-resolved: Query returned 0 results";
 
     public async Task<int> CreateTask(int notificationId, int subscriptionId, int resultCount, CancellationToken cancellationToken)
     {
@@ -104,6 +108,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
             task.Resolved = true;
             task.ResolvedAt = DateTime.UtcNow;
             task.ResolutionNotes = AutoResolveMessage;
+            task.ResolvedByUserId = null;
         }
     }
 

@@ -90,8 +90,8 @@ public class MigrationWritePolicyTests
         var policy = services.GetRequiredService<MigrationWritePolicy>();
         var evaluator = services.GetRequiredService<IProjectAccessEvaluator>();
 
-        var list = () => new GetMigrationJobsHandler(_world.Factory(), evaluator, policy).Handle(new GetMigrationJobsQuery(), CancellationToken.None);
-        var show = () => new GetMigrationJobHandler(_world.Factory(), evaluator, policy).Handle(new GetMigrationJobQuery(1), CancellationToken.None);
+        var list = () => new GetMigrationJobsHandler(_world.Factory(), evaluator, policy, TestChangeApprovals.MigrationJobs()).Handle(new GetMigrationJobsQuery(), CancellationToken.None);
+        var show = () => new GetMigrationJobHandler(_world.Factory(), evaluator, policy, TestChangeApprovals.MigrationJobs()).Handle(new GetMigrationJobQuery(1), CancellationToken.None);
         var runs = () => new GetMigrationExecutionsHandler(_migrations.Object, evaluator, services.GetRequiredService<MigrationJobAccess>(), policy)
             .Handle(new GetMigrationExecutionsQuery(), CancellationToken.None);
         var removal = () => new DeleteMigrationJobHandler(_migrations.Object, services.GetRequiredService<MigrationJobAccess>(), policy)
@@ -115,8 +115,8 @@ public class MigrationWritePolicyTests
         var policy = services.GetRequiredService<MigrationWritePolicy>();
         var evaluator = services.GetRequiredService<IProjectAccessEvaluator>();
 
-        var list = await new GetMigrationJobsHandler(_world.Factory(), evaluator, policy).Handle(new GetMigrationJobsQuery(), CancellationToken.None);
-        var shown = await new GetMigrationJobHandler(_world.Factory(), evaluator, policy).Handle(new GetMigrationJobQuery(1), CancellationToken.None);
+        var list = await new GetMigrationJobsHandler(_world.Factory(), evaluator, policy, TestChangeApprovals.MigrationJobs()).Handle(new GetMigrationJobsQuery(), CancellationToken.None);
+        var shown = await new GetMigrationJobHandler(_world.Factory(), evaluator, policy, TestChangeApprovals.MigrationJobs()).Handle(new GetMigrationJobQuery(1), CancellationToken.None);
 
         list.Items.Select(x => x.Id).Should().Equal(1);
         shown!.DestinationDataSourceId.Should().Be(WriteTarget);

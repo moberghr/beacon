@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Dialog } from '@/components/ui/Dialog';
 import { Banner, Button, Field, Input, Select, Textarea } from '@/components/beacon';
 import { NotificationType } from '@/lib/enums';
+import { noteSubmittedForApproval } from '@/routes/approvals/AwaitingApproval';
 import {
   NOTIFICATION_TYPE_LABEL,
   useCreateRecipient,
@@ -132,8 +133,9 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
         await updateMutation.mutateAsync({ id: recipient.id, values: payload });
         toast.success(`Updated recipient '${payload.name}'`);
       } else {
-        await createMutation.mutateAsync(payload);
+        const created = await createMutation.mutateAsync(payload);
         toast.success(`Created recipient '${payload.name}'`);
+        noteSubmittedForApproval(created);
       }
       onClose();
     } catch {

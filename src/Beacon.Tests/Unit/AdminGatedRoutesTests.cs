@@ -42,6 +42,8 @@ public class AdminGatedRoutesTests
     {
         ["POST /beacon/api/approvals/{id:int}/approve"] = BeaconPermissions.ApproverPolicy,
         ["POST /beacon/api/approvals/{id:int}/reject"] = BeaconPermissions.ApproverPolicy,
+        ["POST /beacon/api/approvals/changes/{id:int}/approve"] = BeaconPermissions.ApproverPolicy,
+        ["POST /beacon/api/approvals/changes/{id:int}/reject"] = BeaconPermissions.ApproverPolicy,
 
         ["GET /beacon/api/mcp/audit"] = BeaconPermissions.AuditorPolicy,
         ["GET /beacon/api/mcp/settings"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
@@ -91,6 +93,8 @@ public class AdminGatedRoutesTests
     {
         ["GET /beacon/api/approvals/pending"] = BeaconPermissions.Approver,
         ["GET /beacon/api/approvals/{id:int}"] = BeaconPermissions.Approver,
+        ["GET /beacon/api/approvals/changes"] = BeaconPermissions.Approver,
+        ["GET /beacon/api/approvals/changes/{id:int}"] = BeaconPermissions.Approver,
         ["GET /beacon/api/projects/{projectId:int}/members"] = BeaconPermissions.UserAdmin,
         ["GET /beacon/api/projects/{id:int}/member-candidates"] = BeaconPermissions.UserAdmin,
         ["PUT /beacon/api/projects/{id:int}/members/{userId:int}"] = BeaconPermissions.UserAdmin,

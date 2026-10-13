@@ -99,7 +99,7 @@ public class RecipientSecretExposureTests
         var foreign = new RecipientSecretProtector(new EncryptionService("another-key"));
         var store = new RecipientStore();
         store.Recipients.Add(new Recipient { Id = 7, Name = "rotated", NotificationType = NotificationType.Slack, Destination = foreign.Protect(SlackWebhook) });
-        var handler = new GetRecipientsHandler(NotificationTestKit.Factory(store), TestPermissions.ForPrincipal(NotificationTestKit.Admin()), NotificationTestKit.Editor());
+        var handler = new GetRecipientsHandler(NotificationTestKit.Factory(store), TestPermissions.ForPrincipal(NotificationTestKit.Admin()), NotificationTestKit.Editor(), TestChangeApprovals.Deliveries(), NotificationTestKit.Protector(), TestChangeApprovals.Hasher);
 
         var result = await handler.Handle(new GetRecipientsQuery { PageSize = 200 }, CancellationToken.None);
 
@@ -162,7 +162,7 @@ public class RecipientSecretExposureTests
     {
         var store = new RecipientStore();
         var protector = NotificationTestKit.Protector();
-        var handler = new CreateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor());
+        var handler = new CreateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()));
 
         await handler.Handle(
             new CreateRecipientCommand("hook", null, "https://hooks.example.com/in/" + JiraToken, (int)NotificationType.Webhook, WebhookHeaders, null),
@@ -181,7 +181,10 @@ public class RecipientSecretExposureTests
         return new GetRecipientsHandler(
             NotificationTestKit.Factory(Seed()),
             TestPermissions.ForPrincipal(user),
-            NotificationTestKit.Editor());
+            NotificationTestKit.Editor(),
+            TestChangeApprovals.Deliveries(),
+            NotificationTestKit.Protector(),
+            TestChangeApprovals.Hasher);
     }
 
     private static RecipientStore Seed()

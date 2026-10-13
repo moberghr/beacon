@@ -67,7 +67,7 @@ public class DataContractCustomSqlSaveTests
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var editor = Interactive(RoleService.RoleNames.Editor);
-        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration());
+        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration(), TestChangeApprovals.CustomSql());
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
@@ -276,6 +276,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         var act = () => handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
@@ -332,6 +333,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(Admin()),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(CustomSqlRule("SELECT 1 AS passed")), CancellationToken.None);
@@ -356,6 +358,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(Admin()),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
@@ -506,6 +509,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(ReferentialRule("Sales", "CUSTOMERS", "Id")) with { SchemaName = "SALES", TableName = "Orders" }, CancellationToken.None);
@@ -529,6 +533,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         var act = () => handler.Handle(UpdateCommand(ReferentialRule("finance", "ledger", "id")), CancellationToken.None);
@@ -610,6 +615,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(editor),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         // Disabling it and pointing it at another data source.
@@ -633,6 +639,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(Admin()),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(VolumeRule()) with { Name = "renamed" }, CancellationToken.None);
@@ -685,7 +692,7 @@ public class DataContractCustomSqlSaveTests
     {
         // Each handler is built just before it runs: the request's user lives in the ambient HttpContext.
         var editor = Interactive(RoleService.RoleNames.Editor);
-        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(editor), NullLogger<UpdateDataContractHandler>.Instance)
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(editor), TestChangeApprovals.CustomSql(), NullLogger<UpdateDataContractHandler>.Instance)
             .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
         Func<Task> delete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), Actor(editor), NullLogger<DeleteDataContractHandler>.Instance)
             .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
@@ -707,7 +714,7 @@ public class DataContractCustomSqlSaveTests
         var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
         contract.OwnerUserId = null;
         var caller = WithoutId(RoleService.RoleNames.Editor);
-        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(caller), NullLogger<UpdateDataContractHandler>.Instance)
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(caller), TestChangeApprovals.CustomSql(), NullLogger<UpdateDataContractHandler>.Instance)
             .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
         Func<Task> delete = () => DeleteHandler(caller, contract).Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
         Func<Task> evaluate = () => EvaluateHandler(caller, contract).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
@@ -829,7 +836,8 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             configuredDatabases ?? TestConfiguredDatabases.None,
             Actor(user),
-            new BeaconConfiguration());
+            new BeaconConfiguration(),
+            TestChangeApprovals.CustomSql());
     }
 
     private UpdateDataContractHandler UpdateHandler(ClaimsPrincipal user, DataSource? dataSource, params DataContractRule[] existingRules)
@@ -841,6 +849,7 @@ public class DataContractCustomSqlSaveTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             Actor(user),
+            TestChangeApprovals.CustomSql(),
             NullLogger<UpdateDataContractHandler>.Instance);
     }
 
@@ -1082,7 +1091,8 @@ public class DataContractCustomSqlSaveTests
 
     /// <summary>
     /// A <see cref="BeaconContext"/> over in-memory sets (§4.7: no in-memory provider) whose transactions and saves are
-    /// recorded in <see cref="Store"/> instead of reaching a database.
+    /// recorded in <see cref="Store"/> instead of reaching a database. Any other set is the real EF set, which never
+    /// connects (<see cref="SqlCapture.NeverConnects"/>): reading one fails at once.
     /// </summary>
     private sealed class DataQualityTestContext : BeaconContext
     {
@@ -1090,6 +1100,7 @@ public class DataContractCustomSqlSaveTests
             new DbContextOptionsBuilder<DataQualityTestContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
+                .AddInterceptors(SqlCapture.NeverConnects)
                 .Options;
 
         private readonly IReadOnlyDictionary<Type, object> _sets;

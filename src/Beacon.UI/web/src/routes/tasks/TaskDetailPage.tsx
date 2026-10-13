@@ -7,6 +7,7 @@ import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { formatRelativeTime } from '@/lib/format';
 import {
   canClaimTask,
+  canResolveTask,
   canWorkTask,
   useAssignTask,
   useSnoozeTask,
@@ -67,7 +68,7 @@ export default function TaskDetailPage() {
 
       const k = e.key.toLowerCase();
       const canWork = canWorkTask(task, isAdmin);
-      if (k === 'r' && !task.resolved && canWork) {
+      if (k === 'r' && !task.resolved && canResolveTask(task, isAdmin)) {
         e.preventDefault();
         setResolveOpen(true);
       } else if (k === 'a' && !task.resolved && currentUser?.userId && canClaimTask(task, isAdmin)) {
@@ -133,7 +134,7 @@ export default function TaskDetailPage() {
   const slaRemainingLabel = !task.resolved && slaRemainingMs > 0 ? formatAge(slaRemainingMs) : null;
 
   const relatedResolvedCount = related.data?.related.filter(x => x.resolved).length ?? 0;
-  const canWork = canWorkTask(task, isAdmin);
+  const canResolve = canResolveTask(task, isAdmin);
 
   return (
     <div className="flex flex-col gap-5 p-7" data-screen-label="04 Task Detail">
@@ -141,7 +142,7 @@ export default function TaskDetailPage() {
         task={task}
         ageLabel={ageLabel}
         slaRemainingLabel={slaRemainingLabel}
-        onResolve={canWork ? onResolve : undefined}
+        onResolve={canResolve ? onResolve : undefined}
       />
 
       <SlaBanner
@@ -192,7 +193,7 @@ export default function TaskDetailPage() {
         task={task}
         ageLabel={ageLabel}
         slaRemainingLabel={slaRemainingLabel}
-        onResolve={canWork ? onResolve : undefined}
+        onResolve={canResolve ? onResolve : undefined}
       />
 
       <ResolveTaskDialog

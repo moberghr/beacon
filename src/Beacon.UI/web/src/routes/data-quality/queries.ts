@@ -3,6 +3,7 @@ import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
+import type { ChangeApprovalOutcome } from '@/routes/approvals/queries';
 
 export type ScoreTone = 'ok' | 'warn' | 'crit' | 'neutral';
 
@@ -44,6 +45,8 @@ export interface DataContractRuleData {
   severity: number;
   weight: number;
   isEnabled: boolean;
+  /** Read only: with the approval workflow on, this Custom SQL rule's SQL waits for approval, so evaluations leave it out. */
+  awaitingApproval?: boolean;
 }
 
 export interface DataContractRecipientData {
@@ -79,6 +82,10 @@ export interface DataContractData {
   latestScore: number | null;
   rules: DataContractRuleData[];
   recipients: DataContractRecipientData[];
+  /** The pending change request of the contract's Custom SQL rules, if one waits (an Approver opens it). */
+  pendingApprovalRequestId?: number | null;
+  /** While Custom SQL rules wait and no request of them is pending: the last decision (a rejection: change and save again). */
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 }
 
 export interface DataQualityRuleResultData {
@@ -99,9 +106,39 @@ export interface DataQualityEvaluationData {
   passedRules: number;
   failedRules: number;
   totalRules: number;
+  /** The enabled Custom SQL rules left out because their SQL waits for approval; more than none makes the score partial. */
+  awaitingApprovalRules?: number;
+  /** The score leaves out rules that wait for approval: it does not stand for the whole contract. */
+  isPartial?: boolean;
+  /** The alert recipients this evaluation's alert skipped because where they deliver waits for approval. */
+  heldAlertRecipients?: number;
   executionTimeMs: number;
   createdTime: string;
   ruleResults: DataQualityRuleResultData[];
+}
+
+/** What an evaluation left out or held back, in a sentence; null when it left out nothing and held no alert. */
+export function evaluationNote(evaluation: Pick<DataQualityEvaluationData, 'isPartial' | 'awaitingApprovalRules' | 'heldAlertRecipients'>): string | null {
+  const parts: string[] = [];
+  const awaiting = evaluation.awaitingApprovalRules ?? 0;
+  if (evaluation.isPartial || awaiting > 0) {
+    parts.push(
+      `Partial: ${awaiting} Custom SQL rule${awaiting === 1 ? '' : 's'} awaiting approval ${awaiting === 1 ? 'was' : 'were'} not evaluated`,
+    );
+  }
+
+  const held = evaluation.heldAlertRecipients ?? 0;
+  if (held > 0) {
+    parts.push(`the alert skipped ${held} recipient${held === 1 ? '' : 's'} whose destination awaits approval`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const sentence = parts.join('; ');
+
+  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
 
 export const DATA_QUALITY_OVERVIEW_KEY = ['data-quality', 'overview'] as const;
@@ -206,11 +243,15 @@ export interface CreateContractPayload {
 export function useCreateContract() {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<CreateContractPayload, { dataContractId: number }>({
+    createSimpleMutation<CreateContractPayload, { dataContractId: number; awaitingApproval: boolean; message: string | null }>({
       qc,
       mutationFn: async (payload) => {
         const result = await beaconApi().createDataContract(payload as never);
-        return { dataContractId: result.dataContractId ?? 0 };
+        return {
+          dataContractId: result.dataContractId ?? 0,
+          awaitingApproval: result.awaitingApproval ?? false,
+          message: result.message ?? null,
+        };
       },
       invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Create contract failed',

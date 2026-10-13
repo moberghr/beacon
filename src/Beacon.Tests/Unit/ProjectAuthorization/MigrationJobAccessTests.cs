@@ -413,12 +413,12 @@ public class MigrationJobAccessTests
 
     private GetMigrationJobsHandler Jobs(IServiceProvider services)
     {
-        return new GetMigrationJobsHandler(_world.Factory(), services.GetRequiredService<IProjectAccessEvaluator>(), services.GetRequiredService<MigrationWritePolicy>());
+        return new GetMigrationJobsHandler(_world.Factory(), services.GetRequiredService<IProjectAccessEvaluator>(), services.GetRequiredService<MigrationWritePolicy>(), TestChangeApprovals.MigrationJobs());
     }
 
     private GetMigrationJobHandler JobDetail(IServiceProvider services)
     {
-        return new GetMigrationJobHandler(_world.Factory(), services.GetRequiredService<IProjectAccessEvaluator>(), services.GetRequiredService<MigrationWritePolicy>());
+        return new GetMigrationJobHandler(_world.Factory(), services.GetRequiredService<IProjectAccessEvaluator>(), services.GetRequiredService<MigrationWritePolicy>(), TestChangeApprovals.MigrationJobs());
     }
 
     private DeleteMigrationJobHandler Removal(IServiceProvider services)

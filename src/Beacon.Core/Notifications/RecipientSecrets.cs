@@ -215,6 +215,23 @@ internal static class RecipientSecrets
                 StringComparison.Ordinal);
     }
 
+    public static Dictionary<string, string>? TryReadHeaders(string? headersJson)
+    {
+        if (string.IsNullOrWhiteSpace(headersJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(headersJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private static bool TryKeepJiraToken(string submitted, string storedDestination, out string merged)
     {
         merged = string.Empty;
@@ -270,23 +287,6 @@ internal static class RecipientSecrets
     private static string Port(Uri uri)
     {
         return uri.IsDefaultPort ? string.Empty : $":{uri.Port}";
-    }
-
-    private static Dictionary<string, string>? TryReadHeaders(string? headersJson)
-    {
-        if (string.IsNullOrWhiteSpace(headersJson))
-        {
-            return null;
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(headersJson);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 }
 

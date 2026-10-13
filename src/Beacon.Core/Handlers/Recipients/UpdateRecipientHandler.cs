@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
@@ -15,7 +16,9 @@ namespace Beacon.Core.Handlers.Recipients;
 /// the same (<see cref="RecipientSecrets"/>); whatever is stored must pass the destination policy and is stored
 /// encrypted. Anyone but an Admin changes where a recipient delivers (its type, destination or headers) only when it can
 /// read every subscription and data contract the recipient is attached to (403 otherwise): a destination decides where
-/// those send their results.
+/// those send their results. While the change approval workflow covers recipients, a change of where it delivers is
+/// submitted for approval in the unit of work that stores it, the recipient's row taken first, and the recipient receives
+/// nothing until it is approved (<see cref="RecipientChangeApproval"/>).
 /// </summary>
 internal sealed class UpdateRecipientHandler(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -23,6 +26,7 @@ internal sealed class UpdateRecipientHandler(
     IProjectAccessEvaluator projectAccess,
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
+    RecipientChangeApproval changeApproval,
     ILogger<UpdateRecipientHandler> logger)
     : IRequestHandler<UpdateRecipientCommand>
 {
@@ -38,8 +42,42 @@ internal sealed class UpdateRecipientHandler(
             throw new InvalidOperationException("Unknown notification type.");
         }
 
+        var requester = await changeApproval.RequesterAsync(request.Id, cancellationToken);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Without the workflow nothing is submitted; a pending request the change made moot was superseded, and is told.
+        if (requester == null)
+        {
+            await changeApproval.NotifySupersededAsync(await UpdateAsync(context, request, null, cancellationToken), cancellationToken);
+            return;
+        }
+
+        // Under the workflow: the recipient's row first (as a decision takes it), then the change and its request,
+        // committed together. Through the execution strategy, so a host that enables retry-on-failure gets a retried unit;
+        // a retry starts from a clean tracker.
+        ChangeSubmission? submission = null;
+        var strategy = context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            context.ChangeTracker.Clear();
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+            await RecipientChangeApproval.LockAsync(context, request.Id, cancellationToken);
+            submission = await UpdateAsync(context, request, requester, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+
+        await changeApproval.NotifySupersededAsync(submission, cancellationToken);
+    }
+
+    // Reads, checks and stores the change; under the workflow (a requester) it is also submitted for approval.
+    private async Task<ChangeSubmission?> UpdateAsync(
+        BeaconContext context,
+        UpdateRecipientCommand request,
+        ChangeRequester? requester,
+        CancellationToken cancellationToken)
+    {
         var entity = await context.Recipients
             .Where(x => x.Id == request.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -76,7 +114,10 @@ internal sealed class UpdateRecipientHandler(
         entity.HeadersJson = headersJson;
         entity.BodyTemplate = request.BodyTemplate;
 
+        var submission = await changeApproval.SubmitUpdateAsync(context, requester, entity, stored, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
+
+        return submission;
     }
 
     // Every live subscription and data contract the recipient is attached to must be readable by the caller.

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
@@ -193,6 +194,41 @@ public class StoredValueReEncryptionServiceTests
         _logs.Entries.Should().NotContain(x => x.Message.Contains("Host=old", StringComparison.Ordinal));
     }
 
+    // The keyed hashes of where governed recipients deliver move to the current key too: an approved hash, and a pending
+    // request's, that match the definition the recipient holds only under the previous key are recomputed; an approved hash
+    // of a definition the recipient no longer holds cannot be (its plaintext is not stored) and keeps matching under the
+    // previous key while that key is configured.
+    [Test]
+    public async Task RecipientApprovalHashesUnderAPreviousKey_AreRecomputedWithTheCurrentKey()
+    {
+        const string hook = "https://hooks.example.test/a";
+        const string moved = "https://hooks.example.test/b";
+        var before = new RecipientDestinationHasher(PreviousKey);
+        var hasher = new RecipientDestinationHasher(CurrentKey, [PreviousKey]);
+        var store = new Store();
+        store.Recipients.Add(Governed(7, hook, RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, hook, null)));
+        store.Recipients.Add(Governed(8, moved, RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, hook, null)));
+        store.Requests.Add(new ChangeApprovalRequest
+        {
+            Id = 30,
+            Kind = ChangeApprovalKind.RecipientDestination,
+            ResourceId = 8,
+            Status = ApprovalStatus.Pending,
+            DefinitionHash = RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, moved, null)
+        });
+
+        var counted = await Service(store, hasher).CountAsync(CancellationToken.None);
+        var result = await Service(store, hasher).ReEncryptAsync(CancellationToken.None);
+        var again = await Service(store, hasher).CountAsync(CancellationToken.None);
+
+        counted.UnderPreviousKeys.Should().Be(2);
+        result.Should().Be(new StoredValueReEncryptionResult(2, 2, 0, 0, 0));
+        store.Recipients[0].ApprovedDestinationHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, hook, null));
+        store.Recipients[1].ApprovedDestinationHash.Should().Be(RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, hook, null), "the approved definition is not the one it holds");
+        store.Requests[0].DefinitionHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, moved, null));
+        again.UnderPreviousKeys.Should().Be(0);
+    }
+
     [Test]
     public async Task AHostsOwnEncryptionService_IsLeftAlone_AndTheRunSaysWhy()
     {
@@ -225,9 +261,22 @@ public class StoredValueReEncryptionServiceTests
         return new EncryptionService(CurrentKey).Decrypt(cipherText);
     }
 
-    private StoredValueReEncryptionService Service(Store store)
+    private StoredValueReEncryptionService Service(Store store, RecipientDestinationHasher? hasher = null)
     {
-        return new StoredValueReEncryptionService(store.Factory(), _encryption, _logs.For<StoredValueReEncryptionService>());
+        return new StoredValueReEncryptionService(store.Factory(), _encryption, _logs.For<StoredValueReEncryptionService>(), hasher);
+    }
+
+    // A governed webhook recipient whose destination is encrypted with the current key.
+    private Recipient Governed(int id, string destination, string approvedHash)
+    {
+        return new Recipient
+        {
+            Id = id,
+            Name = $"hook-{id}",
+            NotificationType = NotificationType.Webhook,
+            Destination = RecipientSecretProtector.EncryptedPrefix + _encryption.Encrypt(destination),
+            ApprovedDestinationHash = approvedHash
+        };
     }
 
     private static IConfiguration Configuration()
@@ -260,6 +309,8 @@ public class StoredValueReEncryptionServiceTests
 
         public List<Recipient> Recipients { get; } = [];
 
+        public List<ChangeApprovalRequest> Requests { get; } = [];
+
         public IDbContextFactory<BeaconContext> Factory()
         {
             var saved = new List<object>();
@@ -268,7 +319,8 @@ public class StoredValueReEncryptionServiceTests
                 [typeof(DataSource)] = RecordingBeaconContext.MemorySet(DataSources, saved),
                 [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet(Repositories, saved),
                 [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, saved),
-                [typeof(Recipient)] = RecordingBeaconContext.MemorySet(Recipients, saved)
+                [typeof(Recipient)] = RecordingBeaconContext.MemorySet(Recipients, saved),
+                [typeof(ChangeApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, saved)
             };
             var factory = new Mock<IDbContextFactory<BeaconContext>>();
             factory

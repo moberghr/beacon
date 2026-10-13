@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Adapters;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
@@ -17,6 +18,7 @@ internal class NotificationService(
     RecipientSecretProtector secretProtector,
     NotificationDestinationPolicy destinationPolicy,
     IOptions<NotificationChannelOptions> options,
+    RecipientDeliveryApproval deliveryApproval,
     ILogger<NotificationService> logger) : INotificationService
 {
     private static int _plaintextWarningLogged;
@@ -24,9 +26,13 @@ internal class NotificationService(
     /// <summary>
     /// The single path to every notification adapter. The stored destination and headers are decrypted here and checked
     /// against the destination policy again, so a recipient saved before the policy (or under a looser configuration)
-    /// is never sent to. Every failure is logged at Warning (type, notification and recipient ids, reason, HTTP status,
-    /// exception types; never a message, URL or body) and leaves as a <see cref="NotificationDeliveryException"/> whose
-    /// message is a generic reason.
+    /// is never sent to. While the change approval workflow covers recipients, a delivery to a stored recipient
+    /// (<see cref="RecipientQueryResult.RecipientId"/>) sends only the destination a second person approved: the very copy
+    /// being sent is checked against the recipient's approved hash as it is now (archived included), and a recipient
+    /// that no longer exists receives nothing (<see cref="NotificationFailureReasons.AwaitingApproval"/>). A delivery to
+    /// an address no stored recipient holds (no id) is not a governed recipient's. Every failure is logged at Warning
+    /// (type, notification and recipient ids, reason, HTTP status, exception types; never a message, URL or body) and
+    /// leaves as a <see cref="NotificationDeliveryException"/> whose message is a generic reason.
     /// </summary>
     public async Task SendNotification(
         RecipientQueryResult recipientQueryResult,
@@ -35,7 +41,7 @@ internal class NotificationService(
     {
         try
         {
-            var resolved = ResolveDestination(recipientQueryResult);
+            var resolved = await ResolveDestinationAsync(recipientQueryResult, cancellationToken);
 
             // Task creation is handled in JobService.ExecuteQuery; here we fan out to the
             // configured notification adapter (Email/Slack/Teams/Jira/Webhook). The token
@@ -227,7 +233,7 @@ internal class NotificationService(
         return details;
     }
 
-    private RecipientQueryResult ResolveDestination(RecipientQueryResult recipientQueryResult)
+    private async Task<RecipientQueryResult> ResolveDestinationAsync(RecipientQueryResult recipientQueryResult, CancellationToken cancellationToken)
     {
         var storedInPlaintext = !RecipientSecretProtector.IsProtected(recipientQueryResult.RecipientDestination)
             || (!string.IsNullOrEmpty(recipientQueryResult.HeadersJson) && !RecipientSecretProtector.IsProtected(recipientQueryResult.HeadersJson));
@@ -252,6 +258,13 @@ internal class NotificationService(
         catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException)
         {
             throw new NotificationDeliveryException(NotificationFailureReasons.DestinationUnreadable);
+        }
+
+        // What is sent is what was approved: this copy, decrypted, against the recipient's approved hash read now.
+        if (recipientQueryResult.RecipientId is { } recipientId
+            && !await deliveryApproval.AllowsAsync(recipientId, recipientQueryResult.RecipientNotificationType, destination, headersJson, cancellationToken))
+        {
+            throw new NotificationDeliveryException(NotificationFailureReasons.AwaitingApproval);
         }
 
         try

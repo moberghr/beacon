@@ -24,7 +24,14 @@ public record CreateMigrationJobResponse(
     bool Success,
     string? ErrorMessage = null,
     ValidationResult? ValidationResult = null
-);
+)
+{
+    /// <summary>
+    /// The job was submitted for approval (the change approval workflow covers migration jobs): it does not run, manually
+    /// or on its schedule, until a second person approves it.
+    /// </summary>
+    public bool AwaitingApproval { get; init; }
+}
 
 public record ValidationResult(
     bool IsValid,

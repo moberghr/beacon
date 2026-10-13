@@ -1,12 +1,14 @@
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.Models.Approvals;
 using Beacon.Core.Services;
 using MediatR;
 using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
-internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscriptionService)
+internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscriptionService, RecipientDeliveryApproval deliveryApproval)
     : IRequestHandler<GetSubscriptionDetailQuery, GetSubscriptionDetailResult>
 {
     public async Task<GetSubscriptionDetailResult> Handle(GetSubscriptionDetailQuery request, CancellationToken cancellationToken)
@@ -16,14 +18,31 @@ internal sealed class GetSubscriptionDetailHandler(ISubscriptionService subscrip
         var cronDescription = data.CronExpression?.GetCronDescription() ?? string.Empty;
         var cronNextAt = data.CronExpression?.GetCronNextAt();
 
+        // The recipients its deliveries skip while where they deliver waits for approval, each with the pending request of
+        // that change or else the last decision on it.
+        var awaiting = await deliveryApproval.AwaitingAsync(
+            data.Recipients
+                .Select(x => x.RecipientId)
+                .OfType<int>()
+                .ToList(),
+            cancellationToken);
         var recipients = data.Recipients
             .Select(x =>
-                new SubscriptionDetailRecipient(
+            {
+                var state = x.RecipientId is { } id ? awaiting.GetValueOrDefault(id) : null;
+
+                return new SubscriptionDetailRecipient(
                     x.RecipientId ?? 0,
                     x.Name,
                     x.Description,
                     null,
-                    x.NotificationType))
+                    x.NotificationType)
+                {
+                    AwaitingApproval = state != null,
+                    PendingApprovalRequestId = state?.PendingRequestId,
+                    LastApprovalDecision = state?.LastDecision
+                };
+            })
             .ToList();
 
         var parameters = data.Parameters
@@ -126,7 +145,23 @@ public record SubscriptionDetailRecipient(
     string Name,
     string? Description,
     string? Destination,
-    NotificationType NotificationType);
+    NotificationType NotificationType)
+{
+    /// <summary>
+    /// While the approval workflow covers recipients: where this recipient delivers waits for approval, so the
+    /// subscription's deliveries skip it.
+    /// </summary>
+    public bool AwaitingApproval { get; init; }
+
+    /// <summary>The pending change request of where this recipient delivers, if one waits; an Approver opens it.</summary>
+    public int? PendingApprovalRequestId { get; init; }
+
+    /// <summary>
+    /// While the recipient waits and no request of it is pending: the last decision on where it delivers (a rejection,
+    /// with the reviewer's comment: the recipient is changed and saved again).
+    /// </summary>
+    public ChangeApprovalOutcome? LastApprovalDecision { get; init; }
+}
 
 public record SubscriptionDetailAnomalyConfig(
     bool Enabled,

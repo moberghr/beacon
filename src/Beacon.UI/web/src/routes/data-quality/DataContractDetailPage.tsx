@@ -8,9 +8,10 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { Tabs } from '@/components/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
+import { ChangeApprovalKind, DataContractRuleType, DataContractSeverity } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
+  evaluationNote,
   scoreTone,
   useDataContract,
   useDeleteContract,
@@ -20,6 +21,7 @@ import {
 } from './queries';
 import { CreateDataContractDialog } from './CreateDataContractDialog';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
+import { AwaitingApprovalBanner, AwaitingApprovalPill } from '../approvals/AwaitingApproval';
 
 const RULE_TYPE_LABEL: Record<number, string> = {
   [DataContractRuleType.Volume]: 'Volume',
@@ -104,10 +106,13 @@ export default function DataContractDetailPage() {
   function handleEvaluate() {
     // No onError toast — useEvaluateContract (createSimpleMutation) already toasts.
     evaluateMutation.mutate(undefined, {
-      onSuccess: r =>
+      onSuccess: r => {
+        const note = evaluationNote(r);
         toast.success(
           `Evaluation complete: ${r.overallScore.toFixed(1)}% (${r.passedRules}/${r.totalRules} passed)`,
-        ),
+          note ? { description: note } : undefined,
+        );
+      },
     });
   }
 
@@ -182,8 +187,24 @@ export default function DataContractDetailPage() {
         />
       )}
 
+      {c.rules.some(r => r.awaitingApproval) && (
+        <AwaitingApprovalBanner
+          kind={ChangeApprovalKind.CustomSqlRules}
+          title="Custom SQL awaiting approval: those rules are not evaluated"
+          sub="A second person approves a new or changed Custom SQL rule before it runs; the contract's other rules keep running, and their score is marked partial."
+          requestId={c.pendingApprovalRequestId}
+          lastDecision={c.lastApprovalDecision}
+        />
+      )}
+
       <KPIGrid>
-        <KPI dot="brand" label="Latest score" value={c.latestScore === null ? 'N/A' : `${c.latestScore.toFixed(0)}%`} />
+        <KPI
+          dot="brand"
+          label="Latest score"
+          value={c.latestScore === null ? 'N/A' : `${c.latestScore.toFixed(0)}%`}
+          // A partial evaluation does not replace the table's score: this stays the last complete one.
+          sub={latest?.isPartial ? 'the latest evaluation was partial and did not update it' : undefined}
+        />
         <KPI dot="info" label="Rules" value={c.rules.length} />
         <KPI dot="ok" label="Schedule" value={<span className="mono text-base">{c.cronExpression}</span>} />
         <KPI dot="warn" label="Failure threshold" value={`${c.failureThresholdScore}%`} />
@@ -221,7 +242,18 @@ export default function DataContractDetailPage() {
             <tbody>
               {c.rules.map(r => (
                 <tr key={r.id ?? r.name} className="border-b border-border last:border-b-0">
-                  <td className="px-2 py-2">{r.name}</td>
+                  <td className="px-2 py-2">
+                    <span className="flex items-center gap-2">
+                      {r.name}
+                      {r.awaitingApproval && (
+                        <AwaitingApprovalPill
+                          kind={ChangeApprovalKind.CustomSqlRules}
+                          requestId={c.pendingApprovalRequestId}
+                          lastDecision={c.lastApprovalDecision}
+                        />
+                      )}
+                    </span>
+                  </td>
                   <td className="px-2 py-2">{RULE_TYPE_LABEL[r.ruleType] ?? r.ruleType}</td>
                   <td className="px-2 py-2">{r.columnName ?? '—'}</td>
                   <td className="px-2 py-2">{SEVERITY_LABEL[r.severity] ?? r.severity}</td>
@@ -247,6 +279,7 @@ export default function DataContractDetailPage() {
                   <th className="px-2 py-2">Passed</th>
                   <th className="px-2 py-2">Failed</th>
                   <th className="px-2 py-2">Duration (ms)</th>
+                  <th className="px-2 py-2">Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,16 +287,33 @@ export default function DataContractDetailPage() {
                   <tr key={ev.id} className="border-b border-border last:border-b-0">
                     <td className="px-2 py-2">{formatDateTime(ev.createdTime)}</td>
                     <td className="px-2 py-2">
-                      <Pill tone={scoreTone(ev.overallScore)}>{ev.overallScore.toFixed(1)}%</Pill>
+                      <span className="flex items-center gap-1.5">
+                        <Pill tone={scoreTone(ev.overallScore)}>{ev.overallScore.toFixed(1)}%</Pill>
+                        {ev.isPartial && (
+                          <Pill tone="warn" title="Rules awaiting approval were left out: the score does not stand for the whole contract">
+                            Partial
+                          </Pill>
+                        )}
+                      </span>
                     </td>
                     <td className="px-2 py-2">{ev.passedRules} / {ev.totalRules}</td>
                     <td className="px-2 py-2">{ev.failedRules}</td>
                     <td className="px-2 py-2">{ev.executionTimeMs.toFixed(0)}</td>
+                    <td className="px-2 py-2 text-text-muted text-xs">{evaluationNote(ev) ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )
+        )}
+
+        {tab === 'latest' && latest && evaluationNote(latest) && (
+          <Banner
+            tone="warn"
+            className="mb-3"
+            title={latest.isPartial ? 'Partial evaluation: the score leaves out rules awaiting approval' : 'The alert was held back for some recipients'}
+            sub={evaluationNote(latest)}
+          />
         )}
 
         {tab === 'latest' && latest && (

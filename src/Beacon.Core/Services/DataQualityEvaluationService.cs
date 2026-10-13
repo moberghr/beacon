@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
@@ -31,7 +32,12 @@ public interface IDataQualityEvaluationService
 /// (<see cref="IExecutionAccessCheck"/>); otherwise nothing runs or is recorded. Every rule's SQL passes the read-only
 /// gate (<see cref="DataQualityRuleGuard"/>) and runs through <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>,
 /// which owns the host policy, host column masking, the generic host error and the READ ONLY transaction (§1.5). A failed
-/// rule never stores or returns the server's error text: a server or conversion error can quote row values (§1.11).
+/// rule never stores or returns the server's error text: a server or conversion error can quote row values (§1.11). While
+/// the change approval workflow covers Custom SQL rules, a Custom SQL rule whose SQL on the contract's data source is not
+/// the approved one (<see cref="DataContractRule.ApprovedSqlHash"/>) runs no SQL: each one left out is logged, the
+/// evaluation records how many were left out (<see cref="DataQualityEvaluation.AwaitingApprovalRules"/>) and its score
+/// is partial — it does not replace the table's score, so it never improves it silently. A contract all of whose enabled
+/// rules wait for approval is not evaluated (<see cref="DataContractRulesAwaitApprovalException"/>).
 /// </summary>
 internal class DataQualityEvaluationService(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -42,6 +48,7 @@ internal class DataQualityEvaluationService(
     IExecutionAccessCheck executionAccess,
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
+    BeaconConfiguration configuration,
     ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
 {
     /// <summary>What a rule result says when its query fails on an ordinary data source.</summary>
@@ -82,9 +89,33 @@ internal class DataQualityEvaluationService(
 
         var provider = providerFactory.GetProvider(contract.DataSource.DataSourceType);
         var engineType = contract.DataSource.DatabaseEngineType.Value;
-        var enabledRules = contract.Rules.Where(r => r.IsEnabled).ToList();
+
+        // A Custom SQL rule waiting for approval runs no SQL: it is left out as a disabled rule is.
+        var awaitingApproval = configuration.ApprovalWorkflow.Covers(ChangeApprovalKind.CustomSqlRules)
+            ? contract.Rules
+                .Where(x => x.IsEnabled)
+                .Where(x => CustomSqlRuleDefinition.Awaits(x, contract.DataSourceId))
+                .ToList()
+            : [];
+        foreach (var rule in awaitingApproval)
+        {
+            logger.LogWarning(
+                "Custom SQL rule {RuleId} of data contract {ContractId} was not evaluated: its SQL waits for approval",
+                rule.Id,
+                contract.Id);
+        }
+
+        var enabledRules = contract.Rules
+            .Where(x => x.IsEnabled)
+            .Except(awaitingApproval)
+            .ToList();
 
         // Scoring no rules would report 100, overwrite the real score and keep alerts quiet, so nothing is recorded.
+        if (enabledRules.Count == 0 && awaitingApproval.Count > 0)
+        {
+            throw new DataContractRulesAwaitApprovalException(contract.Id, awaitingApproval.Count);
+        }
+
         if (enabledRules.Count == 0)
         {
             throw new DataContractHasNoEnabledRulesException(contract.Id);
@@ -128,6 +159,7 @@ internal class DataQualityEvaluationService(
             PassedRules = passedCount,
             FailedRules = failedCount,
             TotalRules = enabledRules.Count,
+            AwaitingApprovalRules = awaitingApproval.Count,
             ExecutionTimeMs = totalStopwatch.Elapsed.TotalMilliseconds,
             RuleResults = ruleResults
         };
@@ -137,8 +169,11 @@ internal class DataQualityEvaluationService(
         context.DataQualityEvaluations.Add(evaluation);
         await context.SaveChangesAsync(cancellationToken);
 
-        // Upsert DataQualityScore
-        await UpsertScoreAsync(context, contract, overallScore, cancellationToken);
+        // A partial score leaves the table's score as it was: it says nothing about the rules that wait.
+        if (awaitingApproval.Count == 0)
+        {
+            await UpsertScoreAsync(context, contract, overallScore, cancellationToken);
+        }
 
         return MapEvaluation(evaluation, enabledRules);
     }
@@ -184,6 +219,8 @@ internal class DataQualityEvaluationService(
                 PassedRules = e.PassedRules,
                 FailedRules = e.FailedRules,
                 TotalRules = e.TotalRules,
+                AwaitingApprovalRules = e.AwaitingApprovalRules,
+                HeldAlertRecipients = e.HeldAlertRecipients,
                 ExecutionTimeMs = e.ExecutionTimeMs,
                 CreatedTime = e.CreatedTime,
                 RuleResults = e.RuleResults.Select(r => new DataQualityRuleResultData
@@ -725,6 +762,8 @@ internal class DataQualityEvaluationService(
             PassedRules = evaluation.PassedRules,
             FailedRules = evaluation.FailedRules,
             TotalRules = evaluation.TotalRules,
+            AwaitingApprovalRules = evaluation.AwaitingApprovalRules,
+            HeldAlertRecipients = evaluation.HeldAlertRecipients,
             ExecutionTimeMs = evaluation.ExecutionTimeMs,
             CreatedTime = evaluation.CreatedTime,
             RuleResults = evaluation.RuleResults.Select(r =>

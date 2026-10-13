@@ -23,11 +23,22 @@ export interface TaskEntry {
 
 
 /**
- * The caller may resolve, snooze, reprioritise and release the task: it is the task's assignee, or an Admin. The server
- * enforces the same rule; this only decides which actions the page offers.
+ * The caller may snooze, reprioritise and release the task: it is the task's assignee, or an Admin. The server enforces
+ * the same rule; this only decides which actions the page offers.
  */
 export function canWorkTask(task: Pick<TaskDetail, 'assignedToCaller'>, isAdmin: boolean | undefined): boolean {
   return task.assignedToCaller || isAdmin === true;
+}
+
+/**
+ * The caller may resolve the task: it is the task's assignee (anyone else claims it first), or an Admin while nobody is
+ * assigned. A task assigned to someone else is resolved by that person, or reassigned first. The server enforces it.
+ */
+export function canResolveTask(
+  task: Pick<TaskDetail, 'assignedToCaller' | 'hasAssignee'>,
+  isAdmin: boolean | undefined,
+): boolean {
+  return task.assignedToCaller || (isAdmin === true && !task.hasAssignee);
 }
 
 /** The caller may assign the task to itself: it is unassigned (anyone may claim it), or the caller is an Admin. */

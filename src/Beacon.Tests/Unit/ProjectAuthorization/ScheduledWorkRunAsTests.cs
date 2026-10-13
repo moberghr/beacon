@@ -542,6 +542,7 @@ public class ScheduledWorkRunAsTests
             x.GetRequiredService<IExecutionAccessCheck>(),
             TestQueryServices.DefaultSettings(),
             new QueryGuardrailService(),
+            x.GetRequiredService<BeaconConfiguration>(),
             NullLogger<DataQualityEvaluationService>.Instance));
         services.AddScoped(x => new JobService(
             x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
@@ -552,7 +553,8 @@ public class ScheduledWorkRunAsTests
             x.GetRequiredService<IDataQualityEvaluationService>(),
             x.GetRequiredService<ILogger<JobService>>(),
             x.GetRequiredService<IRunAsScope>(),
-            x.GetRequiredService<IHttpContextAccessor>()));
+            x.GetRequiredService<IHttpContextAccessor>(),
+            TestChangeApprovals.Deliveries()));
 
         return services.BuildServiceProvider();
     }

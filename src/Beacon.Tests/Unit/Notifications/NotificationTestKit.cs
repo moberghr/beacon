@@ -148,13 +148,17 @@ internal sealed class RecipientStore
     public int Saves { get; set; }
 }
 
-/// <summary>A <see cref="BeaconContext"/> whose recipients are an in-memory async sequence (§4.7: no in-memory provider).</summary>
+/// <summary>
+/// A <see cref="BeaconContext"/> whose recipients are an in-memory async sequence (§4.7: no in-memory provider). Any other
+/// set is the real EF set, which never connects (<see cref="SqlCapture.NeverConnects"/>): reading one fails at once.
+/// </summary>
 internal sealed class RecipientTestContext(RecipientStore store) : BeaconContext(ContextOptions, "beacon")
 {
     private static readonly DbContextOptions<RecipientTestContext> ContextOptions =
         new DbContextOptionsBuilder<RecipientTestContext>()
             .UseNpgsql("Host=localhost;Database=unused")
             .UseSnakeCaseNamingConvention()
+            .AddInterceptors(SqlCapture.NeverConnects)
             .Options;
 
     public override DbSet<TEntity> Set<TEntity>() where TEntity : class

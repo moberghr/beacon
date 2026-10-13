@@ -16,6 +16,7 @@ import {
 import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
 import { useDataSourceCount } from '@/routes/data-sources/queries';
 import { useCreateMigrationJob } from '@/routes/migration-history/queries';
+import { noteSubmittedForApproval } from '@/routes/approvals/AwaitingApproval';
 import {
   MIGRATION_JOB_DEFAULTS,
   MIGRATION_JOB_SCHEMA,
@@ -54,6 +55,7 @@ export default function NewMigrationJobPage() {
         return;
       }
       toast.success('Migration job created.');
+      noteSubmittedForApproval(result);
       navigate(`/migration-jobs/${result.migrationJobId}`);
     } catch {
       // useCreateMigrationJob (createSimpleMutation) already toasts the error.

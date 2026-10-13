@@ -21,6 +21,7 @@ import type {
   SubscriptionExecutionEntry,
 } from '../queries';
 import { NOTIFICATION_STATUS_LABEL } from '../queries';
+import { RunComment } from '@/routes/notifications/RunComment';
 import { NotificationStatus } from '@/lib/enums';
 import type { SubscriptionTabKey } from './SubscriptionTabsCard';
 
@@ -133,6 +134,10 @@ export function RightRail({ subscription, executions, onSelectTab }: RightRailPr
                     tone={latest.recipientNames.length > 0 ? 'ok' : 'pending'}
                     title={`${latest.recipientNames.length} recipient${latest.recipientNames.length === 1 ? '' : 's'} notified`}
                     detail={latest.recipientNames.slice(0, 2).join(', ') || '—'}
+                  />
+                  <RunComment
+                    comment={latest.comment}
+                    recipientNames={new Map(subscription.recipients.map(x => [x.id, x.name]))}
                   />
                 </>
               );

@@ -131,6 +131,10 @@ public static class ServiceConfiguration
         // change of the encryption key), else from the encryption key, each through its own purpose-bound derivation.
         services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(Mcp.McpCallerSubjectHasher.KeySource(configuration, encryptionKey)));
 
+        // Keyed hashes of where governed recipients deliver: under a key derived from the encryption key for this purpose;
+        // hashes written under a previous key keep matching until the re-encryption run rewrites them.
+        services.TryAddSingleton(new ChangeApprovals.RecipientDestinationHasher(encryptionKey, previousEncryptionKeys));
+
         // Notification channels (Beacon:Notifications): where recipients may point, the one outbound HTTP policy the
         // adapters use, and encryption of recipient secrets at rest. ValidateOnStart so a malformed allow-list entry
         // fails the host at boot.
@@ -204,6 +208,15 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISavedQueryToolSource, SavedQueryToolSource>();
         services.TryAddTransient<ISavedQueryToolExecutor, SavedQueryToolExecutor>();
         services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
+
+        // Change approvals of migration jobs, Custom SQL rules and recipient destinations: submission (as the request's
+        // caller), decisions, and the delivery gate.
+        services.TryAddScoped<ChangeApprovals.ChangeApprovalSubmitter>();
+        services.TryAddScoped<ChangeApprovals.RecipientChangeApproval>();
+        services.TryAddScoped<ChangeApprovals.CustomSqlChangeApproval>();
+        services.TryAddTransient<ChangeApprovals.RecipientDeliveryApproval>();
+        services.TryAddTransient<ChangeApprovals.MigrationJobApprovalState>();
+        services.TryAddTransient<ChangeApprovals.IChangeApprovalService, ChangeApprovals.ChangeApprovalService>();
 
         services.TryAddTransient(typeof(IBeaconScheduler), configurationOptions.BeaconScheduler!);
 

@@ -79,6 +79,8 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/ai-actors/plans/{id:int}",
         "/beacon/api/ai-actors/{id:int}",
         "/beacon/api/ai-actors/{id:int}/pending-plans",
+        "/beacon/api/approvals/changes",
+        "/beacon/api/approvals/changes/{id:int}",
         "/beacon/api/approvals/pending",
         "/beacon/api/approvals/{id:int}",
         "/beacon/api/auth/me",

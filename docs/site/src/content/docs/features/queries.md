@@ -298,6 +298,13 @@ With the approval workflow on (`options.EnableApprovalWorkflow()` or `options.Ap
 `AddBeaconServices`; off by default — see [Configuration](/getting-started/configuration/#approval-workflow)), a change to
 what a query runs goes live only after a second person approves it.
 
+The same workflow reviews other changes that decide what Beacon writes, reads or sends, each with its own switch (all on
+by default): new [migration jobs](/features/data-migration/#approval-of-new-jobs), new and changed
+[Custom SQL rules](/features/data-quality/#approval-of-custom-sql), and new recipients and changed
+[recipient destinations](/features/notifications/#approval-of-new-and-changed-destinations). Their requests are listed
+on the **Approvals** page by kind and decided with the rules below: four eyes, one decision from Pending, and an
+approval bound to what the reviewer was shown and to the definition the resource still holds.
+
 **What counts as a change.** The query's executable content: its steps (added, removed, reordered), each step's name,
 data source, SQL and parameters (name, type, placeholder), and the final query. Descriptions and the query's own name
 change nothing that runs; a missing final query and an empty one are the same. Every character of the SQL and the final

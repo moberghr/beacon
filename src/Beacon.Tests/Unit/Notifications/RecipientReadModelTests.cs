@@ -52,7 +52,7 @@ public class RecipientReadModelTests
     public async Task DataContractDetail_NeverSelectsDestinations()
     {
         var database = new CommandCapture();
-        var handler = new GetDataContractDetailHandler(database.NpgsqlFactory());
+        var handler = new GetDataContractDetailHandler(database.NpgsqlFactory(), new BeaconConfiguration());
 
         var act = () => handler.Handle(new GetDataContractDetailQuery(3), CancellationToken.None);
 
@@ -81,7 +81,7 @@ public class RecipientReadModelTests
                 Parameters = [],
             });
 
-        var result = await new GetSubscriptionDetailHandler(service.Object).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
+        var result = await new GetSubscriptionDetailHandler(service.Object, TestChangeApprovals.Deliveries()).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
 
         result.Detail.Recipients.Should().ContainSingle().Which.Destination.Should().BeNull();
         JsonSerializer.Serialize(result).Should().NotContain("PATHSECRET");

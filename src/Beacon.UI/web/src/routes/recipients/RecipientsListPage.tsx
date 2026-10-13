@@ -15,6 +15,8 @@ import {
   type RecipientEntry,
 } from './queries';
 import { RecipientDialog } from './RecipientDialog';
+import { AwaitingApprovalPill, RejectedChangeNote } from '../approvals/AwaitingApproval';
+import { ChangeApprovalKind } from '@/lib/enums';
 
 const GRID_TEMPLATE = '0.6fr 1.4fr 1.6fr 0.9fr 1.6fr 0.6fr 60px';
 
@@ -36,7 +38,27 @@ export default function RecipientsListPage() {
       key: 'name',
       sortKey: 'name',
       header: 'Name',
-      render: r => <span className="font-semibold text-text">{r.name}</span>,
+      render: r => (
+        <span className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-2">
+            <span className="font-semibold text-text">{r.name}</span>
+            {r.awaitingApproval && (
+              <AwaitingApprovalPill
+                kind={ChangeApprovalKind.RecipientDestination}
+                requestId={r.pendingApprovalRequestId}
+                lastDecision={r.lastApprovalDecision}
+              />
+            )}
+          </span>
+          {r.awaitingApproval && (
+            <RejectedChangeNote
+              kind={ChangeApprovalKind.RecipientDestination}
+              requestId={r.pendingApprovalRequestId}
+              lastDecision={r.lastApprovalDecision}
+            />
+          )}
+        </span>
+      ),
     },
     {
       key: 'destination',
@@ -44,7 +66,12 @@ export default function RecipientsListPage() {
       render: r => r.secretsUnreadable
         ? <Pill tone="crit" title="The stored destination or headers cannot be read. Open the recipient and enter them again.">Re-enter destination</Pill>
         : r.destination
-          ? <span className="mono text-xs">{r.destination}</span>
+          ? (
+            <span className="flex flex-col gap-0.5">
+              <span className="mono text-xs">{r.destination}</span>
+              <Fingerprints recipient={r} />
+            </span>
+          )
           : <span className="text-text-muted">—</span>,
     },
     {
@@ -186,5 +213,27 @@ export default function RecipientsListPage() {
         onCancel={() => setDeleting(null)}
       />
     </div>
+  );
+}
+
+/**
+ * Shown to those who change recipients: short keyed fingerprints of where the recipient delivers and of each header
+ * value, the same an Approver is shown, so the two can compare them out of band. Equal fingerprints mean equal values.
+ */
+function Fingerprints({ recipient }: { recipient: RecipientEntry }) {
+  if (!recipient.definitionFingerprint) {
+    return null;
+  }
+
+  return (
+    <span className="text-2xs text-text-muted" aria-label={`Fingerprints of ${recipient.name}`}>
+      Fingerprint <span className="mono">{recipient.definitionFingerprint}</span>
+      {(recipient.headerFingerprints ?? []).map(x => (
+        <span key={x.name}>
+          {' · '}
+          {x.name} <span className="mono">{x.fingerprint}</span>
+        </span>
+      ))}
+    </span>
   );
 }

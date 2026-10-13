@@ -969,6 +969,84 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("UserRoles", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.ChangeApprovalRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DefinitionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("PreviousJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ProposedJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequestedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("RequestedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("ResourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResourceName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ReviewComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ReviewedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "CreatedTime");
+
+                    b.HasIndex("Kind", "ResourceId", "Status");
+
+                    b.ToTable("ChangeApprovalRequests", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Comment", b =>
                 {
                     b.Property<int>("Id")
@@ -1242,6 +1320,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedDefinitionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 
@@ -1390,6 +1472,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedSqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -1440,6 +1526,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AwaitingApprovalRules")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1450,6 +1539,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("float");
 
                     b.Property<int>("FailedRules")
+                        .HasColumnType("int");
+
+                    b.Property<int>("HeldAlertRecipients")
                         .HasColumnType("int");
 
                     b.Property<double>("OverallScore")
@@ -3910,6 +4002,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApprovedDestinationHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");

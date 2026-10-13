@@ -307,6 +307,49 @@ Review past executions with detailed metrics:
 - Performance (rows/second)
 - Retry attempt number
 
+### Approval of new jobs
+
+While the [change approval workflow](/features/queries/#approval-workflow) is on and covers migration jobs
+(`ApprovalWorkflow.CoversMigrationJobs`, on by default — see
+[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)), a job writes nothing until a
+second person has approved what it does:
+
+- **A job created is submitted for approval** (its creator is the requester) and stored with nothing approved. The
+  create answers with `awaitingApproval: true` and the message *"Submitted for approval: the job does not run, manually
+  or on its schedule, until a second person approves it."*, which the **New migration job** page shows. A caller Beacon
+  cannot name (an API key without an active owner, say) creates nothing (`403`) unless the host sets
+  `AllowSelfApproval`.
+- **An Approver (or an Admin) other than the creator reviews it** on the **Approvals** page under **Migration jobs**,
+  which shows its definition — source and destination data sources, the source query (SQL or JSON steps), the
+  destination table, the mode and the transformation script — and approves exactly that definition. The job's name,
+  description, schedule, retry and timeout settings and whether it is enabled are not part of it. Someone without the
+  Approver permission who may read both of the job's data sources can open the request too (from the job's page or the
+  Approvals page) to see what waits; they cannot decide it.
+- **No run starts before the approval**, whoever runs the job and however (**Run now**, or a host's scheduler): the run
+  is refused and recorded as a failed run with *"Not run: the job's definition waits for approval. A second person
+  approves it on the approvals page; until then the job does not run."*, and a Warning is logged with the job id. The
+  jobs list and the job's page show **Awaiting approval** (with a link to the pending request), and **Run now** is
+  disabled.
+- **A job runs only the definition that was approved.** A job whose stored definition differs from the approved one (a
+  change made outside Beacon) does not run until a matching definition is approved; jobs cannot be changed through
+  Beacon, so create a new job instead, which is submitted again.
+- **A rejected job never runs as it is.** Its page and the jobs list say **Rejected — delete and recreate the job**,
+  with the reviewer's comment and the time of the decision (the job's read model carries it as `lastApprovalDecision`
+  while no request of the job is pending). Delete it and create the job again with the corrected definition, which is
+  submitted again.
+- **Withdrawing a request.** There is no withdraw action: an Approver rejects the request, or the creator deletes the
+  job (its request can then only be rejected, which clears it from the Approvals list).
+- Nobody approves their own job (unless the host sets `AllowSelfApproval`), and a request is decided once — see
+  [Authorization → Upgrading: change governance](/features/authorization/#upgrading-change-governance).
+
+:::caution[Upgrading]
+Jobs that exist when you upgrade are not governed: they run as before, with no approval and no data change. Once the
+workflow is on, every new job waits for a second person's approval before its first run. A job created while the
+workflow is off is not reviewed later. Turning `CoversMigrationJobs` (or the workflow) off again lets the jobs that wait
+— and the rejected ones — run as they are; startup warns with their count (see
+[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)).
+:::
+
 ### Change a Migration Job
 
 A job is not edited once it is created: there is no route that changes one. To change its query, destination, schedule or whether it is enabled, create a new job with the new settings (which checks its data sources again) and delete the old one; the old job's execution history is kept.

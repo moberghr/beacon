@@ -77,6 +77,63 @@ Upgrading to this version disables every existing Custom SQL rule (its contract 
 A contract with no enabled rules is not evaluated: it keeps its last score, records no history and sends no alert. **Evaluate now** reports that it has no enabled rules, and the scheduled run is skipped.
 :::
 
+### Approval of Custom SQL
+
+While the [change approval workflow](/features/queries/#approval-workflow) is on and covers Custom SQL rules
+(`ApprovalWorkflow.CoversCustomSqlRules`, on by default — see
+[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)), the SQL a Custom SQL rule runs
+is a reviewed change:
+
+- **A Custom SQL rule that is new, or whose SQL or data source changes, waits for a second person's approval** and is not
+  evaluated meanwhile — it is left out like a disabled rule (each evaluation logs a Warning with the contract and rule
+  ids), and the contract's other rules keep running. The contract page marks a waiting rule **Awaiting approval**.
+- **An evaluation that leaves rules out is partial.** It records how many enabled rules it left out
+  (`awaitingApprovalRules` on the evaluation, `isPartial` when there are any), and the contract page marks it
+  **Partial** with that count in the evaluation history and the latest results. A partial score says nothing about the
+  rules that wait, so it **does not replace the table's score** (the contract's latest score and the table's trend stay
+  as they were, so a held rule never improves them silently). For a contract that alerts, a scheduled evaluation whose
+  partial score is at or above the failure threshold logs a Warning that the score was partial; one below the threshold
+  alerts as usual — the rules that did run failed — and the alert's payload carries the number of rules left out.
+- **A contract whose every enabled rule waits is not evaluated** — nothing would be scored. **Evaluate now** answers
+  `400` with *"Every enabled rule of this data contract is a Custom SQL rule waiting for approval, so it was not
+  evaluated. Approve the change on the Approvals page, or enable a rule that does not wait."*; the scheduled run is
+  skipped with a Warning (ids and the count only) instead of failing the job. No history, score or alert is written.
+- **The rules that wait form one change request per contract**, submitted with the save (the Admin who saved it is the
+  requester). Creating a contract with Custom SQL rules answers with `awaitingApproval: true` and the message
+  *"Submitted for approval: the contract's Custom SQL rules are not evaluated until a second person approves them."*,
+  which the dialog shows. An Approver (or an Admin) other than the requester reviews the request on the **Approvals**
+  page under **Custom SQL rules**, which shows the contract's Custom SQL rules before and after the change, the waiting
+  ones marked, and approves exactly that SQL on that data source; a rule changed again since is not approved (`409`).
+  Someone without the Approver permission who may read the contract's data source can open the request too (from the
+  contract's page or the Approvals page); they cannot decide it.
+- **A save rewrites a contract's rules, but an unchanged rule keeps its approval**: a rule whose SQL and data source stay
+  the same keeps the state it had (approved, waiting, or ungoverned), so changing a schedule or a threshold submits
+  nothing. A rule whose SQL changes keeps the SQL approved for it (by its name; for a rule stored before, the SQL it ran),
+  so putting that SQL back needs no approval. A rule renamed and changed in the same save is a new rule: no SQL is
+  approved for it. Moving the contract to another data source makes every Custom SQL rule wait again. Removing the rules
+  that waited, or putting their approved SQL back, withdraws the requester's own pending request; a change of the
+  waiting rules while another person's request waits is refused (`409`).
+- **Concurrent saves.** A save that finds the contract's rules gained a Custom SQL rule while it was being saved (another
+  save in between) is refused (`409`, *"The contract's rules changed while it was being saved, and a change of its
+  Custom SQL rules waits for approval: reload it and save again."*); nothing is written.
+- **A rejected change** leaves its rules out of evaluations until they are changed back to approved SQL, removed, or saved
+  again (which submits them again). The contract page says **Rejected — change it and save again**, with the reviewer's
+  comment (`lastApprovalDecision` on the contract while no request of it is pending).
+- **Alerts skip recipients that wait.** A recipient of the contract whose destination waits for approval (see
+  [Notifications](/features/notifications/#approval-of-new-and-changed-destinations)) receives no alert; the evaluation
+  records how many were skipped (`heldAlertRecipients`), shown with it on the contract page, and an alert that every
+  recipient waits for is logged as a Warning instead of being sent.
+
+:::caution[Upgrading]
+Custom SQL rules that exist when you upgrade are not governed: they run as before (no approval, no data change), as long
+as their SQL and data source stay the same. Once the workflow is on, a new or changed Custom SQL rule waits for a second
+person's approval before it runs. A rule saved while the workflow is off is not reviewed later. Turning
+`CoversCustomSqlRules` (or the workflow) off again lets the rules that wait — and the rejected ones — be evaluated as
+they are; startup warns with their count (see
+[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)). Evaluations made before this
+version record no rule left out and no alert recipient skipped.
+:::
+
 ### Severity and weight
 
 Each rule carries a **severity** and a **weight** — both feed the scoring math (see below).
@@ -130,13 +187,15 @@ with severity multipliers Critical = 4, High = 3, Medium = 2, Low = 1. Then:
 overallScore = Σ(ruleScore × effectiveWeight) / Σ(effectiveWeight)
 ```
 
-rounded to two decimals. A contract with no enabled rules is not evaluated and keeps its last score.
+rounded to two decimals. A contract with no enabled rules is not evaluated and keeps its last score. Custom SQL rules
+waiting for approval are not part of the score; an evaluation that left any out is
+[partial](#approval-of-custom-sql) and does not update the table's score.
 
 **Example:** a contract with a passing Critical freshness rule (weight 1, score 100) and a failing Low volume rule (weight 1, score 0) scores `(100×4 + 0×1) / (4+1) = 80%` — the critical rule dominates.
 
 ### Table scores and trends
 
-After every evaluation, the target table's **latest score** is updated (one score per data source + schema + table). Beacon keeps the previous score and derives a trend direction:
+After every evaluation that is not [partial](#approval-of-custom-sql), the target table's **latest score** is updated (one score per data source + schema + table). Beacon keeps the previous score and derives a trend direction:
 
 | Trend | Condition |
 |-------|-----------|
@@ -195,7 +254,7 @@ Click **Data Quality** in the left navigation. The page shows:
 The detail page shows four KPIs — **latest score**, **rule count**, **schedule**, and **failure threshold** — plus three tabs:
 
 - **Rules** — the configured rule set
-- **Evaluations** — evaluation history, newest first (each entry shows the overall score, pass/fail counts, and execution time)
+- **Evaluations** — evaluation history, newest first (each entry shows the overall score, pass/fail counts, and execution time; a **Partial** marker with the number of Custom SQL rules left out while they wait for approval, and the number of alert recipients skipped while their destination waits)
 - **Latest results** — per-rule results from the most recent evaluation: pass/fail pill, rule score, expected vs. actual value, and message
 
 Use **Evaluate now** to trigger an immediate evaluation, or **Edit** / **Delete** to manage the contract. Deleting a contract archives it and removes its scheduled job.

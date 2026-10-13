@@ -27,6 +27,7 @@ internal sealed class SqlCapture
     private readonly List<string> _commands = [];
     private readonly List<IReadOnlyDictionary<string, object?>> _parameters = [];
     private readonly List<IsolationLevel> _transactions = [];
+    private readonly List<string> _timeline = [];
     private Func<string, (Func<DbDataReader> Reader, int RowsAffected)>? _fallback;
 
     public SqlCapture()
@@ -50,6 +51,27 @@ internal sealed class SqlCapture
     public IReadOnlyList<IReadOnlyDictionary<string, object?>> CommandParameters => _parameters;
 
     public IReadOnlyList<IsolationLevel> TransactionIsolationLevels => _transactions;
+
+    /// <summary>What a transaction start adds to <see cref="Timeline"/>.</summary>
+    public const string TransactionBegun = "BEGIN TRANSACTION";
+
+    /// <summary>What a transaction commit adds to <see cref="Timeline"/>.</summary>
+    public const string TransactionCommitted = "COMMIT";
+
+    /// <summary>
+    /// Everything in the order it happened: each command's SQL (as in <see cref="Commands"/>), with
+    /// <see cref="TransactionBegun"/> where a transaction started and <see cref="TransactionCommitted"/> where one committed.
+    /// </summary>
+    public IReadOnlyList<string> Timeline
+    {
+        get
+        {
+            lock (_commands)
+            {
+                return _timeline.ToList();
+            }
+        }
+    }
 
     /// <summary>How many of the stand-in transactions were committed (the others were rolled back or disposed).</summary>
     public int Commits { get; private set; }
@@ -227,6 +249,7 @@ internal sealed class SqlCapture
         lock (_commands)
         {
             _commands.Add(sql);
+            _timeline.Add(sql);
             _parameters.Add(parameters
                 .Cast<DbParameter>()
                 .ToDictionary(x => x.ParameterName, x => x.Value == DBNull.Value ? null : x.Value));
@@ -245,6 +268,14 @@ internal sealed class SqlCapture
             var answer = _answers.Dequeue();
 
             return (answer.Reader(), answer.RowsAffected);
+        }
+    }
+
+    private void Record(string entry)
+    {
+        lock (_commands)
+        {
+            _timeline.Add(entry);
         }
     }
 
@@ -287,6 +318,7 @@ internal sealed class SqlCapture
             InterceptionResult<DbTransaction> result)
         {
             capture._transactions.Add(eventData.IsolationLevel);
+            capture.Record(TransactionBegun);
 
             return InterceptionResult<DbTransaction>.SuppressWithResult(new StandInTransaction(capture, connection, eventData.IsolationLevel));
         }
@@ -310,6 +342,7 @@ internal sealed class SqlCapture
         public override void Commit()
         {
             capture.Commits++;
+            capture.Record(TransactionCommitted);
         }
 
         public override void Rollback()

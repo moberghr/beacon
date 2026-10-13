@@ -419,6 +419,119 @@ public class DataQualityCustomSqlReadOnlyTests
         priorScore.EvaluatedAt.Should().Be(PriorEvaluatedAt);
     }
 
+    // Under the change approval workflow, a Custom SQL rule whose SQL is not the approved one runs no SQL: it is left out
+    // like a disabled rule, so a contract holding only such a rule records nothing.
+    [Test]
+    public async Task EvaluateContractAsync_ACustomSqlRuleWaitingForApproval_RunsNoSql()
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var saved = new List<object>();
+        var rule = CustomSqlRule("SELECT 1 AS passed FROM accounts");
+        rule.ApprovedSqlHash = Beacon.Core.ChangeApprovals.ChangeApprovalHashes.NothingApproved;
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), rule), saved, configuration: TestChangeApprovals.On());
+
+        var act = () => service.EvaluateContractAsync(42, CancellationToken.None);
+
+        // Said apart from a contract without enabled rules: approving the change is the remedy.
+        await act.Should().ThrowAsync<Beacon.Core.Exceptions.DataContractRulesAwaitApprovalException>()
+            .WithMessage("Every enabled rule of this data contract is a Custom SQL rule waiting for approval, so it was not evaluated.*");
+        server.Commands.Should().BeEmpty();
+        saved.Should().BeEmpty();
+    }
+
+    // A rule stored before the workflow governed it (no approved hash) and one whose SQL is the approved one run; with the
+    // workflow off, so does one waiting for approval.
+    [TestCase("grandfathered", true)]
+    [TestCase("approved", true)]
+    [TestCase("awaiting", false)]
+    public async Task EvaluateContractAsync_ACustomSqlRuleItMayRun_Runs(string state, bool workflowOn)
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var rule = CustomSqlRule("SELECT 1 AS passed FROM accounts");
+        rule.ApprovedSqlHash = state switch
+        {
+            "approved" => Beacon.Core.ChangeApprovals.CustomSqlRuleDefinition.Hash(7, rule.Configuration),
+            "awaiting" => Beacon.Core.ChangeApprovals.ChangeApprovalHashes.NothingApproved,
+            _ => null
+        };
+        var service = CreateService(
+            Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), rule),
+            [],
+            configuration: workflowOn ? TestChangeApprovals.On() : new Beacon.Core.BeaconConfiguration());
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        server.Commands.Select(x => x.Sql).Should().Contain("SELECT 1 AS passed FROM accounts LIMIT 1");
+        result.RuleResults.Should().ContainSingle().Which.Passed.Should().BeTrue();
+    }
+
+    // A contract with an approved rule and a Custom SQL rule waiting for approval: only the approved one runs, the
+    // evaluation records the one left out and is partial, its score leaves the table's score as it was, and a disabled
+    // waiting rule is neither run nor logged.
+    [Test]
+    public async Task EvaluateContractAsync_WithARuleWaitingForApproval_RunsTheOthers_RecordsItLeftOut_AndKeepsTheTableScore()
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var saved = new List<object>();
+        var approved = CustomSqlRule("SELECT 1 AS passed FROM accounts");
+        approved.ApprovedSqlHash = Beacon.Core.ChangeApprovals.CustomSqlRuleDefinition.Hash(7, approved.Configuration);
+        var awaiting = CustomSqlRule("SELECT 1 AS passed FROM ledger");
+        awaiting.Id = 12;
+        awaiting.ApprovedSqlHash = Beacon.Core.ChangeApprovals.ChangeApprovalHashes.NothingApproved;
+        var disabled = CustomSqlRule("SELECT 1 AS passed FROM audit", isEnabled: false);
+        disabled.Id = 13;
+        disabled.ApprovedSqlHash = Beacon.Core.ChangeApprovals.ChangeApprovalHashes.NothingApproved;
+        var contract = Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), approved);
+        contract.Rules.Add(awaiting);
+        contract.Rules.Add(disabled);
+        var priorScore = PriorFailingScore();
+        var logger = new Beacon.Tests.Unit.Notifications.CapturingLogger<DataQualityEvaluationService>();
+        var service = CreateService(contract, saved, scores: [priorScore], configuration: TestChangeApprovals.On(), logger: logger);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        server.Commands.Select(x => x.Sql).Should().Contain("SELECT 1 AS passed FROM accounts LIMIT 1")
+            .And.NotContain(x => x.Contains("ledger", StringComparison.Ordinal) || x.Contains("audit", StringComparison.Ordinal));
+        result.Should().BeEquivalentTo(new { AwaitingApprovalRules = 1, IsPartial = true, TotalRules = 1 }, x => x.ExcludingMissingMembers());
+        result.RuleResults.Should().ContainSingle().Which.DataContractRuleId.Should().Be(11);
+        saved.OfType<DataQualityEvaluation>().Should().ContainSingle().Which.AwaitingApprovalRules.Should().Be(1);
+        priorScore.Score.Should().Be(40, "a partial score does not replace the table's score");
+        priorScore.EvaluatedAt.Should().Be(PriorEvaluatedAt);
+        logger.Entries.Where(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Warning).Select(x => x.Message).Should().Equal(
+            "Custom SQL rule 12 of data contract 42 was not evaluated: its SQL waits for approval");
+    }
+
+    // With nothing waiting, the score is whole and replaces the table's score as before.
+    [Test]
+    public async Task EvaluateContractAsync_WithNothingWaiting_IsWhole_AndReplacesTheTableScore()
+    {
+        Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var rule = CustomSqlRule("SELECT 1 AS passed FROM accounts");
+        rule.ApprovedSqlHash = Beacon.Core.ChangeApprovals.CustomSqlRuleDefinition.Hash(7, rule.Configuration);
+        var priorScore = PriorFailingScore();
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), rule), [], scores: [priorScore], configuration: TestChangeApprovals.On());
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        result.IsPartial.Should().BeFalse();
+        priorScore.Score.Should().Be(100);
+    }
+
+    // A rule approved for its SQL on one data source is not approved once the contract runs it on another.
+    [Test]
+    public async Task EvaluateContractAsync_ACustomSqlRuleApprovedOnAnotherDataSource_RunsNoSql()
+    {
+        var server = Register(DatabaseEngineType.PostgreSQL, new FakeServer { Result = CustomSqlRow() });
+        var rule = CustomSqlRule("SELECT 1 AS passed FROM accounts");
+        rule.ApprovedSqlHash = Beacon.Core.ChangeApprovals.CustomSqlRuleDefinition.Hash(8, rule.Configuration);
+        var service = CreateService(Contract(OrdinarySource(DatabaseEngineType.PostgreSQL), rule), [], configuration: TestChangeApprovals.On());
+
+        var act = () => service.EvaluateContractAsync(42, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        server.Commands.Should().BeEmpty();
+    }
+
     [Test]
     public async Task ScheduledEvaluation_OnlyDisabledRules_IsSkippedWithoutAlertOrJobFailure()
     {
@@ -443,7 +556,8 @@ public class DataQualityCustomSqlReadOnlyTests
             evaluation,
             NullLogger<JobService>.Instance,
             Mock.Of<IRunAsScope>(),
-            new HttpContextAccessor());
+            new HttpContextAccessor(),
+            TestChangeApprovals.Deliveries());
 
         var act = () => jobService.EvaluateDataContract(42, CancellationToken.None);
 
@@ -711,7 +825,9 @@ public class DataQualityCustomSqlReadOnlyTests
         TimeSpan? ruleTimeout = null,
         List<DataQualityScore>? scores = null,
         List<DatabaseMetadata>? metadata = null,
-        McpSettingsData? piiSettings = null)
+        McpSettingsData? piiSettings = null,
+        Beacon.Core.BeaconConfiguration? configuration = null,
+        Microsoft.Extensions.Logging.ILogger<DataQualityEvaluationService>? logger = null)
     {
         var resolver = new Mock<IDataSourceConnectionResolver>();
         resolver
@@ -746,7 +862,8 @@ public class DataQualityCustomSqlReadOnlyTests
             TestProjectAccess.ExecutionAllowed(),
             TestQueryServices.DefaultSettings(piiSettings),
             new QueryGuardrailService(),
-            NullLogger<DataQualityEvaluationService>.Instance)
+            configuration ?? new Beacon.Core.BeaconConfiguration(),
+            logger ?? NullLogger<DataQualityEvaluationService>.Instance)
         {
             RuleTimeout = ruleTimeout ?? TimeSpan.FromSeconds(60)
         };

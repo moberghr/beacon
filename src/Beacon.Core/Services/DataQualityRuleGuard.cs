@@ -149,13 +149,7 @@ internal static class DataQualityRuleGuard
         return new ConfinedContract(table.Schema, table.Table, confined);
     }
 
-    private static string ReadSql(DataContractRuleData rule)
-    {
-        return TryReadSql(rule.Configuration)
-            ?? throw new InvalidOperationException($"Custom SQL rule '{rule.Name}' needs a \"sql\" string in its configuration.");
-    }
-
-    private static string? TryReadSql(string? configuration)
+    public static string? TryReadSql(string? configuration)
     {
         if (string.IsNullOrWhiteSpace(configuration))
         {
@@ -177,6 +171,12 @@ internal static class DataQualityRuleGuard
         {
             return null;
         }
+    }
+
+    private static string ReadSql(DataContractRuleData rule)
+    {
+        return TryReadSql(rule.Configuration)
+            ?? throw new InvalidOperationException($"Custom SQL rule '{rule.Name}' needs a \"sql\" string in its configuration.");
     }
 }
 

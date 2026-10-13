@@ -36,6 +36,18 @@ public record DataContractData
     public double? LatestScore { get; init; }
     public List<DataContractRuleData> Rules { get; init; } = new();
     public List<DataContractRecipientData> Recipients { get; init; } = new();
+
+    /// <summary>
+    /// While the approval workflow covers Custom SQL rules: the pending change request of this contract's Custom SQL rules,
+    /// if one waits (an Approver opens it); the rules it covers are marked <see cref="DataContractRuleData.AwaitingApproval"/>.
+    /// </summary>
+    public int? PendingApprovalRequestId { get; init; }
+
+    /// <summary>
+    /// While Custom SQL rules wait and no request of them is pending: the last decision on them (a rejection, with the
+    /// reviewer's comment: change the rules and save again).
+    /// </summary>
+    public Approvals.ChangeApprovalOutcome? LastApprovalDecision { get; init; }
 }
 
 public record DataContractRecipientData

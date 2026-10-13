@@ -13,6 +13,7 @@ export {
   AnomalySensitivity,
   ApprovalStatus,
   BedrockAuthMode,
+  ChangeApprovalKind,
   ChangeSource,
   DashboardPermissionLevel,
   DataContractRuleType,

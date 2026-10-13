@@ -353,7 +353,8 @@ public class ReviewedRunTests
             Mock.Of<IDataQualityEvaluationService>(MockBehavior.Strict),
             NullLogger<JobService>.Instance,
             new RunAsScope(http),
-            http);
+            http,
+            TestChangeApprovals.Deliveries());
     }
 
     private sealed class ExecutionReachedException : Exception;

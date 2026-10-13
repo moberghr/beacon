@@ -398,6 +398,7 @@ public class NotificationResultAccessTests
             secretProtector: null!,
             destinationPolicy: null!,
             Options.Create(new NotificationChannelOptions()),
+            TestChangeApprovals.Deliveries(),
             NullLogger<NotificationService>.Instance);
     }
 

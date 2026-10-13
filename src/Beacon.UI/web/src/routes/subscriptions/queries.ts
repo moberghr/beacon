@@ -10,6 +10,7 @@ import {
   NotificationStatus,
   NotificationTrigger,
 } from '@/lib/enums';
+import type { ChangeApprovalOutcome } from '@/routes/approvals/queries';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface SubscriptionEntry {
@@ -109,6 +110,12 @@ export interface SubscriptionDetailRecipient {
   /** Always null: destinations are secrets, shown masked to admins on the recipients page only. */
   destination: string | null;
   notificationType: number;
+  /** With the approval workflow on: where it delivers waits for approval, so this subscription's deliveries skip it. */
+  awaitingApproval?: boolean;
+  /** The pending change request of where it delivers, if one waits (an Approver opens it). */
+  pendingApprovalRequestId?: number | null;
+  /** While it waits and no request of it is pending: the last decision on it (a rejection: change it and save again). */
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 }
 
 export interface SubscriptionDetailParameter {

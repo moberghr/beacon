@@ -13,7 +13,7 @@ type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreate
  */
 const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
   // A decision moves a query's live steps and versions; a newer submission supersedes a pending one.
-  ApprovalUpdated: [['approvals'], ['query'], ['queries']],
+  ApprovalUpdated: [['approvals'], ['query'], ['queries'], ['migration-jobs'], ['recipients'], ['data-quality'], ['subscriptions']],
   JobStatusChanged: [['control-tower'], ['migration-jobs'], ['migration-executions']],
   NotificationCreated: [['control-tower'], ['notifications']],
 };

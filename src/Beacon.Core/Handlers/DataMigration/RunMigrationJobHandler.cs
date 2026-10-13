@@ -48,7 +48,9 @@ internal sealed class RunMigrationJobHandler(
 /// Runs a migration job now. For an Admin, or a MigrationOperator who may still query its source and the data source of
 /// every step it runs and write its destination, and whose destination is no more widely reachable than any of those
 /// sources (<see cref="MigrationJobAccess"/>). Only while the deployment runs migrations, into a migration write target,
-/// from sources that are not one (<see cref="MigrationWritePolicy"/>). A refused run never starts.
+/// from sources that are not one (<see cref="MigrationWritePolicy"/>), and, while the change approval workflow covers
+/// migration jobs, only a job whose definition a second person approved (a refused run is recorded as failed). A refused
+/// run never starts.
 /// </summary>
 [ProjectScopeExempt("gated by the MigrationOperator permission; the handler checks Query on the job's source and every step's data source and Write on its destination through project access", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record RunMigrationJobCommand(int MigrationJobId) : IRequest<RunMigrationJobResult>;

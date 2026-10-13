@@ -7,7 +7,7 @@ import { useSearchFilter } from '@/lib/usePagedList';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { MigrationMode } from '@/lib/enums';
+import { ChangeApprovalKind, MigrationMode } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useAccess } from '@/auth/useAuth';
 import {
@@ -16,6 +16,7 @@ import {
   type MigrationJobListItem,
 } from './queries';
 import { MIGRATION_MODE_LABEL } from '@/routes/migration-history/queries';
+import { AwaitingApprovalPill, RejectedChangeNote } from '@/routes/approvals/AwaitingApproval';
 
 const GRID_TEMPLATE = '0.5fr 1.4fr 1.4fr 1fr 0.7fr 0.6fr 1.1fr 60px';
 
@@ -37,7 +38,27 @@ export default function MigrationJobsListPage() {
       key: 'name',
       sortKey: 'name',
       header: 'Name',
-      render: r => <span className="font-semibold text-text">{r.name}</span>,
+      render: r => (
+        <span className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-2">
+            <span className="font-semibold text-text">{r.name}</span>
+            {r.awaitingApproval && (
+              <AwaitingApprovalPill
+                kind={ChangeApprovalKind.MigrationJob}
+                requestId={r.pendingApprovalRequestId}
+                lastDecision={r.lastApprovalDecision}
+              />
+            )}
+          </span>
+          {r.awaitingApproval && (
+            <RejectedChangeNote
+              kind={ChangeApprovalKind.MigrationJob}
+              requestId={r.pendingApprovalRequestId}
+              lastDecision={r.lastApprovalDecision}
+            />
+          )}
+        </span>
+      ),
     },
     {
       key: 'flow',

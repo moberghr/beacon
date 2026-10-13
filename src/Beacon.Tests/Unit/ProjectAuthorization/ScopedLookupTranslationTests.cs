@@ -73,8 +73,8 @@ public class ScopedLookupTranslationTests
         var postgres = new SqlCapture().ThenNoRows();
         var sqlServer = new CommandCapture();
 
-        var onPostgres = () => new GetDataContractDetailHandler(postgres.Factory()).Handle(new GetDataContractDetailQuery(5), CancellationToken.None);
-        var onSqlServer = () => new GetDataContractDetailHandler(SqlServerFactory(sqlServer)).Handle(new GetDataContractDetailQuery(5), CancellationToken.None);
+        var onPostgres = () => new GetDataContractDetailHandler(postgres.Factory(), new Beacon.Core.BeaconConfiguration()).Handle(new GetDataContractDetailQuery(5), CancellationToken.None);
+        var onSqlServer = () => new GetDataContractDetailHandler(SqlServerFactory(sqlServer), new Beacon.Core.BeaconConfiguration()).Handle(new GetDataContractDetailQuery(5), CancellationToken.None);
 
         await onPostgres.Should().ThrowAsync<BeaconException>("no row was answered");
         await onSqlServer.Should().ThrowAsync<BeaconException>("no row was answered");

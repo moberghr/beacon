@@ -1151,6 +1151,170 @@ an approval of a version without a hash records it. Rolling it back drops the fo
     person's pending request, a requester Beacon cannot name or a concurrent write; a restore with the workflow on also
     while another person's request waits.
 
+### Migration jobs, Custom SQL rules, recipients and tasks
+
+The same workflow now reviews three other kinds of change, each with its own switch (on by default while the workflow is
+on; see [Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)): new
+[migration jobs](/features/data-migration/#approval-of-new-jobs) (`CoversMigrationJobs`), new and changed
+[Custom SQL rules](/features/data-quality/#approval-of-custom-sql) (`CoversCustomSqlRules`) and new recipients and
+changed [destinations](/features/notifications/#approval-of-new-and-changed-destinations) (`CoversRecipientDestinations`).
+
+**Without any configuration** (the workflow off) nothing changes for them, except:
+
+- **Tasks** change for everyone: a task is resolved by its assignee — anyone else claims it first — and by an Admin only
+  while nobody is assigned; an Admin reassigns a task assigned to someone else to themselves before resolving it (`403`
+  otherwise, see [Tasks → Manual Resolution](/features/tasks/#manual-resolution)). An auto-resolved task records no
+  resolver and the fixed note.
+- **Skipped runs are no baseline.** A subscription's result-count trigger (`OnResultCountChange`,
+  `OnResultCountIncrease`) compares a run with the last run that was **not skipped**: a run skipped because its owner was
+  not authorized, because its query's change was not approved, or because nobody could be notified no longer counts as
+  the previous result. A run that notified nobody stores no anomaly-detection baseline.
+- **Startup.** With a switch (or the workflow) off, startup warns with the number of migration jobs, Custom SQL rules and
+  recipients that waited for approval (or were rejected) and now work as they are, and of their pending requests — only
+  when there are any.
+
+**With the workflow on:**
+
+- **The change is stored, and stays inactive until approved.** A migration job created does not run (every run is
+  refused and recorded as failed); a new or changed Custom SQL rule is left out of every evaluation; a recipient created,
+  or whose type, destination or headers changed, receives nothing (each skipped delivery logged). The saver is the
+  requester; a caller Beacon cannot name is refused (`403`) unless `AllowSelfApproval`. A create answers
+  `awaitingApproval: true` with a `message` saying what waits ("Submitted for approval: …").
+- **Existing rows are grandfathered.** Migration jobs, Custom SQL rules and recipients stored before this version (or
+  saved while the workflow or the kind's switch is off) carry no approved hash and work as before. Nothing is rewritten.
+  A grandfathered recipient's destination, or a grandfathered rule's SQL, counts as approved once it is changed under the
+  workflow: the new one waits, and putting the old one back needs no approval. A grandfathered recipient whose stored
+  destination cannot be read has nothing to carry: its new destination waits with nothing approved.
+- **Four eyes, decided once, bound to what was reviewed** — as for query changes. An Approver (or an Admin) other than the
+  requester approves on the **Approvals** page, filtered by kind; `POST /beacon/api/approvals/changes/{id}/approve` must
+  send the detail's `payloadHash` back as `expectedPayloadHash` (`409` otherwise). Approve and reject act only on a
+  pending request (`409` otherwise); an approval applies only while the resource still holds exactly the definition the
+  request records — a job, a rule set or a destination changed again since, or deleted, answers `409`. A request whose
+  proposal cannot be read cannot be approved (`409`; the detail says so with `mayApprove: false`). The decision and the
+  resource's approved definition commit in one transaction that takes the resource's row first.
+- **One pending change per resource; others wait.** A change supersedes its requester's own pending request (they are
+  told); a change of the definition while another person's request waits is refused (`409`). A save that changes nothing
+  reviewed (a recipient's name, a contract's schedule) submits nothing and leaves pending requests alone.
+- **A request recorded without a requester** — possible only with `AllowSelfApproval` and a caller Beacon cannot name —
+  counts as another person's for everyone: it blocks every change of that resource's definition (`409`) until an Approver
+  Beacon can name rejects it. Nobody approves it.
+- **Withdrawing a request.** There is no withdraw route. An Approver rejects the request (an Approver may reject their
+  own); or the requester supersedes it with a new change, or puts back the approved definition; or the resource is
+  deleted — its request then can only be rejected, which clears it from the list.
+- **Rejected** changes leave the resource inactive until it is changed back to its approved definition, changed and
+  approved again, or — a job, which cannot be changed — deleted and created again. The resource's pages show the last
+  decision while no request of it is pending (`lastApprovalDecision`: status, the reviewer's comment, when):
+  "Rejected — change it and save again", for a job "Rejected — delete and recreate the job".
+- **What a reviewer sees.** The definition before and after: a migration job's source and destination, query, table, mode
+  and transformation; a contract's Custom SQL rules (the waiting ones marked); for a recipient, its type and what
+  identifies where it delivers — the host and path, Slack's workspace and channel ids, a Teams workflow's path, email
+  addresses, a Jira site — with every credential masked (user info, query values, token-like path segments, a token or
+  signature), its header names, and 12-hex keyed **fingerprints** of each header value and of the whole definition.
+  Approvers therefore see where a recipient delivers, not its secrets. Admins and SecurityAdmins see the same
+  fingerprints on the recipients page, to compare with the reviewer out of band. A recipient change that lies only in a
+  masked part (the shown before and after are the same, the fingerprints are not) is flagged
+  (`changeHiddenByMask`), and approving it **requires a comment** (`commentRequiredToApprove`; `400` without one). The
+  hash an approval names covers the shown payload; the hash the resource is checked against covers the definition itself
+  and is never returned.
+- **Who reads change requests.** An Approver (or an Admin) reads and decides every one. Anyone else may open the list and
+  the detail of the requests of the **migration jobs** whose source and destination data sources they read, and of the
+  **data contracts** whose data source they read, as for query approvals — never a recipient's (recipients belong to no
+  project) and never one of a resource that no longer exists; any other request is not found. Approving and rejecting
+  stay the Approver's.
+- **Deliveries are checked at send time.** The recipient check runs inside `INotificationService.SendNotification` on the
+  very copy being sent, against the approved hash read at that moment; a host calling `SendNotification` with a
+  `RecipientId` is covered too (a recipient that waits fails with `NotificationFailureReasons.AwaitingApproval`), a call
+  without one (an ad-hoc address) is not. A run whose every recipient waits is recorded as **Skipped**
+  (`AllRecipientsAwaitApproval`; a test delivery answers `409`); a run that notified some names the held ones in its
+  comment. A data-quality alert skips waiting recipients and records how many on the evaluation.
+- **Data-quality evaluations that leave rules out are partial.** They record `awaitingApprovalRules` (`isPartial`) and do
+  not update the table's score; a contract whose every enabled rule waits is not evaluated (`400` from **Evaluate now**,
+  a Warning from the scheduled run). A contract save that finds Custom SQL rules added meanwhile answers `409`.
+- **Recipient hashes are keyed.** The approved hash of a recipient's destination is an HMAC-SHA256 under a key derived
+  from `Beacon:EncryptionKey`, versioned; hashes written under a key in `Beacon:PreviousEncryptionKeys` still match, and
+  the re-encryption run rewrites them under the current key (see [Notifications](/features/notifications/#when-a-delivery-is-checked)).
+- **Turning a switch (or the workflow) off releases** what it held: waiting and rejected jobs run, rules are evaluated,
+  recipients receive deliveries, as they are; saves made then supersede the pending requests they make moot. Startup
+  warns with the counts.
+- **Attaching recipients is not reviewed.** Editors attach existing recipients to subscriptions and data contracts as
+  before: the recipients were created by an Admin or SecurityAdmin and approved by a second person.
+- **Plan for a second person.** A host whose only Approver is the Admin who creates jobs, rules or recipients needs a
+  second Approver, or `AllowSelfApproval`. With self-approval off, the startup Warning about fewer than two users who can
+  approve covers these changes too.
+
+**Migration.** `AddChangeApprovalRequests` (PostgreSQL `20261013130000`, SQL Server `20261013130001`) creates the
+`change_approval_requests` table (kind, resource id and name, status, the definition and payload hashes, the payload
+shown to reviewers before and after, requester and reviewer, decision time and comment, summary; indexed by kind,
+resource and status, and by status and time), adds three nullable columns — `migration_jobs.approved_definition_hash`,
+`data_contract_rules.approved_sql_hash` and `recipients.approved_destination_hash` — and two integer columns on
+`data_quality_evaluations`, `awaiting_approval_rules` and `held_alert_recipients` (default `0`). Existing rows are not
+rewritten (no approved hash: not governed; existing evaluations left nothing out). Rolling it back drops the table and the
+five columns.
+
+**Public API.**
+
+- New:
+  - `ApprovalWorkflowOptions.CoversMigrationJobs`, `CoversCustomSqlRules`, `CoversRecipientDestinations` and
+    `Covers(ChangeApprovalKind)`; the `ChangeApprovalKind` enum (`MigrationJob` 1, `CustomSqlRules` 2,
+    `RecipientDestination` 3).
+  - The `ChangeApprovalRequest` entity and `BeaconContext.ChangeApprovalRequests`; `MigrationJob.ApprovedDefinitionHash`,
+    `DataContractRule.ApprovedSqlHash`, `Recipient.ApprovedDestinationHash`; `DataQualityEvaluation.AwaitingApprovalRules`
+    and `HeldAlertRecipients`; `ChangeApprovalHashes.NothingApproved`.
+  - `IChangeApprovalService` (registered with `TryAdd`):
+    `GetPendingAsync(ListRequest, ChangeApprovalKind?, ChangeApprovalScope, CancellationToken)`,
+    `GetDetailAsync(int, ChangeApprovalScope, CancellationToken)`, `ApproveAsync(int, string? comment, string?
+    expectedPayloadHash, CancellationToken)` and `RejectAsync(int, string? comment, CancellationToken)`. A read takes the
+    caller's `ChangeApprovalScope(ProjectSet Readable, bool IsApprover)` (`ChangeApprovalScope.Approver` reads every
+    request); a decision is made as the current caller.
+  - In `Beacon.Core.Models.Approvals`: `ChangeApprovalSummary`, `ChangeApprovalDetail` (with `PayloadHash`,
+    `IsOwnRequest`, `MayApprove`, `ApproveBlockedReason`, `IsStale`, `ChangeHiddenByMask` and
+    `CommentRequiredToApprove`), `MigrationJobDefinitionView`, `CustomSqlRulesView`, `CustomSqlRuleView`,
+    `RecipientDestinationView` (with `Headers`, `Fingerprint` and `Unreadable`), `RecipientHeaderView`,
+    `ChangeApprovalOutcome` and `ChangeApprovalDecision`.
+  - Requests `GetChangeApprovalsQuery`, `GetChangeApprovalDetailQuery` (scope-filtered), `ApproveChangeCommand` and
+    `RejectChangeCommand` (Approver).
+  - `MigrationJobListItem.AwaitingApproval`, `PendingApprovalRequestId` and `LastApprovalDecision`;
+    `RecipientEntry.AwaitingApproval`, `PendingApprovalRequestId`, `LastApprovalDecision`, `DefinitionFingerprint` and
+    `HeaderFingerprints` (Admins and SecurityAdmins only); `DataContractRuleData.AwaitingApproval` (read only);
+    `DataContractData.PendingApprovalRequestId` and `LastApprovalDecision`; `SubscriptionDetailRecipient.AwaitingApproval`,
+    `PendingApprovalRequestId` and `LastApprovalDecision` (init properties: the record's positional parameters are
+    unchanged); `DataQualityEvaluationData.AwaitingApprovalRules`, `IsPartial` and `HeldAlertRecipients`.
+  - `CreateMigrationJobResult`, `CreateDataContractResult` and `CreateRecipientResult` gain `AwaitingApproval` and
+    `Message` (and a `SubmittedForApprovalMessage` constant); `CreateMigrationJobResponse.AwaitingApproval`.
+  - `NotificationFailureReasons.AwaitingApproval` and `AllRecipientsAwaitApproval`;
+    `DataContractRulesAwaitApprovalException` (`DataContractId`, `AwaitingRules`; an `InvalidOperationException`).
+- Changed behaviour: with the workflow on, `IMigrationService.CreateMigrationJob`, `IRecipientService.CreateRecipient` and
+  `UpdateRecipient` submit for approval as the request's caller (a caller Beacon cannot name: `BeaconForbiddenException`;
+  `UpdateRecipient` answers a change refused while another person's waits unsuccessfully, writing nothing);
+  `IMigrationService.ExecuteMigrationJob` refuses a job whose definition is not approved (a failed run);
+  `IDataQualityEvaluationService.EvaluateContractAsync` leaves out Custom SQL rules waiting for approval (a partial
+  evaluation that does not update the table's score) and throws `DataContractRulesAwaitApprovalException` when every
+  enabled rule waits; `INotificationService.SendNotification` refuses a delivery to a recipient (`RecipientId`) whose
+  destination is not the approved one (`NotificationDeliveryException` with the awaiting-approval reason);
+  `IStoredValueReEncryptionService` also rewrites recipient approval hashes under the current key. On every host, the
+  result-count trigger ignores skipped runs. `ResolveTaskCommand` resolves only as the assignee, or as an Admin while
+  nobody is assigned.
+- REST and OpenAPI:
+  - New routes: `GET /beacon/api/approvals/changes?kind=` and `GET /beacon/api/approvals/changes/{id}` (callers with read
+    access, and holders of the Approver permission without a Viewer or Editor role — admitted as the query approval
+    reads are; scope-filtered as above: an Approver reads every request, anyone else those of the migration jobs and
+    data contracts they read; any other is `404`), and, for Approvers, `POST /beacon/api/approvals/changes/{id}/approve`
+    (`comment`, `expectedPayloadHash`; `400` without a comment when `commentRequiredToApprove`) and
+    `POST /beacon/api/approvals/changes/{id}/reject` (`comment`), both answering `204`.
+  - The change detail returns `changeHiddenByMask` and `commentRequiredToApprove`, and each recipient destination view
+    `headers` (name and fingerprint), `fingerprint` and `unreadable` besides `headerNames`.
+  - `awaitingApproval`, `pendingApprovalRequestId` and `lastApprovalDecision` on the migration job list and detail
+    (`/beacon/api/migrations/jobs`), the recipients list (`/beacon/api/recipients`, which also returns
+    `definitionFingerprint` and `headerFingerprints` to Admins and SecurityAdmins) and the subscription detail's
+    recipients; `awaitingApproval` on contract rules; `pendingApprovalRequestId` and `lastApprovalDecision` on the
+    contract detail.
+  - `awaitingApprovalRules`, `isPartial` and `heldAlertRecipients` on data-quality evaluations
+    (`POST /beacon/api/data-quality/contracts/{id}/evaluate` and `GET …/contracts/{id}/evaluations`); the evaluate route
+    answers `400` when every enabled rule waits for approval.
+  - `awaitingApproval` and `message` on the create responses of migration jobs, data contracts and recipients.
+  - The new `ChangeApprovalKind` enum. `ApprovalUpdated` hub events also carry change request ids (a client refetches
+    what they govern).
+
 ## Migration from Previous Versions
 
 :::caution[Upgrading]

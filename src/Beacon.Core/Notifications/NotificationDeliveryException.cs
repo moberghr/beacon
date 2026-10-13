@@ -58,6 +58,19 @@ public static class NotificationFailureReasons
     /// </summary>
     public const string NotApproved = "Skipped: query change not approved. Save the query to submit its SQL for approval, or restore a version and approve it.";
 
+    /// <summary>
+    /// Not a delivery failure: with the approval workflow covering recipients, where the recipient delivers waits for
+    /// approval (it was created or changed and is not approved, its change was rejected, or it no longer exists), so it
+    /// received nothing. It names the remedy.
+    /// </summary>
+    public const string AwaitingApproval = "Skipped: where the recipient delivers waits for approval. Approve its change on the Approvals page, or put back its approved destination.";
+
+    /// <summary>
+    /// Not a delivery failure: the comment of a run that notified nobody because every recipient's destination waits for
+    /// approval (<see cref="Data.Enums.NotificationStatus.Skipped"/>). It names the remedy.
+    /// </summary>
+    public const string AllRecipientsAwaitApproval = "Skipped: every recipient waits for approval of where it delivers, so nobody was notified. Approve the recipients' changes on the Approvals page.";
+
     private static readonly Regex RecordedComment = BuildRecordedCommentPattern();
 
     /// <summary>The reason for an HTTP response that was not a success: only the status class is kept.</summary>
@@ -129,7 +142,9 @@ public static class NotificationFailureReasons
                 DestinationUnreadable,
                 DestinationNotEncrypted,
                 OwnerNotAuthorized,
-                NotApproved
+                NotApproved,
+                AwaitingApproval,
+                AllRecipientsAwaitApproval
             }
             .Concat(Enumerable.Range(1, 5).Select(x => ForStatus((HttpStatusCode)(x * 100))))
             .Select(Regex.Escape);

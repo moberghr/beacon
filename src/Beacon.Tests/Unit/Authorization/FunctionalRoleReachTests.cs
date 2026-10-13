@@ -137,6 +137,7 @@ public class FunctionalRoleReachTests
         (await SendAsync(app, HttpMethod.Put, "/beacon/api/mcp/settings", "{\"data\":{}}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/queries/1")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/users/")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await SendAsync(app, HttpMethod.Get, "/beacon/api/approvals/changes")).StatusCode.Should().Be(HttpStatusCode.Forbidden, "change requests are read by an Approver, or by a reader of their projects");
     }
 
     [Test]
@@ -147,6 +148,10 @@ public class FunctionalRoleReachTests
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/approvals/pending")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/approvals/1")).StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
         (await SendAsync(app, HttpMethod.Post, "/beacon/api/approvals/1/approve", "{\"comment\":null}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await SendAsync(app, HttpMethod.Get, "/beacon/api/approvals/changes")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SendAsync(app, HttpMethod.Get, "/beacon/api/approvals/changes/1")).StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        (await SendAsync(app, HttpMethod.Post, "/beacon/api/approvals/changes/1/approve", "{\"comment\":null,\"expectedPayloadHash\":\"x\"}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await SendAsync(app, HttpMethod.Post, "/beacon/api/approvals/changes/1/reject", "{\"comment\":null}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/queries/1")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/mcp/audit?from=2026-01-01&to=2026-01-02")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }

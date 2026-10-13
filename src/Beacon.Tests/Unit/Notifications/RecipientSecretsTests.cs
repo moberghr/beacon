@@ -355,7 +355,7 @@ public class RecipientSecretsTests
     public async Task CreateHandler_ADestinationOrHeadersThePolicyRefuses_WritesNothing()
     {
         var store = new RecipientStore();
-        var handler = new CreateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor());
+        var handler = new CreateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()));
 
         var destination = () => handler.Handle(
             new CreateRecipientCommand("hook", null, "http://10.0.0.5:8080/admin", (int)NotificationType.Webhook, null, null),
@@ -393,6 +393,7 @@ public class RecipientSecretsTests
             TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
+            TestChangeApprovals.Recipients(NotificationTestKit.Protector()),
             NullLogger<UpdateRecipientHandler>.Instance);
     }
 

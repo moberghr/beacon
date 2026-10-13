@@ -1,3 +1,4 @@
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,8 @@ namespace Beacon.Core.Handlers.DataMigration;
 internal sealed class GetMigrationJobHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
-    MigrationWritePolicy writePolicy)
+    MigrationWritePolicy writePolicy,
+    MigrationJobApprovalState approvalState)
     : IRequestHandler<GetMigrationJobQuery, MigrationJobListItem?>
 {
     public async Task<MigrationJobListItem?> Handle(GetMigrationJobQuery request, CancellationToken cancellationToken)
@@ -20,7 +22,7 @@ internal sealed class GetMigrationJobHandler(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // A job whose data sources the caller cannot both read is not found, as in the list.
-        return await context.MigrationJobs
+        var job = await context.MigrationJobs
             .Where(x => x.Id == request.Id)
             .WhereSourceAccessible(context, readable, x => x.DataSourceId)
             .WhereSourceAccessible(context, readable, x => x.DestinationDataSourceId)
@@ -41,6 +43,16 @@ internal sealed class GetMigrationJobHandler(
                     CreatedTime = x.CreatedTime,
                 })
             .FirstOrDefaultAsync(cancellationToken);
+        if (job == null)
+        {
+            return null;
+        }
+
+        var awaiting = await approvalState.AwaitingAsync(context, [job.Id], cancellationToken);
+
+        return awaiting.TryGetValue(job.Id, out var state)
+            ? job with { AwaitingApproval = true, PendingApprovalRequestId = state.PendingRequestId, LastApprovalDecision = state.LastDecision }
+            : job;
     }
 }
 

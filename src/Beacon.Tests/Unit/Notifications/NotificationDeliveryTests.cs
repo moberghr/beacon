@@ -19,6 +19,7 @@ using Beacon.Core.Adapters.Jira;
 using Beacon.Core.Adapters.Slack;
 using Beacon.Core.Adapters.Teams;
 using Beacon.Core.Adapters.Webhook;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -46,6 +47,12 @@ public class NotificationDeliveryTests
 {
     private const string RemoteBody = "{\"error\":\"index [customers] token=abc123\"}";
     private const string RemoteToken = "abc123";
+
+    // Where the stored recipients of the approval tests deliver, and that destination as a run loads it (encrypted with the
+    // key the approval store reads it with).
+    private const string Hook = "https://hooks.example.com/a";
+    private static readonly RecipientSecretProtector CopyProtector = new(new EncryptionService(TestEncryptionKey.Value));
+    private static readonly string HookCopy = CopyProtector.Protect(Hook);
 
     [Test]
     public async Task Send_DecryptsTheStoredDestinationAndHeadersForTheAdapter()
@@ -482,6 +489,223 @@ public class NotificationDeliveryTests
         logger.TextAtOrAbove(LogLevel.Trace).Should().NotContain(RemoteToken);
     }
 
+    // Under the change approval workflow a recipient whose destination waits for approval receives nothing: no send, no
+    // Notification row, a Warning with ids only; the others are delivered to as usual.
+    [Test]
+    public async Task ExecuteQuery_SkipsARecipientWhoseDestinationWaitsForApproval()
+    {
+        var store = new JobStore();
+        var notifications = new Mock<INotificationService>();
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [9, 10], deliveries: Deliveries(approved: 9, awaiting: 10))
+            .ExecuteQuery(5, CancellationToken.None);
+
+        notifications.Verify(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 9), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Once);
+        notifications.Verify(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 10), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        var history = store.History.Single();
+        history.NotificationStatus.Should().Be(NotificationStatus.NotificationSent);
+        history.Notifications.Select(x => x.RecipientId).Should().Equal(9);
+        history.Comment.Should().Be($"Recipient 10: {NotificationFailureReasons.AwaitingApproval}", "the run names the recipient it skipped, and why");
+        NotificationFailureReasons.Displayable(history.Comment).Should().Be(history.Comment, "readers of the history are shown it");
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be("Recipient 10 of subscription 5 was skipped: where it delivers waits for approval");
+    }
+
+    // A run whose every recipient waits notified nobody: it is recorded as skipped, with the remedy, not as sent.
+    [Test]
+    public async Task ExecuteQuery_WhenEveryRecipientWaitsForApproval_NotifiesNobody_AndRecordsASkippedRunWithTheRemedy()
+    {
+        var store = new JobStore();
+        var notifications = new Mock<INotificationService>();
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [10], deliveries: Deliveries(approved: 9, awaiting: 10))
+            .ExecuteQuery(5, CancellationToken.None);
+
+        notifications.Verify(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        var history = store.History.Single();
+        history.Should().BeEquivalentTo(
+            new { NotificationStatus = NotificationStatus.Skipped, Comment = NotificationFailureReasons.AllRecipientsAwaitApproval, ResultCount = 3 },
+            x => x.ExcludingMissingMembers());
+        history.Notifications.Should().BeEmpty();
+        NotificationFailureReasons.Displayable(history.Comment).Should().Be(NotificationFailureReasons.AllRecipientsAwaitApproval);
+        logger.Entries.Where(x => x.Level == LogLevel.Warning).Select(x => x.Message).Should().Equal(
+            "Recipient 10 of subscription 5 was skipped: where it delivers waits for approval",
+            "Subscription 5 notified nobody: each of its 1 recipients waits for approval of where it delivers");
+    }
+
+    // A run nobody was notified of is no baseline: once the recipient is approved, the next run with the same count still
+    // notifies (compared with the last run that notified someone), where it would otherwise be silenced as unchanged.
+    [Test]
+    public async Task ExecuteQuery_ARunNobodyWasNotifiedOf_IsNoBaselineForTheTrigger()
+    {
+        var store = new JobStore();
+        store.Subscriptions[0].NotificationTrigger = NotificationTrigger.OnResultCountChange;
+        store.History.Add(new QueryExecutionHistory { SubscriptionId = 5, ResultCount = 1, CompiledSql = "SELECT 1", ExecutionTimeMs = 1, NotificationStatus = NotificationStatus.NotificationSent, CreatedTime = DateTime.UtcNow.AddHours(-1) });
+        var approvals = ApprovalStore(approved: 9, awaiting: 10);
+        var notifications = new Mock<INotificationService>();
+        JobService Jobs() => JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [10], deliveries: Deliveries(approvals));
+
+        await Jobs().ExecuteQuery(5, CancellationToken.None);
+        approvals.Recipients.Single(x => x.Id == 10).ApprovedDestinationHash = ChangeGovernance.ChangeApprovalStore.HookHash(Hook);
+        await Jobs().ExecuteQuery(5, CancellationToken.None);
+
+        store.History.Select(x => x.NotificationStatus).Should().Equal(NotificationStatus.NotificationSent, NotificationStatus.Skipped, NotificationStatus.NotificationSent);
+        notifications.Verify(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 10), 1, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // The check reads the copy the run loaded: a recipient whose stored row was put back to its approved destination while
+    // the run still holds the unapproved one is held, not delivered to.
+    [Test]
+    public async Task ExecuteQuery_ChecksTheCopyItLoaded_SoAChangeMadeMidRunDeliversNothingUnapproved()
+    {
+        var store = new JobStore();
+        var notifications = new Mock<INotificationService>();
+        var unapprovedCopy = CopyProtector.Protect("https://hooks.example.com/elsewhere");
+
+        await JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [9], deliveries: Deliveries(approved: 9, awaiting: 10), copies: new Dictionary<int, string> { [9] = unapprovedCopy })
+            .ExecuteQuery(5, CancellationToken.None);
+
+        notifications.Verify(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        store.History.Single().NotificationStatus.Should().Be(NotificationStatus.Skipped);
+    }
+
+    [Test]
+    public async Task DataContractAlert_SkipsARecipientWhoseDestinationWaitsForApproval()
+    {
+        var store = new JobStore();
+        store.Contracts.Add(new DataContract
+        {
+            Id = 3,
+            Name = "orders",
+            SchemaName = "sales",
+            TableName = "orders",
+            CronExpression = "0 * * * *",
+            DataSource = new DataSource { Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "unused" },
+            Recipients =
+            [
+                new Recipient { Id = 9, Name = "hook", Destination = HookCopy, NotificationType = NotificationType.Webhook },
+                new Recipient { Id = 10, Name = "second hook", Destination = HookCopy, NotificationType = NotificationType.Webhook },
+            ],
+        });
+        store.Evaluations.Add(new DataQualityEvaluation { Id = 77, DataContractId = 3 });
+        var evaluation = new Mock<IDataQualityEvaluationService>();
+        evaluation
+            .Setup(x => x.EvaluateContractAsync(3, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DataQualityEvaluationData { Id = 77, OverallScore = 10, TotalRules = 1, FailedRules = 1 });
+        var notifications = new Mock<INotificationService>();
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [], evaluation.Object, deliveries: Deliveries(approved: 10, awaiting: 9))
+            .EvaluateDataContract(3, CancellationToken.None);
+
+        notifications.Verify(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 10), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Once);
+        notifications.Verify(x => x.SendNotification(It.Is<RecipientQueryResult>(y => y.RecipientId == 9), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        logger.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "Recipient 9 of data contract 3 was skipped: where it delivers waits for approval");
+        store.Evaluations.Single().HeldAlertRecipients.Should().Be(1, "the evaluation records the recipient its alert skipped");
+    }
+
+    // An alert every recipient waits for reaches nobody: a Warning with the true reason, and the evaluation records it.
+    [Test]
+    public async Task DataContractAlert_WhenEveryRecipientWaitsForApproval_SendsNothing_WarnsWhy_AndRecordsItOnTheEvaluation()
+    {
+        var store = new JobStore();
+        store.Contracts.Add(AlertingContract(new Recipient { Id = 9, Name = "hook", Destination = HookCopy, NotificationType = NotificationType.Webhook }));
+        store.Evaluations.Add(new DataQualityEvaluation { Id = 77, DataContractId = 3 });
+        var notifications = new Mock<INotificationService>();
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [], Evaluated(new DataQualityEvaluationData { Id = 77, OverallScore = 10, TotalRules = 1, FailedRules = 1 }), deliveries: Deliveries(approved: 10, awaiting: 9))
+            .EvaluateDataContract(3, CancellationToken.None);
+
+        notifications.Verify(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        store.Evaluations.Single().HeldAlertRecipients.Should().Be(1);
+        logger.Entries.Should().Contain(x => x.Level == LogLevel.Warning
+            && x.Message == "The alert of data contract 3 (score 10.0% below its threshold) reached nobody: each of its 1 recipients waits for approval of where it delivers");
+        logger.Entries.Should().NotContain(x => x.Message.StartsWith("No recipients configured", StringComparison.Ordinal), "the contract has recipients");
+    }
+
+    // A score that leaves out rules waiting for approval says nothing about them: above the threshold no alert goes out, and
+    // the Warning says the score is partial.
+    [Test]
+    public async Task DataContractAlert_APartialScoreAboveTheThreshold_SendsNoAlert_AndSaysTheScoreIsPartial()
+    {
+        var store = new JobStore();
+        store.Contracts.Add(AlertingContract(new Recipient { Id = 9, Name = "hook", Destination = HookCopy, NotificationType = NotificationType.Webhook }));
+        var notifications = new Mock<INotificationService>();
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [], Evaluated(new DataQualityEvaluationData { Id = 77, OverallScore = 100, TotalRules = 1, PassedRules = 1, AwaitingApprovalRules = 2 }), deliveries: Deliveries(approved: 9, awaiting: 10))
+            .EvaluateDataContract(3, CancellationToken.None);
+
+        notifications.Verify(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be("Contract 3 scored 100.0% without its 2 Custom SQL rules that wait for approval; no alert is sent for a partial score above the threshold");
+    }
+
+    // A scheduled evaluation whose every enabled rule waits for approval is skipped with a Warning that says so, not failed.
+    [Test]
+    public async Task ScheduledEvaluation_WhenEveryEnabledRuleWaitsForApproval_IsSkippedWithTheReason()
+    {
+        var store = new JobStore();
+        var evaluation = new Mock<IDataQualityEvaluationService>();
+        evaluation
+            .Setup(x => x.EvaluateContractAsync(3, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Beacon.Core.Exceptions.DataContractRulesAwaitApprovalException(3, 2));
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, Mock.Of<INotificationService>(), logger, recipientIds: [], evaluation.Object)
+            .EvaluateDataContract(3, CancellationToken.None);
+
+        logger.Entries.Should().ContainSingle(x => x.Level >= LogLevel.Warning)
+            .Which.Message.Should().Be("Data contract 3 was not evaluated: each of its 2 enabled rules is a Custom SQL rule waiting for approval");
+    }
+
+    private static DataContract AlertingContract(params Recipient[] recipients) =>
+        new()
+        {
+            Id = 3,
+            Name = "orders",
+            SchemaName = "sales",
+            TableName = "orders",
+            CronExpression = "0 * * * *",
+            AlertOnFailure = true,
+            FailureThresholdScore = 80,
+            DataSource = new DataSource { Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "unused" },
+            Recipients = [.. recipients],
+        };
+
+    private static IDataQualityEvaluationService Evaluated(DataQualityEvaluationData result)
+    {
+        var evaluation = new Mock<IDataQualityEvaluationService>();
+        evaluation
+            .Setup(x => x.EvaluateContractAsync(3, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(result);
+
+        return evaluation.Object;
+    }
+
+    // The delivery gate over two stored recipients delivering to the hook: one approved for it, one whose destination waits.
+    private static RecipientDeliveryApproval Deliveries(int approved, int awaiting)
+    {
+        return Deliveries(ApprovalStore(approved, awaiting));
+    }
+
+    private static RecipientDeliveryApproval Deliveries(ChangeGovernance.ChangeApprovalStore store)
+    {
+        return TestChangeApprovals.Deliveries(store.Factory(), store.Protector, TestChangeApprovals.On());
+    }
+
+    private static ChangeGovernance.ChangeApprovalStore ApprovalStore(int approved, int awaiting)
+    {
+        var store = new ChangeGovernance.ChangeApprovalStore();
+        store.AddRecipient(Hook, ChangeGovernance.ChangeApprovalStore.HookHash(Hook)).Id = approved;
+        store.AddRecipient(Hook, ChangeApprovalHashes.NothingApproved).Id = awaiting;
+
+        return store;
+    }
+
     private static NotificationService Service(RecordingAdapter adapter, NotificationChannelOptions? options = null, ILogger<NotificationService>? logger = null)
     {
         return new NotificationService(
@@ -490,6 +714,7 @@ public class NotificationDeliveryTests
             NotificationTestKit.Protector(),
             NotificationTestKit.Policy(options),
             Options.Create(options ?? new NotificationChannelOptions()),
+            TestChangeApprovals.Deliveries(),
             logger ?? NullLogger<NotificationService>.Instance);
     }
 
@@ -590,7 +815,9 @@ public class NotificationDeliveryTests
         int[] recipientIds,
         IDataQualityEvaluationService? evaluation = null,
         IAnomalyDetectionService? anomaly = null,
-        int[]? dataSourceIds = null)
+        int[]? dataSourceIds = null,
+        RecipientDeliveryApproval? deliveries = null,
+        IReadOnlyDictionary<int, string>? copies = null)
     {
         var queryService = new Mock<IQueryService>();
         queryService
@@ -603,7 +830,7 @@ public class NotificationDeliveryTests
                 SqlQuery = "SELECT 1",
                 SubscriptionName = "daily",
                 SubscriptionId = 5,
-                Recipients = [.. recipientIds.Select(x => new RecipientData { RecipientId = x, Name = $"r{x}", Destination = "enc:stored", NotificationType = NotificationType.Webhook })],
+                Recipients = [.. recipientIds.Select(x => new RecipientData { RecipientId = x, Name = $"r{x}", Destination = copies?.GetValueOrDefault(x) ?? HookCopy, NotificationType = NotificationType.Webhook })],
                 DataSourceIds = dataSourceIds ?? [],
             });
 
@@ -621,7 +848,8 @@ public class NotificationDeliveryTests
             evaluation ?? Mock.Of<IDataQualityEvaluationService>(),
             logger,
             new RunAsScope(new HttpContextAccessor()),
-            new HttpContextAccessor());
+            new HttpContextAccessor(),
+            deliveries ?? TestChangeApprovals.Deliveries());
     }
 
     private sealed class RecordingAdapter(NotificationType type) : IAdapter
@@ -657,19 +885,25 @@ public class NotificationDeliveryTests
 
         public List<AnomalyConfig> AnomalyConfigs { get; } = [];
 
+        public List<DataQualityEvaluation> Evaluations { get; } = [];
+
         /// <summary>What each save persisted for the run's history row, in order.</summary>
         public List<SavedState> Saves { get; } = [];
 
         public sealed record SavedState(NotificationStatus? Status, string? Comment, List<int> NotifiedRecipientIds);
     }
 
-    /// <summary>A <see cref="BeaconContext"/> over in-memory sets for the jobs (§4.7: no in-memory provider).</summary>
+    /// <summary>
+    /// A <see cref="BeaconContext"/> over in-memory sets for the jobs (§4.7: no in-memory provider). Any other set is the
+    /// real EF set, which never connects (<see cref="SqlCapture.NeverConnects"/>): reading one fails at once.
+    /// </summary>
     private sealed class JobTestContext(JobStore store) : BeaconContext(ContextOptions, "beacon")
     {
         private static readonly DbContextOptions<JobTestContext> ContextOptions =
             new DbContextOptionsBuilder<JobTestContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
+                .AddInterceptors(SqlCapture.NeverConnects)
                 .Options;
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -698,6 +932,11 @@ public class NotificationDeliveryTests
                 return (DbSet<TEntity>)(object)MemorySet(store.Contracts);
             }
 
+            if (typeof(TEntity) == typeof(DataQualityEvaluation))
+            {
+                return (DbSet<TEntity>)(object)MemorySet(store.Evaluations);
+            }
+
             return base.Set<TEntity>();
         }
 
@@ -705,7 +944,9 @@ public class NotificationDeliveryTests
         public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var history = store.History.SingleOrDefault();
+
+            // The run's own history row is the last one added.
+            var history = store.History.LastOrDefault();
             store.Saves.Add(new JobStore.SavedState(
                 history?.NotificationStatus,
                 history?.Comment,

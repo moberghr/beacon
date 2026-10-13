@@ -127,7 +127,7 @@ public class ScheduledWorkVisibilityTests
                 NotApproved = !skipped
             });
 
-        var result = await new GetSubscriptionDetailHandler(service.Object).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
+        var result = await new GetSubscriptionDetailHandler(service.Object, TestChangeApprovals.Deliveries()).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
 
         result.Detail.OwnerNotAuthorized.Should().Be(skipped);
         result.Detail.NotApproved.Should().Be(!skipped);

@@ -3311,6 +3311,235 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param kind (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getChangeApprovals(
+    kind: ChangeApprovalKind | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfChangeApprovalSummary> {
+    let url_ = this.baseUrl + "/beacon/api/approvals/changes?";
+    if (kind === null) throw new Error("The parameter 'kind' cannot be null.");
+    else if (kind !== undefined)
+      url_ += "Kind=" + encodeURIComponent("" + kind) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetChangeApprovals(_response);
+    });
+  }
+
+  protected processGetChangeApprovals(
+    response: Response,
+  ): Promise<PagedListOfChangeApprovalSummary> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfChangeApprovalSummary);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfChangeApprovalSummary>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getChangeApprovalDetail(id: number): Promise<ChangeApprovalDetail> {
+    let url_ = this.baseUrl + "/beacon/api/approvals/changes/{id}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetChangeApprovalDetail(_response);
+    });
+  }
+
+  protected processGetChangeApprovalDetail(
+    response: Response,
+  ): Promise<ChangeApprovalDetail> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as ChangeApprovalDetail);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<ChangeApprovalDetail>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  approveChange(id: number, body: ChangeDecisionRequest): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/approvals/changes/{id}/approve";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processApproveChange(_response);
+    });
+  }
+
+  protected processApproveChange(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return No Content
+   */
+  rejectChange(id: number, body: ChangeDecisionRequest): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/approvals/changes/{id}/reject";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRejectChange(_response);
+    });
+  }
+
+  protected processRejectChange(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 204) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @param page (optional)
    * @param pageSize (optional)
    * @param sort (optional)
@@ -17145,6 +17374,71 @@ export enum CancellationMode {
   Graceful = 1,
 }
 
+export interface ChangeApprovalDetail {
+  id?: number;
+  kind?: ChangeApprovalKind;
+  resourceId?: number;
+  resourceName?: string;
+  resourceExists?: boolean;
+  status?: ApprovalStatus;
+  requestedByUserName?: string | null;
+  reviewedByUserName?: string | null;
+  reviewedAt?: Date | null;
+  reviewComment?: string | null;
+  changeSummary?: string | null;
+  createdTime?: Date;
+  previousMigrationJob?: MigrationJobDefinitionView | null;
+  proposedMigrationJob?: MigrationJobDefinitionView | null;
+  previousCustomSqlRules?: CustomSqlRulesView | null;
+  proposedCustomSqlRules?: CustomSqlRulesView | null;
+  previousRecipientDestination?: RecipientDestinationView | null;
+  proposedRecipientDestination?: RecipientDestinationView | null;
+  payloadHash?: string;
+  isOwnRequest?: boolean;
+  mayApprove?: boolean;
+  approveBlockedReason?: string | null;
+  isStale?: boolean;
+  changeHiddenByMask?: boolean;
+  commentRequiredToApprove?: boolean;
+
+  [key: string]: any;
+}
+
+export enum ChangeApprovalKind {
+  MigrationJob = 1,
+  CustomSqlRules = 2,
+  RecipientDestination = 3,
+}
+
+export interface ChangeApprovalOutcome {
+  requestId?: number;
+  status?: ApprovalStatus;
+  comment?: string | null;
+  decidedAt?: Date | null;
+
+  [key: string]: any;
+}
+
+export interface ChangeApprovalSummary {
+  id?: number;
+  kind?: ChangeApprovalKind;
+  resourceId?: number;
+  resourceName?: string;
+  status?: ApprovalStatus;
+  requestedByUserName?: string | null;
+  createdTime?: Date;
+  changeSummary?: string | null;
+
+  [key: string]: any;
+}
+
+export interface ChangeDecisionRequest {
+  comment: string | null;
+  expectedPayloadHash?: string | null;
+
+  [key: string]: any;
+}
+
 export interface ChangeOwnPasswordCommand {
   currentPassword: string;
   newPassword: string;
@@ -17366,6 +17660,8 @@ export interface CreateDataContractCommand {
 
 export interface CreateDataContractResult {
   dataContractId?: number;
+  awaitingApproval?: boolean;
+  message?: string | null;
 
   [key: string]: any;
 }
@@ -17455,6 +17751,8 @@ export interface CreateMigrationJobResult {
   migrationJobId: number;
   success: boolean;
   errorMessage: string | null;
+  awaitingApproval?: boolean;
+  message?: string | null;
 
   [key: string]: any;
 }
@@ -17517,6 +17815,8 @@ export interface CreateRecipientCommand {
 
 export interface CreateRecipientResult {
   id: number;
+  awaitingApproval?: boolean;
+  message?: string | null;
 
   [key: string]: any;
 }
@@ -17615,6 +17915,22 @@ export interface CurrentUserResponse {
   realtimeEnabled: boolean;
   externalLogin: ExternalLoginResponse | null;
   signOutEverywhereEnabled?: boolean;
+
+  [key: string]: any;
+}
+
+export interface CustomSqlRulesView {
+  dataSourceId?: number;
+  dataSourceName?: string | null;
+  rules?: CustomSqlRuleView[];
+
+  [key: string]: any;
+}
+
+export interface CustomSqlRuleView {
+  name?: string;
+  sql?: string;
+  awaitsApproval?: boolean;
 
   [key: string]: any;
 }
@@ -17753,6 +18069,8 @@ export interface DataContractData {
   latestScore?: number | null;
   rules?: DataContractRuleData[];
   recipients?: DataContractRecipientData[];
+  pendingApprovalRequestId?: number | null;
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 
   [key: string]: any;
 }
@@ -17776,6 +18094,7 @@ export interface DataContractRuleData {
   severity?: DataContractSeverity;
   weight?: number;
   isEnabled?: boolean;
+  awaitingApproval?: boolean;
 
   [key: string]: any;
 }
@@ -17805,6 +18124,9 @@ export interface DataQualityEvaluationData {
   passedRules?: number;
   failedRules?: number;
   totalRules?: number;
+  awaitingApprovalRules?: number;
+  isPartial?: boolean;
+  heldAlertRecipients?: number;
   executionTimeMs?: number;
   createdTime?: Date;
   ruleResults?: DataQualityRuleResultData[];
@@ -18675,6 +18997,19 @@ export interface MigrationExecutionDto {
   [key: string]: any;
 }
 
+export interface MigrationJobDefinitionView {
+  sourceDataSourceId?: number;
+  sourceDataSourceName?: string | null;
+  queryText?: string;
+  destinationDataSourceId?: number;
+  destinationDataSourceName?: string | null;
+  destinationTable?: string;
+  mode?: MigrationMode;
+  transformationScript?: string | null;
+
+  [key: string]: any;
+}
+
 export interface MigrationJobListItem {
   id?: number;
   name?: string;
@@ -18688,6 +19023,9 @@ export interface MigrationJobListItem {
   isEnabled?: boolean;
   schedule?: string | null;
   createdTime?: Date;
+  awaitingApproval?: boolean;
+  pendingApprovalRequestId?: number | null;
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 
   [key: string]: any;
 }
@@ -18807,6 +19145,14 @@ export interface PagedListOfApiKeyEntry {
 
 export interface PagedListOfApprovalRequestSummary {
   items: ApprovalRequestSummary[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfChangeApprovalSummary {
+  items: ChangeApprovalSummary[];
   totalCount: number;
   pageCount: number;
 
@@ -19484,6 +19830,17 @@ export interface QueryVersionSummary {
   [key: string]: any;
 }
 
+export interface RecipientDestinationView {
+  notificationType?: NotificationType;
+  destination?: string;
+  headerNames?: string[];
+  headers?: RecipientHeaderView[];
+  fingerprint?: string | null;
+  unreadable?: boolean;
+
+  [key: string]: any;
+}
+
 export interface RecipientEntry {
   id?: number;
   name?: string;
@@ -19494,6 +19851,18 @@ export interface RecipientEntry {
   bodyTemplate?: string | null;
   secretsUnreadable?: boolean;
   subscriptionCount?: number;
+  definitionFingerprint?: string | null;
+  headerFingerprints?: RecipientHeaderView[] | null;
+  awaitingApproval?: boolean;
+  pendingApprovalRequestId?: number | null;
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
+
+  [key: string]: any;
+}
+
+export interface RecipientHeaderView {
+  name?: string;
+  fingerprint?: string;
 
   [key: string]: any;
 }
@@ -19979,6 +20348,9 @@ export interface SubscriptionDetailRecipient {
   description: string | null;
   destination: string | null;
   notificationType: NotificationType;
+  awaitingApproval?: boolean;
+  pendingApprovalRequestId?: number | null;
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 
   [key: string]: any;
 }

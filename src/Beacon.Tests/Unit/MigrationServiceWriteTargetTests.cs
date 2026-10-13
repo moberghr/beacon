@@ -285,7 +285,8 @@ public class MigrationServiceWriteTargetTests
             _preview.Object,
             Mock.Of<IBeaconUserContext>(),
             NullLogger<MigrationService>.Instance,
-            Options.Create(new MigrationOptions { Enabled = enabled, MaxRows = maxRows }));
+            Options.Create(new MigrationOptions { Enabled = enabled, MaxRows = maxRows }),
+            TestChangeApprovals.Submitter());
     }
 
     private void Job(int source, int destination, string? queryText = null)

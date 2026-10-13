@@ -1242,6 +1242,104 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("user_roles", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.ChangeApprovalRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("change_summary");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("DefinitionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("definition_hash");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<string>("PreviousJson")
+                        .HasColumnType("text")
+                        .HasColumnName("previous_json");
+
+                    b.Property<string>("ProposedJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("proposed_json");
+
+                    b.Property<string>("RequestedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<string>("RequestedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("requested_by_user_name");
+
+                    b.Property<int>("ResourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("resource_id");
+
+                    b.Property<string>("ResourceName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("resource_name");
+
+                    b.Property<string>("ReviewComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("review_comment");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<string>("ReviewedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reviewed_by_user_name");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_change_approval_requests");
+
+                    b.HasIndex("Status", "CreatedTime")
+                        .HasDatabaseName("ix_change_approval_requests_status_created_time");
+
+                    b.HasIndex("Kind", "ResourceId", "Status")
+                        .HasDatabaseName("ix_change_approval_requests_kind_resource_id_status");
+
+                    b.ToTable("change_approval_requests", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Comment", b =>
                 {
                     b.Property<int>("Id")
@@ -1592,6 +1690,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedDefinitionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_definition_hash");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
@@ -1781,6 +1884,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedSqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_sql_hash");
+
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -1844,6 +1952,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AwaitingApprovalRules")
+                        .HasColumnType("integer")
+                        .HasColumnName("awaiting_approval_rules");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -1859,6 +1971,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("FailedRules")
                         .HasColumnType("integer")
                         .HasColumnName("failed_rules");
+
+                    b.Property<int>("HeldAlertRecipients")
+                        .HasColumnType("integer")
+                        .HasColumnName("held_alert_recipients");
 
                     b.Property<double>("OverallScore")
                         .HasColumnType("double precision")
@@ -4986,6 +5102,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApprovedDestinationHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_destination_hash");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")

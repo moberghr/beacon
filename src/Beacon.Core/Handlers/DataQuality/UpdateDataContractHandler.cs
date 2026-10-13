@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
@@ -20,8 +21,13 @@ internal sealed class UpdateDataContractHandler(
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
     IBeaconActorAccessor actorAccessor,
+    CustomSqlChangeApproval changeApproval,
     ILogger<UpdateDataContractHandler> logger) : IRequestHandler<UpdateDataContractCommand>
 {
+    /// <summary>Why a save is refused when the contract's Custom SQL rules changed while it was being saved.</summary>
+    internal const string RulesChangedMessage =
+        "The contract's rules changed while it was being saved, and a change of its Custom SQL rules waits for approval: reload it and save again.";
+
     public async Task Handle(UpdateDataContractCommand request, CancellationToken cancellationToken)
     {
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
@@ -53,6 +59,10 @@ internal sealed class UpdateDataContractHandler(
             DataQualityRuleGuard.EnsureAdmin(userContext);
         }
 
+        // Under the workflow a new or changed Custom SQL rule waits for a second person's approval: the caller is the
+        // requester.
+        var requester = await changeApproval.RequesterAsync(request.DataContractId, hasCustomSql, cancellationToken);
+
         if (addsCustomSql)
         {
             // The whole row: the rule's SQL may name only the database its connection is configured for.
@@ -78,6 +88,12 @@ internal sealed class UpdateDataContractHandler(
         // failed. Wrap the purge + rewrite + save in one explicit transaction so they're atomic.
         await using var tx = await context.Database.BeginTransactionAsync(cancellationToken);
 
+        // Under the workflow the contract's row first, as a decision on its Custom SQL rules takes it.
+        if (requester != null)
+        {
+            await CustomSqlChangeApproval.LockAsync(context, request.DataContractId, cancellationToken);
+        }
+
         var contract = await context.DataContracts
             .Include(c => c.Rules)
             .Include(c => c.Recipients)
@@ -85,11 +101,21 @@ internal sealed class UpdateDataContractHandler(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");
 
-        // Re-checked on the rows this transaction rewrites: a CustomSql rule added after the check above is an Admin's.
+        // Re-checked on the rows this transaction rewrites: a CustomSql rule added after the check above is an Admin's, and
+        // under the workflow its change needs the requester the check above did not resolve: refused, nothing written.
         if (contract.Rules.Any(x => x.RuleType == DataContractRuleType.CustomSql))
         {
             DataQualityRuleGuard.EnsureAdmin(userContext);
+
+            if (requester == null && changeApproval.Covers())
+            {
+                throw new BeaconConflictException(RulesChangedMessage);
+            }
         }
+
+        // The rules this save replaces, on the data source they ran on: an unchanged Custom SQL rule keeps its approval.
+        var replaced = contract.Rules.ToList();
+        var replacedDataSourceId = contract.DataSourceId;
 
         contract.DataSourceId = request.DataSourceId;
         contract.Name = request.Name;
@@ -130,6 +156,8 @@ internal sealed class UpdateDataContractHandler(
                     IsEnabled = x.IsEnabled
                 })
             .ToList();
+        CustomSqlChangeApproval.CarryApprovals(contract, replaced, replacedDataSourceId, governed: requester != null);
+        var submission = await changeApproval.SubmitAsync(context, requester, contract, replaced, replacedDataSourceId, cancellationToken);
 
         // Replace recipients
         contract.Recipients.Clear();
@@ -143,6 +171,7 @@ internal sealed class UpdateDataContractHandler(
 
         await context.SaveChangesAsync(cancellationToken);
         await tx.CommitAsync(cancellationToken);
+        await changeApproval.NotifySupersededAsync(submission, cancellationToken);
 
         if (contract.IsEnabled)
         {

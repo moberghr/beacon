@@ -16,6 +16,7 @@ import {
 import { describeError } from '@/lib/api';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { DataSourcePicker } from '../data-sources/DataSourcePicker';
+import { noteSubmittedForApproval } from '../approvals/AwaitingApproval';
 import type { RecipientOption } from '../recipients/queries';
 import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
 import {
@@ -214,7 +215,10 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
       });
     } else {
       createMutation.mutate(payload, {
-        onSuccess: () => onClose(true),
+        onSuccess: created => {
+          noteSubmittedForApproval(created);
+          onClose(true);
+        },
       });
     }
   };

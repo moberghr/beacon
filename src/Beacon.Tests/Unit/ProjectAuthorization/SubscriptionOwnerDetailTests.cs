@@ -50,7 +50,7 @@ public class SubscriptionOwnerDetailTests
                 OwnerDisplayName = "Ada Lovelace"
             });
 
-        var result = await new GetSubscriptionDetailHandler(service.Object).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
+        var result = await new GetSubscriptionDetailHandler(service.Object, TestChangeApprovals.Deliveries()).Handle(new GetSubscriptionDetailQuery(5), CancellationToken.None);
 
         result.Detail.HasOwner.Should().BeTrue();
         result.Detail.OwnerDisplayName.Should().Be("Ada Lovelace");
@@ -64,7 +64,7 @@ public class SubscriptionOwnerDetailTests
             .Setup(x => x.GetSubscriptionDetails(6, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SubscriptionDetailsData { SubscriptionId = 6, QueryName = "legacy", Status = "Active" });
 
-        var result = await new GetSubscriptionDetailHandler(service.Object).Handle(new GetSubscriptionDetailQuery(6), CancellationToken.None);
+        var result = await new GetSubscriptionDetailHandler(service.Object, TestChangeApprovals.Deliveries()).Handle(new GetSubscriptionDetailQuery(6), CancellationToken.None);
 
         result.Detail.HasOwner.Should().BeFalse();
         result.Detail.OwnerDisplayName.Should().BeNull();
