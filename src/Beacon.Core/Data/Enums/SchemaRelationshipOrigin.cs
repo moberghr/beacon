@@ -13,6 +13,9 @@ public enum SchemaRelationshipOrigin
     /// <summary>Guessed from column naming conventions. Unverified until a human confirms it.</summary>
     Inferred = 1,
 
-    /// <summary>Declared by a user. Verified on creation.</summary>
+    /// <summary>
+    /// Declared by a user. Verified on creation only when its creator may curate the data source's grounding; otherwise
+    /// unverified until a curator verifies it.
+    /// </summary>
     Manual = 2
 }

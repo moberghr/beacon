@@ -33,7 +33,7 @@ public class ReplayGatedPromotionTests
         var verifier = VerifierReturning(passed: true);
         var (service, context) = BuildService(new[] { candidate }, verifier.Object);
 
-        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), CancellationToken.None);
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
 
         candidate.Status.Should().Be(McpPatternStatus.AutoApproved);
         candidate.LastVerifiedAt.Should().NotBeNull();
@@ -48,7 +48,7 @@ public class ReplayGatedPromotionTests
         var verifier = VerifierReturning(passed: false);
         var (service, context) = BuildService(new[] { candidate }, verifier.Object);
 
-        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), CancellationToken.None);
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
 
         candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
         candidate.LastVerifiedAt.Should().BeNull();
@@ -67,7 +67,7 @@ public class ReplayGatedPromotionTests
             .ReturnsAsync(new ReplayVerdict(RelevantCases: 3, BaselineFailing: 0, Flipped: 0, Regressions: 0, Errored: 3, Passed: false));
         var (service, context) = BuildService(new[] { candidate }, verifier.Object);
 
-        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), CancellationToken.None);
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
 
         candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
         candidate.LastVerifiedAt.Should().BeNull();
@@ -81,7 +81,7 @@ public class ReplayGatedPromotionTests
         var candidate = NeedsEvidencePattern();
         var (service, context) = BuildService(new[] { candidate }, replayVerifier: null);
 
-        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), CancellationToken.None);
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
 
         candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
     }
@@ -96,7 +96,7 @@ public class ReplayGatedPromotionTests
         var disabled = EnabledSettings();
         disabled.EnableReplayVerification = false;
 
-        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, disabled, CancellationToken.None);
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, disabled, null, CancellationToken.None);
 
         candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
         verifier.Verify(
@@ -125,7 +125,7 @@ public class ReplayGatedPromotionTests
         var (service, context) = BuildService(new[] { throwingCandidate, passingCandidate }, verifier.Object);
 
         var act = async () =>
-            await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), CancellationToken.None);
+            await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
 
         await act.Should().NotThrowAsync();
 
@@ -200,6 +200,7 @@ public class ReplayGatedPromotionTests
         var service = new McpLearningAggregationService(
             factory.Object,
             settingsProvider.Object,
+            TestGroundingSqlChecks.PassThrough().Object,
             NullLogger<McpLearningAggregationService>.Instance,
             lessonExtractor: null,
             replayVerifier: replayVerifier);

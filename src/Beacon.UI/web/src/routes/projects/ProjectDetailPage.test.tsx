@@ -525,3 +525,54 @@ describe('ProjectDetailPage access', () => {
     expect(screen.queryByText('Guardrails of shared data sources')).not.toBeInTheDocument();
   });
 });
+
+describe('ProjectDetailPage documentation', () => {
+  function documentation(canCurate: boolean) {
+    return {
+      latest: {
+        id: 1,
+        generatedAt: '2026-10-01T10:00:00Z',
+        generatedByModel: 'model',
+        dataSourcesAnalyzed: 1,
+        tablesAnalyzed: 3,
+        codeReferencesAnalyzed: 0,
+        inputTokens: 10,
+        outputTokens: 20,
+        estimatedCost: 0,
+        generationDuration: '00:00:05',
+        sections: [{ id: 4, sectionType: 0, title: 'Overview', content: 'The ledger.', sortOrder: 0 }],
+      },
+      history: [],
+      canCurate,
+    };
+  }
+
+  it('lets a curator edit a documentation section', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ hasDocumentation: true }))),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json(documentation(true))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByRole('button', { name: 'Edit Overview' })).toBeInTheDocument();
+    expect(screen.queryByText(/regenerates its documentation/)).not.toBeInTheDocument();
+  });
+
+  it('shows anyone else the documentation without the edit action, and says who edits it', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ hasDocumentation: true }))),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json(documentation(false))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('The ledger.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit Overview' })).not.toBeInTheDocument();
+    expect(screen.getByText('Only a project admin of this project (or an Admin) edits or regenerates its documentation.')).toBeInTheDocument();
+  });
+});

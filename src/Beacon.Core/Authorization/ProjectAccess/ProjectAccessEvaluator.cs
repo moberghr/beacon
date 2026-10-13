@@ -14,9 +14,9 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 /// caller's global role, raised to the open grant in an open project; then confines a caller that carries a project
 /// list to it and caps the actions by the caller's scope. When no project is restricted or archived, every data source
 /// is openly reachable and the caller carries no list, each action within the caller's global role is allowed
-/// everywhere (<see cref="ProjectSet.All"/>), so filters add nothing to the SQL; managing members is still decided from
-/// the membership rows. Elsewhere a query without steps (no project holds it) is reached by its owner alone, for Read and
-/// Write, unless the caller is confined to a project list (<see cref="ProjectSet.QueryOwnerUserId"/>).
+/// everywhere (<see cref="ProjectSet.All"/>), so filters add nothing to the SQL; managing members and curating grounding
+/// are still decided from the membership rows. Elsewhere a query without steps (no project holds it) is reached by its
+/// owner alone, for Read and Write, unless the caller is confined to a project list (<see cref="ProjectSet.QueryOwnerUserId"/>).
 /// </summary>
 internal sealed class ProjectAccessEvaluator(
     IBeaconActorAccessor actorAccessor,
@@ -31,8 +31,15 @@ internal sealed class ProjectAccessEvaluator(
 {
     private static readonly IReadOnlySet<ProjectAction> AllActions = Enum.GetValues<ProjectAction>().ToHashSet();
 
+    // What only a ProjectAdmin membership (or an Admin) grants, never an open project, and only to an interactive session.
+    private static readonly IReadOnlySet<ProjectAction> MembershipOnlyActions = new HashSet<ProjectAction>
+    {
+        ProjectAction.ManageMembers,
+        ProjectAction.Curate
+    };
+
     private static readonly IReadOnlySet<ProjectAction> NonInteractiveActions = AllActions
-        .Where(x => x != ProjectAction.ManageMembers)
+        .Where(x => !MembershipOnlyActions.Contains(x))
         .ToHashSet();
 
     // What a configured MCP project grants without a Beacon user behind it.
@@ -126,7 +133,7 @@ internal sealed class ProjectAccessEvaluator(
         var sets = new Dictionary<ProjectAction, ProjectSet>();
         foreach (var action in AllActions)
         {
-            var includesOpen = includesOpenFor.Contains(action) && action != ProjectAction.ManageMembers;
+            var includesOpen = includesOpenFor.Contains(action) && !MembershipOnlyActions.Contains(action);
             if (isFastPath && includesOpen)
             {
                 sets[action] = ProjectSet.All;
@@ -192,15 +199,15 @@ internal sealed class ProjectAccessEvaluator(
         var actions = ActionsOf(effective.Value, isOpenProject, profile.Actions);
         if (memberRole != ProjectRole.ProjectAdmin)
         {
-            // Managing members is never an open grant: only a ProjectAdmin membership gives it.
-            actions.Remove(ProjectAction.ManageMembers);
+            // Managing members and curating grounding are never an open grant: only a ProjectAdmin membership gives them.
+            actions.ExceptWith(MembershipOnlyActions);
         }
 
         return actions.Count == 0 ? null : new ProjectGrant(effective.Value, actions);
     }
 
-    // Viewer reads and runs; Editor also queries and writes, and manages in an open project; ProjectAdmin manages
-    // and manages members.
+    // Viewer reads and runs; Editor also queries and writes, and manages in an open project; ProjectAdmin manages,
+    // manages members and curates grounding.
     private static HashSet<ProjectAction> ActionsOf(ProjectRole role, bool isOpenProject, IReadOnlySet<ProjectAction> cap)
     {
         var actions = new HashSet<ProjectAction> { ProjectAction.Read, ProjectAction.Run };
@@ -218,6 +225,7 @@ internal sealed class ProjectAccessEvaluator(
         if (role == ProjectRole.ProjectAdmin)
         {
             actions.Add(ProjectAction.ManageMembers);
+            actions.Add(ProjectAction.Curate);
         }
 
         actions.IntersectWith(cap);
@@ -532,7 +540,7 @@ internal sealed class ProjectAccessEvaluator(
         return scope == McpCallerScope.Execute ? ProjectRole.Editor : ProjectRole.Viewer;
     }
 
-    // A Read scope keeps Read only; scoped callers never manage members.
+    // A Read scope keeps Read only; scoped callers never manage members or curate grounding.
     private static IReadOnlySet<ProjectAction> ScopeActions(McpCallerScope scope)
     {
         return scope == McpCallerScope.Execute ? NonInteractiveActions : ReadScopeActions;

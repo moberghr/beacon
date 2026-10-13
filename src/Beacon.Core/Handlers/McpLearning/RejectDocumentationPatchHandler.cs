@@ -32,8 +32,9 @@ public record RejectDocumentationPatchCommand : IRequest, IProjectAuthorizedRequ
     [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public int? RejectedByUserId { get; init; }
 
+    // Who may apply a patch may reject it (ApplyDocumentationPatchCommand).
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        new(ProjectResource.DocumentationPatch(PatchId), ProjectAction.Write)
+        ProjectCheck.CurateShared(ProjectResource.DocumentationPatch(PatchId))
     ];
 }

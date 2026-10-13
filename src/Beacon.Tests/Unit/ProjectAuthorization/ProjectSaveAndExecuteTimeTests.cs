@@ -168,7 +168,7 @@ public class ProjectSaveAndExecuteTimeTests
     public async Task ARelationshipOfAnotherDataSource_IsNotFound()
     {
         var capture = new SqlCapture().ThenNoRows();
-        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>());
+        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(Member), TestPermissions.None, TestProjectAccess.Actors());
 
         var act = () => handler.Handle(new UpdateSchemaRelationshipCommand { DataSourceId = 4, Id = 70, Label = "l" }, CancellationToken.None);
 

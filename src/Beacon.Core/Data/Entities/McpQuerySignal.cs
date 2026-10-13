@@ -41,6 +41,19 @@ public class McpQuerySignal : BaseEntity
     public string? UserCorrectedSql { get; set; }
     public string? FeedbackNote { get; set; }
 
+    /// <summary>The <c>Users.Id</c> of the user who recorded the verdict; null without one, or for a verdict recorded before Beacon recorded it.</summary>
+    public int? FeedbackByUserId { get; set; }
+
+    /// <summary>
+    /// When an Admin promoted the signal to a golden case: a promotion claims the signal by setting it, once, so the signal
+    /// becomes one golden case however many promotions race. Null until promoted, and for a signal promoted before Beacon
+    /// recorded it (its case is found by <see cref="McpEvalCase.SourceSignalId"/>).
+    /// </summary>
+    public DateTime? PromotedAt { get; set; }
+
+    /// <summary>The golden case the signal was promoted to; set with <see cref="PromotedAt"/>.</summary>
+    public int? PromotedEvalCaseId { get; set; }
+
     /// <summary>
     /// Salted hash of the calling principal (delegated <c>oid</c> or API key id) — attribution without identity.
     /// Populated from Wave 2.1; stored now so the schema changes once per wave.

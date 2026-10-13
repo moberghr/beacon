@@ -19,5 +19,12 @@ public enum ProjectAction
     Manage = 5,
 
     /// <summary>Grant, change and revoke membership; link data sources into the project. Interactive sessions only.</summary>
-    ManageMembers = 6
+    ManageMembers = 6,
+
+    /// <summary>
+    /// Curate the grounding prompts are built from: review learned patterns, edit generated documentation, apply or reject
+    /// documentation patches, verify schema relationships. A ProjectAdmin membership (or an Admin) only, never an open
+    /// grant; interactive sessions only — never an API key, an MCP caller or the owner of scheduled work.
+    /// </summary>
+    Curate = 7
 }

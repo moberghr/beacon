@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ArrowRight, Check, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowRight, Check, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   Banner,
   Button,
@@ -20,7 +20,9 @@ import { Pager } from '@/components/data/Pager';
 import { SchemaHealthPanel } from './SchemaHealthPanel';
 import {
   CARDINALITY_LABEL,
+  DELETE_VERIFIED_CURATE_REASON,
   ORIGIN_LABEL,
+  PENDING_CURATOR_VERIFICATION,
   SchemaRelationshipCardinality,
   SchemaRelationshipOrigin,
   useCreateRelationship,
@@ -28,8 +30,11 @@ import {
   useDiscoveryPreview,
   useSchemaHealthQuery,
   useSchemaRelationshipsList,
+  useUpdateRelationship,
   useVerifyRelationship,
+  VERIFY_CURATE_REASON,
   type CreateRelationshipPayload,
+  type SchemaRelationshipCardinalityValue,
   type ProposedRelationship,
   type SchemaRelationshipEntry,
   type SchemaRelationshipOriginValue,
@@ -63,6 +68,7 @@ export function RelationshipsPage() {
   const verify = useVerifyRelationship(dataSourceId);
   const remove = useDeleteRelationship(dataSourceId);
   const create = useCreateRelationship(dataSourceId);
+  const update = useUpdateRelationship(dataSourceId);
 
   const [draft, setDraft] = useState<CreateRelationshipPayload>(emptyDraft);
   const [isAdding, setIsAdding] = useState(false);
@@ -145,7 +151,9 @@ export function RelationshipsPage() {
           <CardHead>
             <div>
               <CardTitle>Add relationship</CardTitle>
-              <CardSub>Declared relationships are treated as verified</CardSub>
+              <CardSub>
+                Verified when you may curate this data source; otherwise it waits, pending verification by a curator
+              </CardSub>
             </div>
           </CardHead>
           <CardBody className="grid gap-3 sm:grid-cols-3">
@@ -296,7 +304,10 @@ export function RelationshipsPage() {
                       entry={entry}
                       onVerify={(isVerified) => verify.mutate({ id: entry.id, isVerified })}
                       onDelete={() => remove.mutate(entry.id)}
-                      isBusy={verify.isPending || remove.isPending}
+                      onUpdate={(label, cardinality, onDone) =>
+                        update.mutate({ id: entry.id, label, cardinality }, { onSuccess: onDone })
+                      }
+                      isBusy={verify.isPending || remove.isPending || update.isPending}
                     />
                   ))}
                 </tbody>
@@ -337,11 +348,25 @@ interface RelationshipRowProps {
   entry: SchemaRelationshipEntry;
   onVerify: (isVerified: boolean) => void;
   onDelete: () => void;
+  onUpdate: (label: string | null, cardinality: SchemaRelationshipCardinalityValue, onDone: () => void) => void;
   isBusy: boolean;
 }
 
-function RelationshipRow({ entry, onVerify, onDelete, isBusy }: RelationshipRowProps) {
+function RelationshipRow({ entry, onVerify, onDelete, onUpdate, isBusy }: RelationshipRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [label, setLabel] = useState(entry.label);
+  const [cardinality, setCardinality] = useState<SchemaRelationshipCardinalityValue>(entry.cardinality);
+  // A verified relationship is a join every linking project is told to trust: removing it is a curator's.
+  const mayDelete = !entry.isVerified || entry.canCurate;
+
+  function startEditing() {
+    setLabel(entry.label);
+    setCardinality(entry.cardinality);
+    setEditing(true);
+  }
+
   return (
+    <>
     <tr className="border-b border-border">
       <td className="py-2">
         <RelationshipEdge
@@ -352,6 +377,7 @@ function RelationshipRow({ entry, onVerify, onDelete, isBusy }: RelationshipRowP
           targetTable={entry.targetTable}
           targetColumn={entry.targetColumn}
         />
+        {entry.label && <div className="text-2xs text-text-muted">{entry.label}</div>}
       </td>
       <td className="py-2">
         <Pill tone={originTone(entry.origin)}>{ORIGIN_LABEL[entry.origin]}</Pill>
@@ -369,22 +395,72 @@ function RelationshipRow({ entry, onVerify, onDelete, isBusy }: RelationshipRowP
           <Button
             variant="ghost"
             aria-label={entry.isVerified ? 'Remove verification' : 'Verify relationship'}
+            title={entry.canCurate ? undefined : VERIFY_CURATE_REASON}
             onClick={() => onVerify(!entry.isVerified)}
-            disabled={isBusy}
+            disabled={isBusy || !entry.canCurate}
           >
             {entry.isVerified ? <X className="size-4" aria-hidden /> : <Check className="size-4" aria-hidden />}
           </Button>
           <Button
             variant="ghost"
+            aria-label="Edit relationship"
+            onClick={startEditing}
+            disabled={isBusy || editing}
+          >
+            <Pencil className="size-4" aria-hidden />
+          </Button>
+          <Button
+            variant="ghost"
             aria-label="Delete relationship"
+            title={mayDelete ? undefined : DELETE_VERIFIED_CURATE_REASON}
             onClick={onDelete}
-            disabled={isBusy}
+            disabled={isBusy || !mayDelete}
           >
             <Trash2 className="size-4" aria-hidden />
           </Button>
         </div>
       </td>
     </tr>
+    {editing && (
+      <tr className="border-b border-border bg-surface-2">
+        <td colSpan={5} className="py-3 px-2">
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Label">
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} />
+            </Field>
+            <Field label="Relationship cardinality">
+              <Select
+                value={String(cardinality)}
+                onChange={(e) => setCardinality(Number(e.target.value) as SchemaRelationshipCardinalityValue)}
+              >
+                {Object.entries(CARDINALITY_LABEL).map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => onUpdate(label.trim() === '' ? null : label.trim(), cardinality, () => setEditing(false))}
+                disabled={isBusy}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+          {entry.isVerified && !entry.canCurate && (
+            <p className="m-0 mt-2 text-xs text-text-muted">
+              Changing it sets it back to {PENDING_CURATOR_VERIFICATION}: you may not curate this data source.
+            </p>
+          )}
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

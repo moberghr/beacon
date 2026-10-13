@@ -2044,11 +2044,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(true);
 
+                    b.Property<int?>("ModifiedByUserId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
                     b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PromotedByUserId")
                         .HasColumnType("int");
 
                     b.Property<string>("Question")
@@ -2488,6 +2494,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("ExecutionTimeMs")
                         .HasColumnType("int");
 
+                    b.Property<int?>("FeedbackByUserId")
+                        .HasColumnType("int");
+
                     b.Property<string>("FeedbackNote")
                         .HasColumnType("nvarchar(max)");
 
@@ -2502,6 +2511,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("bit");
 
                     b.Property<int?>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("PromotedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("PromotedEvalCaseId")
                         .HasColumnType("int");
 
                     b.Property<string>("Question")

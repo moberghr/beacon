@@ -617,6 +617,9 @@ function DocumentationTab({ projectId }: { projectId: number }) {
   }
 
   const sections = [...latest.sections].sort((a, b) => a.sortOrder - b.sortOrder);
+  // Editing a section or regenerating the documentation changes what every caller's prompts are grounded on: a project
+  // admin's (or an Admin's) to do.
+  const canCurate = data?.canCurate === true;
 
   return (
     <>
@@ -631,19 +634,26 @@ function DocumentationTab({ projectId }: { projectId: number }) {
           {' · '}
           {formatDateTime(latest.generatedAt)}
         </div>
+        {!canCurate && (
+          <p className="text-text-muted text-xs mb-4">
+            Only a project admin of this project (or an Admin) edits or regenerates its documentation.
+          </p>
+        )}
 
         <div className="flex flex-col gap-6">
           {sections.map(section => (
             <section key={section.id}>
               <header className="flex items-center justify-between mb-2">
                 <h3 className="m-0 text-sm font-semibold text-text">{section.title}</h3>
-                <Button
-                  variant="ghost"
-                  onClick={() => setEditing(section)}
-                  aria-label={`Edit ${section.title}`}
-                >
-                  Edit
-                </Button>
+                {canCurate && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setEditing(section)}
+                    aria-label={`Edit ${section.title}`}
+                  >
+                    Edit
+                  </Button>
+                )}
               </header>
               <DocSectionContent content={section.content} />
             </section>

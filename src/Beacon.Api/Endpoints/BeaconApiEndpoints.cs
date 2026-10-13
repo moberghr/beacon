@@ -105,6 +105,10 @@ public static class BeaconApiEndpoints
         // Notes at startup how query changes are governed (approval workflow off, self-approval, strict runs).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, ApprovalWorkflowStartupNote>());
 
+        // Warns at startup about grounding no project admin curates (golden cases without a recorded promoter, learning
+        // projects without a ProjectAdmin).
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, GroundingStartupNote>());
+
         return services;
     }
 

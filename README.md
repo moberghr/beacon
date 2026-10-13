@@ -127,7 +127,7 @@ Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beaco
 | `query` | Direct SQL (SELECT-only, enforced) against a specific data source |
 | `search` | Keyword + semantic search over schemas and documentation |
 | `get_documentation` | AI-generated documentation at project / data-source / table level |
-| `feedback` | Rate an answer — a `correct` verdict becomes a verified example that grounds future generation |
+| `feedback` | Rate an answer — a `correct` verdict waits for an Admin, who may promote it to a verified example that grounds future generation |
 
 — and every call passes through the same guardrail stack:
 

@@ -178,7 +178,7 @@ public class ProjectAccessEvaluatorTests
     [TestCase(ProjectRole.Editor, true, true, false, false)]
     [TestCase(ProjectRole.ProjectAdmin, true, true, true, true)]
     public async Task AMemberOfARestrictedProject_GetsTheActionsOfItsRole(
-        ProjectRole role, bool read, bool write, bool manage, bool manageMembers)
+        ProjectRole role, bool read, bool write, bool manage, bool manageMembersAndCurate)
     {
         _members.Add(Member(RestrictedProject, role));
 
@@ -189,8 +189,59 @@ public class ProjectAccessEvaluatorTests
         scope.Allows(RestrictedProject, ProjectAction.Write).Should().Be(write);
         scope.Allows(RestrictedProject, ProjectAction.Query).Should().Be(write);
         scope.Allows(RestrictedProject, ProjectAction.Manage).Should().Be(manage);
-        scope.Allows(RestrictedProject, ProjectAction.ManageMembers).Should().Be(manageMembers);
+        scope.Allows(RestrictedProject, ProjectAction.ManageMembers).Should().Be(manageMembersAndCurate);
+        scope.Allows(RestrictedProject, ProjectAction.Curate).Should().Be(manageMembersAndCurate);
         scope.RoleIn(RestrictedProject).Should().Be(role);
+    }
+
+    [Test]
+    public async Task CuratingGrounding_IsAProjectAdminMembershipsOrAnAdmins_NeverAnOpenGrant()
+    {
+        _members.Add(Member(OpenProject, ProjectRole.ProjectAdmin));
+        _members.Add(Member(OtherOpenProject, ProjectRole.Editor));
+
+        var member = await Evaluate(User());
+        var admin = await Evaluate(User(isLiveAdmin: true));
+        var viewerCeiling = await Evaluate(User(), ceiling: Ceiling.Viewer);
+
+        member.Allows(OpenProject, ProjectAction.Curate).Should().BeTrue("a ProjectAdmin membership curates its project");
+        member.Allows(OtherOpenProject, ProjectAction.Curate).Should().BeFalse("an Editor membership does not");
+        member.Allows(RestrictedProject, ProjectAction.Curate).Should().BeFalse();
+        member.For(ProjectAction.Curate).Ids.Should().Equal(OpenProject);
+        member.For(ProjectAction.Curate).IncludesOpen.Should().BeFalse("an open project grants no curation");
+        admin.Allows(RestrictedProject, ProjectAction.Curate).Should().BeTrue();
+        viewerCeiling.Allows(OpenProject, ProjectAction.Curate).Should().BeFalse("a global Viewer is a Viewer in every project");
+    }
+
+    [Test]
+    public async Task AnEditorThroughAnOpenProject_DoesNotCurate()
+    {
+        var scope = await Evaluate(User());
+
+        scope.Allows(OpenProject, ProjectAction.Write).Should().BeTrue();
+        scope.Allows(OpenProject, ProjectAction.Curate).Should().BeFalse();
+        scope.For(ProjectAction.Curate).Ids.Should().BeEmpty();
+        scope.For(ProjectAction.Curate).IncludesOpen.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task KeysMcpCallersAndScheduledWork_NeverCurate_EvenForAProjectAdmin()
+    {
+        _members.Add(Member(RestrictedProject, ProjectRole.ProjectAdmin));
+        _members.Add(Member(OpenProject, ProjectRole.ProjectAdmin));
+
+        var key = await Evaluate(Key(projects: null));
+        var mcpUser = await Evaluate(McpCaller(McpCallerKind.User, MemberUserId, [OpenProject, RestrictedProject]), ownerCeiling: ProjectRole.Editor);
+        var mcpSystem = await Evaluate(McpCaller(McpCallerKind.System, beaconUserId: null, [OpenProject, RestrictedProject]));
+        var owner = await Evaluate(Owner());
+
+        key.Allows(RestrictedProject, ProjectAction.Manage).Should().BeTrue("the key acts as its ProjectAdmin owner otherwise");
+        foreach (var scope in new[] { key, mcpUser, mcpSystem, owner })
+        {
+            scope.Allows(RestrictedProject, ProjectAction.Curate).Should().BeFalse();
+            scope.Allows(OpenProject, ProjectAction.Curate).Should().BeFalse();
+            scope.For(ProjectAction.Curate).Ids.Should().BeEmpty();
+        }
     }
 
     [Test]
@@ -254,6 +305,8 @@ public class ProjectAccessEvaluatorTests
         scope.For(ProjectAction.Write).Should().BeSameAs(ProjectSet.All);
         scope.For(ProjectAction.ManageMembers).Ids.Should().Equal(OpenProject);
         scope.For(ProjectAction.ManageMembers).IncludesOpen.Should().BeFalse();
+        scope.For(ProjectAction.Curate).Ids.Should().Equal(OpenProject);
+        scope.For(ProjectAction.Curate).IncludesOpen.Should().BeFalse();
         scope.Allows(99, ProjectAction.Read).Should().BeFalse("a project that does not exist is never allowed");
     }
 

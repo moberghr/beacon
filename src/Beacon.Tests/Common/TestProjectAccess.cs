@@ -1,10 +1,13 @@
 using System.Security.Claims;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Beacon.Tests.Common;
@@ -58,11 +61,11 @@ internal static class TestProjectAccess
 
     /// <summary>
     /// A non-Admin caller on the fast path: no project is restricted or archived and every data source is openly
-    /// reachable, so every action but managing members reaches everything (the list filters add nothing).
+    /// reachable, so every action but managing members and curating reaches everything (the list filters add nothing).
     /// </summary>
     public static ProjectAccessScope FastPath => new(
         false,
-        AllActions.ToDictionary(x => x, x => x == ProjectAction.ManageMembers ? ProjectSet.Empty : ProjectSet.All),
+        AllActions.ToDictionary(x => x, x => IsMembershipOnly(x) ? ProjectSet.Empty : ProjectSet.All),
         new Dictionary<int, ProjectGrant>());
 
     /// <summary>An Admin: everything.</summary>
@@ -98,7 +101,7 @@ internal static class TestProjectAccess
                     .Select(y => y.Key)
                     .Order()
                     .ToList(),
-                includesOpen && x != ProjectAction.ManageMembers,
+                includesOpen && !IsMembershipOnly(x),
                 notOpen)
             {
                 IsConfinedToList = confinedToList,
@@ -128,6 +131,48 @@ internal static class TestProjectAccess
             actors ?? Actors(),
             permissions ?? TestPermissions.None,
             logger ?? NullLogger<ProjectRequestAuthorizer>.Instance);
+    }
+
+    /// <summary>
+    /// The real evaluator for <paramref name="actor"/> over <paramref name="factory"/>, which serves the deployment's projects,
+    /// data sources, links and memberships: Beacon user management and authorization on, membership not required everywhere,
+    /// and a caller (or key owner, MCP user, scheduled-work owner) who may write. The evaluator gives the scope a request of
+    /// that caller gets — on the fast path (<see cref="ProjectSet.All"/>) when every project is open and every data source
+    /// reachable.
+    /// </summary>
+    public static IProjectAccessEvaluator RealEvaluator(BeaconActor actor, IDbContextFactory<BeaconContext> factory)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.UserManagement.Enabled = true;
+        configuration.Authorization.Enabled = true;
+
+        var accessor = new Mock<IBeaconActorAccessor>();
+        accessor
+            .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(actor);
+        var provider = new Mock<IBeaconAuthorizationProvider>();
+        provider
+            .Setup(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var services = new Mock<IServiceProvider>();
+        services
+            .Setup(x => x.GetService(typeof(IBeaconAuthorizationProvider)))
+            .Returns(provider.Object);
+        var ceilingSource = new Mock<IRunAsCeilingSource>();
+        ceilingSource
+            .Setup(x => x.GetCeilingAsync(It.IsAny<BeaconActor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ProjectRole.Editor);
+
+        return new ProjectAccessEvaluator(
+            accessor.Object,
+            factory,
+            new DatabaseProjectMembershipSource(configuration, factory),
+            ceilingSource.Object,
+            services.Object,
+            configuration,
+            Options.Create(new ProjectAuthorizationOptions()),
+            NullLogger<ProjectAccessEvaluator>.Instance,
+            new OwnerRunsAsSystemLog(TimeProvider.System, NullLogger<OwnerRunsAsSystemLog>.Instance));
     }
 
     /// <summary>The real actor accessor over <paramref name="httpContextAccessor"/>, in a scope nobody marked as system work.</summary>
@@ -170,6 +215,12 @@ internal static class TestProjectAccess
             .ReturnsAsync(actor);
 
         return accessor.Object;
+    }
+
+    // What only a ProjectAdmin membership grants, never an open project (the evaluator's rule).
+    private static bool IsMembershipOnly(ProjectAction action)
+    {
+        return action is ProjectAction.ManageMembers or ProjectAction.Curate;
     }
 
     private static IEnumerable<ProjectAction> ActionsOf(ProjectRole role)

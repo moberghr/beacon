@@ -1,6 +1,5 @@
 using System.Text.Json;
 using FluentAssertions;
-using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -42,14 +41,13 @@ public class RetentionLockIntegrationTests
     private const string FeedbackNote = "forgot the region filter";
 
     [Test]
-    public async Task Locked_PersistsStructureOnly_NoPromotion()
+    public async Task Locked_PersistsStructureOnly()
     {
         var settings = LockedSettings();
-        var mediator = new Mock<ISender>(MockBehavior.Strict);
 
         var signal = await RecordSignalAsync(settings);
         var auditLog = await RecordAuditAsync(settings);
-        var feedbackSignal = await RecordFeedbackAsync(settings, mediator);
+        var feedbackSignal = await RecordFeedbackAsync(settings);
 
         AssertContentLockCompliant(signal);
         AssertContentLockCompliant(auditLog);
@@ -66,24 +64,16 @@ public class RetentionLockIntegrationTests
 
         feedbackSignal.UserCorrectedSql.Should().BeNull();
         feedbackSignal.FeedbackNote.Should().BeNull();
-
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Never);
     }
 
     [Test]
-    public async Task Unlocked_RetainsContent_PromotesOnce()
+    public async Task Unlocked_RetainsContent()
     {
         var settings = UnlockedSettings();
-        var mediator = new Mock<ISender>();
-        mediator
-            .Setup(x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PromoteSignalToGoldenResult(500));
 
         var signal = await RecordSignalAsync(settings);
         var auditLog = await RecordAuditAsync(settings);
-        var feedbackSignal = await RecordFeedbackAsync(settings, mediator);
+        var feedbackSignal = await RecordFeedbackAsync(settings);
 
         signal.Question.Should().Be(Question);
         signal.GeneratedSql.Should().Be(GeneratedSql);
@@ -96,10 +86,6 @@ public class RetentionLockIntegrationTests
 
         feedbackSignal.UserCorrectedSql.Should().Be(FeedbackCorrectedSql);
         feedbackSignal.FeedbackNote.Should().Be(FeedbackNote);
-
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Once);
     }
 
     private static McpSettingsData LockedSettings() =>
@@ -165,7 +151,7 @@ public class RetentionLockIntegrationTests
         return captured[0];
     }
 
-    private static async Task<McpQuerySignal> RecordFeedbackAsync(McpSettingsData settings, Mock<ISender> mediator)
+    private static async Task<McpQuerySignal> RecordFeedbackAsync(McpSettingsData settings)
     {
         // The rated signal is whatever the signal path already persisted for this project: under the lock it was
         // written redacted (RecordSignalAsync above proves that), so the row the feedback handler loads carries no
@@ -189,7 +175,7 @@ public class RetentionLockIntegrationTests
             .Setup(x => x.ResolveAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(ContentRetentionDecision.From(settings));
 
-        var handler = new RecordQueryFeedbackHandler(factory, mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
+        var handler = new RecordQueryFeedbackHandler(factory, TestGroundingSqlChecks.PassThrough().Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
 
         await handler.Handle(
             new RecordQueryFeedbackCommand(seededSignal.Id, McpUserVerdict.Correct, FeedbackCorrectedSql, FeedbackNote),

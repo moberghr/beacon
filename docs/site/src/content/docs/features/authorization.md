@@ -475,9 +475,12 @@ A member holds one role in a project. The **effective role** is the lower of the
 | Write: create and change resources | – | ✓ | ✓ | ✓ | ✓ |
 | Manage: delete, archive, take over a lock, force a metadata refresh | – | only as the recorded owner | ✓ | ✓ | ✓ |
 | Manage members and link data sources | – | – | – | ✓ | ✓ |
+| Curate grounding: review learned patterns, edit or regenerate documentation, apply or reject documentation patches, verify relationships and delete verified ones | – | – | – | ✓ | ✓ |
 | Restrict or open the project | – | – | – | – | ✓ |
 
 A UserAdmin also manages the members of every project (never a protected user's), and restricts any project, without being its member (see [Functional permissions](#functional-permissions)); a DataSourceAdmin links data sources no open project holds, when it can read them.
+
+**Curating grounding** (`ProjectAction.Curate`) changes what every caller's prompts are built from, so it is held only by a project admin member of the project and by Admins. An open project never grants it, and it is never granted to an API key (whatever its scope, Read or Execute), an MCP caller (user or system, whatever its scope) or the owner of scheduled work, whatever their role. Beacon's own background jobs run without a caller and no project check applies to them, but none of them sends a curation command: the learning job stores new patterns as `NeedsEvidence`, auto-approves only through the replay gate and never applies a documentation patch. A curation that records who decided — reviewing a learned pattern, promoting or editing a golden case, verifying a relationship — also needs a signed-in Beacon user (`403` otherwise). This is deliberate: a host that wants only Admins to curate adds no project admins. A project's own grounding — its learned patterns (approve, reject, set back to pending), its documentation (editing a section, regenerating the documentation) and documentation patches to a section — needs Curate in that project. A data source's shared grounding — verifying or un-verifying a relationship, deleting a verified one, applying or rejecting a documentation patch to a column or table description — needs Write (Manage, to delete) where the caller acts and Curate in **every** live project linking the source, or the DataSourceAdmin permission (with that action where it acts); a source no live project links is curated only by a DataSourceAdmin or an Admin. A relationship someone without Curate creates is stored unverified until a curator verifies it, and a verified relationship such a caller relabels or gives another cardinality is stored unverified again. Golden examples and the glossary stay Admin-only. The pattern, patch and relationship lists and the documentation return `canCurate`, decided the same way, and the UI offers the curation actions only then, with the reason otherwise. See [Knowledge Base → Who curates grounding](/features/knowledge-base/#who-curates-grounding).
 
 The recorded owner is a data contract's or subscription's owner, an AI actor's creator, and a query's lock holder. The ownership rules on tasks, contracts and AI actors still apply on top: both the project action and the owner rule must pass.
 
@@ -485,7 +488,7 @@ The recorded owner is a data contract's or subscription's owner, an AI actor's c
 
 - A data source is reachable only through a project the caller may use. A resource that reads several data sources is reachable only through **one** project that links all of them. Resources addressed by their data sources alone (an ad-hoc preview, a metadata read, a data contract) have no home project: any such project serves.
 - **Unlinked data sources.** A data source no project links stays reachable as before only if it existed before this version (`OpenWhenUnlinked`, true for those rows). A new data source is Admin-only until it is linked — link it on create (the **Projects** field of the create dialog, `projectIds` on `POST /beacon/api/data-sources`).
-- **Shared data sources.** A source linked to an open project is reachable through that project by everyone with a role, even when a restricted project links it too. Writes to a source's shared state — relationships, metadata description edits, a forced metadata refresh, documentation patches that write descriptions — need Write in **every** live project that links it, or an Admin, because that state grounds every project that uses the source.
+- **Shared data sources.** A source linked to an open project is reachable through that project by everyone with a role, even when a restricted project links it too. Writes to a source's shared state — relationships, metadata description edits, a forced metadata refresh — need Write in **every** live project that links it, or an Admin, because that state grounds every project that uses the source; curating it (verifying relationships, deleting verified ones, applying documentation patches that write descriptions) needs Curate there instead (see [Curating grounding](#project-roles)).
 - **Linking.** A project admin (or an Admin) links data sources into the project from its page (**Link data sources**, `POST /beacon/api/projects/{id}/data-sources`). Anyone but an Admin may link only sources already linked to a live open project; a host's data source links only into the project the host declares for it (the project with the same host key), for Admins too. An unreadable or missing source answers `404`, a readable one that may not be linked `403`, and nothing is linked partially. The same rules apply to the data sources named when a project is created (`dataSourceIds` and `repositoryUrls` may be omitted or `null`: none). Each link records who created it; links the host creates, and links that existed before this version, record no one.
 - **Queries without steps** read no data source, so no project holds them: their creator (recorded as the query's owner) reads and changes them, and Admins; once the query has steps, the project rule above applies to it and to the work derived from it. A step-less query created before owners were recorded has no owner: it is reachable while every project is open and every data source openly reachable (and the caller carries no project list), and Admin-only otherwise.
 - **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the database login may read. Give each data source a login that sees only what the projects linking it should see: a login that can read several boundaries defeats project separation, because a view, a synonym or a function in the source's own database can still read whatever the login can. Beacon also refuses SQL that names another database (see [Database names in SQL](#database-names-in-sql)), which only holds when the data source's database is configured.
@@ -1322,6 +1325,218 @@ five columns.
   - `awaitingApproval` and `message` on the create responses of migration jobs, data contracts and recipients.
   - The new `ChangeApprovalKind` enum. `ApprovalUpdated` hub events also carry change request ids (a client refetches
     what they govern).
+
+## Upgrading: grounding integrity
+
+This version makes golden examples an Admin's — feedback records verdicts — makes curating grounding a project admin's,
+binds every curation to what the curator reviewed, and checks SQL and questions before Beacon stores them as grounding.
+See [Knowledge Base → Who curates grounding](/features/knowledge-base/#who-curates-grounding) and
+[How cases are created](/features/knowledge-base/#how-cases-are-created).
+
+- **Feedback no longer creates golden examples.** A `correct` verdict — from the `feedback` MCP tool, the MCP
+  Playground or `POST /beacon/api/eval/feedback` — is recorded on its query signal with the user who recorded it, and
+  waits on the golden candidates list (`GET /beacon/api/eval/golden/candidates`, Admin) until an Admin promotes it with
+  `POST /beacon/api/eval/golden/promote`. A workflow that relied on feedback to add examples now needs an Admin to
+  promote them. The `feedback` tool says so in its description, its answer and the server instructions.
+- **Feedback keeps the verdict and says what became of the corrected SQL.** Corrected SQL that cannot be kept — the
+  project does not retain query content, the answer did not run on a single data source, or the grounding SQL check
+  refuses it — is dropped and the verdict recorded all the same. The tool's answer says so with the reason, and
+  `POST /beacon/api/eval/feedback` now answers with a body: `correctedSqlRecorded` and
+  `correctedSqlNotRecordedReason`.
+- **Only answers to questions are candidates, and a promotion applies to what the Admin reviewed.** The candidates are
+  `ask` signals rated `correct` (a `query` or `dry_run` signal's "question" is the SQL it ran); each carries `sqlHash`, the
+  SHA-256 of the SQL a promotion starts from. The promotion body needs `reviewedSqlHash` — that `sqlHash` — besides
+  `signalId` and `notes`. A signal no longer rated `correct`, or whose SQL hashes otherwise by then, is refused (`409`:
+  reload the candidates and review it again), and so is a promotion whose signal changes between its read and its claim;
+  a `query` or `dry_run` signal answers `400`.
+- **Existing golden cases stay active.** Cases created before this version keep their question, SQL and state, and
+  `GET /beacon/api/eval/golden` returns them with `promotedByUserId` and `promotedByName` (and `modifiedByUserId` and
+  `modifiedByName`, until they are edited) `null`; the **Golden examples** tab shows them as *Not recorded*. After startup
+  Beacon warns with the number of active golden cases that record no promoting user, and their projects. Review them on
+  the **Golden examples** tab, run the [grounding recheck](/features/knowledge-base/#rechecking-stored-grounding), and
+  deactivate any you did not choose yourself (the tab's **Deactivate**, or `PUT /beacon/api/eval/golden/{id}` with
+  `isActive: false`). Nothing is deactivated automatically.
+- **A signal is promoted once.** A promotion claims its signal — sets `promotedAt` and `promotedEvalCaseId` with one
+  conditional update, only while the signal is unpromoted, still rated `correct` and still holding the reviewed SQL — in
+  the transaction that creates the case. Promoting it again, or two Admins promoting it at the same moment, answers with
+  the case already promoted from it (`alreadyPromoted: true`, active or not) and creates nothing; a signal promoted before
+  this version answers with the first case promoted from it. Before this version a signal could be promoted more than
+  once (by repeated feedback, or by promoting it again): those cases are left as they are.
+- **Grounding SQL is checked before it is stored.** Corrected SQL from feedback, gold SQL that is promoted or edited, and
+  a learned pattern's example SQL when it is mined, approved or auto-approved pass `IGroundingSqlCheck`: the SQL is read
+  in its data source's dialect, its comments are removed, and it must pass the read-only gate and the catalog check a
+  saved query step passes. Nothing runs. Comment characters inside a string literal are kept when the dialect's tokenizer
+  reads the literal as the database does (`'a--b'` on PostgreSQL, `N'a--b'` on SQL Server, `'#1'` on MySQL); a comment that cannot
+  be removed safely (an executable comment, an unclosed one, a literal the engine reads differently from the tokenizer,
+  such as `'a--b'` on MySQL), characters a reviewer cannot see (format characters such as bidirectional overrides and
+  zero-width characters, tag characters, variation selectors) and SQL for a data source Beacon holds no tables or
+  columns for ("Extract metadata for this data source first") are refused. Refused SQL refuses the promotion, the edit
+  and the approval (`400` with the reason); a mined example is not stored (a new pattern gets none, an existing one keeps
+  its example), and the aggregation run logs how many were dropped, by identifiers only; feedback keeps the verdict and
+  drops only the SQL. A question holding characters a reviewer cannot see is refused where it is promoted or edited
+  (`400`). Rows stored before this version are not rewritten.
+- **Curating grounding needs the project admin role.** Approving, rejecting or resetting a learned pattern, editing a
+  documentation section, **regenerating a project's documentation** (`POST /beacon/api/projects/{id}/generate-documentation`),
+  applying or rejecting a documentation patch, verifying a relationship and **deleting a verified relationship** now need
+  [Curate](#project-roles): a project admin member of the project (in every live project linking the data source, for a
+  patch to a description and for a relationship) or an Admin; a DataSourceAdmin curates a source's shared grounding.
+  **Editors — in open projects too — and API keys lose these actions** (`403`). Curate is never granted to an API key
+  (Read or Execute scope), an MCP caller (user or system) or the owner of scheduled work; Beacon's background jobs send
+  no curation command. Reviewing a pattern, promoting or editing a golden case and verifying a relationship record who did
+  it, so they also need a signed-in Beacon user (`403` otherwise). A project without project admin members is curated
+  only by Admins (and DataSourceAdmins for its sources' shared grounding) until members are added; with user management
+  on, Beacon warns after startup about live projects that learn from feedback and have no enabled project admin, by id.
+  Add a project admin to each project whose grounding someone other than an Admin should curate. Deleting an unverified
+  relationship keeps the rule it had.
+- **Relationships.** A relationship created by someone without Curate is stored unverified (`isVerified: false` in the
+  create answer) until a curator verifies it, and a verified relationship that someone without Curate relabels or gives
+  another cardinality is stored unverified again; a curator's edit keeps it verified and records the curator as its
+  verifier. `PUT /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}` now answers `200` with
+  `isVerified` (it answered `204`). Existing relationships keep their state. The prompt lists unverified relationships
+  under *Join Paths (UNVERIFIED — pending curator verification)*: an inferred one with its confidence, one a user added as
+  *added, pending curator verification*.
+- **A learned pattern's review status** is `Approved`, `Rejected` or `Pending` (anything else answers `400`), the
+  reviewer recorded is the caller, and the decision applies to the content the reviewer saw: the status body needs
+  `reviewedContentHash` — the pattern's `contentHash` from the list — and a pattern whose content hashes otherwise by then,
+  also one the aggregation refreshes between the decision's read and its write, is not decided (`409`). Approving a
+  pattern without example SQL checks nothing.
+- **Approval binds to reviewed content.** The aggregation refresh no longer rewrites the content, example question or
+  example SQL of a pattern a person approved or rejected (its signal count and confidence still refresh), and every write
+  it makes to an existing pattern is conditional on the status it read. An auto-approved pattern whose content changes goes
+  back to `NeedsEvidence` and is replayed again, and the run logs how many. Content is compared with its counts left out,
+  its question on one line and its SQL without comments, so a `CommonQuery`, `JoinPattern` or `DocumentationGap` pattern
+  whose count moves stays auto-approved. Before an auto-approval the example SQL passes `IGroundingSqlCheck` again, as for
+  a person's approval; a pattern whose SQL fails stays `NeedsEvidence` and the run logs how many, by identifiers only.
+  Auto-approval is decided by replay alone: `LearningAutoApproveThreshold` decides nothing.
+- **Only curators' verdicts weigh in mining.** An `incorrect` verdict keeps an answer out of the common-query and join
+  patterns, as before. A `correct` verdict makes an answer its pattern's preferred example and raises the pattern's
+  confidence only when a curator of the project (a project admin member or an Admin) recorded it; the asker's own
+  `correct` verdict no longer counts. Example questions come only from `ask` signals.
+- **Prompts show grounding without comments and hidden characters.** Gold SQL and learned-pattern example SQL stored
+  before this version, and glossary metric expressions, are rendered without their comments, read in their data source's
+  dialect, and questions on one line; SQL whose comments cannot be removed, and SQL or a question holding characters a reviewer
+  cannot see, is left out of the prompt (a golden case whole, a pattern's example alone, a term's metric expression
+  alone). The documentation export (knowledge answers, `get_documentation`, the documentation chunk index) and the prompt
+  that generates documentation render a pattern's example SQL the same way. Beacon logs the ids left out, once per hour
+  per row. `GET /beacon/api/eval/golden` returns `goldSqlWithheld` and `questionWithheld`, and
+  `GET /beacon/api/mcp/learned-patterns` `exampleSqlWithheld` and `exampleQuestionWithheld`: which rows a prompt leaves
+  out. Nothing stored changes.
+- **The grounding recheck.** `GET /beacon/api/eval/grounding/recheck?projectId={id}` (Admin) runs today's checks over a
+  project's active golden cases and approved or auto-approved learned patterns and lists the ones they refuse, by id with
+  the reasons; it changes nothing (see
+  [Rechecking stored grounding](/features/knowledge-base/#rechecking-stored-grounding)).
+- **The UI follows the same rules.** The MCP Learning page shows a pattern's or patch's review actions only when the
+  caller may curate it (otherwise the reason), offers a pattern only Approve, Reject and back to Pending, and shows each
+  pattern and patch in full (current and proposed content) with who reviewed, applied or rejected it (*Unknown reviewer*
+  for a review time without a recorded reviewer) and which examples a prompt leaves out, with characters that do not show
+  escaped. A decision on a pattern, or a promotion, whose content changed since it was listed says so: reload and review
+  it again. An Admin also gets the **Golden candidates** tab (promote; an answer promoted already shows its existing
+  case), the **Golden examples** tab (a project's cases with who promoted and who last edited each, which a prompt leaves
+  out, and **Deactivate**) and the **Recheck** tab (the grounding recheck, with **Deactivate** for a golden case and
+  **Back to pending** for a pattern, as the Admin chooses). A project's documentation hides the section edit action from
+  anyone without Curate and says that editing or regenerating it needs a project admin; a relationship's verify action — and the delete action
+  on a verified one — is offered, with the reason otherwise, only to those who may curate the source, and adding or
+  editing one says when it is pending curator verification. The playground's feedback form says feedback is recorded for
+  an Admin to review, and when the corrected SQL was not kept, why.
+- **People are named by display name.** The candidates' `askedByName` and `ratedByName`, the golden cases'
+  `promotedByName` and `modifiedByName`, a pattern's `reviewedByName` and a patch's `appliedByName` are the user's display
+  name, or "User {id}" without one — never the user name or e-mail address.
+
+**Migration.** `AddGroundingAttribution` (PostgreSQL `20261013140000`, SQL Server `20261013140001`) adds five nullable
+columns and changes no stored value: `mcp_eval_cases.promoted_by_user_id` and `mcp_eval_cases.modified_by_user_id`,
+`mcp_query_signals.feedback_by_user_id` and `mcp_query_signals.promoted_eval_case_id` (`Users.Id` and `McpEvalCases.Id`;
+no key, no index) and `mcp_query_signals.promoted_at` (a timestamp). Nothing is backfilled: cases, verdicts and
+promotions recorded before keep them null, and a signal promoted before is still found by its cases' `source_signal_id`.
+Rolling it back drops the five columns.
+
+**Public API.**
+
+- New types and members:
+  - `IGroundingSqlCheck` (`Beacon.Core.Services`, registered with `TryAdd`, so a host may replace it) with
+    `CheckAsync(int dataSourceId, string sql, CancellationToken)` and `StartBatch()` — **a host's own implementation must
+    add `StartBatch()`** (it may return itself) — and `GroundingSqlCheckResult` (`Sql`, `Refusal`, `Dialect`,
+    `IsAllowed`, `Allowed(string sql, string? dialect = null)`, `Refused(string)`). A host's own `IStepSqlSaveCheck` is
+    still asked for every grounding SQL; the grounding check reads the dialect and whether a catalog exists itself.
+  - `GroundingSqlText.WithoutComments(string, DataSourceType, DatabaseEngineType?)` and
+    `WithoutComments(string, string? dialect)`; `GroundingText` (`HasHiddenCharacters`, `Question`); `GroundingDialects`
+    (`OfAsync`, `NeedsDialect`, `Withholds`) — all in `Beacon.Core.Services` — and `GroundingCurators.AmongAsync`
+    (`Beacon.Core.Authorization`).
+  - `ProjectAction.Curate`; `ProjectCheck.EveryLinkingProjectAction` (default `Write`, so existing shared-source checks
+    are unchanged), an optional `everyLinkingProjectAction` parameter on `ProjectCheck.SharedSource`, and
+    `ProjectCheck.CurateShared(resource)`.
+  - `McpEvalCase.PromotedByUserId` and `ModifiedByUserId`; `McpQuerySignal.FeedbackByUserId`, `PromotedAt` and
+    `PromotedEvalCaseId`.
+  - `GetGoldenCandidatesQuery` (a `ListRequest` with `ProjectId`) and `GoldenCandidateItem` (`SignalId`, `ProjectId`,
+    `DataSourceId`, `Question`, `Sql`, `SqlHash`, `IsUserCorrected`, `FeedbackNote`, `AskedByUserId`, `AskedByName`,
+    `RatedByUserId`, `RatedByName`, `CreatedTime`).
+  - `RecheckGroundingQuery(int ProjectId)`, `RecheckGroundingResult` (`ProjectId`, `GoldenCasesChecked`,
+    `PatternsChecked`, `Refused`), `GroundingRecheckItem` (`Kind`, `Id`, `DataSourceId`, `Question`, `Sql`,
+    `QuestionRefusal`, `SqlRefusal`, `PromotedByUserId`, `PatternStatus`, `ContentHash`) and `GroundingRecheckKind`
+    (`GoldenCase`, `LearnedPattern`).
+  - `RecordQueryFeedbackResult(bool CorrectedSqlRecorded, string? CorrectedSqlNotRecordedReason)` and
+    `UpdateSchemaRelationshipResult(bool IsVerified)`.
+  - `GoldenCaseItem.PromotedByUserId`, `PromotedByName`, `ModifiedByUserId`, `ModifiedByName`, `GoldSqlWithheld` and
+    `QuestionWithheld`; `PromoteSignalToGoldenResult.AlreadyPromoted`; `LearnedPatternEntry.ReviewedByName`,
+    `ReviewedAt`, `CanCurate`, `ExampleSqlWithheld`, `ExampleQuestionWithheld` and `ContentHash`;
+    `DocumentationPatchEntry.AppliedByName` and `CanCurate`; `SchemaRelationshipItem.CanCurate`;
+    `GetProjectDocumentationResult.CanCurate`.
+- Changed signatures (code that constructs or sends these must change):
+  - `PromoteSignalToGoldenCommand(int SignalId, string ReviewedSqlHash, string? Notes = null)` — a new positional
+    parameter.
+  - `UpdatePatternStatusCommand.ReviewedContentHash` (required); `UpdatePatternStatusCommand.ReviewedByUserId` is removed
+    (the reviewer is the caller).
+  - `CreateSchemaRelationshipResult(int Id, bool IsVerified)` — a new positional parameter.
+  - `RecordQueryFeedbackCommand` is an `IRequest<RecordQueryFeedbackResult>` and `UpdateSchemaRelationshipCommand` an
+    `IRequest<UpdateSchemaRelationshipResult>` (both were `IRequest`).
+- Changed behaviour: `RecordQueryFeedbackCommand` no longer sends `PromoteSignalToGoldenCommand`, records the rater, and
+  keeps the verdict when it drops the corrected SQL (the result says why); `PromoteSignalToGoldenCommand` promotes only
+  an `ask` signal still rated `Correct` whose SQL matches `ReviewedSqlHash` (`BeaconConflictException` otherwise), claims
+  the signal, and answers with the existing case for a signal promoted already, also when a concurrent promotion wins;
+  `PromoteSignalToGoldenCommand`, `UpdateGoldenCaseCommand` and `UpdatePatternStatusCommand` (to `Approved`) throw
+  `InvalidOperationException` for SQL that fails the check (and the first two for a question holding characters a reviewer
+  cannot see) and store the SQL without comments; `UpdatePatternStatusCommand` throws `BeaconConflictException` when the
+  pattern's content no longer matches `ReviewedContentHash`, and `InvalidOperationException` for a status other than
+  `Approved`, `Rejected` or `Pending`; the promotion, the golden case edit, the pattern review and
+  `VerifySchemaRelationshipCommand` throw `BeaconForbiddenException` for a caller without a Beacon user;
+  `GenerateProjectDocumentationCommand` needs Curate, and `DeleteSchemaRelationshipCommand` throws
+  `BeaconForbiddenException` for a verified relationship when the caller may not curate the source;
+  `CreateSchemaRelationshipCommand` stores the relationship unverified, and `UpdateSchemaRelationshipCommand` a changed
+  verified one, when the caller may not curate the source; `IMcpLearningAggregationService` stores mined example SQL only
+  when it passes, keeps the content of patterns a person decided, writes existing patterns only while they keep the status
+  it read, re-checks example SQL before an auto-approval, and weighs only curators' `correct` verdicts;
+  `IKnowledgeGraphService.GetRelevantPatternsAsync` (signature unchanged) renders example SQL without comments, reading
+  each data source's dialect itself, and example questions on one line, leaving out what cannot be shown so.
+- REST and OpenAPI:
+  - New routes: `GET /beacon/api/eval/golden/candidates` (`projectId`, `page`, `pageSize`, `sort`; a paged list of
+    `GoldenCandidateItem`) and `GET /beacon/api/eval/grounding/recheck` (`projectId`; a `RecheckGroundingResult`), both
+    Admin by live roles, like the rest of `/eval`.
+  - New body fields: `reviewedSqlHash` on `POST /beacon/api/eval/golden/promote`; `reviewedContentHash` on
+    `PUT /beacon/api/mcp/learned-patterns/{id}/status`.
+  - New response fields: `promotedByUserId`, `promotedByName`, `modifiedByUserId`, `modifiedByName`, `goldSqlWithheld`
+    and `questionWithheld` on `GET /beacon/api/eval/golden`; `alreadyPromoted` on `POST /beacon/api/eval/golden/promote`;
+    `reviewedByName`, `reviewedAt`, `canCurate`, `exampleSqlWithheld`, `exampleQuestionWithheld` and `contentHash` on
+    `GET /beacon/api/mcp/learned-patterns`; `appliedByName` and `canCurate` on
+    `GET /beacon/api/mcp/documentation-patches`; `canCurate` on `GET /beacon/api/data-sources/{dataSourceId}/relationships`
+    and `GET /beacon/api/projects/{id}/documentation`; `isVerified` on
+    `POST /beacon/api/data-sources/{dataSourceId}/relationships`.
+  - New response bodies: `POST /beacon/api/eval/feedback` answers `correctedSqlRecorded` and
+    `correctedSqlNotRecordedReason`; `PUT /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}` answers
+    `200` with `isVerified` instead of `204`.
+  - New `400`s: `POST /beacon/api/eval/golden/promote`, `PUT /beacon/api/eval/golden/{id}` and
+    `PUT /beacon/api/mcp/learned-patterns/{id}/status` for SQL that fails the check (with the reason), and the first two for
+    a question holding characters a reviewer cannot see; `POST /beacon/api/eval/golden/promote` for a `query` or `dry_run`
+    signal; `PUT /beacon/api/mcp/learned-patterns/{id}/status` for a status other than `Approved`, `Rejected` or
+    `Pending`. Corrected SQL that fails the check no longer refuses `POST /beacon/api/eval/feedback`.
+  - New `403`s: without Curate, `PUT /beacon/api/mcp/learned-patterns/{id}/status`,
+    `PUT /beacon/api/projects/documentation-sections/{id}`, `POST /beacon/api/projects/{id}/generate-documentation`,
+    `POST /beacon/api/mcp/documentation-patches/{id}/apply` and `/reject`,
+    `POST /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}/verify`, and
+    `DELETE /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}` for a verified relationship; without a
+    Beacon user, `PUT /beacon/api/mcp/learned-patterns/{id}/status`, `POST /beacon/api/eval/golden/promote`,
+    `PUT /beacon/api/eval/golden/{id}` and the relationship verify route.
+  - New `404`: `GET /beacon/api/eval/grounding/recheck` for a project that does not exist.
+  - New `409`s: `POST /beacon/api/eval/golden/promote` when the candidate's rating or SQL changed since it was reviewed;
+    `PUT /beacon/api/mcp/learned-patterns/{id}/status` when the pattern's content changed since it was reviewed.
 
 ## Migration from Previous Versions
 

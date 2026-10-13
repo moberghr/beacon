@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Metadata;
 
 namespace Beacon.AI.Services.Knowledge;
@@ -109,7 +110,8 @@ internal static class SchemaContextFormatter
     /// <summary>
     /// Renders join paths as explicit join chains, split into a verified block and an unverified one.
     /// Without this the model has to infer joins from foreign-key columns; with it the join is grounded
-    /// fact for verified relationships and an openly-flagged guess for inferred ones.
+    /// fact for verified relationships and an openly-flagged guess for unverified ones: an inferred edge with its
+    /// confidence, an edge a user added as pending curator verification.
     /// </summary>
     public static void AppendJoinPaths(StringBuilder sb, IReadOnlyList<SchemaJoinPath> paths)
     {
@@ -138,7 +140,7 @@ internal static class SchemaContextFormatter
         if (unverified.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("## Join Paths (UNVERIFIED — inferred from column naming, confirm before relying on these)");
+            sb.AppendLine("## Join Paths (UNVERIFIED — pending curator verification, confirm before relying on these)");
             foreach (var path in unverified)
             {
                 AppendJoinPath(sb, path, showConfidence: true);
@@ -175,7 +177,11 @@ internal static class SchemaContextFormatter
             var line = $"    {step.FromQualifiedName}.{step.FromColumn} = {step.ToQualifiedName}.{step.ToColumn}";
             if (showConfidence && !step.IsVerified)
             {
-                line += $"   (inferred, confidence {step.Confidence.ToString("0.00", CultureInfo.InvariantCulture)})";
+                // Only an inferred edge has a confidence of its own: a foreign-key or manual edge's 1.00 would read as
+                // certainty it has not earned while unverified.
+                line += step.Origin == SchemaRelationshipOrigin.Inferred
+                    ? $"   (inferred from column naming, confidence {step.Confidence.ToString("0.00", CultureInfo.InvariantCulture)})"
+                    : "   (added, pending curator verification)";
             }
 
             sb.AppendLine(line);

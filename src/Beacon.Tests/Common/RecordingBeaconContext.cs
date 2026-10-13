@@ -53,7 +53,7 @@ internal sealed class RecordingBeaconContext(
     /// <summary>
     /// An async-capable set over <paramref name="rows"/>; <c>Add</c> records into <paramref name="saved"/>.
     /// <c>ExecuteUpdateAsync</c> writes onto the matching rows, and <c>ExecuteDeleteAsync</c> and <c>Remove</c> take them
-    /// out of <paramref name="rows"/>, as the database would.
+    /// out of <paramref name="rows"/>, as the database would. <c>FindAsync</c> finds a row by its <c>Id</c>.
     /// </summary>
     public static DbSet<T> MemorySet<T>(List<T> rows, List<object> saved) where T : class
     {
@@ -81,6 +81,16 @@ internal sealed class RecordingBeaconContext(
 
         // As EF's own set: a query started with AsQueryable() is the set itself.
         set.Setup(x => x.AsQueryable()).Returns(() => set.Object);
+
+        // FindAsync by the entity's Id, its primary key.
+        var id = typeof(T).GetProperty("Id");
+        if (id != null)
+        {
+            set.Setup(x => x.FindAsync(It.IsAny<object?[]?>(), It.IsAny<CancellationToken>()))
+                .Returns((object?[]? keys, CancellationToken _) => ValueTask.FromResult<T?>(
+                    rows.FirstOrDefault(x => keys is { Length: 1 } && Equals(id.GetValue(x), keys[0]))));
+        }
+
         return set.Object;
     }
 }

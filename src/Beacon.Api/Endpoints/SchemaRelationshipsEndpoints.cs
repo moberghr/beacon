@@ -37,18 +37,17 @@ internal static class SchemaRelationshipsEndpoints
                     }, ct))
             .WithName("CreateSchemaRelationship");
 
+        // The answer says whether the relationship is still verified: a non-curator's change to a verified one unverifies it.
         relationships.MapPut("/relationships/{relationshipId:int}",
-            async (int dataSourceId, int relationshipId, UpdateSchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
-            {
-                await m.Send(new UpdateSchemaRelationshipCommand
-                {
-                    DataSourceId = dataSourceId,
-                    Id = relationshipId,
-                    Label = body.Label,
-                    Cardinality = body.Cardinality
-                }, ct);
-                return TypedResults.NoContent();
-            }).WithName("UpdateSchemaRelationship");
+                (int dataSourceId, int relationshipId, UpdateSchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
+                    m.Send(new UpdateSchemaRelationshipCommand
+                    {
+                        DataSourceId = dataSourceId,
+                        Id = relationshipId,
+                        Label = body.Label,
+                        Cardinality = body.Cardinality
+                    }, ct))
+            .WithName("UpdateSchemaRelationship");
 
         relationships.MapPost("/relationships/{relationshipId:int}/verify",
             async (int dataSourceId, int relationshipId, VerifySchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
@@ -57,6 +56,7 @@ internal static class SchemaRelationshipsEndpoints
                 return TypedResults.NoContent();
             }).WithName("VerifySchemaRelationship");
 
+        // A verified relationship needs a curator of the data source (403 otherwise).
         relationships.MapDelete("/relationships/{relationshipId:int}",
             async (int dataSourceId, int relationshipId, IMediator m, CancellationToken ct) =>
             {

@@ -18,7 +18,8 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// SC9 (§1.12) — two projects share data source 1; learned patterns are grounding material and must be
 /// filtered by the caller's project, not just by data source. Both learned-pattern read sites in
-/// <c>ProjectDocumentationService</c> are driven through <c>TestAsyncQueryable</c>-backed DbSets (§4.7).
+/// <c>ProjectDocumentationService</c> are driven through <c>TestAsyncQueryable</c>-backed DbSets (§4.7), and the
+/// generation read's project predicate is pinned in its SQL on both providers.
 /// </summary>
 [TestFixture]
 public class LearnedPatternProjectScopingTests
@@ -60,14 +61,28 @@ public class LearnedPatternProjectScopingTests
         patterns.Select(x => x.Content).Should().Equal(PatternA);
     }
 
-    private static ProjectDocumentationService BuildService()
+    // The project predicate is in the SQL itself, on both providers — not applied after a data-source-wide read.
+    [TestCase(false, "m.project_id = @projectId", "m.data_source_id = ANY (@dataSourceIds)")]
+    [TestCase(true, "[m].[ProjectId] = @projectId", "[m].[DataSourceId] = @dataSourceIds1")]
+    public async Task GetLearnedPatternsForDoc_ProjectPredicate_ReachesTheSql_Translates(bool sqlServer, string project, string sources)
+    {
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows();
+
+        var patterns = await BuildService(capture.Factory()).GetLearnedPatternsForDocAsync(ProjectB, [SharedDataSourceId], CancellationToken.None);
+
+        patterns.Should().BeEmpty();
+        capture.Commands.Should().ContainSingle().Which.Should().Contain(project).And.Contain(sources);
+        capture.CommandParameters[0].Values.Should().Contain(ProjectB);
+    }
+
+    private static ProjectDocumentationService BuildService(IDbContextFactory<BeaconContext>? capturing = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new ScopingContext());
 
         return new ProjectDocumentationService(
-            factory.Object,
+            capturing ?? factory.Object,
             new Mock<IKnowledgeGraphService>().Object,
             new Mock<ILlmProvider>().Object,
             new Mock<IDataSourceProviderFactory>().Object,

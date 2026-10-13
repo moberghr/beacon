@@ -34,6 +34,84 @@ internal static class SqlCommentStripper
         return Strip(sql, dialect, lineCommentsOnly: true);
     }
 
+    /// <summary>
+    /// True when every comment marker in <paramref name="sql"/> (<c>/*</c>, and the line-comment markers the dialect reads)
+    /// lies inside a string literal as the dialect's tokenizer reads it, and the SQL holds no comment at all — so the markers
+    /// are text the statement compares or returns, not comments. Fails closed (false) under the same conditions as
+    /// <see cref="Strip(string, string?)"/>: an unknown dialect, SQL that does not tokenize, a disallowed character, a lexical
+    /// rule the engine reads differently from the parser — and also SQL holding a surrogate pair, a literal whose text does
+    /// not start and end with its quotes, or tokens that do not cover the text one after another.
+    /// </summary>
+    public static bool MarkersOnlyInLiterals(string sql, string? dialect)
+    {
+        if (string.IsNullOrEmpty(sql) || SqlAst.IndexOfDisallowedCharacter(sql) >= 0 || sql.Any(char.IsSurrogate))
+        {
+            return false;
+        }
+
+        var parserDialect = SqlDialects.Resolve(dialect);
+        if (parserDialect is GenericDialect || SqlReadOnlyAstValidator.RejectLexicalDifferences(sql, dialect, parserDialect) != null)
+        {
+            return false;
+        }
+
+        IList<Token> tokens;
+        try
+        {
+            tokens = new Tokenizer().Tokenize(sql, parserDialect);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        var lineStarts = LineStarts(sql);
+        var literals = new List<(int Start, int End)>();
+        var previous = 0;
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            if (tokens[i] is Whitespace { WhitespaceKind: WhitespaceKind.InlineComment or WhitespaceKind.MultilineComment })
+            {
+                return false;
+            }
+
+            var start = OffsetOf(tokens[i].Location, lineStarts, sql.Length);
+            var end = i + 1 < tokens.Count ? OffsetOf(tokens[i + 1].Location, lineStarts, sql.Length) : sql.Length;
+            if (start != previous || end <= start)
+            {
+                return false;
+            }
+
+            previous = end;
+            if (!IsStringLiteral(tokens[i]))
+            {
+                continue;
+            }
+
+            if (!IsQuotedSpan(sql, start, end))
+            {
+                return false;
+            }
+
+            literals.Add((start, end));
+        }
+
+        if (previous != sql.Length)
+        {
+            return false;
+        }
+
+        foreach (var (marker, length) in MarkersIn(sql, dialect))
+        {
+            if (!literals.Any(x => x.Start < marker && marker + length < x.End))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static string Strip(string sql, string? dialect, bool lineCommentsOnly)
     {
         if (string.IsNullOrEmpty(sql) || !MayHoldComment(sql, dialect) || SqlAst.IndexOfDisallowedCharacter(sql) >= 0)
@@ -170,6 +248,69 @@ internal static class SqlCommentStripper
     private static bool MayHoldComment(string sql, string? dialect)
     {
         return sql.Contains("/*", StringComparison.Ordinal) || SqlDialects.HasLineCommentMarker(sql, dialect);
+    }
+
+    // Every position a comment marker starts at, with the marker's length: `/*` and `--` everywhere, `#` where the dialect
+    // reads it as a comment (MySQL, BigQuery), `//` where it does (Snowflake).
+    private static IEnumerable<(int Offset, int Length)> MarkersIn(string sql, string? dialect)
+    {
+        var parserDialect = SqlDialects.Resolve(dialect);
+        var hash = parserDialect is MySqlDialect or BigQueryDialect;
+        var slashes = parserDialect is SnowflakeDialect;
+        for (var i = 0; i < sql.Length; i++)
+        {
+            var rest = sql.AsSpan(i);
+            if (rest.StartsWith("/*") || rest.StartsWith("--") || (slashes && rest.StartsWith("//")))
+            {
+                yield return (i, 2);
+            }
+            else if (hash && sql[i] == '#')
+            {
+                yield return (i, 1);
+            }
+        }
+    }
+
+    private static bool IsStringLiteral(Token token)
+    {
+        return token is SingleQuotedString
+            or DoubleQuotedString
+            or NationalStringLiteral
+            or EscapedStringLiteral
+            or HexStringLiteral
+            or DollarQuotedString
+            or RawStringLiteral
+            or SingleQuotedRawStringLiteral
+            or DoubleQuotedRawStringLiteral
+            or SingleQuotedByteStringLiteral
+            or DoubleQuotedByteStringLiteral
+            or TripleSingleQuotedString
+            or TripleDoubleQuotedString
+            or TripleSingleQuotedRawStringLiteral
+            or TripleDoubleQuotedRawStringLiteral
+            or TripleSingleQuotedByteStringLiteral
+            or TripleDoubleQuotedByteStringLiteral
+            or UnicodeStringLiteral;
+    }
+
+    // A literal's text opens with its quote (after a prefix of up to two letters, or U&, as in N'…', E'…', U&'…', rb'…')
+    // and closes with the same quote; a dollar-quoted string opens and closes with `$`.
+    private static bool IsQuotedSpan(string sql, int start, int end)
+    {
+        var quoteAt = start;
+        while (quoteAt < end && (char.IsAsciiLetter(sql[quoteAt]) || sql[quoteAt] == '&'))
+        {
+            quoteAt++;
+        }
+
+        if (quoteAt >= end - 1 || quoteAt - start > 2)
+        {
+            return false;
+        }
+
+        var quote = sql[quoteAt];
+
+        return quote is '\'' or '"' or '$' && sql[end - 1] == quote;
     }
 
     private static bool StartsComment(string sql, int offset)

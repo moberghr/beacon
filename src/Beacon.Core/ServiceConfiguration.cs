@@ -177,6 +177,8 @@ public static class ServiceConfiguration
         // provider path), and the check a query step's SQL passes before it is stored.
         services.TryAddTransient<GatedSqlRunner>();
         services.TryAddTransient<IStepSqlSaveCheck, StepSqlSaveCheck>();
+        // The check SQL passes before Beacon stores it as grounding (feedback, golden cases, learned patterns).
+        services.TryAddTransient<IGroundingSqlCheck, GroundingSqlCheck>();
 
         // Domain services
         services.TryAddTransient<IJobService, JobService>();

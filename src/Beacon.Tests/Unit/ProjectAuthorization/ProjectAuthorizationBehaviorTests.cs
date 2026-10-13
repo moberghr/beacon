@@ -229,8 +229,9 @@ public class ProjectAuthorizationBehaviorTests
     [Test]
     public async Task SharedSourceState_NeedsWriteInEveryLinkingProject()
     {
-        var everywhere = new SqlCapture().ThenRows([WritableProject]);
-        var notEverywhere = new SqlCapture().ThenRows([WritableProject], [ReadableProject]);
+        // The live projects linking the source, as (data source, project) pairs.
+        var everywhere = new SqlCapture().ThenRows([4, WritableProject]);
+        var notEverywhere = new SqlCapture().ThenRows([4, WritableProject], [4, ReadableProject]);
         var source = ResolvedProjectResource.ThroughSources([4]);
 
         await Authorizer(Member, source, everywhere)

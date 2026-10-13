@@ -385,7 +385,7 @@ public class McpPlaygroundServiceTests
         var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
         var handler = new RecordQueryFeedbackHandler(
             factory.Object,
-            Mock.Of<MediatR.ISender>(),
+            TestGroundingSqlChecks.PassThrough().Object,
             policy.Object,
             TestProjectAccess.Evaluator(editor),
             actors,

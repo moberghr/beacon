@@ -7,6 +7,9 @@ using Beacon.Api.Endpoints;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
+using Beacon.Core.Data.Enums;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using MediatR;
@@ -14,8 +17,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Moq;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
@@ -35,6 +40,12 @@ public class ByIdRouteDenialTests
     /// <summary>A Viewer in project 1 that reaches nothing else.</summary>
     private static readonly ProjectAccessScope Viewer = TestProjectAccess.Scope(
         new Dictionary<int, ProjectRole> { [ReadOnlyProject] = ProjectRole.Viewer },
+        includesOpen: false,
+        notOpen: []);
+
+    /// <summary>An Editor in project 1 that reaches nothing else: it writes there, and curates nothing.</summary>
+    private static readonly ProjectAccessScope Editor = TestProjectAccess.Scope(
+        new Dictionary<int, ProjectRole> { [ReadOnlyProject] = ProjectRole.Editor },
         includesOpen: false,
         notOpen: []);
 
@@ -79,9 +90,111 @@ public class ByIdRouteDenialTests
         failures.Should().BeEmpty();
     }
 
+    [Test]
+    public async Task EveryCurationRoute_RefusesAnEditor_BeforeItsHandler()
+    {
+        var routes = (await BeaconApiRoutes.ReadAsync())
+            .Where(x => x.IsById)
+            .Distinct()
+            .ToList();
+        var requests = BeaconApiRoutes.RequestTypes();
+        var curationRoutes = routes
+            .Select(x => (Route: x, Request: BeaconApiRoutes.RequestOf(x, requests)))
+            .Where(x => x.Request != null && typeof(IProjectAuthorizedRequest).IsAssignableFrom(x.Request))
+            .Where(x => ChecksOf(x.Request!).Any(IsCuration))
+            .Select(x => x.Route)
+            .ToList();
+        curationRoutes.Select(x => x.Name).Should().BeEquivalentTo(
+            "UpdatePatternStatus",
+            "ApplyDocumentationPatch",
+            "RejectDocumentationPatch",
+            "UpdateDocumentationSection",
+            "GenerateProjectDocumentation",
+            "VerifySchemaRelationship");
+
+        await using var asEditor = await StartAsync(ResolvedProjectResource.InProject(ReadOnlyProject), Editor);
+        var failures = new List<string>();
+        foreach (var route in curationRoutes)
+        {
+            var status = await SendAsync(asEditor, route);
+            if (status != HttpStatusCode.Forbidden)
+            {
+                failures.Add($"{route}: an Editor answered {(int)status}, not 403");
+            }
+        }
+
+        failures.Should().BeEmpty();
+    }
+
+    // The scopes the real evaluator gives on an all-open deployment where user 7 is project 1's ProjectAdmin: the
+    // ProjectAdmin passes every curation route's check (the request reaches its handler, whose dependencies are not
+    // registered); the ProjectAdmin's own API key keeps the role's other actions and is refused every curation (403).
+    [Test]
+    public async Task EveryCurationRoute_PassesAProjectAdmin_AndRefusesItsApiKey()
+    {
+        var routes = (await BeaconApiRoutes.ReadAsync())
+            .Where(x => x.IsById)
+            .Distinct()
+            .ToList();
+        var requests = BeaconApiRoutes.RequestTypes();
+        var curationRoutes = routes
+            .Where(x => BeaconApiRoutes.RequestOf(x, requests) is { } request
+                && typeof(IProjectAuthorizedRequest).IsAssignableFrom(request)
+                && ChecksOf(request).Any(IsCuration))
+            .ToList();
+        var factory = OpenDeployment();
+        var projectAdmin = new BeaconActor("ext-ada", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 7, IsActiveUser = true, RoleLevel = 2 };
+        var apiKey = projectAdmin with { Kind = BeaconPrincipalKind.ApiKey, IsApiKey = true, ScopeCeiling = Beacon.Core.Mcp.McpCallerScope.Execute };
+        var projectAdminScope = await TestProjectAccess.RealEvaluator(projectAdmin, factory).GetScopeAsync(CancellationToken.None);
+        var apiKeyScope = await TestProjectAccess.RealEvaluator(apiKey, factory).GetScopeAsync(apiKey, CancellationToken.None);
+        apiKeyScope.Allows(ReadOnlyProject, ProjectAction.Manage).Should().BeTrue("the key acts as its ProjectAdmin owner otherwise");
+
+        await using var asProjectAdmin = await StartAsync(ResolvedProjectResource.InProject(ReadOnlyProject), projectAdminScope);
+        await using var asApiKey = await StartAsync(ResolvedProjectResource.InProject(ReadOnlyProject), apiKeyScope);
+        var failures = new List<string>();
+        foreach (var route in curationRoutes)
+        {
+            if (!await ReachesHandlerAsync(asProjectAdmin, route))
+            {
+                failures.Add($"{route}: the ProjectAdmin was refused");
+            }
+
+            var refused = await SendAsync(asApiKey, route);
+            if (refused != HttpStatusCode.Forbidden)
+            {
+                failures.Add($"{route}: the ProjectAdmin's API key answered {(int)refused}, not 403");
+            }
+        }
+
+        curationRoutes.Should().HaveCount(6);
+        failures.Should().BeEmpty();
+    }
+
+    private static bool IsCuration(ProjectCheck check)
+    {
+        return check.Action == ProjectAction.Curate
+            || (check.InEveryLinkingProject && check.EveryLinkingProjectAction == ProjectAction.Curate);
+    }
+
     private static IReadOnlyList<ProjectCheck> ChecksOf(Type request)
     {
         return ((IProjectAuthorizedRequest)RuntimeHelpers.GetUninitializedObject(request)).ProjectChecks.ToList();
+    }
+
+    // A request that passes the route's checks reaches its handler, whose dependencies are not registered: the test server
+    // rethrows the handler's activation failure.
+    private static async Task<bool> ReachesHandlerAsync(WebApplication app, BeaconApiRoute route)
+    {
+        try
+        {
+            var status = await SendAsync(app, route);
+
+            return status is not (HttpStatusCode.Forbidden or HttpStatusCode.NotFound);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.StartsWith("Unable to resolve service", StringComparison.Ordinal))
+        {
+            return true;
+        }
     }
 
     private static async Task<HttpStatusCode> SendAsync(WebApplication app, BeaconApiRoute route)
@@ -125,7 +238,7 @@ public class ByIdRouteDenialTests
         };
     }
 
-    private static async Task<WebApplication> StartAsync(ResolvedProjectResource resolved)
+    private static async Task<WebApplication> StartAsync(ResolvedProjectResource resolved, ProjectAccessScope? scope = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.WebHost.UseTestServer();
@@ -139,9 +252,9 @@ public class ByIdRouteDenialTests
                 typeof(Beacon.AI.ServiceConfiguration).Assembly);
             x.AddOpenBehavior(typeof(ProjectAuthorizationBehavior<,>));
         });
-        builder.Services.AddScoped(_ => TestProjectAccess.Authorizer(Viewer, new FixedResolver(resolved), new SqlCapture().Factory()));
-        builder.Services.AddSingleton(Moq.Mock.Of<IActorUserResolver>());
-        builder.Services.AddSingleton(Moq.Mock.Of<IBeaconUserContext>());
+        builder.Services.AddScoped(_ => TestProjectAccess.Authorizer(scope ?? Viewer, new FixedResolver(resolved), new SqlCapture().Factory()));
+        builder.Services.AddSingleton(Mock.Of<IActorUserResolver>());
+        builder.Services.AddSingleton(Mock.Of<IBeaconUserContext>());
         var app = builder.Build();
 
         // The route policies pass (an Admin-role session); project access comes from the authorizer's fixed scope alone.
@@ -172,6 +285,32 @@ public class ByIdRouteDenialTests
         await app.StartAsync();
 
         return app;
+    }
+
+    // Open projects 1 and 2, data source 10 linked to project 1, user 7 project 1's ProjectAdmin: every project open and
+    // every data source reachable, so a user's scope is on the fast path.
+    private static IDbContextFactory<BeaconContext> OpenDeployment()
+    {
+        var projects = new[] { 1, 2 }
+            .Select(x => new Project { Id = x, Name = $"project {x}" })
+            .ToList();
+        var source = new DataSource { Id = 10, Name = "sales", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "enc" };
+        var links = new List<ProjectDataSource> { new() { ProjectId = 1, DataSourceId = 10, Project = projects[0], DataSource = source } };
+        var members = new List<ProjectMember> { new() { ProjectId = 1, UserId = 7, Role = ProjectRole.ProjectAdmin } };
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object>
+                {
+                    [typeof(Project)] = RecordingBeaconContext.MemorySet(projects, []),
+                    [typeof(DataSource)] = RecordingBeaconContext.MemorySet([source], []),
+                    [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(links, []),
+                    [typeof(ProjectMember)] = RecordingBeaconContext.MemorySet(members, [])
+                },
+                []));
+
+        return factory.Object;
     }
 
     private sealed class FixedResolver(ResolvedProjectResource resolved) : IProjectResourceResolver

@@ -209,6 +209,17 @@ internal sealed class ProjectDocumentationService(
             sb.AppendLine("*The following insights were automatically learned from MCP query patterns.*");
             sb.AppendLine();
 
+            // Example SQL as a prompt shows it — the export feeds knowledge answers, get_documentation and the doc-chunk
+            // index: without its comments, in the pattern's data source's dialect; left out when it cannot be shown so.
+            var dialects = await GroundingDialects.OfAsync(
+                context,
+                learnedPatterns
+                    .Where(x => GroundingDialects.NeedsDialect(x.ExampleSql))
+                    .Select(x => x.DataSourceId)
+                    .Distinct()
+                    .ToList(),
+                ct);
+            var leftOut = new List<int>();
             var byType = learnedPatterns.GroupBy(p => p.PatternType);
             foreach (var group in byType)
             {
@@ -216,10 +227,30 @@ internal sealed class ProjectDocumentationService(
                 foreach (var p in group)
                 {
                     sb.AppendLine($"- **{p.SchemaName}.{p.TableName}**{(p.ColumnName != null ? $".{p.ColumnName}" : "")}: {p.PatternContent}");
-                    if (!string.IsNullOrEmpty(p.ExampleSql))
-                        sb.AppendLine($"  - Example: `{p.ExampleSql}`");
+                    if (string.IsNullOrWhiteSpace(p.ExampleSql))
+                    {
+                        continue;
+                    }
+
+                    var exampleSql = GroundingSqlText.WithoutComments(p.ExampleSql, dialects.GetValueOrDefault(p.DataSourceId));
+                    if (string.IsNullOrEmpty(exampleSql))
+                    {
+                        leftOut.Add(p.Id);
+                        continue;
+                    }
+
+                    sb.AppendLine($"  - Example: `{exampleSql}`");
                 }
                 sb.AppendLine();
+            }
+
+            if (leftOut.Count > 0)
+            {
+                logger.LogWarning(
+                    "{Count} learned-pattern example SQL(s) of project {ProjectId} were left out of the documentation export: they hold a comment that cannot be removed or characters that do not show (patterns {PatternIds})",
+                    leftOut.Count,
+                    doc.ProjectId,
+                    string.Join(",", leftOut));
             }
         }
 
@@ -992,19 +1023,69 @@ internal sealed class ProjectDocumentationService(
             .ToListAsync(ct);
     }
 
+    // The project's approved patterns as the documentation prompt is given them: example SQL without its comments in the
+    // pattern's data source's dialect, example questions on one line; an example that cannot be shown so is left out (the
+    // lesson stays), logged by pattern id.
     internal async Task<List<LearnedPatternForDoc>> GetLearnedPatternsForDocAsync(int projectId, List<int> dataSourceIds, CancellationToken ct)
     {
         await using var ctx = await contextFactory.CreateDbContextAsync(ct);
-        return await ctx.McpLearnedPatterns
+        var patterns = await ctx.McpLearnedPatterns
             .Where(x => x.ProjectId == projectId)
             .Where(x => dataSourceIds.Contains(x.DataSourceId))
             .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
             .OrderByDescending(x => x.Confidence)
             .Take(30)
-            .Select(x => new LearnedPatternForDoc(
-                x.PatternType.ToString(), x.TableName, x.ColumnName,
-                x.PatternContent, x.ExampleQuestion, x.ExampleSql))
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.DataSourceId,
+                    x.PatternType,
+                    x.TableName,
+                    x.ColumnName,
+                    x.PatternContent,
+                    x.ExampleQuestion,
+                    x.ExampleSql
+                })
             .ToListAsync(ct);
+
+        var dialects = await GroundingDialects.OfAsync(
+            ctx,
+            patterns
+                .Where(x => GroundingDialects.NeedsDialect(x.ExampleSql))
+                .Select(x => x.DataSourceId)
+                .Distinct()
+                .ToList(),
+            ct);
+        var leftOut = new List<int>();
+        var forDoc = new List<LearnedPatternForDoc>(patterns.Count);
+        foreach (var pattern in patterns)
+        {
+            var exampleSql = string.IsNullOrWhiteSpace(pattern.ExampleSql)
+                ? null
+                : GroundingSqlText.WithoutComments(pattern.ExampleSql, dialects.GetValueOrDefault(pattern.DataSourceId));
+            var exampleQuestion = GroundingText.Question(pattern.ExampleQuestion);
+            if ((!string.IsNullOrWhiteSpace(pattern.ExampleSql) && string.IsNullOrEmpty(exampleSql))
+                || (!string.IsNullOrWhiteSpace(pattern.ExampleQuestion) && exampleQuestion == null))
+            {
+                leftOut.Add(pattern.Id);
+            }
+
+            forDoc.Add(new LearnedPatternForDoc(
+                pattern.PatternType.ToString(), pattern.TableName, pattern.ColumnName,
+                pattern.PatternContent, exampleQuestion, string.IsNullOrEmpty(exampleSql) ? null : exampleSql));
+        }
+
+        if (leftOut.Count > 0)
+        {
+            logger.LogWarning(
+                "{Count} learned-pattern example(s) of project {ProjectId} were left out of the documentation prompt: they hold a comment that cannot be removed or characters that do not show (patterns {PatternIds})",
+                leftOut.Count,
+                projectId,
+                string.Join(",", leftOut));
+        }
+
+        return forDoc;
     }
 
     // --- Enum/Status Discovery ---

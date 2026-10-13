@@ -14,8 +14,9 @@ namespace Beacon.Core.Authorization.ProjectAccess;
 /// not checked, and its handler answers a missing resource as before; so is a caller whose access reaches every project
 /// for the actions concerned, without a database read. A check a functional permission grants
 /// (<see cref="ProjectCheck.GrantedBy"/>) passes for a holder of it once the resource exists; a holder of
-/// <see cref="BeaconPermissions.DataSourceAdmin"/> changes shared data-source state without Write in every project
-/// linking the source. Permissions are read only when a check could need them.
+/// <see cref="BeaconPermissions.DataSourceAdmin"/> changes shared data-source state without
+/// <see cref="ProjectCheck.EveryLinkingProjectAction"/> in every project linking the source (<see cref="LinkingProjects"/>).
+/// Permissions are read only when a check could need them.
 /// </summary>
 internal sealed class ProjectRequestAuthorizer(
     IProjectAccessEvaluator evaluator,
@@ -109,7 +110,7 @@ internal sealed class ProjectRequestAuthorizer(
         return check.Resource.Kind != ProjectResourceKind.QuerySignal
             && scope.For(ProjectAction.Read).Ids == null
             && scope.For(check.Action).Ids == null
-            && (!check.InEveryLinkingProject || scope.For(ProjectAction.Write).Ids == null);
+            && (!check.InEveryLinkingProject || scope.For(check.EveryLinkingProjectAction).Ids == null);
     }
 
     // The checks the caller passes through a functional permission it holds. No read without such a check.
@@ -166,49 +167,64 @@ internal sealed class ProjectRequestAuthorizer(
             }
         }
 
-        if (check.InEveryLinkingProject && resolved.SharedDataSourceIds.Count > 0)
+        if (!check.InEveryLinkingProject)
         {
-            await DemandWriteInEveryLinkingProjectAsync(context, scope, check, resolved.SharedDataSourceIds, cancellationToken);
+            return;
+        }
+
+        if (resolved.SharedDataSourceIds.Count > 0)
+        {
+            await DemandInEveryLinkingProjectAsync(context, scope, check, resolved.SharedDataSourceIds, cancellationToken);
+        }
+        else if (resolved.ProjectId is { } projectId && !scope.Allows(projectId, check.EveryLinkingProjectAction))
+        {
+            // The change writes no shared state (a patch to the project's own documentation): its own project decides.
+            var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
+            throw Refused(actor, check with { Action = check.EveryLinkingProjectAction });
         }
     }
 
     // Shared data-source state (metadata, relationships, descriptions) is grounding for every project linking the
-    // source: changing it needs Write in each of them, or a DataSourceAdmin.
-    private async Task DemandWriteInEveryLinkingProjectAsync(
+    // source: changing it needs the check's linking action (Write, or Curate) in each of them, or a DataSourceAdmin.
+    private async Task DemandInEveryLinkingProjectAsync(
         BeaconContext context,
         ProjectAccessScope scope,
         ProjectCheck check,
         IReadOnlyList<int> dataSourceIds,
         CancellationToken cancellationToken)
     {
-        if (scope.For(ProjectAction.Write).Ids == null)
+        var action = check.EveryLinkingProjectAction;
+        if (scope.For(action).Ids == null)
         {
             return;
         }
 
-        var linking = await context.Projects
-            .Where(x => x.DataSources.Any(y => dataSourceIds.Contains(y.DataSourceId)))
-            .Select(x => x.Id)
-            .ToListAsync(cancellationToken);
-        if (linking.All(x => scope.Allows(x, ProjectAction.Write)))
+        // The rule the curation lists apply per row (GroundingCuration): every live project linking each source.
+        var linking = await LinkingProjects.OfAsync(context, dataSourceIds, cancellationToken);
+        if (dataSourceIds.All(x => LinkingProjects.AllowEvery(scope, linking[x].ToList(), action)))
         {
             return;
         }
 
-        // A DataSourceAdmin administers the source for every project: Write where it acts (checked above) is enough.
+        // A DataSourceAdmin administers the source for every project: the check's action where it acts (checked above) is
+        // enough.
         if ((await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.DataSourceAdmin))
         {
             return;
         }
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var refusal = action == ProjectAction.Write
+            ? "Changing a shared data source needs write access in every project that links it."
+            : "Curating a shared data source needs the project admin role in every project that links it, or the DataSourceAdmin permission.";
 
         throw AccessRefusal.Of(
             logger,
             actor,
             $"{check.Resource.Kind} (shared data source)",
             check.Resource.Id,
-            "Changing a shared data source needs write access in every project that links it.");
+            refusal);
     }
 
     private static async Task<bool> AllowsAsync(

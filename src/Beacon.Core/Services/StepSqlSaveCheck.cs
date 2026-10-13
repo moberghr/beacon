@@ -21,19 +21,52 @@ public interface IStepSqlSaveCheck
     Task<string?> RejectionAsync(int dataSourceId, string sql, IReadOnlyCollection<string> placeholders, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// The built-in save check as the grounding SQL check uses it: the data source and its catalog are read through a
+/// <see cref="StepSqlSaveCheck.SourceCache"/> the caller holds — one check, or a batch — so each is read once and the
+/// grounding check takes the dialect from the same read the save check judges with. A host's own
+/// <see cref="IStepSqlSaveCheck"/> does not implement it and is asked through its public method.
+/// </summary>
+internal interface IStepSqlSourceCheck
+{
+    /// <summary>The data source as the check reads it (null when it does not exist), read once per cache.</summary>
+    Task<StepSqlSaveCheck.Target?> TargetAsync(int dataSourceId, StepSqlSaveCheck.SourceCache cache, CancellationToken cancellationToken);
+
+    /// <summary>The data source's catalog (empty when Beacon holds no metadata for it), read once per cache.</summary>
+    Task<IReadOnlyDictionary<string, HashSet<string>>> CatalogAsync(int dataSourceId, StepSqlSaveCheck.SourceCache cache, CancellationToken cancellationToken);
+
+    /// <summary>As <see cref="IStepSqlSaveCheck.RejectionAsync"/>, reading the data source and its catalog through the cache.</summary>
+    Task<string?> RejectionAsync(
+        int dataSourceId,
+        string sql,
+        IReadOnlyCollection<string> placeholders,
+        StepSqlSaveCheck.SourceCache cache,
+        CancellationToken cancellationToken);
+}
+
 internal sealed class StepSqlSaveCheck(
     IDbContextFactory<BeaconContext> contextFactory,
     ISqlExecutionGate gate,
-    IConfiguredDatabaseResolver configuredDatabases) : IStepSqlSaveCheck
+    IConfiguredDatabaseResolver configuredDatabases) : IStepSqlSaveCheck, IStepSqlSourceCheck
 {
-    public async Task<string?> RejectionAsync(int dataSourceId, string sql, IReadOnlyCollection<string> placeholders, CancellationToken cancellationToken)
+    public Task<string?> RejectionAsync(int dataSourceId, string sql, IReadOnlyCollection<string> placeholders, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return RejectionAsync(dataSourceId, sql, placeholders, new SourceCache(), cancellationToken);
+    }
 
-        var dataSource = await context.DataSources
-            .Where(x => x.Id == dataSourceId)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (dataSource == null)
+    /// <summary>
+    /// As <see cref="RejectionAsync(int, string, IReadOnlyCollection{string}, CancellationToken)"/>; each data source and its
+    /// catalog are read once for the <paramref name="cache"/>'s lifetime (one check, or a batch).
+    /// </summary>
+    public async Task<string?> RejectionAsync(
+        int dataSourceId,
+        string sql,
+        IReadOnlyCollection<string> placeholders,
+        SourceCache cache,
+        CancellationToken cancellationToken)
+    {
+        var target = await TargetAsync(dataSourceId, cache, cancellationToken);
+        if (target == null)
         {
             return $"Data source {dataSourceId} not found.";
         }
@@ -47,8 +80,8 @@ internal sealed class StepSqlSaveCheck(
             .ToList();
         var (boundSql, _) = QueryHelper.PrepareParameterizedQuery(sql, bindings);
         var request = new SqlGateRequest(
-            StoredSql.Flatten(boundSql, DataSourceSqlDialect.Of(dataSource)),
-            DataSourceSqlDialect.Of(dataSource),
+            StoredSql.Flatten(boundSql, target.Dialect),
+            target.Dialect,
             EnforceReadOnly: true,
             DetectPii: false,
             CustomPiiPatterns: null,
@@ -58,8 +91,8 @@ internal sealed class StepSqlSaveCheck(
             EnableSemanticLint: false,
             MaxRows: null)
         {
-            HostManagedKey = dataSource.HostManagedKey,
-            ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
+            HostManagedKey = target.HostManagedKey,
+            ConfiguredDatabase = target.ConfiguredDatabase
         };
 
         // The read-only stages first: SQL that may never run is refused without reading the catalog.
@@ -68,6 +101,58 @@ internal sealed class StepSqlSaveCheck(
         {
             return readOnly.BlockReason ?? "The SQL was rejected.";
         }
+
+        var catalog = await CatalogAsync(dataSourceId, cache, cancellationToken);
+
+        // The catalog stage reads names, and on some dialects a bind marker reads as one (PostgreSQL parses @p0 as abs(p0)),
+        // so it judges the statement with each placeholder written as NULL instead.
+        var catalogSql = placeholders
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Aggregate(sql, (current, placeholder) => current.Replace(placeholder, "NULL"));
+        var report = gate.Evaluate(request with { Sql = StoredSql.Flatten(catalogSql, request.Dialect), Catalog = catalog });
+
+        return report.Blocked ? report.BlockReason ?? "The SQL was rejected." : null;
+    }
+
+    public async Task<Target?> TargetAsync(int dataSourceId, SourceCache cache, CancellationToken cancellationToken)
+    {
+        if (!cache.Targets.TryGetValue(dataSourceId, out var target))
+        {
+            target = await ReadTargetAsync(dataSourceId, cancellationToken);
+            cache.Targets.Add(dataSourceId, target);
+        }
+
+        return target;
+    }
+
+    public async Task<IReadOnlyDictionary<string, HashSet<string>>> CatalogAsync(int dataSourceId, SourceCache cache, CancellationToken cancellationToken)
+    {
+        if (!cache.Catalogs.TryGetValue(dataSourceId, out var catalog))
+        {
+            catalog = await ReadCatalogAsync(dataSourceId, cancellationToken);
+            cache.Catalogs.Add(dataSourceId, catalog);
+        }
+
+        return catalog;
+    }
+
+    private async Task<Target?> ReadTargetAsync(int dataSourceId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return dataSource == null
+            ? null
+            : new Target(DataSourceSqlDialect.Of(dataSource), dataSource.HostManagedKey, configuredDatabases.Resolve(dataSource));
+    }
+
+    // Keyed as the MCP catalog is: the table alone and schema.table, lower case, each to its lower-case columns.
+    private async Task<IReadOnlyDictionary<string, HashSet<string>>> ReadCatalogAsync(int dataSourceId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var tables = await context.DatabaseMetadata
             .Where(x => x.DataSourceId == dataSourceId)
@@ -82,7 +167,6 @@ internal sealed class StepSqlSaveCheck(
                 })
             .ToListAsync(cancellationToken);
 
-        // Keyed as the MCP catalog is: the table alone and schema.table, lower case, each to its lower-case columns.
         var catalog = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var table in tables)
         {
@@ -93,14 +177,18 @@ internal sealed class StepSqlSaveCheck(
             catalog[$"{table.SchemaName}.{table.TableName}".ToLowerInvariant()] = columns;
         }
 
-        // The catalog stage reads names, and on some dialects a bind marker reads as one (PostgreSQL parses @p0 as abs(p0)),
-        // so it judges the statement with each placeholder written as NULL instead.
-        var catalogSql = placeholders
-            .Where(x => !string.IsNullOrEmpty(x))
-            .Aggregate(sql, (current, placeholder) => current.Replace(placeholder, "NULL"));
-        var report = gate.Evaluate(request with { Sql = StoredSql.Flatten(catalogSql, request.Dialect), Catalog = catalog });
+        return catalog;
+    }
 
-        return report.Blocked ? report.BlockReason ?? "The SQL was rejected." : null;
+    /// <summary>What the check reads of a data source to judge SQL for it.</summary>
+    internal sealed record Target(string? Dialect, string? HostManagedKey, string? ConfiguredDatabase);
+
+    /// <summary>The data sources and catalogs one check or one batch has read, by data source id (a missing data source as null).</summary>
+    internal sealed class SourceCache
+    {
+        public Dictionary<int, Target?> Targets { get; } = [];
+
+        public Dictionary<int, IReadOnlyDictionary<string, HashSet<string>>> Catalogs { get; } = [];
     }
 }
 

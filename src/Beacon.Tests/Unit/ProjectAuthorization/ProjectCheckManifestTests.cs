@@ -13,7 +13,8 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// <summary>
 /// The checks every by-id request declares, pinned: for each <see cref="IProjectAuthorizedRequest"/>, the resource kind,
 /// the property its id comes from and the action, as <c>Kind(Property):Action</c> (<c>:linking</c> for a change to shared
-/// data-source state that also needs Write in every linking project). A request whose kind or action changes (Manage
+/// data-source state that also needs Write in every linking project, <c>:linking(Curate)</c> when it needs Curate there —
+/// grounding curation). A request whose kind or action changes (Manage
 /// weakened to Read, a subscription checked as its query) fails here until the manifest says so on purpose. Requests
 /// whose checks depend on more than ids are pinned per branch below.
 /// </summary>
@@ -28,7 +29,7 @@ public class ProjectCheckManifestTests
     {
         ["AddSubscriptionRecipientsCommand"] = ["Subscription(SubscriptionId):Write"],
         ["AddTaskCommentCommand"] = ["Task(TaskId):Write"],
-        ["ApplyDocumentationPatchCommand"] = ["DocumentationPatch(PatchId):Write:linking"],
+        ["ApplyDocumentationPatchCommand"] = ["DocumentationPatch(PatchId):Write:linking(Curate)"],
         ["ApproveAiActorPlanCommand"] = ["AiActorPlan(PlanId):Write"],
         ["ArchiveAiActorCommand"] = ["AiActor(ActorId):Manage"],
         ["AssignTaskCommand"] = ["Task(TaskId):Write"],
@@ -46,7 +47,7 @@ public class ProjectCheckManifestTests
         ["ExecuteQueryPreviewCommand"] = ["Query(QueryId):Run"],
         ["ExecuteStepPreviewCommand"] = ["Query(QueryId):Run"],
         ["ExportProjectDocumentationCommand"] = ["Documentation(DocumentationId):Read"],
-        ["GenerateProjectDocumentationCommand"] = ["Project(ProjectId):Write"],
+        ["GenerateProjectDocumentationCommand"] = ["Project(ProjectId):Curate"],
         ["GetAiActorDetailsQuery"] = ["AiActor(ActorId):Read"],
         ["GetAiActorPlanQuery"] = ["AiActorPlan(PlanId):Read"],
         ["GetApprovalDetailQuery"] = ["ApprovalRequest(RequestId):Read"],
@@ -86,7 +87,7 @@ public class ProjectCheckManifestTests
         ["RefineAiActorCommand"] = ["AiActor(ActorId):Query"],
         ["RefreshDataSourceMetadataCommand"] = ["DataSource(DataSourceId):Manage:linking"],
         ["RejectAiActorPlanCommand"] = ["AiActorPlan(PlanId):Write"],
-        ["RejectDocumentationPatchCommand"] = ["DocumentationPatch(PatchId):Write"],
+        ["RejectDocumentationPatchCommand"] = ["DocumentationPatch(PatchId):Write:linking(Curate)"],
         ["RemoveProjectMemberCommand"] = ["Project(ProjectId):ManageMembers"],
         ["RemoveSubscriptionRecipientCommand"] = ["Subscription(SubscriptionId):Write"],
         ["RequestPlanRevisionCommand"] = ["AiActorPlan(PlanId):Write"],
@@ -104,11 +105,11 @@ public class ProjectCheckManifestTests
         ["ToggleQueryLockCommand"] = ["Query(QueryId):Manage"],
         ["UnwatchTaskCommand"] = ["Task(TaskId):Read"],
         ["UpdateDataContractCommand"] = ["DataContract(DataContractId):Write", "DataSource(DataSourceId):Write"],
-        ["UpdateDocumentationSectionCommand"] = ["DocumentationSection(SectionId):Write"],
-        ["UpdatePatternStatusCommand"] = ["LearnedPattern(PatternId):Write"],
+        ["UpdateDocumentationSectionCommand"] = ["DocumentationSection(SectionId):Curate"],
+        ["UpdatePatternStatusCommand"] = ["LearnedPattern(PatternId):Curate"],
         ["UpdateQueryCommand"] = ["Query(QueryId):Write"],
         ["UpdateSchemaRelationshipCommand"] = ["DataSource(DataSourceId):Write:linking"],
-        ["VerifySchemaRelationshipCommand"] = ["DataSource(DataSourceId):Write:linking"],
+        ["VerifySchemaRelationshipCommand"] = ["DataSource(DataSourceId):Write:linking(Curate)"],
         ["WatchTaskCommand"] = ["Task(TaskId):Read"]
     };
 
@@ -198,7 +199,12 @@ public class ProjectCheckManifestTests
     private static string Describe(ProjectCheck check, Func<int, string> idName)
     {
         var ids = string.Join("+", check.Resource.Ids.Select(idName));
-        var linking = check.InEveryLinkingProject ? ":linking" : string.Empty;
+        var linking = (check.InEveryLinkingProject, check.EveryLinkingProjectAction) switch
+        {
+            (false, _) => string.Empty,
+            (true, ProjectAction.Write) => ":linking",
+            (true, var action) => $":linking({action})"
+        };
 
         return $"{check.Resource.Kind}({ids}):{check.Action}{linking}";
     }

@@ -24,7 +24,7 @@ internal sealed class FeedbackTool(
     ILogger<FeedbackTool> logger)
 {
     [McpServerTool(Name = "feedback", Title = "Record Answer Feedback", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. A 'correct' verdict is saved as a verified example that improves future answers. Only include a note when the user explicitly asked to record one.")]
+    [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. An 'incorrect' verdict keeps the answer out of the common-query and join patterns Beacon learns; a 'correct' one lists it for an Admin, who may promote it to a verified example for future answers. Corrected SQL is kept only when it passes Beacon's SQL check; the answer says when it was not kept. Only include a note when the user explicitly asked to record one.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("The signal_id from the ask response you are rating")] int signal_id,
         [Description("'correct' or 'incorrect'")] string verdict,
@@ -69,17 +69,18 @@ internal sealed class FeedbackTool(
 
         try
         {
-            await mediator.Send(new RecordQueryFeedbackCommand(signal_id, parsedVerdict, corrected_sql, note), cancellationToken);
+            var result = await mediator.Send(new RecordQueryFeedbackCommand(signal_id, parsedVerdict, corrected_sql, note), cancellationToken);
             sw.Stop();
             await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
                 auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-            return ToolHelper.Success($"Feedback recorded for signal {signal_id}.");
+            return ToolHelper.Success(Answer(signal_id, parsedVerdict, result));
         }
         catch (Exception ex) when (ex is InvalidOperationException or BeaconException)
         {
             sw.Stop();
             // §1.11 — log identifiers only; corrected_sql / note never reach the logger. ex.Message here is the
-            // handler's "signal not found" or refusal text (safe), passed to the audit error slot only.
+            // handler's "signal not found" or refusal text, or the SQL check's reason (audited as the query tool audits a
+            // gate refusal), passed to the audit error slot only.
             logger.LogWarning("Feedback recording failed for signal {SignalId}", signal_id);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
                 auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
@@ -108,6 +109,21 @@ internal sealed class FeedbackTool(
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
 
         return scope.Allows(signalProjectId.Value, ProjectAction.Query);
+    }
+
+    // What the verdict does, and whether the corrected SQL was kept (and why not).
+    private static string Answer(int signalId, McpUserVerdict verdict, RecordQueryFeedbackResult result)
+    {
+        var effect = verdict == McpUserVerdict.Correct
+            ? "An Admin can promote this answer to a verified example for future answers; until then it does not change them."
+            : "Beacon no longer learns common-query or join patterns from this answer.";
+        var correctedSql = result.CorrectedSqlNotRecordedReason != null
+            ? $" The corrected SQL was not kept: {result.CorrectedSqlNotRecordedReason}"
+            : result.CorrectedSqlRecorded
+                ? " The corrected SQL was kept with the verdict, without its comments."
+                : "";
+
+        return $"Feedback recorded for signal {signalId}. {effect}{correctedSql}";
     }
 
     private static bool TryParseVerdict(string verdict, out McpUserVerdict parsed)

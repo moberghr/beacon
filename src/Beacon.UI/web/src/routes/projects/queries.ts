@@ -139,6 +139,8 @@ export interface ProjectDocumentationHistoryEntry {
 export interface GetProjectDocumentationResult {
   latest: ProjectDocumentationDetailEntry | null;
   history: ProjectDocumentationHistoryEntry[];
+  /** Whether the caller may edit the sections: Curate in the project (its project admin role, or an Admin). */
+  canCurate?: boolean;
 }
 
 /** The projects grid: server-paged, newest first, name search in the URL. */

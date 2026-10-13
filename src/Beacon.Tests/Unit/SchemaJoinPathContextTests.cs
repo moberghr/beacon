@@ -62,10 +62,35 @@ public class SchemaJoinPathContextTests
         SchemaContextFormatter.AppendJoinPaths(sb, expansion.JoinPaths);
         var output = sb.ToString();
 
-        output.Should().Contain("UNVERIFIED");
-        output.Should().Contain("confirm before relying on these");
-        output.Should().Contain("(inferred, confidence 0.90)");
+        output.Should().Contain("## Join Paths (UNVERIFIED — pending curator verification, confirm before relying on these)");
+        output.Should().Contain("(inferred from column naming, confidence 0.90)");
         output.Should().NotContain("## Join Paths (verified)");
+    }
+
+    // A relationship a user added without curating the source waits for a curator: labelled so, never with the 1.00
+    // confidence a manual edge carries, which would read as certainty it has not earned.
+    [Test]
+    public void AppendJoinPaths_AManualUnverifiedEdge_IsPendingCuratorVerification_WithoutAConfidence()
+    {
+        var sb = new StringBuilder();
+        var tables = new List<TableMetadataDto>
+        {
+            Table("crm", "accounts", Pk("id")),
+            Table("billing", "invoices", Pk("id"), Plain("account_id"))
+        };
+        var edges = new List<SchemaRelationshipEdge>
+        {
+            new("billing", "invoices", "account_id", "crm", "accounts", "id",
+                "account", SchemaRelationshipOrigin.Manual, IsVerified: false, Confidence: 1.0)
+        };
+        var expansion = SchemaGraph.Build(tables, edges).Expand(["billing.invoices", "crm.accounts"], maxTables: 20);
+
+        SchemaContextFormatter.AppendJoinPaths(sb, expansion.JoinPaths);
+        var output = sb.ToString();
+
+        output.Should().Contain("## Join Paths (UNVERIFIED — pending curator verification, confirm before relying on these)");
+        output.Should().Contain("billing.invoices.account_id = crm.accounts.id   (added, pending curator verification)");
+        output.Should().NotContain("1.00").And.NotContain("inferred from column naming");
     }
 
     [Test]

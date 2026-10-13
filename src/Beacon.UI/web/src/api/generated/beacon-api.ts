@@ -5838,7 +5838,9 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  recordQueryFeedback(body: RecordQueryFeedbackBody): Promise<void> {
+  recordQueryFeedback(
+    body: RecordQueryFeedbackBody,
+  ): Promise<RecordQueryFeedbackResult> {
     let url_ = this.baseUrl + "/beacon/api/eval/feedback";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -5849,6 +5851,7 @@ export class BeaconApiClient {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
     };
 
@@ -5857,7 +5860,9 @@ export class BeaconApiClient {
     });
   }
 
-  protected processRecordQueryFeedback(response: Response): Promise<void> {
+  protected processRecordQueryFeedback(
+    response: Response,
+  ): Promise<RecordQueryFeedbackResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -5865,7 +5870,15 @@ export class BeaconApiClient {
     }
     if (status === 200) {
       return response.text().then((_responseText) => {
-        return;
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as RecordQueryFeedbackResult);
+        return result200;
       });
     } else if (status !== 200 && status !== 204) {
       return response.text().then((_responseText) => {
@@ -5877,7 +5890,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<void>(null as any);
+    return Promise.resolve<RecordQueryFeedbackResult>(null as any);
   }
 
   /**
@@ -5943,6 +5956,138 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<GoldenCaseItem[]>(null as any);
+  }
+
+  /**
+   * @param projectId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getGoldenCandidates(
+    projectId: number | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfGoldenCandidateItem> {
+    let url_ = this.baseUrl + "/beacon/api/eval/golden/candidates?";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "ProjectId=" + encodeURIComponent("" + projectId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetGoldenCandidates(_response);
+    });
+  }
+
+  protected processGetGoldenCandidates(
+    response: Response,
+  ): Promise<PagedListOfGoldenCandidateItem> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfGoldenCandidateItem);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfGoldenCandidateItem>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  recheckGrounding(projectId: number): Promise<RecheckGroundingResult> {
+    let url_ = this.baseUrl + "/beacon/api/eval/grounding/recheck?";
+    if (projectId === undefined || projectId === null)
+      throw new Error(
+        "The parameter 'projectId' must be defined and cannot be null.",
+      );
+    else url_ += "projectId=" + encodeURIComponent("" + projectId) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRecheckGrounding(_response);
+    });
+  }
+
+  protected processRecheckGrounding(
+    response: Response,
+  ): Promise<RecheckGroundingResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as RecheckGroundingResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<RecheckGroundingResult>(null as any);
   }
 
   /**
@@ -9477,13 +9622,13 @@ export class BeaconApiClient {
   }
 
   /**
-   * @return No Content
+   * @return OK
    */
   updateSchemaRelationship(
     dataSourceId: number,
     relationshipId: number,
     body: UpdateSchemaRelationshipBody,
-  ): Promise<void> {
+  ): Promise<UpdateSchemaRelationshipResult> {
     let url_ =
       this.baseUrl +
       "/beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}";
@@ -9508,6 +9653,7 @@ export class BeaconApiClient {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
     };
 
@@ -9516,15 +9662,25 @@ export class BeaconApiClient {
     });
   }
 
-  protected processUpdateSchemaRelationship(response: Response): Promise<void> {
+  protected processUpdateSchemaRelationship(
+    response: Response,
+  ): Promise<UpdateSchemaRelationshipResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
       response.headers.forEach((v: any, k: any) => (_headers[k] = v));
     }
-    if (status === 204) {
+    if (status === 200) {
       return response.text().then((_responseText) => {
-        return;
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as UpdateSchemaRelationshipResult);
+        return result200;
       });
     } else if (status !== 200 && status !== 204) {
       return response.text().then((_responseText) => {
@@ -9536,7 +9692,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<void>(null as any);
+    return Promise.resolve<UpdateSchemaRelationshipResult>(null as any);
   }
 
   /**
@@ -17836,6 +17992,7 @@ export interface CreateSchemaRelationshipBody {
 
 export interface CreateSchemaRelationshipResult {
   id: number;
+  isVerified: boolean;
 
   [key: string]: any;
 }
@@ -18236,6 +18393,8 @@ export interface DocumentationPatchEntry {
   status?: McpDocPatchStatus;
   createdTime?: Date;
   appliedAt?: Date | null;
+  appliedByName?: string | null;
+  canCurate?: boolean;
 
   [key: string]: any;
 }
@@ -18554,6 +18713,7 @@ export interface GetProjectDetailResult {
 export interface GetProjectDocumentationResult {
   latest: ProjectDocumentationDetailEntry | null;
   history: ProjectDocumentationHistoryEntry[];
+  canCurate?: boolean;
 
   [key: string]: any;
 }
@@ -18630,6 +18790,24 @@ export interface GlossaryTermItem {
   [key: string]: any;
 }
 
+export interface GoldenCandidateItem {
+  signalId?: number;
+  projectId?: number;
+  dataSourceId?: number;
+  question?: string;
+  sql?: string;
+  sqlHash?: string | null;
+  isUserCorrected?: boolean;
+  feedbackNote?: string | null;
+  askedByUserId?: number | null;
+  askedByName?: string | null;
+  ratedByUserId?: number | null;
+  ratedByName?: string | null;
+  createdTime?: Date;
+
+  [key: string]: any;
+}
+
 export interface GoldenCaseItem {
   id?: number;
   projectId?: number;
@@ -18640,8 +18818,34 @@ export interface GoldenCaseItem {
   isActive?: boolean;
   notes?: string | null;
   createdTime?: Date;
+  promotedByUserId?: number | null;
+  promotedByName?: string | null;
+  modifiedByUserId?: number | null;
+  modifiedByName?: string | null;
+  goldSqlWithheld?: boolean;
+  questionWithheld?: boolean;
 
   [key: string]: any;
+}
+
+export interface GroundingRecheckItem {
+  kind?: GroundingRecheckKind;
+  id?: number;
+  dataSourceId?: number;
+  question?: string | null;
+  sql?: string | null;
+  questionRefusal?: string | null;
+  sqlRefusal?: string | null;
+  promotedByUserId?: number | null;
+  patternStatus?: McpPatternStatus | null;
+  contentHash?: string | null;
+
+  [key: string]: any;
+}
+
+export enum GroundingRecheckKind {
+  GoldenCase = 0,
+  LearnedPattern = 1,
 }
 
 export enum HealthStatus {
@@ -18767,6 +18971,12 @@ export interface LearnedPatternEntry {
   status?: McpPatternStatus;
   createdTime?: Date;
   lastRefreshedAt?: Date | null;
+  reviewedByName?: string | null;
+  reviewedAt?: Date | null;
+  canCurate?: boolean;
+  exampleSqlWithheld?: boolean;
+  exampleQuestionWithheld?: boolean;
+  contentHash?: string | null;
 
   [key: string]: any;
 }
@@ -19199,6 +19409,14 @@ export interface PagedListOfDocumentationPatchEntry {
   [key: string]: any;
 }
 
+export interface PagedListOfGoldenCandidateItem {
+  items: GoldenCandidateItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
 export interface PagedListOfJobGroupModel {
   totalCount: number;
   pageCount: number;
@@ -19545,6 +19763,7 @@ export interface ProjectSummaryEntry {
 
 export interface PromoteSignalToGoldenBody {
   signalId: number;
+  reviewedSqlHash: string;
   notes: string | null;
 
   [key: string]: any;
@@ -19552,6 +19771,7 @@ export interface PromoteSignalToGoldenBody {
 
 export interface PromoteSignalToGoldenResult {
   evalCaseId: number;
+  alreadyPromoted?: boolean;
 
   [key: string]: any;
 }
@@ -19830,6 +20050,15 @@ export interface QueryVersionSummary {
   [key: string]: any;
 }
 
+export interface RecheckGroundingResult {
+  projectId?: number;
+  goldenCasesChecked?: number;
+  patternsChecked?: number;
+  refused?: GroundingRecheckItem[];
+
+  [key: string]: any;
+}
+
 export interface RecipientDestinationView {
   notificationType?: NotificationType;
   destination?: string;
@@ -19872,6 +20101,13 @@ export interface RecordQueryFeedbackBody {
   verdict: McpUserVerdict;
   correctedSql: string | null;
   note: string | null;
+
+  [key: string]: any;
+}
+
+export interface RecordQueryFeedbackResult {
+  correctedSqlRecorded: boolean;
+  correctedSqlNotRecordedReason: string | null;
 
   [key: string]: any;
 }
@@ -20040,6 +20276,7 @@ export interface SchemaRelationshipItem {
   confidence?: number;
   isVerified?: boolean;
   verifiedTime?: Date | null;
+  canCurate?: boolean;
 
   [key: string]: any;
 }
@@ -20708,6 +20945,7 @@ export interface UpdateMcpSettingsBody {
 
 export interface UpdatePatternStatusBody {
   newStatus: McpPatternStatus;
+  reviewedContentHash: string;
 
   [key: string]: any;
 }
@@ -20754,6 +20992,12 @@ export interface UpdateRepositoryTokenRequest {
 export interface UpdateSchemaRelationshipBody {
   label: string | null;
   cardinality: SchemaRelationshipCardinality;
+
+  [key: string]: any;
+}
+
+export interface UpdateSchemaRelationshipResult {
+  isVerified: boolean;
 
   [key: string]: any;
 }

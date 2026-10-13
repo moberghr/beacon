@@ -142,6 +142,70 @@ public class PatternDecayAndSelectionTests
     }
 
     [Test]
+    public async Task GetRelevantPatterns_ShowsExampleSqlWithoutComments_AndLeavesOutSqlWhoseCommentsCannotBeRemoved()
+    {
+        // Patterns stored before grounding SQL was checked may carry comments: they are removed in the data source's
+        // dialect when the prompt is built; comment characters inside a string literal stay; SQL whose comments cannot be
+        // removed is left out, and so is a question holding characters that do not show (the lesson stays) — logged by
+        // pattern id only, once per interval. Example questions are rendered on one line. Nothing stored changes.
+        var lineComment = NewPattern(1, McpPatternType.CommonQuery, McpPatternStatus.Approved);
+        lineComment.ExampleSql = "SELECT 1 -- the first";
+        var blockComment = NewPattern(2, McpPatternType.CommonQuery, McpPatternStatus.AutoApproved);
+        blockComment.ExampleSql = "/* the second */ SELECT 2";
+        var unclosed = NewPattern(3, McpPatternType.CommonQuery, McpPatternStatus.Approved);
+        unclosed.ExampleSql = "SELECT 3 /* never closed";
+        var literal = NewPattern(4, McpPatternType.CommonQuery, McpPatternStatus.Approved);
+        literal.ExampleSql = "SELECT 4 WHERE note <> 'a--b'";
+        literal.ExampleQuestion = "four\n-- a second line";
+        var hidden = NewPattern(5, McpPatternType.CommonQuery, McpPatternStatus.Approved);
+        hidden.ExampleSql = "SELECT 5";
+        hidden.ExampleQuestion = "five \u2067reversed";
+        var logs = new LogRecorder();
+        var service = BuildKnowledgeService(new FakeEmbeddingService(), [lineComment, blockComment, unclosed, literal, hidden], [], semanticEnabled: false, exemplarTopK: 3, logs);
+
+        var result = await service.GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, TableNames, Question, maxPatterns: 10, budgetChars: 1500, dialect: "PostgreSQL", CancellationToken.None);
+        await service.GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, TableNames, Question, maxPatterns: 10, budgetChars: 1500, dialect: "PostgreSQL", CancellationToken.None);
+
+        result.Select(x => (x.PatternContent, x.ExampleQuestion, x.ExampleSql)).Should().BeEquivalentTo(
+            new (string, string?, string?)[]
+            {
+                ("lesson 1", "example question 1", "SELECT 1"),
+                ("lesson 2", "example question 2", "SELECT 2"),
+                ("lesson 3", "example question 3", null),
+                ("lesson 4", "four -- a second line", "SELECT 4 WHERE note <> 'a--b'"),
+                ("lesson 5", null, "SELECT 5")
+            });
+        logs.Entries.Should().ContainSingle(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Warning, "logged once per interval")
+            .Which.Message.Should().StartWith($"2 learned-pattern example(s) of data source {DataSourceId} were left out of the prompt:")
+            .And.EndWith("(patterns 3,5)");
+        lineComment.ExampleSql.Should().Be("SELECT 1 -- the first", "rendering changes nothing stored");
+        KnowledgeGraphService.FormatLearnedPatternsForLlm(result).Should().NotContain("the first").And.NotContain("/*").And.NotContain("never closed");
+    }
+
+    // The public read takes the data source's own dialect: a MySQL "#" comment is a comment there, and is removed.
+    [Test]
+    public async Task GetRelevantPatterns_ThroughThePublicRead_RendersExampleSqlInTheDataSourcesDialect()
+    {
+        var hashComment = NewPattern(1, McpPatternType.CommonQuery, McpPatternStatus.Approved);
+        hashComment.ExampleSql = "SELECT 1 # the first";
+        var source = new DataSource
+        {
+            Id = DataSourceId,
+            Name = "shop",
+            DataSourceType = DataSourceType.Database,
+            DatabaseEngineType = DatabaseEngineType.MySQL,
+            EncryptedConnectionData = "encrypted"
+        };
+        var service = BuildKnowledgeService(new FakeEmbeddingService(), [hashComment], [], semanticEnabled: false, exemplarTopK: 3, dataSources: [source]);
+
+        var result = await service.GetRelevantPatternsAsync(DataSourceId, ProjectId, TableNames, Question);
+
+        result.Should().ContainSingle().Which.ExampleSql.Should().Be("SELECT 1");
+    }
+
+    [Test]
     public async Task DetectStalePatterns_MarksCorrectionStale_WhenColumnAbsent_LeavesExistingColumnUntouched()
     {
         var before = DateTime.UtcNow;
@@ -245,11 +309,14 @@ public class PatternDecayAndSelectionTests
         List<McpLearnedPattern> patterns,
         List<McpEmbedding> embeddings,
         bool semanticEnabled,
-        int exemplarTopK)
+        int exemplarTopK,
+        LogRecorder? logs = null,
+        List<DataSource>? dataSources = null)
     {
         var context = new DecayTestContext(
             patterns: BuildDbSet(patterns).Object,
-            embeddings: BuildDbSet(embeddings).Object);
+            embeddings: BuildDbSet(embeddings).Object,
+            dataSources: dataSources == null ? null : BuildDbSet(dataSources).Object);
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -277,7 +344,7 @@ public class PatternDecayAndSelectionTests
                 == Task.FromResult("")),
             TestConfiguredDatabases.None,
             new QueryGuardrailService(),
-            NullLogger<KnowledgeGraphService>.Instance);
+            logs?.For<KnowledgeGraphService>() ?? NullLogger<KnowledgeGraphService>.Instance);
     }
 
     private static McpLearningAggregationService BuildAggregationService(
@@ -303,6 +370,7 @@ public class PatternDecayAndSelectionTests
         return new McpLearningAggregationService(
             factory.Object,
             settings.Object,
+            TestGroundingSqlChecks.PassThrough().Object,
             NullLogger<McpLearningAggregationService>.Instance);
     }
 
@@ -328,25 +396,30 @@ public class PatternDecayAndSelectionTests
     /// </summary>
     private sealed class DecayTestContext : BeaconContext
     {
+        // An unserved set never reaches a database server (§4.7): opening the connection is suppressed.
         private static readonly DbContextOptions<DecayTestContext> Options =
             new DbContextOptionsBuilder<DecayTestContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
+                .AddInterceptors(SqlCapture.NeverConnects)
                 .Options;
 
         private readonly DbSet<McpLearnedPattern>? _patterns;
         private readonly DbSet<McpEmbedding>? _embeddings;
         private readonly DbSet<ColumnMetadata>? _columns;
+        private readonly DbSet<DataSource>? _dataSources;
         private DatabaseFacade? _database;
 
         public DecayTestContext(
             DbSet<McpLearnedPattern>? patterns = null,
             DbSet<McpEmbedding>? embeddings = null,
-            DbSet<ColumnMetadata>? columns = null) : base(Options, "beacon")
+            DbSet<ColumnMetadata>? columns = null,
+            DbSet<DataSource>? dataSources = null) : base(Options, "beacon")
         {
             _patterns = patterns;
             _embeddings = embeddings;
             _columns = columns;
+            _dataSources = dataSources;
         }
 
         public override DatabaseFacade Database => _database ??= new NonNpgsqlDatabaseFacade(this);
@@ -366,6 +439,11 @@ public class PatternDecayAndSelectionTests
             if (typeof(TEntity) == typeof(ColumnMetadata) && _columns != null)
             {
                 return (DbSet<TEntity>)(object)_columns;
+            }
+
+            if (typeof(TEntity) == typeof(DataSource) && _dataSources != null)
+            {
+                return (DbSet<TEntity>)(object)_dataSources;
             }
 
             return base.Set<TEntity>();

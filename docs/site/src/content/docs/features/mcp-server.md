@@ -20,6 +20,8 @@ Project resolution is **stateless** — it is computed per call, with no session
 
 **What a caller may do in a project** follows its project role there, as in the playground: the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) need Read, while the SQL-carrying tools (`ask`, `query`, `dry_run`) and `feedback` work ad hoc in the project and need Query — an Editor or above in it. A Viewer (a Viewer member of a restricted project, or a caller whose global role is Viewer) reads the catalog but runs no SQL there: such a call answers "Access denied: you may read project N but not run ad-hoc queries in it." and is audited, and an `ask` or `query` refused this way records its signal like any other failed call.
 
+**No MCP caller curates grounding.** Curating — reviewing learned patterns, applying documentation patches, verifying relationships, editing or regenerating documentation — needs [Curate](/features/authorization/#project-roles), which Beacon grants only to a signed-in user's session (a project admin member of the project, or an Admin): never to an MCP caller, user or system, whatever its scope, and never to an API key. Golden examples are an Admin's alone. Over MCP, `feedback` records a verdict and curates nothing by itself (see [Who curates grounding](/features/knowledge-base/#who-curates-grounding)).
+
 A membership revoked, a project restricted or a user disabled takes effect on the caller's next call, in the same session. Saved-query tools are visible only in the caller's projects where it may run saved SQL (`Run`), and host endpoint tools only when the caller may read the host's project. A tool call that names a project the caller does not reach answers "Access denied: you do not have access to project N."; one that names none when the caller reaches no project answers "No projects are available to you." Both are audited.
 
 **What you can do through MCP:**
@@ -29,7 +31,7 @@ A membership revoked, a project restricted or a user disabled takes effect on th
 - Execute direct SQL queries against any data source in your project
 - Search tables, columns, and documentation by keyword, fused with embedding-based semantic matching when a local embedder is enabled
 - Retrieve AI-generated documentation for your project, data sources, or individual tables
-- Record feedback on answers — a `correct` verdict becomes a verified example that grounds future SQL generation
+- Record feedback on answers — verdicts are recorded for an Admin to review, and an Admin may promote a `correct` answer to a verified example that grounds future SQL generation
 
 ## Quick Start
 
@@ -309,7 +311,12 @@ Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`, or `[IM
 
 ### `feedback`
 
-Record whether a previous `ask` answer was correct. A `correct` verdict is saved as a verified example (golden pair) that grounds future SQL generation for the same data source.
+Record whether a previous `ask` answer was correct. The verdict is recorded on the answer's signal with the user who recorded it, and it does this:
+
+- An `incorrect` verdict keeps the answer out of the common-query and join patterns Beacon learns.
+- A `correct` verdict puts the answer on the [golden candidates](/features/knowledge-base/#how-cases-are-created) list (the **Golden candidates** tab of the MCP Learning page), where an Admin may promote it to a verified example (golden pair) that grounds future SQL generation for the same data source; feedback never promotes it by itself. A `correct` verdict recorded by a curator of the project (a project admin member, or an Admin) also counts in [pattern mining](/features/knowledge-base/#from-signal-to-injected-lesson); the asker's own does not.
+
+The tool's description, its answer, the server instructions and the playground's feedback form all say so.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -322,7 +329,11 @@ Every `ask` response that ran a data query ends with a `_signal_id: N_` marker �
 
 A signal is rated only in its own project: the signal must belong to a project, that project must be the one the call resolves to (in the playground, the selected project; on the transport, one of the caller's projects), and the caller needs Query there. Anything else answers "Query signal N not found." — the same as a signal that does not exist — and is audited. Within its project, a verdict is recorded only by the caller who asked, a project admin of that project, or an Admin; anyone else gets an error saying so, and the refusal is audited too. The same rule applies to `POST /beacon/api/eval/feedback`, which answers `403`.
 
-The verdict is always recorded. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow explicit feedback content** setting — see [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
+The verdict is always recorded, with the user who recorded it. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow explicit feedback content** setting — see [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
+
+`corrected_sql` is checked before it is stored, in the dialect of the data source the rated answer ran on: its comments are removed, and it must pass the same read-only gate and catalog check a saved query step passes (a single read-only statement, columns that exist in Beacon's metadata — a data source Beacon holds no metadata for refuses it). Nothing runs. Comment characters inside a string literal are kept when the dialect reads them as part of it; a comment that cannot be removed safely, or characters a reviewer cannot see, refuse the SQL — see [the grounding SQL check](/features/knowledge-base/#who-curates-grounding). Corrected SQL that cannot be kept never refuses the call: the verdict is recorded and only the SQL is dropped — SQL the check refuses, SQL on a signal without a single data source (a cross-source or knowledge answer: there is no dialect to check it in), and SQL the project's retention setting does not keep. The log records the signal id only.
+
+**The answer** starts with "Feedback recorded for signal N.", says what the verdict does, and — when `corrected_sql` was given — whether it was kept: "The corrected SQL was kept with the verdict, without its comments.", or "The corrected SQL was not kept:" with the reason (the project does not retain query content; the answer did not run on a single data source; it did not pass the SQL check, with the check's reason). `POST /beacon/api/eval/feedback` answers the same as `correctedSqlRecorded` (true when corrected SQL was given and kept) and `correctedSqlNotRecordedReason` (null when it was kept or none was given); the playground's feedback form shows the reason.
 
 ## Safety & Guardrails
 
@@ -380,7 +391,7 @@ An audit row is still written for **every** tool call, success or failure. The l
 
 **What else changes under the lock**
 
-- The `feedback` tool records the verdict but not the corrected SQL or note, and a `correct` verdict no longer auto-promotes a golden example — promoting one copies the question.
+- The `feedback` tool records the verdict but not the corrected SQL or note. Signals of a locked project carry no question, so they are not offered as golden candidates.
 - Pattern mining keeps schema corrections and join patterns (structure) and skips common-query and documentation-gap mining (content). Join patterns are stored without example questions or SQL, and the LLM lesson extractor is not called, because its prompt would carry the question and SQL.
 - The optional eval judge is forced off, and eval results are stored without generated SQL or judge commentary.
 

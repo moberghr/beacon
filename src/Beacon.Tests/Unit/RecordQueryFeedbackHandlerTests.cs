@@ -1,5 +1,4 @@
 using FluentAssertions;
-using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -7,233 +6,209 @@ using NUnit.Framework;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Models;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// Part B coverage for <see cref="RecordQueryFeedbackHandler"/>: the human correctness feedback loop.
-/// A <see cref="McpUserVerdict.Correct"/> verdict on a project- and data-source-scoped signal that carries
-/// SQL auto-promotes it into a golden case exactly once (idempotent per source signal); any other verdict,
-/// or a signal missing its scope, records the verdict without promoting. Exercises the real handler against
-/// a mocked <see cref="BeaconContext"/> backed by the async-queryable doubles (no DB, no forbidden
-/// <c>UseInMemoryDatabase</c> — §4.7); the promotion is observed through a mocked <see cref="ISender"/>.
-/// R12 coverage: a locked <see cref="IContentRetentionPolicy"/> decision drops explicit feedback content
-/// and/or blocks promotion; an unlocked decision (the default for the pre-existing cases above) behaves
-/// exactly as before.
+/// <see cref="RecordQueryFeedbackHandler"/>: the human correctness feedback loop records a verdict, the user who recorded
+/// it and the checked corrected SQL — and nothing else. No verdict creates a golden case (an Admin promotes candidates);
+/// corrected SQL passes <see cref="IGroundingSqlCheck"/> in the signal's data source's dialect and is stored without its
+/// comments; SQL the check refuses, a signal without a single data source and a locked content-retention decision keep the
+/// verdict and drop only the SQL, and the result says so with the reason. A locked <see cref="IContentRetentionPolicy"/>
+/// decision drops explicit feedback content. Runs the real handler over in-memory sets (no DB, no forbidden
+/// <c>UseInMemoryDatabase</c> — §4.7).
 /// </summary>
 [TestFixture]
 public class RecordQueryFeedbackHandlerTests
 {
     private const int ProjectId = 3;
-    private const int DataSourceId = 7;
+    private const int DataSourceId = TestGroundingSqlChecks.DataSourceId;
+    private const int RaterId = 3;
 
     [Test]
-    public async Task Correct_PromotesGolden_Idempotent()
+    public async Task ACorrectVerdictWithCorrectedSql_CreatesNoGoldenCase_AndStoresTheCheckedSqlWithoutComments()
     {
-        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
-
-        var mediator = new Mock<ISender>();
-        mediator
-            .Setup(x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PromoteSignalToGoldenResult(99));
-
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
+        // The asker rates their own answer correct and supplies SQL with a comment in it: the verdict and the comment-free
+        // SQL are recorded on the signal, and no golden case exists afterwards — not even an inactive one.
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        signal.UserId = RaterId;
+        var store = new Store(signal);
+        var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
+        var handler = Handler(store, TestGroundingSqlChecks.Real(), access: editor);
 
         await handler.Handle(
-            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, "SELECT id, status FROM orders -- a remark for the model"),
             CancellationToken.None);
 
-        // The verdict fields are written onto the signal before any promotion.
         signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
-        signal.UserCorrectedSql.Should().Be("SELECT 2");
-        signal.FeedbackNote.Should().Be("human fix");
-
-        // A Correct verdict on a scoped signal with SQL promotes exactly once, forwarding the note.
-        mediator.Verify(
-            x => x.Send(
-                It.Is<PromoteSignalToGoldenCommand>(c => c.SignalId == 1 && c.Notes == "human fix"),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-
-        // Second call once a golden case already exists for the signal: the idempotency guard short-circuits.
-        var promotedCase = new McpEvalCase
-        {
-            Id = 50,
-            ProjectId = ProjectId,
-            DataSourceId = DataSourceId,
-            Question = signal.Question,
-            GoldSql = "SELECT 2",
-            SourceSignalId = 1
-        };
-        var idempotentHandler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase> { promotedCase }), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        await idempotentHandler.Handle(
-            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
-            CancellationToken.None);
-
-        // Still exactly one promotion in total — the second call did NOT re-promote.
-        mediator.Verify(
-            x => x.Send(
-                It.Is<PromoteSignalToGoldenCommand>(c => c.SignalId == 1),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        signal.UserCorrectedSql.Should().Be("SELECT id, status FROM orders");
+        signal.FeedbackByUserId.Should().Be(RaterId);
+        store.Cases.Should().BeEmpty();
+        store.Saved.OfType<McpEvalCase>().Should().BeEmpty("a verdict never creates a golden case; an Admin promotes candidates");
     }
 
     [Test]
-    public async Task Incorrect_NoPromotion()
+    public async Task ACorrectVerdict_OnASignalAlreadyPromoted_ChangesOnlyTheSignal()
     {
-        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var promoted = new McpEvalCase { Id = 50, ProjectId = ProjectId, DataSourceId = DataSourceId, Question = signal.Question, GoldSql = "SELECT id FROM orders", SourceSignalId = 1 };
+        var store = new Store(signal, promoted);
+        var check = TestGroundingSqlChecks.PassThrough();
 
-        var mediator = new Mock<ISender>();
+        var result = await Handler(store, check.Object).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT status FROM orders", Note: "human fix"),
+            CancellationToken.None);
 
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
+        result.Should().Be(new RecordQueryFeedbackResult(true, null));
+        signal.UserCorrectedSql.Should().Be("SELECT status FROM orders");
+        signal.FeedbackNote.Should().Be("human fix");
+        store.Cases.Should().ContainSingle().Which.GoldSql.Should().Be("SELECT id FROM orders", "the golden case is an Admin's to edit");
+        store.Saved.Should().BeEmpty();
+        check.Verify(x => x.CheckAsync(DataSourceId, "SELECT status FROM orders", It.IsAny<CancellationToken>()), Times.Once);
+    }
 
-        await handler.Handle(
+    [Test]
+    public async Task Incorrect_RecordsTheVerdictTheNoteAndTheRater()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+
+        var result = await Handler(store, TestGroundingSqlChecks.PassThrough().Object).Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect, Note: "wrong join"),
             CancellationToken.None);
 
-        signal.UserVerdict.Should().Be(McpUserVerdict.Incorrect, "the verdict is still recorded");
+        result.Should().Be(new RecordQueryFeedbackResult(false, null), "no corrected SQL was supplied");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Incorrect);
         signal.FeedbackNote.Should().Be("wrong join");
-
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        signal.UserCorrectedSql.Should().BeNull();
+        signal.FeedbackByUserId.Should().Be(RaterId);
+        store.Saved.Should().BeEmpty();
     }
 
     [Test]
     public async Task UnknownSignal_Throws()
     {
-        var mediator = new Mock<ISender>();
+        var store = new Store();
 
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal>(), new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        var act = async () => await handler.Handle(
+        var act = async () => await Handler(store, TestGroundingSqlChecks.PassThrough().Object).Handle(
             new RecordQueryFeedbackCommand(404, McpUserVerdict.Correct),
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not found*");
-
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Never);
     }
 
+    // Blocked corrected SQL refuses the call (an audited tool error, a 400 on POST /eval/feedback): nothing is stored, the
+    // verdict included.
     [Test]
-    public async Task KnowledgeSignal_NoPromotion()
+    public async Task CorrectedSqlTheCheckRefuses_KeepsTheVerdictAndTheNote_DropsOnlyTheSql_AndSaysWhy()
     {
-        // A knowledge-intent signal has no data source, so it cannot seed a golden case.
-        var signal = NewSignal(1, ProjectId, dataSourceId: null, generatedSql: "SELECT 1");
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        signal.UserCorrectedSql = "SELECT id FROM orders -- an earlier fix";
+        var store = new Store(signal);
 
-        var mediator = new Mock<ISender>();
-
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, BuildPolicy().Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        await handler.Handle(
-            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, Note: "correct but no data source"),
+        var result = await Handler(store, TestGroundingSqlChecks.Real()).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "DELETE FROM orders", Note: "human fix"),
             CancellationToken.None);
 
-        signal.UserVerdict.Should().Be(McpUserVerdict.Correct, "the verdict is still recorded");
-        signal.FeedbackNote.Should().Be("correct but no data source");
-
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        result.CorrectedSqlRecorded.Should().BeFalse();
+        result.CorrectedSqlNotRecordedReason.Should().StartWith("it did not pass the SQL check: ");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct, "the verdict stands");
+        signal.UserCorrectedSql.Should().BeNull("only the SQL is dropped");
+        signal.FeedbackNote.Should().Be("human fix");
+        signal.FeedbackByUserId.Should().Be(RaterId);
+        store.SaveCount.Should().Be(1);
     }
 
     [Test]
-    public async Task FeedbackContentNotAllowed_DropsCorrectedSqlAndNote_ButPersistsVerdict()
+    public async Task CorrectedSqlWithACommentThatCannotBeRemoved_IsDropped_AndTheReasonNamesLiterals()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+
+        var result = await Handler(store, TestGroundingSqlChecks.Real()).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT id FROM orders /* never closed"),
+            CancellationToken.None);
+
+        result.Should().Be(new RecordQueryFeedbackResult(false, $"it did not pass the SQL check: {GroundingSqlCheck.CommentRefusal}"));
+        result.CorrectedSqlNotRecordedReason.Should().Contain("string literal");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
+        signal.UserCorrectedSql.Should().BeNull();
+    }
+
+    // Comment characters inside a string literal are kept with it; a real comment beside them is removed.
+    [Test]
+    public async Task CorrectedSqlWithCommentCharactersInsideALiteral_IsKept()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+
+        var result = await Handler(store, TestGroundingSqlChecks.Real()).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT id FROM orders WHERE status = 'x--y' -- the fix"),
+            CancellationToken.None);
+
+        result.Should().Be(new RecordQueryFeedbackResult(true, null));
+        signal.UserCorrectedSql.Should().Be("SELECT id FROM orders WHERE status = 'x--y'");
+    }
+
+    // A cross-source or knowledge answer has no single data source whose dialect the SQL could be checked in.
+    [Test]
+    public async Task ASignalWithoutASingleDataSource_KeepsTheVerdict_AndDropsTheCorrectedSql()
+    {
+        var signal = NewSignal(1, ProjectId, dataSourceId: null, generatedSql: "SELECT 1");
+        var store = new Store(signal);
+        var check = TestGroundingSqlChecks.Refusing();
+
+        var result = await Handler(store, check.Object).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "right, across both sources"),
+            CancellationToken.None);
+
+        result.Should().Be(new RecordQueryFeedbackResult(false, RecordQueryFeedbackHandler.NoSingleDataSourceReason));
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
+        signal.UserCorrectedSql.Should().BeNull();
+        signal.FeedbackNote.Should().Be("right, across both sources");
+        signal.FeedbackByUserId.Should().Be(RaterId);
+        check.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task FeedbackContentNotAllowed_DropsCorrectedSqlAndNote_WithoutCheckingIt_ButPersistsVerdict()
     {
         var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
+        var store = new Store(signal);
+        var check = TestGroundingSqlChecks.Refusing();
 
-        var mediator = new Mock<ISender>();
-        var policy = BuildPolicy(retainQueryContent: true, allowExplicitFeedbackContent: false);
-
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        await handler.Handle(
+        var result = await Handler(store, check.Object, BuildPolicy(retainQueryContent: true, allowExplicitFeedbackContent: false)).Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
             CancellationToken.None);
 
-        // The verdict itself is still recorded — only the explicit content is dropped.
+        result.Should().Be(new RecordQueryFeedbackResult(false, RecordQueryFeedbackHandler.RetentionOffReason));
         signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
         signal.UserCorrectedSql.Should().BeNull();
         signal.FeedbackNote.Should().BeNull();
-
-        // RetainQueryContent stays true here, so promotion (which copies the question) still fires — but it must
-        // carry the GATED note, not the raw request value. Asserting only Times.Once is what let the raw note leak
-        // into McpEvalCase.Notes past the R12 gate (review SF-F001), so the command's payload is asserted here.
-        mediator.Verify(
-            x => x.Send(
-                It.Is<PromoteSignalToGoldenCommand>(c => c.SignalId == 1 && c.Notes == null),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-        mediator.Verify(
-            x => x.Send(
-                It.Is<PromoteSignalToGoldenCommand>(c => c.Notes == "human fix"),
-                It.IsAny<CancellationToken>()),
-            Times.Never,
-            "the raw feedback note must never reach the golden case when AllowExplicitFeedbackContent is false");
+        check.VerifyNoOtherCalls();
     }
 
     [Test]
-    public async Task ContentLocked_Correct_NoPromotion()
+    public async Task ContentLocked_RecordsTheVerdictOnly()
     {
         var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
+        var store = new Store(signal);
 
-        var mediator = new Mock<ISender>();
-        var policy = BuildPolicy(retainQueryContent: false, allowExplicitFeedbackContent: false);
-
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        await handler.Handle(
+        await Handler(store, TestGroundingSqlChecks.PassThrough().Object, BuildPolicy(retainQueryContent: false, allowExplicitFeedbackContent: false)).Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
             CancellationToken.None);
 
-        signal.UserVerdict.Should().Be(McpUserVerdict.Correct, "the verdict is still recorded");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
         signal.UserCorrectedSql.Should().BeNull();
         signal.FeedbackNote.Should().BeNull();
-
-        // A golden case would copy the question — blocked outright under the content lock.
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-    }
-
-    [Test]
-    public async Task Unlocked_Correct_PromotesOnce()
-    {
-        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
-
-        var mediator = new Mock<ISender>();
-        mediator
-            .Setup(x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PromoteSignalToGoldenResult(101));
-        var policy = BuildPolicy(retainQueryContent: true, allowExplicitFeedbackContent: true);
-
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        await handler.Handle(
-            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
-            CancellationToken.None);
-
-        signal.UserCorrectedSql.Should().Be("SELECT 2");
-        signal.FeedbackNote.Should().Be("human fix");
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Once);
+        store.Saved.Should().BeEmpty();
     }
 
     [Test]
@@ -242,17 +217,13 @@ public class RecordQueryFeedbackHandlerTests
         // Review SF-F002: ResolveAsync had no guard, so a transient settings failure escaped the handler, past
         // FeedbackTool's InvalidOperationException-only catch, and the §1.7 audit row for that call was lost.
         var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
-
-        var mediator = new Mock<ISender>();
+        var store = new Store(signal);
         var policy = new Mock<IContentRetentionPolicy>();
         policy
             .Setup(x => x.ResolveAsync(It.IsAny<int?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("settings unavailable"));
 
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory(new List<McpQuerySignal> { signal }, new List<McpEvalCase>()), mediator.Object, policy.Object, TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestProjectAccess.Actors(), NullLogger<RecordQueryFeedbackHandler>.Instance);
-
-        var act = () => handler.Handle(
+        var act = () => Handler(store, TestGroundingSqlChecks.PassThrough().Object, policy).Handle(
             new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, CorrectedSql: "SELECT 2", Note: "human fix"),
             CancellationToken.None);
 
@@ -260,10 +231,6 @@ public class RecordQueryFeedbackHandlerTests
         signal.UserVerdict.Should().Be(McpUserVerdict.Correct, "the verdict is structure and is always recorded");
         signal.UserCorrectedSql.Should().BeNull("fail closed: no content is retained when the decision is unknown");
         signal.FeedbackNote.Should().BeNull();
-        mediator.Verify(
-            x => x.Send(It.IsAny<PromoteSignalToGoldenCommand>(), It.IsAny<CancellationToken>()),
-            Times.Never,
-            "fail closed also means no promotion");
     }
 
     // --- who may rate a signal -------------------------------------------------------------------------------
@@ -276,15 +243,10 @@ public class RecordQueryFeedbackHandlerTests
     {
         var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT 1");
         signal.UserId = signalUserId;
+        var store = new Store(signal);
         var scope = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = role }, includesOpen: true, notOpen: []);
-        var mediator = new Mock<ISender>();
-        var handler = new RecordQueryFeedbackHandler(
-            BuildFactory([signal], []),
-            mediator.Object,
-            BuildPolicy().Object,
-            TestProjectAccess.Evaluator(scope),
-            TestProjectAccess.Actors(beaconUserId: 3),
-            NullLogger<RecordQueryFeedbackHandler>.Instance);
+        var check = TestGroundingSqlChecks.PassThrough();
+        var handler = Handler(store, check.Object, access: scope);
 
         var act = () => handler.Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect, CorrectedSql: "SELECT 2"), CancellationToken.None);
 
@@ -293,14 +255,31 @@ public class RecordQueryFeedbackHandlerTests
             await act.Should().NotThrowAsync();
             signal.UserVerdict.Should().Be(McpUserVerdict.Incorrect);
             signal.UserCorrectedSql.Should().Be("SELECT 2");
+            signal.FeedbackByUserId.Should().Be(RaterId);
         }
         else
         {
             await act.Should().ThrowAsync<BeaconForbiddenException>();
             signal.UserVerdict.Should().Be(McpUserVerdict.Unset, "a refused verdict changes nothing");
             signal.UserCorrectedSql.Should().BeNull();
-            mediator.VerifyNoOtherCalls();
+            signal.FeedbackByUserId.Should().BeNull();
+            check.VerifyNoOtherCalls();
         }
+    }
+
+    private static RecordQueryFeedbackHandler Handler(
+        Store store,
+        IGroundingSqlCheck check,
+        Mock<IContentRetentionPolicy>? policy = null,
+        ProjectAccessScope? access = null)
+    {
+        return new RecordQueryFeedbackHandler(
+            store.Factory,
+            check,
+            (policy ?? BuildPolicy()).Object,
+            TestProjectAccess.Evaluator(access ?? TestProjectAccess.Unrestricted),
+            TestProjectAccess.Actors(beaconUserId: RaterId),
+            NullLogger<RecordQueryFeedbackHandler>.Instance);
     }
 
     private static Mock<IContentRetentionPolicy> BuildPolicy(
@@ -324,71 +303,40 @@ public class RecordQueryFeedbackHandlerTests
             GeneratedSql = generatedSql
         };
 
-    private static IDbContextFactory<BeaconContext> BuildFactory(
-        List<McpQuerySignal> signals, List<McpEvalCase> cases)
-    {
-        var context = new FeedbackHandlerContext(BuildDbSet(signals).Object, BuildDbSet(cases).Object);
-        var factory = new Mock<IDbContextFactory<BeaconContext>>();
-        factory
-            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(context);
-        return factory.Object;
-    }
-
-    private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class
-    {
-        var queryable = data.AsQueryable();
-        var set = new Mock<DbSet<T>>();
-        set.As<IAsyncEnumerable<T>>()
-            .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
-            .Returns(() => new TestAsyncEnumerator<T>(data.GetEnumerator()));
-        set.As<IQueryable<T>>().Setup(x => x.Provider).Returns(new TestAsyncQueryProvider<T>(queryable.Provider));
-        set.As<IQueryable<T>>().Setup(x => x.Expression).Returns(queryable.Expression);
-        set.As<IQueryable<T>>().Setup(x => x.ElementType).Returns(queryable.ElementType);
-        set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());
-        return set;
-    }
-
     /// <summary>
-    /// A <see cref="BeaconContext"/> whose query-signal and eval-case sets resolve to the supplied mocked
-    /// sets; save operations are no-ops (the handler's one unit of work is verified via the mocked sets).
+    /// The signals, golden cases and project links every context the factory hands out serves; whatever a context adds is
+    /// recorded in <see cref="Saved"/>, and every save is counted.
     /// </summary>
-    private sealed class FeedbackHandlerContext : BeaconContext
+    private sealed class Store
     {
-        private static readonly DbContextOptions<FeedbackHandlerContext> Options =
-            new DbContextOptionsBuilder<FeedbackHandlerContext>()
-                .UseNpgsql("Host=localhost;Database=unused")
-                .UseSnakeCaseNamingConvention()
-                .Options;
-
-        private readonly DbSet<McpQuerySignal> _signals;
-        private readonly DbSet<McpEvalCase> _cases;
-
-        public FeedbackHandlerContext(DbSet<McpQuerySignal> signals, DbSet<McpEvalCase> cases)
-            : base(Options, "beacon")
+        public Store(McpQuerySignal? signal = null, McpEvalCase? evalCase = null)
         {
-            _signals = signals;
-            _cases = cases;
+            Signals = signal == null ? [] : [signal];
+            Cases = evalCase == null ? [] : [evalCase];
+            var links = new List<ProjectDataSource> { new() { ProjectId = ProjectId, DataSourceId = DataSourceId } };
+            var factory = new Mock<IDbContextFactory<BeaconContext>>();
+            factory
+                .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => new RecordingBeaconContext(
+                    new Dictionary<Type, object>
+                    {
+                        [typeof(McpQuerySignal)] = RecordingBeaconContext.MemorySet(Signals, Saved),
+                        [typeof(McpEvalCase)] = RecordingBeaconContext.MemorySet(Cases, Saved),
+                        [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(links, Saved)
+                    },
+                    Saved,
+                    onSave: () => SaveCount++));
+            Factory = factory.Object;
         }
 
-        public override DbSet<TEntity> Set<TEntity>() where TEntity : class
-        {
-            if (typeof(TEntity) == typeof(McpQuerySignal))
-            {
-                return (DbSet<TEntity>)(object)_signals;
-            }
+        public List<McpQuerySignal> Signals { get; }
 
-            if (typeof(TEntity) == typeof(McpEvalCase))
-            {
-                return (DbSet<TEntity>)(object)_cases;
-            }
+        public List<McpEvalCase> Cases { get; }
 
-            return base.Set<TEntity>();
-        }
+        public List<object> Saved { get; } = [];
 
-        public override int SaveChanges() => 0;
+        public int SaveCount { get; private set; }
 
-        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(0);
+        public IDbContextFactory<BeaconContext> Factory { get; }
     }
 }

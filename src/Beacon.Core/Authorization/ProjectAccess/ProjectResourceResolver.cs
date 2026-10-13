@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Authorization.ProjectAccess;
 
@@ -327,6 +328,8 @@ internal sealed class ProjectResourceResolver : IProjectResourceResolver
         return InProject(projectId);
     }
 
+    // A patch to a column or table description writes its data source's shared metadata; a patch to a documentation
+    // section writes only its project's documentation.
     private static async Task<ResolvedProjectResource> DocumentationPatchAsync(BeaconContext context, int id, CancellationToken cancellationToken)
     {
         var patch = await context.McpDocumentationPatches
@@ -335,12 +338,17 @@ internal sealed class ProjectResourceResolver : IProjectResourceResolver
                 new
                 {
                     x.ProjectId,
-                    x.DataSourceId
+                    x.DataSourceId,
+                    x.TargetType
                 })
             .FirstOrDefaultAsync(cancellationToken);
+        if (patch == null)
+        {
+            return ResolvedProjectResource.Missing;
+        }
 
-        return patch == null
-            ? ResolvedProjectResource.Missing
+        return patch.TargetType == McpDocPatchTarget.DocumentationSection
+            ? ResolvedProjectResource.InProject(patch.ProjectId)
             : ResolvedProjectResource.InProject(patch.ProjectId, [patch.DataSourceId]);
     }
 

@@ -129,8 +129,10 @@ public record ApplyDocumentationPatchCommand : IRequest, IProjectAuthorizedReque
     [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public int? AppliedByUserId { get; init; }
 
+    // A patch to a documentation section: Curate in the patch's project. A patch to a column or table description: Write in
+    // the patch's project and Curate in every live project linking its data source, or a DataSourceAdmin.
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        ProjectCheck.SharedSource(ProjectResource.DocumentationPatch(PatchId), ProjectAction.Write)
+        ProjectCheck.CurateShared(ProjectResource.DocumentationPatch(PatchId))
     ];
 }

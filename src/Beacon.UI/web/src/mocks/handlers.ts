@@ -36,6 +36,7 @@
  * - recipients
  * - ai-actors, ai-actors/:id
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
+ * - eval: golden/candidates, golden, grounding/recheck (honest empties)
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
  * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
@@ -1210,6 +1211,10 @@ const mcpHandlers = [
           status: McpPatternStatus.Pending,
           createdTime: iso(4),
           lastRefreshedAt: iso(1),
+          reviewedByName: null,
+          reviewedAt: null,
+          // The mock user is an Admin: every pattern is theirs to review.
+          canCurate: true,
         },
       ]))),
   http.get('/beacon/api/mcp/documentation-patches', () =>
@@ -1227,8 +1232,19 @@ const mcpHandlers = [
           status: McpDocPatchStatus.Proposed,
           createdTime: iso(3),
           appliedAt: null,
+          appliedByName: null,
+          canCurate: true,
         },
       ]))),
+  http.get('/beacon/api/eval/golden/candidates', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/eval/golden', () => HttpResponse.json([])),
+  http.get('/beacon/api/eval/grounding/recheck', ({ request }) =>
+    HttpResponse.json({
+      projectId: Number(new URL(request.url).searchParams.get('projectId')),
+      goldenCasesChecked: 0,
+      patternsChecked: 0,
+      refused: [],
+    })),
 ];
 
 // ---------- control tower ----------------------------------------------------

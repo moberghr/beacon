@@ -137,16 +137,18 @@ public class FunctionalPermissionGrantTests
 
     private static ProjectRequestAuthorizer SharedSourceAuthorizer(ProjectAccessScope scope, IBeaconPermissionAccessor permissions)
     {
-        var projects = new List<Project>
+        var ours = new Project { Id = 1, Name = "ours" };
+        var theirs = new Project { Id = 2, Name = "theirs" };
+        var links = new List<ProjectDataSource>
         {
-            new() { Id = 1, Name = "ours", DataSources = [new ProjectDataSource { ProjectId = 1, DataSourceId = 10 }] },
-            new() { Id = 2, Name = "theirs", DataSources = [new ProjectDataSource { ProjectId = 2, DataSourceId = 10 }] }
+            new() { ProjectId = 1, Project = ours, DataSourceId = 10 },
+            new() { ProjectId = 2, Project = theirs, DataSourceId = 10 }
         };
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new RecordingBeaconContext(
-                new Dictionary<Type, object> { [typeof(Project)] = RecordingBeaconContext.MemorySet(projects, []) },
+                new Dictionary<Type, object> { [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(links, []) },
                 []));
 
         return TestProjectAccess.Authorizer(

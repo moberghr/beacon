@@ -14,6 +14,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Models;
+using Beacon.Core.Services.Retention;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -41,7 +42,7 @@ public class FeedbackToolTests
     {
         var mediator = new Mock<IMediator>();
         mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(new RecordQueryFeedbackResult(false, null));
 
         var (tool, _) = BuildTool(mediator);
 
@@ -79,7 +80,7 @@ public class FeedbackToolTests
     {
         var mediator = new Mock<IMediator>();
         mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(new RecordQueryFeedbackResult(false, null));
 
         var (tool, audit) = BuildTool(mediator);
 
@@ -181,7 +182,7 @@ public class FeedbackToolTests
     {
         var mediator = new Mock<IMediator>();
         mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(new RecordQueryFeedbackResult(false, null));
         var editor = TestProjectAccess.Scope(
             new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor, [7] = ProjectRole.Editor },
             includesOpen: false,
@@ -220,7 +221,7 @@ public class FeedbackToolTests
     {
         var mediator = new Mock<IMediator>();
         mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(new RecordQueryFeedbackResult(false, null));
         var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
         var (tool, _) = BuildTool(mediator, access: editor, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
 
@@ -228,6 +229,65 @@ public class FeedbackToolTests
 
         result.IsError.Should().NotBe(true);
         mediator.Verify(x => x.Send(It.Is<RecordQueryFeedbackCommand>(y => y.SignalId == SignalId), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // The answer says what the verdict does, and whether the corrected SQL was kept — and why not.
+    [TestCase("correct", false, null, "An Admin can promote this answer to a verified example for future answers; until then it does not change them.")]
+    [TestCase("incorrect", false, null, "Beacon no longer learns common-query or join patterns from this answer.")]
+    [TestCase("correct", true, null, "An Admin can promote this answer to a verified example for future answers; until then it does not change them. The corrected SQL was kept with the verdict, without its comments.")]
+    [TestCase("correct", false, "the reason.", "An Admin can promote this answer to a verified example for future answers; until then it does not change them. The corrected SQL was not kept: the reason.")]
+    public async Task ARecordedVerdict_SaysWhatItDoes_AndWhetherTheCorrectedSqlWasKept(string verdict, bool kept, string? reason, string answer)
+    {
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RecordQueryFeedbackResult(kept, reason));
+        var (tool, audit) = BuildTool(mediator);
+
+        var result = await tool.ExecuteAsync(SignalId, verdict, kept || reason != null ? "SELECT 1" : null, null, CancellationToken.None);
+
+        result.IsError.Should().NotBe(true);
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Feedback recorded for signal {SignalId}. {answer}");
+        audit.Logs.Should().ContainSingle().Which.ErrorMessage.Should().BeNull("the verdict was recorded");
+    }
+
+    // Through the real handler: corrected SQL the grounding SQL check refuses keeps the verdict and drops only the SQL; the
+    // caller is told why, and the audit records a successful call with identifiers only.
+    [Test]
+    public async Task CorrectedSqlTheCheckRefuses_KeepsTheVerdict_DropsTheSql_AndSaysWhy()
+    {
+        var signal = new McpQuerySignal { Id = SignalId, ProjectId = SignalProjectId, DataSourceId = TestGroundingSqlChecks.DataSourceId, Tool = "ask", Question = "q" };
+        var saved = new List<object>();
+        var handlerFactory = new Mock<IDbContextFactory<BeaconContext>>();
+        handlerFactory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object> { [typeof(McpQuerySignal)] = RecordingBeaconContext.MemorySet(new List<McpQuerySignal> { signal }, saved) },
+                saved));
+        var policy = new Mock<IContentRetentionPolicy>();
+        policy
+            .Setup(x => x.ResolveAsync(It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ContentRetentionDecision(true, true));
+        var handler = new RecordQueryFeedbackHandler(
+            handlerFactory.Object,
+            TestGroundingSqlChecks.Real(),
+            policy.Object,
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            TestProjectAccess.Actors(),
+            NullLogger<RecordQueryFeedbackHandler>.Instance);
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
+            .Returns<RecordQueryFeedbackCommand, CancellationToken>((command, ct) => handler.Handle(command, ct));
+        var (tool, audit) = BuildTool(mediator);
+
+        var result = await tool.ExecuteAsync(SignalId, "correct", "DELETE FROM orders", null, CancellationToken.None);
+
+        result.IsError.Should().NotBe(true);
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain(" The corrected SQL was not kept: it did not pass the SQL check: ");
+        var log = audit.Logs.Should().ContainSingle("the call is audited").Subject;
+        log.ErrorMessage.Should().BeNull();
+        log.Parameters.Should().Be($"signal_id={SignalId};verdict=correct");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct, "the verdict stands");
+        signal.UserCorrectedSql.Should().BeNull("only the SQL is dropped");
     }
 
     private static (FeedbackTool Tool, AuditCapture Audit) BuildTool(

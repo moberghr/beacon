@@ -8,12 +8,20 @@ using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
-internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
+/// <summary>
+/// The documentation patches of the projects the caller reads, each with whether the caller may apply or reject it
+/// (<see cref="GroundingCuration"/>, as the apply and reject routes decide).
+/// </summary>
+internal sealed class GetDocumentationPatchesHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    IBeaconPermissionAccessor permissionAccessor)
     : IRequestHandler<GetDocumentationPatchesQuery, PagedList<DocumentationPatchEntry>>
 {
     public async Task<PagedList<DocumentationPatchEntry>> Handle(GetDocumentationPatchesQuery request, CancellationToken cancellationToken)
     {
-        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        var readable = scope.For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = context.McpDocumentationPatches
@@ -25,7 +33,7 @@ internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconCon
         if (request.Status.HasValue)
             query = query.Where(p => p.Status == request.Status.Value);
 
-        return await query
+        var page = await query
             .Select(p => new DocumentationPatchEntry
             {
                 Id = p.Id,
@@ -39,9 +47,27 @@ internal sealed class GetDocumentationPatchesHandler(IDbContextFactory<BeaconCon
                 SupportingSignalCount = p.SupportingSignalCount,
                 Status = p.Status,
                 CreatedTime = p.CreatedTime,
-                AppliedAt = p.AppliedAt
+                AppliedAt = p.AppliedAt,
+                AppliedByName = context.Users
+                    .Where(x => x.Id == p.AppliedByUserId)
+                    .Select(UserLabel.OfUser)
+                    .FirstOrDefault()
             })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-supportingSignalCount");
+
+        // A section patch writes its project's documentation; a description patch its data source's shared metadata.
+        var sharedSourceIds = page.Items
+            .Where(x => x.TargetType != McpDocPatchTarget.DocumentationSection)
+            .Select(x => x.DataSourceId)
+            .ToList();
+        var shared = await GroundingCuration.OfSharedSourcesAsync(context, scope, permissionAccessor, sharedSourceIds, cancellationToken);
+
+        return page.Map(x => x with
+        {
+            CanCurate = x.TargetType == McpDocPatchTarget.DocumentationSection
+                ? GroundingCuration.MayCurateProject(scope, x.ProjectId)
+                : shared.Allows(x.DataSourceId, writesWhereItActs: scope.Allows(x.ProjectId, ProjectAction.Write))
+        });
     }
 }
 
@@ -66,5 +92,20 @@ public record DocumentationPatchEntry
     public int SupportingSignalCount { get; init; }
     public McpDocPatchStatus Status { get; init; }
     public DateTime CreatedTime { get; init; }
+
+    /// <summary>When the patch was applied or rejected.</summary>
     public DateTime? AppliedAt { get; init; }
+
+    /// <summary>
+    /// Who applied or rejected the patch — display name, or "User {id}" (<see cref="UserLabel"/>); null while it is proposed
+    /// or when no user was recorded.
+    /// </summary>
+    public string? AppliedByName { get; init; }
+
+    /// <summary>
+    /// Whether the caller may apply or reject the patch: for a documentation section, Curate in the patch's project; for a
+    /// column or table description, Write in the patch's project and Curate in every live project linking its data source,
+    /// or the DataSourceAdmin permission.
+    /// </summary>
+    public bool CanCurate { get; init; }
 }

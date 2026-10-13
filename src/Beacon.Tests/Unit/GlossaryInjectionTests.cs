@@ -102,6 +102,52 @@ public class GlossaryInjectionTests
             "the block renders the nearest active glossary terms in descending-similarity order");
     }
 
+    // A metric expression is SQL the model copies into its answer: rendered without its comments in the asked data source's
+    // dialect; one that cannot be shown so is left out (the term keeps its definition), logged by term id once per interval.
+    [Test]
+    public async Task BuildGlossaryBlock_RendersMetricExpressionsWithoutComments_AndLeavesOutWhatCannotBeShown()
+    {
+        var embedder = new FakeEmbeddingService();
+        var terms = new List<McpGlossaryTerm>
+        {
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount) -- metric-note"),
+            NewTerm(2, "margin", "Revenue less cost", isActive: true, metric: "SUM(amount - cost) /* never closed"),
+            NewTerm(3, "refunds", "Refunded orders", isActive: true, metric: "COUNT(*) FILTER (WHERE note = 'a--b')")
+        };
+        var embeddings = new List<McpEmbedding>
+        {
+            NewGlossaryEmbedding(1, await embedder.EmbedAsync("gross sales money earned", CancellationToken.None)),
+            NewGlossaryEmbedding(2, await embedder.EmbedAsync("profit after costs", CancellationToken.None)),
+            NewGlossaryEmbedding(3, await embedder.EmbedAsync("orders returned", CancellationToken.None))
+        };
+        var logs = new LogRecorder();
+        var service = BuildService(embedder, terms, embeddings, semanticEnabled: true, glossaryTopK: 5, logs);
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 };
+
+        var block = await service.BuildGlossaryBlockAsync(ProjectId, Question, settings, "PostgreSQL", CancellationToken.None);
+        await service.BuildGlossaryBlockAsync(ProjectId, Question, settings, "PostgreSQL", CancellationToken.None);
+
+        block.Should().Contain("- **revenue**: Total sales amount recognized (→ `SUM(amount)`)");
+        block.Should().Contain("- **margin**: Revenue less cost").And.NotContain("never closed").And.NotContain("metric-note");
+        block.Should().Contain("`COUNT(*) FILTER (WHERE note = 'a--b')`");
+        logs.Entries.Should().ContainSingle(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Warning, "logged once per interval")
+            .Which.Message.Should().EndWith("(terms 2)");
+    }
+
+    // Without the asked data source's dialect, an expression holding a comment marker cannot be read safely: left out.
+    [Test]
+    public async Task BuildGlossaryBlock_WithoutADialect_LeavesOutAMetricExpressionHoldingACommentMarker()
+    {
+        var embedder = new FakeEmbeddingService();
+        var terms = new List<McpGlossaryTerm> { NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount) -- metric-note") };
+        var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(1, await embedder.EmbedAsync("gross sales money earned", CancellationToken.None)) };
+        var service = BuildService(embedder, terms, embeddings, semanticEnabled: true, glossaryTopK: 5);
+
+        var block = await service.BuildGlossaryBlockAsync(ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 }, CancellationToken.None);
+
+        block.Should().Contain("- **revenue**: Total sales amount recognized").And.NotContain("metric-note").And.NotContain("SUM(amount)");
+    }
+
     [Test]
     public async Task BuildGlossaryBlock_TwoProjectsSharingADataSource_ReturnsOnlyTheCallersProjectsTerms()
     {
@@ -453,7 +499,8 @@ public class GlossaryInjectionTests
         List<McpGlossaryTerm> terms,
         List<McpEmbedding> embeddings,
         bool semanticEnabled,
-        int glossaryTopK)
+        int glossaryTopK,
+        LogRecorder? logs = null)
     {
         var links = new List<ProjectDataSource>
         {
@@ -491,7 +538,7 @@ public class GlossaryInjectionTests
                 == Task.FromResult("")),
             TestConfiguredDatabases.None,
             new QueryGuardrailService(),
-            NullLogger<KnowledgeGraphService>.Instance);
+            logs?.For<KnowledgeGraphService>() ?? NullLogger<KnowledgeGraphService>.Instance);
     }
 
     private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class

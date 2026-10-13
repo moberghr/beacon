@@ -31,12 +31,13 @@ internal sealed class UpdateDocumentationSectionHandler(
     }
 }
 
+/// <summary>Replaces a documentation section's content: grounding for the project's prompts, so it needs Curate there.</summary>
 public record UpdateDocumentationSectionCommand(
     int SectionId,
     string Content) : IRequest, IProjectAuthorizedRequest
 {
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        new(ProjectResource.DocumentationSection(SectionId), ProjectAction.Write)
+        new(ProjectResource.DocumentationSection(SectionId), ProjectAction.Curate)
     ];
 }

@@ -4,10 +4,18 @@ using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.Metadata;
 
-internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconContext> contextFactory)
+/// <summary>
+/// A data source's relationships, each with whether the caller may verify it or take its verification back
+/// (<see cref="GroundingCuration"/>, as the verify route decides: the same for every relationship of the source).
+/// </summary>
+internal sealed class GetSchemaRelationshipsHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    IBeaconPermissionAccessor permissionAccessor)
     : IRequestHandler<GetSchemaRelationshipsQuery, PagedList<SchemaRelationshipItem>>
 {
     public async Task<PagedList<SchemaRelationshipItem>> Handle(GetSchemaRelationshipsQuery request, CancellationToken cancellationToken)
@@ -33,7 +41,7 @@ internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconCont
             relationships = relationships.Where(x => x.IsVerified);
         }
 
-        return await relationships
+        var page = await relationships
             .Select(x =>
                 new SchemaRelationshipItem
                 {
@@ -52,6 +60,16 @@ internal sealed class GetSchemaRelationshipsHandler(IDbContextFactory<BeaconCont
                     VerifiedTime = x.VerifiedTime
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "sourceSchema,sourceTable,sourceColumn");
+        if (page.Items.Count == 0)
+        {
+            return page;
+        }
+
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        var shared = await GroundingCuration.OfSharedSourcesAsync(context, scope, permissionAccessor, [request.DataSourceId], cancellationToken);
+        var canCurate = shared.Allows(request.DataSourceId, shared.WritesSource(request.DataSourceId));
+
+        return page.Map(x => x with { CanCurate = canCurate });
     }
 }
 
@@ -88,4 +106,10 @@ public record SchemaRelationshipItem
     public double Confidence { get; init; }
     public bool IsVerified { get; init; }
     public DateTime? VerifiedTime { get; init; }
+
+    /// <summary>
+    /// Whether the caller may verify the relationship or take its verification back: Curate in every live project linking
+    /// the data source, or the DataSourceAdmin permission.
+    /// </summary>
+    public bool CanCurate { get; init; }
 }

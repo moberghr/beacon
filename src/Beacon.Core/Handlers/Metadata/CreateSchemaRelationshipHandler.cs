@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
@@ -8,10 +9,17 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.Handlers.Metadata;
 
+/// <summary>
+/// Adds a manual relationship to a data source. It is stored verified — a join every project linking the source is told
+/// to trust — only when its creator may curate the source's grounding (<see cref="GroundingCuration"/>: Curate in every
+/// live project linking it, or a DataSourceAdmin, or an Admin); anyone else's waits unverified for a curator.
+/// </summary>
 internal sealed class CreateSchemaRelationshipHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     ISchemaGraphService schemaGraphService,
-    IBeaconUserContext userContext)
+    IBeaconUserContext userContext,
+    IProjectAccessEvaluator projectAccess,
+    IBeaconPermissionAccessor permissionAccessor)
     : IRequestHandler<CreateSchemaRelationshipCommand, CreateSchemaRelationshipResult>
 {
     public async Task<CreateSchemaRelationshipResult> Handle(CreateSchemaRelationshipCommand request, CancellationToken cancellationToken)
@@ -45,6 +53,9 @@ internal sealed class CreateSchemaRelationshipHandler(
             throw new InvalidOperationException("A relationship already exists for that column pair.");
         }
 
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        var shared = await GroundingCuration.OfSharedSourcesAsync(context, scope, permissionAccessor, [request.DataSourceId], cancellationToken);
+        var isVerified = shared.Allows(request.DataSourceId, shared.WritesSource(request.DataSourceId));
         var relationship = new SchemaRelationship
         {
             DataSourceId = request.DataSourceId,
@@ -59,9 +70,9 @@ internal sealed class CreateSchemaRelationshipHandler(
             Cardinality = request.Cardinality,
             ConstraintName = null,
             Confidence = 1.0,
-            IsVerified = true,
-            VerifiedByUserId = ParseUserId(userContext.UserId),
-            VerifiedTime = DateTime.UtcNow
+            IsVerified = isVerified,
+            VerifiedByUserId = isVerified ? ParseUserId(userContext.UserId) : null,
+            VerifiedTime = isVerified ? DateTime.UtcNow : null
         };
 
         context.SchemaRelationships.Add(relationship);
@@ -70,7 +81,7 @@ internal sealed class CreateSchemaRelationshipHandler(
         // The cached graph is now stale — leaving it would keep serving pre-edit joins (§6.2).
         schemaGraphService.Invalidate(request.DataSourceId);
 
-        return new CreateSchemaRelationshipResult(relationship.Id);
+        return new CreateSchemaRelationshipResult(relationship.Id, relationship.IsVerified);
     }
 
     private static int? ParseUserId(string? userId) =>
@@ -95,4 +106,5 @@ public record CreateSchemaRelationshipCommand : IRequest<CreateSchemaRelationshi
     ];
 }
 
-public record CreateSchemaRelationshipResult(int Id);
+/// <param name="IsVerified">False when the creator may not curate the source: the relationship waits for a curator.</param>
+public record CreateSchemaRelationshipResult(int Id, bool IsVerified);

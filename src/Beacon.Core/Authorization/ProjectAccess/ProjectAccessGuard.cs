@@ -50,6 +50,7 @@ internal static class ProjectAccessGuard
         return action switch
         {
             ProjectAction.ManageMembers => "Managing members and data sources",
+            ProjectAction.Curate => "Curating grounding",
             _ => action.ToString()
         };
     }

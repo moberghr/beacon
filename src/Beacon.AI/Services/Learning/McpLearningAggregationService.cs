@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services;
@@ -12,10 +13,19 @@ namespace Beacon.AI.Services.Learning;
 internal sealed class McpLearningAggregationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
+    IGroundingSqlCheck groundingSqlCheck,
     ILogger<McpLearningAggregationService> logger,
     ILessonExtractor? lessonExtractor = null,
     IPatternReplayVerifier? replayVerifier = null) : IMcpLearningAggregationService
 {
+    // The tool of a signal that answers a natural-language question.
+    private const string AskTool = "ask";
+
+    // A count or rate in a pattern's content: "(12 similar queries)", "a 40% error rate".
+    private static readonly Regex CountPattern = new(@"\d+(?:[.,]\d+)?", RegexOptions.Compiled);
+
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
     public async Task AggregateLearnedPatternsAsync(CancellationToken ct = default)
     {
         var settings = await settingsProvider.GetSettingsAsync(ct);
@@ -33,8 +43,8 @@ internal sealed class McpLearningAggregationService(
 
         // Tallies LLM-extraction attempts vs. null results across every cluster this run so a persistently
         // failing (misconfigured) LLM-primary path surfaces ONCE at the end instead of hiding behind a green
-        // job (§ silent-failure F7).
-        var extraction = new ExtractionStats();
+        // job. The run's SQL check reads each data source's dialect and catalog once.
+        var extraction = new ExtractionStats { SqlCheck = groundingSqlCheck.StartBatch() };
 
         foreach (var projectId in projectIds)
         {
@@ -71,6 +81,27 @@ internal sealed class McpLearningAggregationService(
                 "LLM lesson extraction returned no result for all {Count} cluster(s) this run — LLM-primary path may be misconfigured; using regex fallback",
                 extraction.Attempts);
         }
+
+        if (extraction.BlockedExampleSql > 0)
+        {
+            logger.LogWarning(
+                "{Count} learned-pattern example SQL(s) did not pass the SQL check this run and were not stored",
+                extraction.BlockedExampleSql);
+        }
+
+        if (extraction.BlockedPromotions > 0)
+        {
+            logger.LogWarning(
+                "{Count} learned pattern(s) were not auto-approved this run: their example SQL did not pass the SQL check",
+                extraction.BlockedPromotions);
+        }
+
+        if (extraction.Demotions > 0)
+        {
+            logger.LogInformation(
+                "{Count} auto-approved learned pattern(s) went back to NeedsEvidence this run: their content changed",
+                extraction.Demotions);
+        }
     }
 
     private async Task AggregateForProjectAsync(
@@ -94,6 +125,19 @@ internal sealed class McpLearningAggregationService(
 
         if (signals.Count < 3) return; // Not enough data
 
+        // Only a curator's Correct verdict weighs in mining (the exemplar choice and the confidence bonus): the asker's own
+        // verdict on an answer it got does not.
+        var curators = await GroundingCurators.AmongAsync(
+            context,
+            projectId,
+            signals
+                .Where(x => x.UserVerdict == McpUserVerdict.Correct)
+                .Where(x => x.FeedbackByUserId != null)
+                .Select(x => x.FeedbackByUserId!.Value)
+                .Distinct()
+                .ToList(),
+            ct);
+
         // Group by data source
         var byDataSource = signals.GroupBy(s => s.DataSourceId!.Value);
 
@@ -108,16 +152,16 @@ internal sealed class McpLearningAggregationService(
             // exemplar carries the free-text Question and GeneratedSql/CorrectedSql (§ Registry).
             if (retainContent)
             {
-                await DetectCommonQueriesAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+                await DetectCommonQueriesAsync(context, projectId, dataSourceId, dsGroup.ToList(), curators, extraction, ct);
             }
 
             // 3. Join Patterns: multi-table successful queries
-            await DetectJoinPatternsAsync(context, projectId, dataSourceId, dsGroup.ToList(), retainContent, ct);
+            await DetectJoinPatternsAsync(context, projectId, dataSourceId, dsGroup.ToList(), retainContent, curators, extraction, ct);
 
             // 4. Documentation Gaps: high error rate tables. Skipped under the content lock (§ Registry).
             if (retainContent)
             {
-                await DetectDocumentationGapsAsync(context, projectId, dataSourceId, dsGroup.ToList(), ct);
+                await DetectDocumentationGapsAsync(context, projectId, dataSourceId, dsGroup.ToList(), extraction, ct);
             }
         }
 
@@ -129,16 +173,18 @@ internal sealed class McpLearningAggregationService(
 
         // Replay-verification gate (§ Architecture ⑥): candidates were upserted as NeedsEvidence above;
         // promote only those that MEASURABLY help against the golden set. Confidence alone never promotes.
-        await PromoteVerifiedCandidatesAsync(context, projectId, settings, ct);
+        await PromoteVerifiedCandidatesAsync(context, projectId, settings, extraction, ct);
     }
 
     // Promotes NeedsEvidence candidates for the project via the replay verifier: a candidate becomes
     // AutoApproved ONLY when injecting it flips ≥ LearningReplayMinFlips of its relevant failing golden
     // cases with zero relevant regressions. When replay is disabled or no verifier is wired, candidates
     // stay NeedsEvidence (safe default — never auto-approve without measured evidence). Human Approve/Reject
-    // is a separate path and untouched. Internal so it can be unit-tested in isolation.
+    // is a separate path and untouched. Like a human approval, a candidate's example SQL passes the grounding SQL check
+    // again first (stored without comments); a candidate whose SQL the check refuses is not replayed and stays
+    // NeedsEvidence, counted and logged by id. Internal so it can be unit-tested in isolation.
     internal async Task PromoteVerifiedCandidatesAsync(
-        BeaconContext context, int projectId, McpSettingsData settings, CancellationToken ct)
+        BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats? extraction, CancellationToken ct)
     {
         // Intentional disable stays quiet (operator turned replay off on purpose).
         if (!settings.EnableReplayVerification)
@@ -156,6 +202,7 @@ internal sealed class McpLearningAggregationService(
         }
 
         var candidates = await context.McpLearnedPatterns
+            .AsNoTracking()
             .Where(x => x.ProjectId == projectId)
             .Where(x => x.Status == McpPatternStatus.NeedsEvidence)
             .ToListAsync(ct);
@@ -165,12 +212,36 @@ internal sealed class McpLearningAggregationService(
             return;
         }
 
+        var sqlCheck = extraction?.SqlCheck ?? groundingSqlCheck;
         var promoted = 0;
         foreach (var candidate in candidates)
         {
             try
             {
-                var verdict = await replayVerifier.VerifyAsync(candidate, settings.LearningReplayMinFlips, ct);
+                // What the replay measures, as read: the auto-approval is written only while the row still holds it.
+                var measured = new MeasuredContent(candidate.PatternContent, candidate.ExampleQuestion, candidate.ExampleSql);
+                var replayed = candidate;
+                if (!string.IsNullOrWhiteSpace(candidate.ExampleSql))
+                {
+                    var check = await sqlCheck.CheckAsync(candidate.DataSourceId, candidate.ExampleSql, ct);
+                    if (!check.IsAllowed)
+                    {
+                        if (extraction != null)
+                        {
+                            extraction.BlockedPromotions++;
+                        }
+
+                        logger.LogWarning(
+                            "Learned pattern {PatternId} of project {ProjectId} was not replayed for auto-approval: its example SQL did not pass the SQL check",
+                            candidate.Id,
+                            projectId);
+                        continue;
+                    }
+
+                    replayed = WithExampleSql(candidate, check.Sql);
+                }
+
+                var verdict = await replayVerifier.VerifyAsync(replayed, settings.LearningReplayMinFlips, ct);
 
                 logger.LogDebug(
                     "Replay verdict for candidate {PatternId}: relevant={Relevant} baselineFailing={BaselineFailing} flipped={Flipped} regressions={Regressions} errored={Errored} passed={Passed}",
@@ -187,10 +258,8 @@ internal sealed class McpLearningAggregationService(
                         candidate.Id, verdict.RelevantCases);
                 }
 
-                if (verdict.Passed)
+                if (verdict.Passed && await AutoApproveAsync(context, candidate.Id, measured, replayed.ExampleSql, ct))
                 {
-                    candidate.Status = McpPatternStatus.AutoApproved;
-                    candidate.LastVerifiedAt = DateTime.UtcNow;
                     promoted++;
                 }
             }
@@ -206,13 +275,60 @@ internal sealed class McpLearningAggregationService(
 
         if (promoted > 0)
         {
-            // Second save of the deliberate two-phase flow (§5.7, T2-1): the detection pass in
-            // AggregateForProjectAsync already flushed NeedsEvidence candidates, and promotion re-queries those
-            // persisted candidates (including ones created in earlier runs), so the detection save MUST land
-            // before this promotion save — they cannot be collapsed into one unit of work.
-            await context.SaveChangesAsync(ct);
+            // Each promotion was written by its own conditional update, after the detection pass in
+            // AggregateForProjectAsync flushed the NeedsEvidence candidates this pass re-reads (including ones created in
+            // earlier runs).
             logger.LogInformation("Replay-verified {Count} learned pattern(s) → AutoApproved for project {ProjectId}", promoted, projectId);
         }
+    }
+
+    // Auto-approval only from NeedsEvidence, and only of the content the replay measured: a person's decision, or a refresh,
+    // between the read and this write leaves the row as it is (false).
+    private static async Task<bool> AutoApproveAsync(BeaconContext context, int patternId, MeasuredContent measured, string? exampleSql, CancellationToken ct)
+    {
+        var verifiedAt = DateTime.UtcNow;
+        var written = await context.McpLearnedPatterns
+            .Where(x => x.Id == patternId)
+            .Where(x => x.Status == McpPatternStatus.NeedsEvidence)
+            .Where(x => x.PatternContent == measured.PatternContent)
+            .Where(x => x.ExampleQuestion == measured.ExampleQuestion)
+            .Where(x => x.ExampleSql == measured.ExampleSql)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.Status, McpPatternStatus.AutoApproved)
+                    .SetProperty(y => y.ExampleSql, exampleSql)
+                    .SetProperty(y => y.LastVerifiedAt, verifiedAt),
+                ct);
+
+        return written > 0;
+    }
+
+    // The candidate as the replay sees it: with its example SQL as the check returned it. A copy, so the row read stays the
+    // content the conditional write compares with.
+    private static McpLearnedPattern WithExampleSql(McpLearnedPattern pattern, string? exampleSql)
+    {
+        return new McpLearnedPattern
+        {
+            Id = pattern.Id,
+            CreatedTime = pattern.CreatedTime,
+            ProjectId = pattern.ProjectId,
+            DataSourceId = pattern.DataSourceId,
+            SchemaName = pattern.SchemaName,
+            TableName = pattern.TableName,
+            ColumnName = pattern.ColumnName,
+            PatternType = pattern.PatternType,
+            PatternContent = pattern.PatternContent,
+            ExampleQuestion = pattern.ExampleQuestion,
+            ExampleSql = exampleSql,
+            SignalCount = pattern.SignalCount,
+            Confidence = pattern.Confidence,
+            Status = pattern.Status,
+            ReviewedByUserId = pattern.ReviewedByUserId,
+            ReviewedAt = pattern.ReviewedAt,
+            LastRefreshedAt = pattern.LastRefreshedAt,
+            SupersededAt = pattern.SupersededAt,
+            LastVerifiedAt = pattern.LastVerifiedAt
+        };
     }
 
     // Temporal decay / staleness pass (§ Architecture ⑧): a schema-correction points at a specific column
@@ -367,9 +483,11 @@ internal sealed class McpLearningAggregationService(
                 var lesson = await lessonExtractor.ExtractAsync(cluster, ct);
                 if (lesson != null)
                 {
+                    // An example question only from an answer to a question: a query signal's "question" is SQL.
+                    var lessonQuestion = representative.Tool == AskTool ? GroundingText.Question(lesson.ExampleQuestion) : null;
                     await UpsertPatternAsync(context, projectId, dataSourceId, first.Schema, first.Table, first.WrongColumn,
-                        lesson.PatternType, lesson.PatternContent, lesson.ExampleQuestion, lesson.ExampleSql,
-                        group.Count(), confidence, ct);
+                        lesson.PatternType, lesson.PatternContent, lessonQuestion, lesson.ExampleSql,
+                        group.Count(), confidence, extraction, ct);
                     continue;
                 }
 
@@ -384,13 +502,13 @@ internal sealed class McpLearningAggregationService(
 
             await UpsertPatternAsync(context, projectId, dataSourceId, first.Schema, first.Table, first.WrongColumn,
                 McpPatternType.SchemaCorrection, content, null, null,
-                group.Count(), confidence, ct);
+                group.Count(), confidence, extraction, ct);
         }
     }
 
-    internal static async Task DetectCommonQueriesAsync(
+    internal async Task DetectCommonQueriesAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, CancellationToken ct)
+        List<McpQuerySignal> signals, IReadOnlySet<int> curators, ExtractionStats extraction, CancellationToken ct)
     {
         var successful = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.GeneratedSql) && !string.IsNullOrEmpty(s.TablesUsed))
@@ -408,9 +526,9 @@ internal sealed class McpLearningAggregationService(
 
         foreach (var group in byTables)
         {
-            // Prefer a human-CONFIRMED signal as the exemplar, then a non-failed one.
+            // Prefer a curator-CONFIRMED signal as the exemplar, then a non-failed one.
             var representative = group
-                .OrderByDescending(s => s.UserVerdict == McpUserVerdict.Correct ? 1 : 0)
+                .OrderByDescending(s => IsCuratorVerified(s, curators) ? 1 : 0)
                 .ThenBy(s => s.SchemaValidationFailed ? 1 : 0)
                 .ThenByDescending(s => s.ResultRowCount ?? 0)
                 .First();
@@ -423,24 +541,24 @@ internal sealed class McpLearningAggregationService(
             var schema = parts.Length > 1 ? parts[0] : "public";
             var table = parts.Length > 1 ? parts[1] : parts[0];
 
-            // Part B: a group containing a human-CONFIRMED answer is more trustworthy than one resting on
+            // Part B: a group containing a curator-CONFIRMED answer is more trustworthy than one resting on
             // execution success alone, so it earns a confidence bonus.
-            var humanVerified = group.Any(s => s.UserVerdict == McpUserVerdict.Correct);
+            var curatorVerified = group.Any(s => IsCuratorVerified(s, curators));
             var content = $"Common query pattern for {primaryTable} ({group.Count()} similar queries)";
-            var confidence = Math.Min(1.0, 0.4 + (group.Count() * 0.1) + (humanVerified ? 0.2 : 0.0));
+            var confidence = Math.Min(1.0, 0.4 + (group.Count() * 0.1) + (curatorVerified ? 0.2 : 0.0));
 
             // Use corrected SQL if the representative had a correction — never store broken SQL
             var exampleSql = representative.CorrectedSql ?? representative.GeneratedSql;
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
-                McpPatternType.CommonQuery, content, representative.Question, exampleSql,
-                group.Count(), confidence, ct);
+                McpPatternType.CommonQuery, content, ExampleQuestionOf(representative), exampleSql,
+                group.Count(), confidence, extraction, ct);
         }
     }
 
-    internal static async Task DetectJoinPatternsAsync(
+    internal async Task DetectJoinPatternsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, bool retainContent, CancellationToken ct)
+        List<McpQuerySignal> signals, bool retainContent, IReadOnlySet<int> curators, ExtractionStats extraction, CancellationToken ct)
     {
         var multiTable = signals
             .Where(s => s.IsSuccessful && !string.IsNullOrEmpty(s.TablesUsed))
@@ -461,9 +579,9 @@ internal sealed class McpLearningAggregationService(
         foreach (var group in joinGroups)
         {
             var pair = group.Key;
-            // Prefer a human-CONFIRMED join as the exemplar.
+            // Prefer a curator-CONFIRMED join as the exemplar.
             var representative = group
-                .OrderByDescending(x => x.Signal.UserVerdict == McpUserVerdict.Correct ? 1 : 0)
+                .OrderByDescending(x => IsCuratorVerified(x.Signal, curators) ? 1 : 0)
                 .First().Signal;
 
             var parts = pair.Split('+');
@@ -471,24 +589,24 @@ internal sealed class McpLearningAggregationService(
             var schema = table1Parts.Length > 1 ? table1Parts[0] : "public";
             var table = table1Parts.Length > 1 ? table1Parts[1] : table1Parts[0];
 
-            var humanVerified = group.Any(x => x.Signal.UserVerdict == McpUserVerdict.Correct);
+            var curatorVerified = group.Any(x => IsCuratorVerified(x.Signal, curators));
             var content = $"Tables {pair} are frequently joined together ({group.Count()} queries)";
-            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.1) + (humanVerified ? 0.2 : 0.0));
+            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.1) + (curatorVerified ? 0.2 : 0.0));
 
             // ExampleQuestion/ExampleSql are Content (§ Registry) — under the lock the pattern still
             // records that these tables are joined, but never carries the free-text question or SQL.
-            var exampleQuestion = retainContent ? representative.Question : null;
+            var exampleQuestion = retainContent ? ExampleQuestionOf(representative) : null;
             var exampleSql = retainContent ? representative.GeneratedSql : null;
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
                 McpPatternType.JoinPattern, content, exampleQuestion, exampleSql,
-                group.Count(), confidence, ct);
+                group.Count(), confidence, extraction, ct);
         }
     }
 
-    private static async Task DetectDocumentationGapsAsync(
+    private async Task DetectDocumentationGapsAsync(
         BeaconContext context, int projectId, int dataSourceId,
-        List<McpQuerySignal> signals, CancellationToken ct)
+        List<McpQuerySignal> signals, ExtractionStats extraction, CancellationToken ct)
     {
         var byTable = signals
             .Where(s => !string.IsNullOrEmpty(s.TablesUsed))
@@ -516,39 +634,60 @@ internal sealed class McpLearningAggregationService(
 
             await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, null,
                 McpPatternType.DocumentationGap, content, null, null,
-                tableStats.Total, confidence, ct);
+                tableStats.Total, confidence, extraction, ct);
         }
     }
 
-    private static async Task UpsertPatternAsync(
+    // Every example SQL a pattern stores passes the grounding SQL check first and is stored without its comments; SQL the
+    // check refuses is not stored (a new pattern gets none, an existing one keeps the example it has), counted and logged
+    // by identifiers only (§1.11). A decision binds to the content it was made on: a pattern a person approved or
+    // rejected keeps its content, question and example SQL (only its statistics refresh), and an auto-approved pattern
+    // whose content changes goes back to NeedsEvidence, for the replay gate to measure again — content compared with its
+    // counts left out and its SQL without comments, so a count that moves or SQL stored before comments were removed is
+    // no change. Every write to an existing pattern is conditional on the status it was read with: a person's decision
+    // between the read and the write is never overwritten.
+    private async Task UpsertPatternAsync(
         BeaconContext context, int projectId, int dataSourceId,
         string schema, string table, string? column,
         McpPatternType type, string content, string? exampleQuestion, string? exampleSql,
-        int signalCount, double confidence, CancellationToken ct)
+        int signalCount, double confidence, ExtractionStats extraction, CancellationToken ct)
     {
         var existing = await context.McpLearnedPatterns
-            .FirstOrDefaultAsync(p =>
-                p.ProjectId == projectId
-                && p.DataSourceId == dataSourceId
-                && p.TableName == table
-                && p.SchemaName == schema
-                && p.ColumnName == column
-                && p.PatternType == type, ct);
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.TableName == table)
+            .Where(x => x.SchemaName == schema)
+            .Where(x => x.ColumnName == column)
+            .Where(x => x.PatternType == type)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.Status,
+                    x.PatternContent,
+                    x.ExampleQuestion,
+                    x.ExampleSql
+                })
+            .FirstOrDefaultAsync(ct);
+        var refreshedAt = DateTime.UtcNow;
 
-        if (existing != null)
+        if (existing is { Status: McpPatternStatus.Approved or McpPatternStatus.Rejected })
         {
-            existing.PatternContent = content;
-            existing.ExampleQuestion = exampleQuestion ?? existing.ExampleQuestion;
-            existing.ExampleSql = exampleSql ?? existing.ExampleSql;
-            existing.SignalCount = signalCount;
-            existing.Confidence = confidence;
-            existing.LastRefreshedAt = DateTime.UtcNow;
+            await context.McpLearnedPatterns
+                .Where(x => x.Id == existing.Id)
+                .Where(x => x.Status == existing.Status)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.SignalCount, signalCount)
+                        .SetProperty(y => y.Confidence, confidence)
+                        .SetProperty(y => y.LastRefreshedAt, refreshedAt),
+                    ct);
 
-            // Promotion is now decided by the replay-verification gate (§ Architecture ⑥), NOT confidence.
-            // A refresh leaves the status alone: Pending/NeedsEvidence await evidence; a human-reviewed
-            // Approved/Rejected/AutoApproved verdict is preserved.
+            return;
         }
-        else
+
+        var check = await CheckedExampleSqlAsync(projectId, dataSourceId, type, exampleSql, extraction, ct);
+        if (existing == null)
         {
             // New candidates land in NeedsEvidence — never AutoApproved on confidence alone. The aggregation
             // job's replay gate promotes them to AutoApproved only when they measurably help (§ Architecture ⑥).
@@ -562,13 +701,97 @@ internal sealed class McpLearningAggregationService(
                 PatternType = type,
                 PatternContent = content,
                 ExampleQuestion = exampleQuestion,
-                ExampleSql = exampleSql,
+                ExampleSql = check?.Sql,
                 SignalCount = signalCount,
                 Confidence = confidence,
                 Status = McpPatternStatus.NeedsEvidence,
-                LastRefreshedAt = DateTime.UtcNow
+                LastRefreshedAt = refreshedAt
             });
+
+            return;
         }
+
+        var refreshedQuestion = exampleQuestion ?? existing.ExampleQuestion;
+        var refreshedSql = check?.Sql ?? existing.ExampleSql;
+        var contentChanged = WithoutCounts(existing.PatternContent) != WithoutCounts(content)
+            || GroundingText.Question(existing.ExampleQuestion) != GroundingText.Question(refreshedQuestion)
+            || CommentFree(existing.ExampleSql, check?.Dialect) != CommentFree(refreshedSql, check?.Dialect);
+
+        // Promotion is decided by the replay-verification gate, NOT confidence: a refresh leaves
+        // Pending/NeedsEvidence as they are, and sends an auto-approval whose content changed back for evidence.
+        var demoted = contentChanged && existing.Status == McpPatternStatus.AutoApproved;
+        var status = demoted ? McpPatternStatus.NeedsEvidence : existing.Status;
+        var written = await context.McpLearnedPatterns
+            .Where(x => x.Id == existing.Id)
+            .Where(x => x.Status == existing.Status)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.PatternContent, content)
+                    .SetProperty(y => y.ExampleQuestion, refreshedQuestion)
+                    .SetProperty(y => y.ExampleSql, refreshedSql)
+                    .SetProperty(y => y.SignalCount, signalCount)
+                    .SetProperty(y => y.Confidence, confidence)
+                    .SetProperty(y => y.LastRefreshedAt, refreshedAt)
+                    .SetProperty(y => y.Status, status),
+                ct);
+        if (written > 0 && demoted)
+        {
+            extraction.Demotions++;
+        }
+    }
+
+    // The checked example SQL (with the dialect it was read in), or null when there is none or the check refused it.
+    private async Task<GroundingSqlCheckResult?> CheckedExampleSqlAsync(
+        int projectId, int dataSourceId, McpPatternType type, string? exampleSql, ExtractionStats extraction, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(exampleSql))
+        {
+            return null;
+        }
+
+        var check = await (extraction.SqlCheck ?? groundingSqlCheck).CheckAsync(dataSourceId, exampleSql, ct);
+        if (check.IsAllowed)
+        {
+            return check;
+        }
+
+        extraction.BlockedExampleSql++;
+        logger.LogWarning(
+            "The example SQL of a {PatternType} pattern for project {ProjectId}, data source {DataSourceId} did not pass the SQL check and was not stored",
+            type,
+            projectId,
+            dataSourceId);
+
+        return null;
+    }
+
+    // A curator's Correct verdict (a project admin member of the project, or an Admin): the only verdict that weighs in.
+    private static bool IsCuratorVerified(McpQuerySignal signal, IReadOnlySet<int> curators)
+    {
+        return signal.UserVerdict == McpUserVerdict.Correct
+            && signal.FeedbackByUserId is { } rater
+            && curators.Contains(rater);
+    }
+
+    // An example question only from an answer to a question (a query signal's "question" is the SQL it ran), on one line
+    // and without characters a reviewer cannot see (else none).
+    private static string? ExampleQuestionOf(McpQuerySignal signal)
+    {
+        return signal.Tool == AskTool ? GroundingText.Question(signal.Question) : null;
+    }
+
+    // Pattern content with its counts left out: a lesson whose count or rate moved is the same lesson.
+    private static string WithoutCounts(string content)
+    {
+        return CountPattern.Replace(content, "#");
+    }
+
+    // Example SQL as a prompt shows it, its whitespace runs collapsed — so SQL stored with comments before they were removed
+    // compares equal to its comment-free form (a removed comment leaves a space); SQL that cannot be shown that way compares
+    // as stored. For the comparison only: the SQL is stored as the check returns it.
+    private static string? CommentFree(string? sql, string? dialect)
+    {
+        return sql == null ? null : Whitespace.Replace(GroundingSqlText.WithoutComments(sql, dialect) ?? sql, " ").Trim();
     }
 
     public async Task GenerateDocumentationPatchesAsync(CancellationToken ct = default)
@@ -861,11 +1084,22 @@ internal sealed class McpLearningAggregationService(
         "ROW_NUMBER", "RANK", "DENSE_RANK"
     };
 
+    // A candidate's content as the replay measured it.
+    private sealed record MeasuredContent(string PatternContent, string? ExampleQuestion, string? ExampleSql);
+
     // Run-scoped tally of LLM lesson-extraction attempts vs. null (fell-back) results, threaded through the
-    // detectors so a persistently dead LLM-primary path can be reported once at the end of the run (F7).
+    // detectors so a persistently dead LLM-primary path can be reported once at the end of the run, and of the
+    // example SQL the grounding SQL check refused (when mined, and before an auto-approval), and of the auto-approved
+    // patterns a content change sent back to NeedsEvidence, each reported the same way.
+    // It also carries the run's grounding SQL check (IGroundingSqlCheck.StartBatch), which reads each data source's
+    // dialect and catalog once per run; without one (a detector called on its own) the service's check is used.
     internal sealed class ExtractionStats
     {
         public int Attempts { get; set; }
         public int NullResults { get; set; }
+        public int BlockedExampleSql { get; set; }
+        public int BlockedPromotions { get; set; }
+        public int Demotions { get; set; }
+        public IGroundingSqlCheck? SqlCheck { get; init; }
     }
 }

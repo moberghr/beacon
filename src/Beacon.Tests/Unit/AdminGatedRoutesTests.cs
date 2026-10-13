@@ -188,6 +188,34 @@ public class AdminGatedRoutesTests
             .OnlyContain(x => x.RequiresLiveAdmin, "curation needs an Admin by live roles, not a session's stale Admin claim");
     }
 
+    // The golden candidates list shows other users' questions and SQL: an Admin's by live roles, like the rest of /eval.
+    [Test]
+    public async Task TheGoldenCandidates_AreAnAdminsByLiveRoles()
+    {
+        var routes = await BeaconApiRoutes.ReadAsync();
+
+        var candidates = routes.Should().ContainSingle(x => x.Name == "GetGoldenCandidates").Subject;
+
+        candidates.Key.Should().Be("GET /beacon/api/eval/golden/candidates");
+        candidates.Policies.Should().Contain(BeaconApiEndpoints.AdminPolicyName);
+        candidates.RequiresLiveAdmin.Should().BeTrue();
+        candidates.AdmittedPermissions.Should().BeEmpty("no functional permission opens it");
+    }
+
+    // The grounding recheck shows a project's stored questions and SQL: an Admin's by live roles, like the rest of /eval.
+    [Test]
+    public async Task TheGroundingRecheck_IsAnAdminsByLiveRoles()
+    {
+        var routes = await BeaconApiRoutes.ReadAsync();
+
+        var recheck = routes.Should().ContainSingle(x => x.Name == "RecheckGrounding").Subject;
+
+        recheck.Key.Should().Be("GET /beacon/api/eval/grounding/recheck");
+        recheck.Policies.Should().Contain(BeaconApiEndpoints.AdminPolicyName);
+        recheck.RequiresLiveAdmin.Should().BeTrue();
+        recheck.AdmittedPermissions.Should().BeEmpty("no functional permission opens it");
+    }
+
     [Test]
     public async Task OnAHostWithoutUserManagement_APermissionPolicy_AdmitsTheHostsRoleClaimsOnlyOnOptIn()
     {

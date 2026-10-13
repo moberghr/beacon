@@ -53,19 +53,19 @@ internal static class McpEndpoints
         mcp.MapGet("/learned-patterns", ([AsParameters] GetLearnedPatternsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetLearnedPatterns");
 
+        // Approve, reject or set back to pending (anything else: 400); needs the project admin role in the pattern's project.
+        // Decides the content the reviewer saw (its contentHash): 409 when the pattern changed since.
         mcp.MapPut("/learned-patterns/{id:int}/status", async (
             int id,
             UpdatePatternStatusBody body,
-            IActorUserResolver actorResolver,
             IMediator m,
             CancellationToken ct) =>
         {
-            var reviewerId = await actorResolver.ResolveActorUserIdAsync(ct);
             await m.Send(new UpdatePatternStatusCommand
             {
                 PatternId = id,
                 NewStatus = body.NewStatus,
-                ReviewedByUserId = reviewerId,
+                ReviewedContentHash = body.ReviewedContentHash
             }, ct);
             return TypedResults.NoContent();
         }).WithName("UpdatePatternStatus");
@@ -137,4 +137,6 @@ internal static class McpEndpoints
 
 internal sealed record UpdateMcpSettingsBody(McpSettingsData Data);
 internal sealed record UpdateMcpProjectSettingsBody(McpProjectSettingsData Data);
-internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus);
+/// <param name="NewStatus">Approved, Rejected or Pending.</param>
+/// <param name="ReviewedContentHash">The pattern's <c>contentHash</c> from the learned-pattern list, as reviewed.</param>
+internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus, string ReviewedContentHash);

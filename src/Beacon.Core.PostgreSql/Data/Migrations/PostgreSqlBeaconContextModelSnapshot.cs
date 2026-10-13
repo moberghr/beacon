@@ -2614,6 +2614,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<int?>("ModifiedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("modified_by_user_id");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
@@ -2622,6 +2626,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
+
+                    b.Property<int?>("PromotedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("promoted_by_user_id");
 
                     b.Property<string>("Question")
                         .IsRequired()
@@ -3180,6 +3188,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("execution_time_ms");
 
+                    b.Property<int?>("FeedbackByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("feedback_by_user_id");
+
                     b.Property<string>("FeedbackNote")
                         .HasColumnType("text")
                         .HasColumnName("feedback_note");
@@ -3200,6 +3212,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
+
+                    b.Property<DateTime?>("PromotedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("promoted_at");
+
+                    b.Property<int?>("PromotedEvalCaseId")
+                        .HasColumnType("integer")
+                        .HasColumnName("promoted_eval_case_id");
 
                     b.Property<string>("Question")
                         .IsRequired()

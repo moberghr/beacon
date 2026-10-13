@@ -27,9 +27,12 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// password, which existing users leave false. The next one only changes the default of the global MCP settings' sample
 /// value collection to off, for a row created from then on; it rewrites no stored row. The next one adds the query change
 /// integrity columns — a version's content hash, a request's base version, approved hash and contributors — all
-/// nullable, which existing rows leave empty. The last one creates the change request table and adds the approved hash
+/// nullable, which existing rows leave empty. The next one creates the change request table and adds the approved hash
 /// of migration jobs, Custom SQL rules and recipients, nullable, which existing rows leave empty (not governed), and two
-/// counts on data-quality evaluations, which existing evaluations leave at zero; its target model is the snapshot. Each earlier migration's target model differs from the next one's only by that next
+/// counts on data-quality evaluations, which existing evaluations leave at zero. The last one adds who promoted and who
+/// last edited a golden case and who rated a query signal, three nullable ids that existing rows leave empty, and makes a
+/// golden case's source signal unique, detaching the later cases promoted from one signal; its target model is the
+/// snapshot. Each earlier migration's target model differs from the next one's only by that next
 /// migration.
 /// </summary>
 [TestFixture]
@@ -55,8 +58,8 @@ public class ProjectAuthorizationMigrationTests
             .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
             .Skip(1)
             .Should().Equal(
-                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff"), IdEndingWith(migrations, "_AddQueryChangeIntegrity"), IdEndingWith(migrations, "_AddChangeApprovalRequests")],
-                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp, sample-default, change-integrity and change-request migrations follow it");
+                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff"), IdEndingWith(migrations, "_AddQueryChangeIntegrity"), IdEndingWith(migrations, "_AddChangeApprovalRequests"), IdEndingWith(migrations, "_AddGroundingAttribution")],
+                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp, sample-default, change-integrity, change-request and grounding-attribution migrations follow it");
     }
 
     [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
@@ -248,7 +251,7 @@ public class ProjectAuthorizationMigrationTests
     // out as waiting for approval, alert recipients held), which existing evaluations leave at zero.
     [TestCase(false, "change_approval_requests", "migration_jobs", "approved_definition_hash", "data_contract_rules", "approved_sql_hash", "recipients", "approved_destination_hash", "character varying(64)", "data_quality_evaluations", "awaiting_approval_rules", "held_alert_recipients", "integer")]
     [TestCase(true, "ChangeApprovalRequests", "MigrationJobs", "ApprovedDefinitionHash", "DataContractRules", "ApprovedSqlHash", "Recipients", "ApprovedDestinationHash", "nvarchar(64)", "DataQualityEvaluations", "AwaitingApprovalRules", "HeldAlertRecipients", "int")]
-    public void TheChangeRequestMigration_CreatesTheRequestTable_AddsThreeNullableHashesAndTwoEvaluationCounts_AndItsTargetModelIsTheSnapshot(
+    public void TheChangeRequestMigration_CreatesTheRequestTable_AddsThreeNullableHashesAndTwoEvaluationCounts_AndItsTargetModelIsTheOneBeforeTheNext(
         bool sqlServer,
         string requests,
         string jobs,
@@ -300,11 +303,72 @@ public class ProjectAuthorizationMigrationTests
             .Which.Columns.Select(x => $"{x.Name} {x.ColumnType} {x.IsNullable}")
             .Should().BeEquivalentTo(table.Columns.Select(x => $"{x.Name} {x.ColumnType} {x.IsNullable}"), "the migration creates the table its target model holds");
         differences.Should().HaveCount(8, "the target model differs from the one before only by this migration");
+        var next = MigrationNamed(context, migrations, "_AddGroundingAttribution");
+        context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Select(x => x.GetType().Name)
+            .Should().BeEquivalentTo(
+                next.UpOperations.Where(x => x is not SqlOperation).Select(x => x.GetType().Name),
+                "the next migration's target model differs from its target model only by that migration");
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        NextAfter(migrations, "_AddChangeApprovalRequests").Should().EndWith("_AddGroundingAttribution", "it sorts after every earlier migration");
+    }
+
+    // Who promoted and who last edited a golden case, and who rated a query signal: three nullable ids, no key and no
+    // index (recorded ids, as the linking user is), which existing rows leave empty — no backfill, so a golden case created
+    // before reads as promoted by nobody. Then when a signal was promoted and to which case: two nullable columns a promotion
+    // claims the signal with. Only added columns: no index, no SQL, no stored value changes.
+    [TestCase(false, "mcp_eval_cases", "promoted_by_user_id", "modified_by_user_id", "mcp_query_signals", "feedback_by_user_id", "integer", "promoted_at", "timestamp with time zone", "promoted_eval_case_id")]
+    [TestCase(true, "McpEvalCases", "PromotedByUserId", "ModifiedByUserId", "McpQuerySignals", "FeedbackByUserId", "int", "PromotedAt", "datetime2", "PromotedEvalCaseId")]
+    public void TheGroundingAttributionMigration_AddsFiveNullableColumns_AndNothingElse_AndItsTargetModelIsTheSnapshot(
+        bool sqlServer,
+        string cases,
+        string promotedBy,
+        string modifiedBy,
+        string signals,
+        string feedbackBy,
+        string intType,
+        string promotedAt,
+        string timeType,
+        string promotedCase)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+        var previous = MigrationNamed(context, migrations, "_AddChangeApprovalRequests");
+
+        var migration = MigrationNamed(context, migrations, "_AddGroundingAttribution");
+
+        migration.UpOperations.Should().OnlyContain(x => x is AddColumnOperation, "no index, no SQL: nothing rewrites a stored row");
+        migration.UpOperations.OfType<AddColumnOperation>().Should().BeEquivalentTo(
+            new[]
+            {
+                new { Schema = "beacon", Table = cases, Name = promotedBy, ColumnType = intType, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = cases, Name = modifiedBy, ColumnType = intType, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = signals, Name = feedbackBy, ColumnType = intType, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = signals, Name = promotedAt, ColumnType = timeType, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null },
+                new { Schema = "beacon", Table = signals, Name = promotedCase, ColumnType = intType, IsNullable = true, DefaultValue = (object?)null, DefaultValueSql = (string?)null }
+            },
+            x => x.ExcludingMissingMembers().WithStrictOrdering());
+        migration.DownOperations.Should().OnlyContain(x => x is DropColumnOperation);
+        migration.DownOperations.OfType<DropColumnOperation>().Select(x => $"{x.Schema}.{x.Table}.{x.Name}")
+            .Should().BeEquivalentTo(
+                migration.UpOperations.OfType<AddColumnOperation>().Select(x => $"{x.Schema}.{x.Table}.{x.Name}"),
+                "Down drops exactly the columns Up adds");
+        var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
+        var differences = context.GetService<IMigrationsModelDiffer>()
+            .GetDifferences(Initialized(previous.TargetModel!, initializer).GetRelationalModel(), target);
+        differences.OfType<AddColumnOperation>().Select(x => $"{x.Table}.{x.Name} {x.ColumnType} {x.IsNullable}")
+            .Should().BeEquivalentTo(
+                migration.UpOperations.OfType<AddColumnOperation>().Select(x => $"{x.Table}.{x.Name} {x.ColumnType} {x.IsNullable}"),
+                "the migration's Up adds exactly the columns its target model adds");
+        differences.Should().HaveCount(5, "the target model differs from the one before only by this migration");
         context.GetService<IMigrationsModelDiffer>()
             .GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).Last().Should().EndWith("_AddChangeApprovalRequests", "it sorts after every earlier migration");
+        Ordered(migrations).Last().Should().EndWith("_AddGroundingAttribution", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]
