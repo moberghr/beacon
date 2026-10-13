@@ -74,8 +74,16 @@ public class JwtValidationOptions
     public string? ValidAudience { get; set; }
 
     /// <summary>
-    /// Additional accepted audiences, combined with <see cref="ValidAudience"/> (e.g. both <c>api://{client-id}</c>
-    /// and the bare client id).
+    /// Additional accepted audiences, combined with <see cref="ValidAudience"/>.
+    /// <para>
+    /// Microsoft Entra ID: list both the Application ID URI (<c>api://{client-id}</c>) and the bare client id GUID.
+    /// Which one a token's <c>aud</c> carries depends on the API app registration's token version — v2 access tokens
+    /// (<c>accessTokenAcceptedVersion: 2</c>) carry the client id GUID, v1 tokens carry the Application ID URI as
+    /// requested. The audience is always the app that owns the requested scope (e.g.
+    /// <c>api://{client-id}/mcp.access</c>), never the MCP endpoint URL — even though MCP clients also send that URL as
+    /// the RFC 8707 <c>resource</c> parameter. Entra does not ignore that parameter: it must exactly match one of the
+    /// app's Application ID URIs (<c>identifierUris</c>), or the token request fails with <c>AADSTS9010010</c>.
+    /// </para>
     /// </summary>
     public List<string> ValidAudiences { get; set; } = [];
 

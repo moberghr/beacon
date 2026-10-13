@@ -134,6 +134,44 @@ public class McpBearerChallengeHostTests
     }
 
     [Test]
+    public async Task EntraConfig_ChallengeMetadataAndServerCard_Agree()
+    {
+        await using var host = await TestHost.StartAsync(settings: new Dictionary<string, string?>
+        {
+            ["Beacon:Mcp:ProtectedResource:AuthorizationServers:0"] = Issuer,
+            ["Beacon:Mcp:ProtectedResource:ScopesSupported:0"] = EntraScope
+        });
+
+        var challengeUrl = ResourceMetadataUrl((await host.PostMcpAsync(null)).Headers.WwwAuthenticate.ToString());
+        var metadata = await host.GetJsonAsync(new Uri(challengeUrl).PathAndQuery);
+        var pathInserted = await host.GetJsonAsync("/.well-known/oauth-protected-resource/beacon/mcp");
+        var card = await host.GetJsonAsync("/.well-known/mcp/server-card.json");
+
+        challengeUrl.Should().Be($"{PublicBaseUrl}/.well-known/oauth-protected-resource");
+        metadata["resource"]!.GetValue<string>().Should().Be($"{PublicBaseUrl}/beacon/mcp")
+            .And.Be(card["endpoint"]!.GetValue<string>(), "the resource is the canonical MCP endpoint URL");
+        Strings(metadata["authorization_servers"]).Should().Equal(Issuer);
+        Strings(metadata["scopes_supported"]).Should().Equal(EntraScope);
+        Strings(card["authentication"]!["scopes_supported"]).Should().Equal(EntraScope);
+        card["authentication"]!["resource_metadata"]!.GetValue<string>().Should().Be(challengeUrl);
+        pathInserted.ToJsonString().Should().Be(metadata.ToJsonString(), "both RFC 9728 locations serve one document");
+    }
+
+    [Test]
+    public async Task DeriveFromJwtIssuer_PublishesTheV2Issuer()
+    {
+        await using var host = await TestHost.StartAsync(settings: new Dictionary<string, string?>
+        {
+            ["Beacon:Mcp:ProtectedResource:DeriveAuthorizationServerFromJwtIssuer"] = "true",
+            ["Beacon:Mcp:ProtectedResource:ScopesSupported:0"] = EntraScope
+        });
+
+        var metadata = await host.GetJsonAsync("/.well-known/oauth-protected-resource");
+
+        Strings(metadata["authorization_servers"]).Should().Equal(Issuer);
+    }
+
+    [Test]
     public async Task NoConfig_KeepsTheLegacyDocument()
     {
         await using var host = await TestHost.StartAsync();

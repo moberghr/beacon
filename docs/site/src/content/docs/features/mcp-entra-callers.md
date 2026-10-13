@@ -146,6 +146,128 @@ re-reads the row the winner created instead of failing.
 Entra leaves out the `groups` claim when a user belongs to more than about 200 groups (the "overage" case). For large tenants, prefer **app roles** in `RequiredRoles` and `GroupProjects`, or assign the groups to the app registration so the token only lists relevant groups.
 :::
 
+## Connect Claude (claude.ai / Claude Desktop custom connector)
+
+Claude's custom connectors connect by URL and sign the user in with OAuth. Beacon does not run an OAuth server here:
+Claude gets a delegated **Entra** token for the user and calls `/beacon/mcp` with it, and Beacon validates the token
+and maps the user like any other [user-mode caller](#how-a-call-is-resolved). Claude learns where to sign in from
+Beacon's [discovery documents](/features/mcp-server/#discovery-endpoints):
+
+1. `POST /beacon/mcp` without a token answers `401` with `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"`.
+2. That document names the authorization server (`authorization_servers[0]`, the Entra v2 issuer), the scopes to request
+   (`scopes_supported`) and the resource (`resource`, the canonical `https://<host>/beacon/mcp` URL).
+3. Claude reads Entra's metadata at `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration`,
+   signs the user in, and requests a token for those scopes, sending the resource URL as the RFC 8707 `resource`
+   parameter.
+
+By default the document lists Beacon's internal scope names (`Execute`, `Admin`) and no authorization server unless
+Beacon's own OIDC login is on — neither is something Entra understands. Configure it under
+`Beacon:Mcp:ProtectedResource`.
+
+### 1. The API app registration
+
+This is the app registration whose tokens Beacon validates (`Validation.ValidAudiences`) — in an embedded setup, usually
+the host's API registration.
+
+- **Manifest:** set `api.requestedAccessTokenVersion` to `2` (`accessTokenAcceptedVersion: 2` in the older AAD Graph
+  manifest format). Do this first: Entra only lets a v2 app register an HTTPS Application ID URI.
+- **Expose an API → Application ID URI:** keep `api://<api-client-id>` and **add the exact MCP URL**,
+  `https://<host>/beacon/mcp`, to `identifierUris`. MCP clients send that URL as the `resource` parameter, and Entra
+  does *not* ignore it: it must match one of the app's Application ID URIs character for character (no trailing
+  slash), or the token request fails with `AADSTS9010010`. Entra may require the host name to be a verified domain of
+  the tenant before it accepts an HTTPS Application ID URI.
+- **Expose an API → Add a scope:** `mcp.access` (delegated; admins and users, or admins only). Clients request it fully
+  qualified, `api://<api-client-id>/mcp.access`. The scope and the `resource` must belong to the same app registration.
+- **App roles** (recommended): e.g. `Beacon.Mcp.User`, assigned to the users or groups who may use the connector, and
+  listed in `Users:RequiredRoles`.
+
+The token Claude receives is a v2 access token: `iss` is `https://login.microsoftonline.com/<tenant-id>/v2.0`, `aud`
+is the API's **client id GUID** (not the `api://` URI and not the MCP URL), and `scp` is `mcp.access`. Keep both audience
+forms in `ValidAudiences` so v1 callers of the same API keep working.
+
+### 2. A client app registration for Claude
+
+Entra has no Dynamic Client Registration, so Claude cannot register itself. Create a separate registration for it:
+
+- **Authentication → Add a platform → Web**, redirect URI `https://claude.ai/api/mcp/auth_callback`.
+- **Certificates & secrets:** create a client secret (it is a confidential client). Note its expiry — the connector
+  stops working when it expires.
+- **API permissions → Add a permission → APIs my organization uses →** the API registration → **Delegated** →
+  `mcp.access`, then **Grant admin consent** for the tenant.
+
+### 3. Beacon configuration
+
+```csharp
+builder.Services.AddBeaconJwtAuthentication(x =>
+{
+    x.EnableBearerAuthentication = true;
+    x.Validation.JwksEndpoint = "https://login.microsoftonline.com/<tenant-id>/discovery/v2.0/keys";
+    x.Validation.ValidIssuers = ["https://login.microsoftonline.com/<tenant-id>/v2.0"];
+    x.Validation.ValidAudiences = ["<api-client-id>", "api://<api-client-id>"];
+});
+```
+
+```jsonc
+{
+  "Beacon": {
+    "PublicBaseUrl": "https://<host>",                  // resource = https://<host>/beacon/mcp
+    "Mcp": {
+      "ProtectedResource": {
+        "AuthorizationServers": ["https://login.microsoftonline.com/<tenant-id>/v2.0"],
+        // or, instead of listing it: "DeriveAuthorizationServerFromJwtIssuer": true
+        "ScopesSupported": ["api://<api-client-id>/mcp.access"]
+      },
+      "Callers": {
+        "AllowedTenants": ["<tenant-id>"],
+        "Users": { "Enabled": true, "RequiredRoles": ["Beacon.Mcp.User"], "ProjectIds": [1] }
+      }
+    }
+  }
+}
+```
+
+| Setting (`Beacon:Mcp:ProtectedResource`) | Default | Meaning |
+|---------|---------|---------|
+| `AuthorizationServers` | empty | Issuers published as `authorization_servers`, verbatim and in order (clients use the first). Use the **v2** issuer: it equals the `issuer` in Entra's v2 metadata and the `iss` of the tokens. Wins over everything below |
+| `DeriveAuthorizationServerFromJwtIssuer` | `false` | With no explicit list, publish the bearer JWT issuer (`Validation.ValidIssuer(s)`). With several, the one ending in `/v2.0` is chosen; templated issuers (`{tenantid}`) are skipped |
+| `ScopesSupported` | empty | Scopes published in `scopes_supported` (and the server card) instead of `Execute`, `Admin` |
+
+With none of these set the document is unchanged from earlier versions (Beacon's OIDC authority when SSO is on,
+`Execute`/`Admin` scopes). An explicit authorization server without `ScopesSupported`, or derivation with no usable
+issuer, is logged as a warning at startup. The `WWW-Authenticate` challenge, the `resource` in the metadata and the
+server card's `endpoint` and `resource_metadata` all derive from the same `PublicBaseUrl` (or the forwarded request
+host when it is unset), so they always agree.
+
+### 4. Add the connector in Claude
+
+:::caution[Verify against Anthropic's current connector docs]
+This repository cannot test Claude's UI, so the steps below are a best reading of it at the time of writing. Check
+Anthropic's current custom-connector documentation for menu names, the redirect URI, and plan or admin requirements.
+:::
+
+- In claude.ai, **Settings → Connectors → Add custom connector** (an organization owner may have to add it for the
+  organization first). Enter the server URL, `https://<host>/beacon/mcp`.
+- Open **Advanced settings** and enter the **OAuth Client ID** and **OAuth Client Secret** of the Claude client
+  registration from step 2.
+- Connect. Claude opens the Entra sign-in, the user consents (or admin consent already covers it), and the tools appear.
+  Claude Desktop uses the connectors of the signed-in claude.ai account.
+
+Things to check when the connection fails, none of which Beacon can see:
+
+- **PKCE advertisement.** Entra's metadata does not publish `code_challenge_methods_supported`, although Entra supports
+  PKCE (`S256`). The MCP authorization spec tells clients to refuse an authorization server that does not advertise
+  it; whether Claude enforces that for Entra is for Anthropic's docs to say.
+- **Refresh tokens.** If Claude asks the user to sign in again every hour, add `offline_access` to `ScopesSupported`
+  (clients request the listed scopes verbatim).
+- **`AADSTS9010010`** — the `resource` URL Claude sent is not an Application ID URI of the API registration, or a
+  requested scope belongs to another registration. Compare the `resource` in
+  `/.well-known/oauth-protected-resource` with the registration's `identifierUris`.
+- **`401` with `error="invalid_token"`** — Beacon rejected the token: check `iss`/`aud` against `ValidIssuers` /
+  `ValidAudiences` (a v2 token's `aud` is the client id GUID). A malformed bearer value gets the same `401`, never a `500`.
+- **`403`** — the token is valid but the user is not an accepted caller (`Users:Enabled`, `RequiredRoles` /
+  `RequiredGroups`, `AllowedTenants`).
+- **`503` with `Retry-After`** — Beacon could not fetch the Entra JWKS and has no cached keys.
+
 ## Audit and privacy
 
 Every MCP tool call writes an audit row, as before. For a JWT caller, the row also records:
