@@ -11,7 +11,10 @@ namespace Beacon.Core.Handlers.McpEval;
 
 /// <summary>
 /// Records a human correctness verdict against an <see cref="Data.Entities.McpQuerySignal"/>, with the user who recorded it
-/// (<see cref="Data.Entities.McpQuerySignal.FeedbackByUserId"/>). A verdict never creates a golden case: a
+/// (<see cref="Data.Entities.McpQuerySignal.FeedbackByUserId"/>) and, apart from that attribution, whether a curator
+/// recorded it (<see cref="Data.Entities.McpQuerySignal.FeedbackFromCurator"/>): an interactive session holding Curate in
+/// the signal's project at that moment — never an API key or an MCP caller, even one a curator owns or acts as. Only a
+/// curator's verdict weighs in the learning aggregation. A verdict never creates a golden case: a
 /// <see cref="McpUserVerdict.Correct"/> verdict waits in the golden candidates list for an Admin to promote it
 /// (<see cref="PromoteSignalToGoldenCommand"/>). Corrected SQL is stored only after <see cref="IGroundingSqlCheck"/> passes
 /// it in the signal's data source's dialect, and stored without its comments. The verdict is recorded whatever becomes of
@@ -53,10 +56,20 @@ internal sealed class RecordQueryFeedbackHandler(
 
         var corrected = await CorrectedSqlAsync(request, signal.DataSourceId, decision.AllowExplicitFeedbackContent, cancellationToken);
 
+        var fromCurator = await FromCuratorAsync(actor, signal.ProjectId, cancellationToken);
+
+        // The digest a promotion's claim compares is written with the corrected SQL it digests, in the same statement: set
+        // only when that SQL changes, so a digest never goes out without its SQL.
+        if (signal.UserCorrectedSql != corrected.Sql)
+        {
+            signal.CandidateSqlHash = GroundingContentHash.OfCandidateSql(corrected.Sql, signal.CorrectedSql, signal.GeneratedSql);
+        }
+
         signal.UserVerdict = request.Verdict;
         signal.UserCorrectedSql = corrected.Sql;
         signal.FeedbackNote = decision.AllowExplicitFeedbackContent ? request.Note : null;
         signal.FeedbackByUserId = actor.BeaconUserId;
+        signal.FeedbackFromCurator = fromCurator;
         await context.SaveChangesAsync(cancellationToken);
 
         if (corrected.NotRecordedReason != null)
@@ -120,6 +133,20 @@ internal sealed class RecordQueryFeedbackHandler(
                 signalId,
                 "Only the caller who asked, a project admin of the signal's project or an Admin can record feedback on it.");
         }
+    }
+
+    // A curator's verdict: an interactive session — a signed-in Beacon user, or a host's session — holding Curate in the
+    // signal's project now. An API key, an MCP caller and the owner of scheduled work never are, whoever they act for.
+    private async Task<bool> FromCuratorAsync(BeaconActor actor, int? projectId, CancellationToken cancellationToken)
+    {
+        if (projectId == null || actor.Kind is not (BeaconPrincipalKind.User or BeaconPrincipalKind.Session))
+        {
+            return false;
+        }
+
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+
+        return scope.Allows(projectId.Value, ProjectAction.Curate);
     }
 
     // §1.7 — a settings/cache failure must not escape into the tool and cost us the audit row. Fails CLOSED

@@ -54,6 +54,36 @@ public class RecordQueryFeedbackHandlerTests
         store.Saved.OfType<McpEvalCase>().Should().BeEmpty("a verdict never creates a golden case; an Admin promotes candidates");
     }
 
+    // Corrected SQL is written with the digest a promotion's claim compares; a verdict that leaves the SQL as it is leaves the
+    // digest as it is.
+    [TestCase("SELECT id, status FROM orders -- the fix", "SELECT id, status FROM orders")]
+    [TestCase(null, "SELECT id FROM orders")]
+    public async Task Feedback_WritesTheCandidateDigest_WithTheCorrectedSql(string? correctedSql, string digested)
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        signal.CandidateSqlHash = GroundingContentHash.OfSql("SELECT id FROM orders");
+        var store = new Store(signal);
+
+        await Handler(store, TestGroundingSqlChecks.Real()).Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, correctedSql), CancellationToken.None);
+
+        signal.CandidateSqlHash.Should().Be(GroundingContentHash.OfSql(digested));
+    }
+
+    // Clearing corrected SQL leaves the signal's own SQL to promote, and its digest.
+    [Test]
+    public async Task Feedback_ThatClearsCorrectedSql_WritesTheDigestOfTheSignalsOwnSql()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        signal.UserCorrectedSql = "SELECT status FROM orders";
+        signal.CandidateSqlHash = GroundingContentHash.OfSql("SELECT status FROM orders");
+        var store = new Store(signal);
+
+        await Handler(store, TestGroundingSqlChecks.Real()).Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect), CancellationToken.None);
+
+        signal.UserCorrectedSql.Should().BeNull();
+        signal.CandidateSqlHash.Should().Be(GroundingContentHash.OfSql("SELECT id FROM orders"));
+    }
+
     [Test]
     public async Task ACorrectVerdict_OnASignalAlreadyPromoted_ChangesOnlyTheSignal()
     {

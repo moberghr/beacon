@@ -20,8 +20,6 @@ namespace Beacon.Tests.Unit.Grounding;
 [TestFixture]
 public class LearnedPatternExampleSqlTests
 {
-    private static readonly IReadOnlySet<int> NoCurators = new HashSet<int>();
-
     private const int ProjectId = 1;
     private const int DataSourceId = TestGroundingSqlChecks.DataSourceId;
 
@@ -31,7 +29,7 @@ public class LearnedPatternExampleSqlTests
         var (service, context, saved, _) = Build(TestGroundingSqlChecks.Real());
         var stats = new McpLearningAggregationService.ExtractionStats();
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals("SELECT id FROM orders -- the usual one"), NoCurators, stats, CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals("SELECT id FROM orders -- the usual one"), stats, CancellationToken.None);
 
         saved.OfType<McpLearnedPattern>().Should().ContainSingle().Which.ExampleSql.Should().Be("SELECT id FROM orders");
         stats.BlockedExampleSql.Should().Be(0);
@@ -44,7 +42,7 @@ public class LearnedPatternExampleSqlTests
         var (service, context, saved, logs) = Build(TestGroundingSqlChecks.Real());
         var stats = new McpLearningAggregationService.ExtractionStats();
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(refusedSql), NoCurators, stats, CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(refusedSql), stats, CancellationToken.None);
 
         var pattern = saved.OfType<McpLearnedPattern>().Should().ContainSingle().Subject;
         pattern.ExampleSql.Should().BeNull();
@@ -87,7 +85,7 @@ public class LearnedPatternExampleSqlTests
                 })
             .ToList();
 
-        await service.DetectJoinPatternsAsync(context, ProjectId, DataSourceId, signals, retainContent: true, NoCurators, stats, CancellationToken.None);
+        await service.DetectJoinPatternsAsync(context, ProjectId, DataSourceId, signals, retainContent: true, stats, CancellationToken.None);
 
         saved.Should().BeEmpty();
         existing.ExampleSql.Should().Be("SELECT o.id FROM orders o");

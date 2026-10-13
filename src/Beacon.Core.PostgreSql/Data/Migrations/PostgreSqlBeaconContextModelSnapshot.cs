@@ -2885,6 +2885,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("confidence");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -3146,6 +3151,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("caller_hash");
 
+                    b.Property<string>("CandidateSqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("candidate_sql_hash");
+
                     b.Property<string>("ColumnsUsed")
                         .HasColumnType("text")
                         .HasColumnName("columns_used");
@@ -3191,6 +3201,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("FeedbackByUserId")
                         .HasColumnType("integer")
                         .HasColumnName("feedback_by_user_id");
+
+                    b.Property<bool>("FeedbackFromCurator")
+                        .HasColumnType("boolean")
+                        .HasColumnName("feedback_from_curator");
 
                     b.Property<string>("FeedbackNote")
                         .HasColumnType("text")

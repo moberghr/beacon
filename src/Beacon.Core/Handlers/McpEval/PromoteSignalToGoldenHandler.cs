@@ -22,7 +22,9 @@ namespace Beacon.Core.Handlers.McpEval;
 /// <para>
 /// The signal is claimed atomically, in one transaction with the case: a conditional update sets
 /// <see cref="McpQuerySignal.PromotedAt"/> only while it is unset and the signal is still rated correct with the reviewed
-/// SQL. A promotion that claims nothing reads the signal again: promoted meanwhile, it answers with that case
+/// SQL — compared by its digest (<see cref="McpQuerySignal.CandidateSqlHash"/>), which compares exactly under any database
+/// collation; a signal recorded before Beacon kept the digest has it stored first, only while it still holds no digest and
+/// the SQL read. A promotion that claims nothing reads the signal again: promoted meanwhile, it answers with that case
 /// (<see cref="PromoteSignalToGoldenResult.AlreadyPromoted"/>) and creates nothing; changed meanwhile, it is refused (409). A
 /// signal promoted before Beacon recorded promotions answers with the first case promoted from it. Throws (§9.8) when the
 /// signal is missing, carries no SQL, is not scoped to a project + data source linked to it, or its SQL does not pass the
@@ -107,20 +109,32 @@ internal sealed class PromoteSignalToGoldenHandler(
             throw new InvalidOperationException($"Query signal {request.SignalId} cannot become a golden case: {check.Refusal}");
         }
 
-        var reviewedSql = signal.Sql;
+        var reviewedSqlHash = GroundingContentHash.OfSql(signal.Sql);
+        if (signal.SqlHash == null)
+        {
+            // Recorded before Beacon kept the digest: store the digest of the SQL read, only while the signal still holds no
+            // digest and that SQL (every later write of its SQL writes the digest with it).
+            var reviewedSql = signal.Sql;
+            await context.McpQuerySignals
+                .Where(x => x.Id == request.SignalId)
+                .Where(x => x.CandidateSqlHash == null)
+                .Where(x => (x.UserCorrectedSql ?? x.CorrectedSql ?? x.GeneratedSql) == reviewedSql)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.CandidateSqlHash, reviewedSqlHash), cancellationToken);
+        }
+
         var strategy = context.Database.CreateExecutionStrategy();
         var created = await strategy.ExecuteAsync(async () =>
         {
             context.ChangeTracker.Clear();
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
-            // The claim: only while unpromoted, still rated correct and still holding the SQL the Admin reviewed. A
-            // concurrent promotion waits for this row, then claims nothing.
+            // The claim: only while unpromoted, still rated correct and still holding the SQL the Admin reviewed, by its
+            // digest. A concurrent promotion waits for this row, then claims nothing.
             var claimed = await context.McpQuerySignals
                 .Where(x => x.Id == request.SignalId)
                 .Where(x => x.PromotedAt == null)
                 .Where(x => x.UserVerdict == McpUserVerdict.Correct)
-                .Where(x => (x.UserCorrectedSql ?? x.CorrectedSql ?? x.GeneratedSql) == reviewedSql)
+                .Where(x => x.CandidateSqlHash == reviewedSqlHash)
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.PromotedAt, DateTime.UtcNow), cancellationToken);
             if (claimed == 0)
             {
@@ -195,6 +209,7 @@ internal sealed class PromoteSignalToGoldenHandler(
                     Question = x.Question,
                     Verdict = x.UserVerdict,
                     Sql = x.UserCorrectedSql ?? x.CorrectedSql ?? x.GeneratedSql,
+                    SqlHash = x.CandidateSqlHash,
                     PromotedAt = x.PromotedAt,
                     PromotedEvalCaseId = x.PromotedEvalCaseId,
                     FirstCaseId = context.McpEvalCases
@@ -215,6 +230,7 @@ internal sealed class PromoteSignalToGoldenHandler(
         public string Question { get; init; } = "";
         public McpUserVerdict Verdict { get; init; }
         public string? Sql { get; init; }
+        public string? SqlHash { get; init; }
         public DateTime? PromotedAt { get; init; }
         public int? PromotedEvalCaseId { get; init; }
         public int? FirstCaseId { get; init; }

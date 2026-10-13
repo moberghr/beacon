@@ -23,8 +23,6 @@ namespace Beacon.Tests.Unit.Grounding;
 [TestFixture]
 public class PatternApprovalIntegrityTests
 {
-    private static readonly IReadOnlySet<int> NoCurators = new HashSet<int>();
-
     private const int ProjectId = 1;
     private const int DataSourceId = TestGroundingSqlChecks.DataSourceId;
     private const string MinedContent = "Common query pattern for public.orders (3 similar queries)";
@@ -39,7 +37,7 @@ public class PatternApprovalIntegrityTests
         var check = TestGroundingSqlChecks.PassThrough();
         var (service, context, _) = Build(check.Object, reviewed);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
 
         reviewed.Should().BeEquivalentTo(
             new
@@ -61,7 +59,7 @@ public class PatternApprovalIntegrityTests
         var autoApproved = Pattern(McpPatternStatus.AutoApproved, "Common query pattern for public.orders (2 similar queries)", MinedQuestion, "SELECT total FROM orders");
         var (service, context, _) = Build(TestGroundingSqlChecks.PassThrough().Object, autoApproved);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
 
         autoApproved.Status.Should().Be(McpPatternStatus.NeedsEvidence, "the replay measured other content");
         autoApproved.PatternContent.Should().Be(MinedContent);
@@ -74,7 +72,7 @@ public class PatternApprovalIntegrityTests
         var autoApproved = Pattern(McpPatternStatus.AutoApproved, MinedContent, MinedQuestion, MinedSql);
         var (service, context, _) = Build(TestGroundingSqlChecks.PassThrough().Object, autoApproved);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
 
         autoApproved.Status.Should().Be(McpPatternStatus.AutoApproved);
         autoApproved.SignalCount.Should().Be(3);
@@ -86,7 +84,7 @@ public class PatternApprovalIntegrityTests
         var candidate = Pattern(McpPatternStatus.NeedsEvidence, "older content", "older question", "SELECT total FROM orders");
         var (service, context, _) = Build(TestGroundingSqlChecks.PassThrough().Object, candidate);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
 
         candidate.Should().BeEquivalentTo(
             new { Status = McpPatternStatus.NeedsEvidence, PatternContent = MinedContent, ExampleQuestion = MinedQuestion, ExampleSql = MinedSql },
@@ -158,7 +156,7 @@ public class PatternApprovalIntegrityTests
         var (service, context, _) = Build(serviceCheck.Object, candidate, Verifier(passed: true).Object);
         var stats = new McpLearningAggregationService.ExtractionStats { SqlCheck = batch.Object };
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, stats, CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), stats, CancellationToken.None);
         await service.PromoteVerifiedCandidatesAsync(context, ProjectId, ReplaySettings(), stats, CancellationToken.None);
 
         batch.Verify(x => x.CheckAsync(DataSourceId, MinedSql, It.IsAny<CancellationToken>()), Times.Exactly(2), "once mined, once before the auto-approval");

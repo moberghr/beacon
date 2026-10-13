@@ -21060,6 +21060,8 @@ export interface UserSettingsView {
 
 export interface VerifySchemaRelationshipBody {
   isVerified: boolean;
+  reviewedLabel: string | null;
+  reviewedCardinality: SchemaRelationshipCardinality | null;
 
   [key: string]: any;
 }

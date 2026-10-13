@@ -314,7 +314,7 @@ Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`, or `[IM
 Record whether a previous `ask` answer was correct. The verdict is recorded on the answer's signal with the user who recorded it, and it does this:
 
 - An `incorrect` verdict keeps the answer out of the common-query and join patterns Beacon learns.
-- A `correct` verdict puts the answer on the [golden candidates](/features/knowledge-base/#how-cases-are-created) list (the **Golden candidates** tab of the MCP Learning page), where an Admin may promote it to a verified example (golden pair) that grounds future SQL generation for the same data source; feedback never promotes it by itself. A `correct` verdict recorded by a curator of the project (a project admin member, or an Admin) also counts in [pattern mining](/features/knowledge-base/#from-signal-to-injected-lesson); the asker's own does not.
+- A `correct` verdict puts the answer on the [golden candidates](/features/knowledge-base/#how-cases-are-created) list (the **Golden candidates** tab of the MCP Learning page), where an Admin may promote it to a verified example (golden pair) that grounds future SQL generation for the same data source; feedback never promotes it by itself. A `correct` verdict counts in [pattern mining](/features/knowledge-base/#from-signal-to-injected-lesson) only when a curator recorded it from an interactive session (a project admin member, or an Admin, signed in); a verdict through this tool — an MCP caller or an API key — is attributed to the user it acts for but never counts as a curator's, whatever that user's roles, and neither does the asker's own.
 
 The tool's description, its answer, the server instructions and the playground's feedback form all say so.
 

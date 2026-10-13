@@ -328,7 +328,7 @@ public class GroundingCurationAccessTests
         var store = new Store();
         store.Relationships.Add(Relationship(SharedSource, isVerified: !isVerified));
 
-        var act = () => VerifyHandler(store).Handle(new VerifySchemaRelationshipCommand(OwnSource, 41, isVerified), CancellationToken.None);
+        var act = () => VerifyHandler(store).Handle(Reviewed(new VerifySchemaRelationshipCommand(OwnSource, 41, isVerified)), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconNotFoundException>().WithMessage("Schema relationship 41 not found.");
         store.Relationships.Should().ContainSingle().Which.IsVerified.Should().Be(!isVerified);
@@ -430,14 +430,20 @@ public class GroundingCurationAccessTests
             .ReturnsAsync(new BeaconActor(null, true) { Kind = BeaconPrincipalKind.User, BeaconUserId = null });
 
         var withoutUser = () => new VerifySchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), anonymous.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance)
-            .Handle(new VerifySchemaRelationshipCommand(SharedSource, 41, true), CancellationToken.None);
+            .Handle(Reviewed(new VerifySchemaRelationshipCommand(SharedSource, 41, true)), CancellationToken.None);
         (await withoutUser.Should().ThrowAsync<BeaconForbiddenException>()).Which.Message.Should().Be(VerifySchemaRelationshipHandler.UnidentifiedVerifierMessage);
         store.Relationships.Single().IsVerified.Should().BeFalse();
 
         await new VerifySchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance)
-            .Handle(new VerifySchemaRelationshipCommand(SharedSource, 41, true), CancellationToken.None);
+            .Handle(Reviewed(new VerifySchemaRelationshipCommand(SharedSource, 41, true)), CancellationToken.None);
 
         store.Relationships.Single().Should().BeEquivalentTo(new { IsVerified = true, VerifiedByUserId = (int?)CuratorUserId }, x => x.ExcludingMissingMembers());
+    }
+
+    // A verification as the curator sends it: naming the label and cardinality it reviewed.
+    private static VerifySchemaRelationshipCommand Reviewed(VerifySchemaRelationshipCommand command)
+    {
+        return command with { ReviewedLabel = "customer", ReviewedCardinality = SchemaRelationshipCardinality.OneToMany };
     }
 
     private static VerifySchemaRelationshipHandler VerifyHandler(Store store)

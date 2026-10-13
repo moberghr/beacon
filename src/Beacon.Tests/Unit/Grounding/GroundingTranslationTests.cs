@@ -6,6 +6,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Handlers.McpLearning;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
 using FluentAssertions;
@@ -155,14 +156,14 @@ public class GroundingTranslationTests
     }
 
     // A promotion claims its signal first — inside the transaction that creates the case — with one conditional update:
-    // unpromoted, still rated correct, still holding the reviewed SQL; only then is the case inserted. (The insert's answer
-    // cannot be scripted offline: it is captured, and the transaction does not commit.)
+    // unpromoted, still rated correct, still holding the reviewed SQL by its digest; only then is the case inserted. (The
+    // insert's answer cannot be scripted offline: it is captured, and the transaction does not commit.)
     [TestCase(false)]
     [TestCase(true)]
     public async Task APromotion_ClaimsItsSignalFirst_InTheTransactionThatCreatesTheCase_Translates(bool sqlServer)
     {
         var capture = Capture(sqlServer)
-            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", DBNull.Value, DBNull.Value, DBNull.Value)
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", GroundingContentHash.OfSql("SELECT id FROM orders"), DBNull.Value, DBNull.Value, DBNull.Value)
             .ThenScalar(true)
             .ThenRowsAffected(1);
         var handler = PromoteHandler(capture);
@@ -174,8 +175,72 @@ public class GroundingTranslationTests
         timeline.Should().HaveCount(5);
         timeline[2].Should().Be(SqlCapture.TransactionBegun);
         AssertTheClaim(timeline[3], sqlServer);
+        capture.CommandParameters[2].Values.Should().Contain(GroundingContentHash.OfSql("SELECT id FROM orders"), "the claim compares the reviewed SQL's digest");
         timeline[4].Should().Contain("INSERT INTO").And.Contain(sqlServer ? "[McpEvalCases]" : "mcp_eval_cases");
         capture.Commits.Should().Be(0, "a claim without its case never commits");
+    }
+
+    // A signal recorded before Beacon kept the digest has it stored first — outside the claim's transaction, only while it
+    // still holds no digest and the SQL read — and the claim compares the digest all the same.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task APromotionOfASignalWithoutADigest_StoresItFirst_ThenClaimsByIt_Translates(bool sqlServer)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value)
+            .ThenScalar(true)
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1);
+        var handler = PromoteHandler(capture);
+
+        var act = () => handler.Handle(new PromoteSignalToGoldenCommand(9, GroundingContentHash.OfSql("SELECT id FROM orders")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<Exception>();
+        var timeline = capture.Timeline;
+        timeline.Should().HaveCount(6);
+        var digest = timeline[2];
+        if (sqlServer)
+        {
+            digest.Should().Contain("SET [m].[CandidateSqlHash] = @").And.Contain("[m].[CandidateSqlHash] IS NULL")
+                .And.Contain("COALESCE([m].[UserCorrectedSql], [m].[CorrectedSql], [m].[GeneratedSql]) = @");
+        }
+        else
+        {
+            digest.Should().Contain("SET candidate_sql_hash = @").And.Contain("m.candidate_sql_hash IS NULL")
+                .And.Contain("COALESCE(m.user_corrected_sql, m.corrected_sql, m.generated_sql) = @");
+        }
+
+        capture.CommandParameters[2].Values.Should().Contain(GroundingContentHash.OfSql("SELECT id FROM orders"))
+            .And.Contain("SELECT id FROM orders");
+        timeline[3].Should().Be(SqlCapture.TransactionBegun);
+        AssertTheClaim(timeline[4], sqlServer);
+    }
+
+    // On a case-insensitive SQL Server, text equality would let a concurrent change of the SQL's case or its trailing spaces
+    // pass the claim; the claim compares fixed-length lowercase hex digests instead, which differ for either change.
+    [TestCase(false, "SELECT id FROM Orders")]
+    [TestCase(true, "SELECT id FROM Orders")]
+    [TestCase(false, "SELECT id FROM orders ")]
+    [TestCase(true, "SELECT id FROM orders ")]
+    public async Task TheClaim_ComparesTheReviewedDigest_WhichACaseOrTrailingSpaceChangeDoesNotMatch_Translates(bool sqlServer, string changed)
+    {
+        const string reviewed = "SELECT id FROM orders";
+        var capture = Capture(sqlServer)
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, reviewed, GroundingContentHash.OfSql(reviewed), DBNull.Value, DBNull.Value, DBNull.Value)
+            .ThenScalar(true)
+            .ThenRowsAffected(0)
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, changed, GroundingContentHash.OfSql(changed), DBNull.Value, DBNull.Value, DBNull.Value);
+        var handler = PromoteHandler(capture);
+
+        var act = () => handler.Handle(new PromoteSignalToGoldenCommand(9, GroundingContentHash.OfSql(reviewed)), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(PromoteSignalToGoldenHandler.ChangedSinceReviewedMessage);
+        AssertTheClaim(capture.Timeline[3], sqlServer);
+        var compared = capture.CommandParameters[2].Values.OfType<string>().ToList();
+        compared.Should().ContainSingle().Which.Should().Be(GroundingContentHash.OfSql(reviewed))
+            .And.MatchRegex("^[0-9a-f]{64}$")
+            .And.NotBe(GroundingContentHash.OfSql(changed));
+        GroundingContentHash.OfSql(changed).Should().NotBeEquivalentTo(GroundingContentHash.OfSql(reviewed), "the digests differ ignoring case too");
     }
 
     // A promotion that claims nothing — another one committed its claim first — reads the signal again and answers with
@@ -185,10 +250,10 @@ public class GroundingTranslationTests
     public async Task APromotionThatClaimsNothing_ReadsTheSignalAgain_AndAnswersWithTheWinnersCase_Translates(bool sqlServer)
     {
         var capture = Capture(sqlServer)
-            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", DBNull.Value, DBNull.Value, DBNull.Value)
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", GroundingContentHash.OfSql("SELECT id FROM orders"), DBNull.Value, DBNull.Value, DBNull.Value)
             .ThenScalar(true)
             .ThenRowsAffected(0)
-            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", new DateTime(2026, 10, 13, 0, 0, 0, DateTimeKind.Utc), 12, 12);
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", GroundingContentHash.OfSql("SELECT id FROM orders"), new DateTime(2026, 10, 13, 0, 0, 0, DateTimeKind.Utc), 12, 12);
         var handler = PromoteHandler(capture);
 
         var result = await handler.Handle(new PromoteSignalToGoldenCommand(9, GroundingContentHash.OfSql("SELECT id FROM orders")), CancellationToken.None);
@@ -210,7 +275,7 @@ public class GroundingTranslationTests
     public async Task APromotedSignal_AnswersWithItsCase_InOneRead_Translates(bool sqlServer, string sql, string promotedAt, string promotedCase, string firstCase)
     {
         var capture = Capture(sqlServer)
-            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", new DateTime(2026, 10, 13, 0, 0, 0, DateTimeKind.Utc), 12, DBNull.Value);
+            .ThenRow(9, 4, 7, "ask", "How many orders?", (int)McpUserVerdict.Correct, "SELECT id FROM orders", DBNull.Value, new DateTime(2026, 10, 13, 0, 0, 0, DateTimeKind.Utc), 12, DBNull.Value);
         var handler = PromoteHandler(capture);
 
         var result = await handler.Handle(new PromoteSignalToGoldenCommand(9, "any"), CancellationToken.None);
@@ -220,19 +285,20 @@ public class GroundingTranslationTests
             .Contain(sql).And.Contain(promotedAt).And.Contain(promotedCase).And.Contain(firstCase);
     }
 
+    // The claim compares the reviewed SQL by its digest, never by text equality (which a case-insensitive collation weakens).
     private static void AssertTheClaim(string claim, bool sqlServer)
     {
         if (sqlServer)
         {
             claim.Should().Contain("UPDATE [m]").And.Contain("SET [m].[PromotedAt] = @")
                 .And.Contain("[m].[Id] = @").And.Contain("[m].[PromotedAt] IS NULL").And.Contain("[m].[UserVerdict] = 1")
-                .And.Contain("COALESCE([m].[UserCorrectedSql], [m].[CorrectedSql], [m].[GeneratedSql]) = @");
+                .And.Contain("[m].[CandidateSqlHash] = @").And.NotContain("COALESCE");
             return;
         }
 
         claim.Should().Contain("UPDATE beacon.mcp_query_signals AS m").And.Contain("SET promoted_at = @")
             .And.Contain("m.id = @").And.Contain("m.promoted_at IS NULL").And.Contain("m.user_verdict = 1")
-            .And.Contain("COALESCE(m.user_corrected_sql, m.corrected_sql, m.generated_sql) = @");
+            .And.Contain("m.candidate_sql_hash = @").And.NotContain("COALESCE");
     }
 
     private static PromoteSignalToGoldenHandler PromoteHandler(SqlCapture capture)

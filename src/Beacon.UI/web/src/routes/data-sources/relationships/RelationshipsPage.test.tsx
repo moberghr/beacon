@@ -115,7 +115,7 @@ describe('RelationshipsPage', () => {
     expect(screen.getByText('sales.order_products')).toBeInTheDocument();
   });
 
-  it('verifies an unverified relationship', async () => {
+  it('verifies an unverified relationship, naming the label and cardinality the curator reviewed', async () => {
     mockEndpoints();
     let verifiedBody: unknown = null;
     mswServer.use(
@@ -130,7 +130,9 @@ describe('RelationshipsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /verify relationship/i }));
 
-    await waitFor(() => expect(verifiedBody).toEqual({ isVerified: true }));
+    await waitFor(() =>
+      expect(verifiedBody).toEqual({ isVerified: true, reviewedLabel: 'account', reviewedCardinality: 2 }),
+    );
   });
 
   it('does not let a caller who may not curate the source verify, and says why', async () => {

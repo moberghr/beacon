@@ -174,15 +174,26 @@ export function useDiscoveryPreview(dataSourceId: number) {
   );
 }
 
+/**
+ * What `POST …/relationships/{id}/verify` sends: verifying names the label and cardinality the curator reviewed, and a
+ * relationship that holds other content by then is not verified (409: reload and review it again).
+ */
+export interface VerifyRelationshipPayload {
+  id: number;
+  isVerified: boolean;
+  reviewedLabel: string;
+  reviewedCardinality: SchemaRelationshipCardinalityValue;
+}
+
 export function useVerifyRelationship(dataSourceId: number) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<{ id: number; isVerified: boolean }, void>({
+    createSimpleMutation<VerifyRelationshipPayload, void>({
       qc,
-      mutationFn: ({ id, isVerified }) =>
+      mutationFn: ({ id, isVerified, reviewedLabel, reviewedCardinality }) =>
         fetchJson<void>(`${base(dataSourceId)}/relationships/${id}/verify`, {
           method: 'POST',
-          body: JSON.stringify({ isVerified }),
+          body: JSON.stringify({ isVerified, reviewedLabel, reviewedCardinality }),
         }),
       invalidate: [relationshipsKey(dataSourceId), healthKey(dataSourceId)],
       successMsg: (vars) =>

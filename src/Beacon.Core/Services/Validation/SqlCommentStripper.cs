@@ -112,6 +112,75 @@ internal static class SqlCommentStripper
         return true;
     }
 
+    /// <summary>
+    /// The SQL with each run of whitespace between the dialect's tokens made one space, and none at its ends; every other
+    /// token — string literals, quoted identifiers, keywords, numbers — kept as written. Null when the text cannot be read so,
+    /// under the same conditions as <see cref="MarkersOnlyInLiterals"/> (an unknown dialect, SQL that does not tokenize, a
+    /// disallowed character or a surrogate pair, a lexical rule the engine reads differently from the parser, tokens that do
+    /// not cover the text one after another), and when the SQL holds a comment or a whitespace token covers anything but
+    /// whitespace.
+    /// </summary>
+    public static string? WithWhitespaceCollapsed(string sql, string? dialect)
+    {
+        if (string.IsNullOrEmpty(sql) || SqlAst.IndexOfDisallowedCharacter(sql) >= 0 || sql.Any(char.IsSurrogate))
+        {
+            return null;
+        }
+
+        var parserDialect = SqlDialects.Resolve(dialect);
+        if (parserDialect is GenericDialect || SqlReadOnlyAstValidator.RejectLexicalDifferences(sql, dialect, parserDialect) != null)
+        {
+            return null;
+        }
+
+        IList<Token> tokens;
+        try
+        {
+            tokens = new Tokenizer().Tokenize(sql, parserDialect);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        var lineStarts = LineStarts(sql);
+        var builder = new System.Text.StringBuilder(sql.Length);
+        var previous = 0;
+        var spaceBefore = false;
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            var start = OffsetOf(tokens[i].Location, lineStarts, sql.Length);
+            var end = i + 1 < tokens.Count ? OffsetOf(tokens[i + 1].Location, lineStarts, sql.Length) : sql.Length;
+            if (start != previous || end <= start)
+            {
+                return null;
+            }
+
+            previous = end;
+            if (tokens[i] is Whitespace whitespace)
+            {
+                if (whitespace.WhitespaceKind is WhitespaceKind.InlineComment or WhitespaceKind.MultilineComment
+                    || !IsWhitespace(sql.AsSpan(start, end - start)))
+                {
+                    return null;
+                }
+
+                spaceBefore = builder.Length > 0;
+                continue;
+            }
+
+            if (spaceBefore)
+            {
+                builder.Append(' ');
+                spaceBefore = false;
+            }
+
+            builder.Append(sql, start, end - start);
+        }
+
+        return previous == sql.Length ? builder.ToString() : null;
+    }
+
     private static string Strip(string sql, string? dialect, bool lineCommentsOnly)
     {
         if (string.IsNullOrEmpty(sql) || !MayHoldComment(sql, dialect) || SqlAst.IndexOfDisallowedCharacter(sql) >= 0)
@@ -311,6 +380,19 @@ internal static class SqlCommentStripper
         var quote = sql[quoteAt];
 
         return quote is '\'' or '"' or '$' && sql[end - 1] == quote;
+    }
+
+    private static bool IsWhitespace(ReadOnlySpan<char> text)
+    {
+        foreach (var character in text)
+        {
+            if (!char.IsWhiteSpace(character))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool StartsComment(string sql, int offset)

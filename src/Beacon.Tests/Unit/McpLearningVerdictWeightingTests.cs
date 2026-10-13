@@ -14,9 +14,10 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// Part B — human-verdict weighting in pattern mining (§ Part B). Execution success is not correctness:
 /// a signal a human marked <see cref="McpUserVerdict.Incorrect"/> must be excluded from CommonQuery /
-/// JoinPattern mining, and a group containing a curator's <see cref="McpUserVerdict.Correct"/> verdict (a project admin
-/// of the project, or an Admin) is more trustworthy — it earns a confidence bonus and supplies the representative
-/// exemplar; any other rater's Correct verdict weighs nothing. An example question comes only from an answer to a question
+/// JoinPattern mining, and a group containing a curator's <see cref="McpUserVerdict.Correct"/> verdict (one recorded by an
+/// interactive session holding Curate in the project, <see cref="McpQuerySignal.FeedbackFromCurator"/>) is more
+/// trustworthy — it earns a confidence bonus and supplies the representative exemplar; any other Correct verdict weighs
+/// nothing, whoever the rater's user is. An example question comes only from an answer to a question
 /// (an <c>ask</c> signal), on one line, never with characters that do not show. Drives the (now internal) detection
 /// methods directly over a mocked context (no DB — §4.7).
 /// </summary>
@@ -27,9 +28,6 @@ public class McpLearningVerdictWeightingTests
     private const int DataSourceId = 1;
     private const int CuratorId = 40;
     private const int AskerId = 41;
-
-    private static readonly IReadOnlySet<int> NoCurators = new HashSet<int>();
-    private static readonly IReadOnlySet<int> Curators = new HashSet<int> { CuratorId };
 
     [Test]
     public async Task DetectCommonQueries_ExcludesIncorrectVerdictSignals()
@@ -42,7 +40,6 @@ public class McpLearningVerdictWeightingTests
         await Service().DetectCommonQueriesAsync(
             context, ProjectId, DataSourceId,
             [CommonSignal(McpUserVerdict.Incorrect), CommonSignal(McpUserVerdict.Incorrect), CommonSignal(McpUserVerdict.Incorrect)],
-            NoCurators,
             new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
@@ -58,7 +55,6 @@ public class McpLearningVerdictWeightingTests
         await Service().DetectCommonQueriesAsync(
             context, ProjectId, DataSourceId,
             [CommonSignal(McpUserVerdict.Unset), CommonSignal(McpUserVerdict.Unset), CommonSignal(McpUserVerdict.Unset)],
-            NoCurators,
             new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
@@ -77,10 +73,9 @@ public class McpLearningVerdictWeightingTests
             context, ProjectId, DataSourceId,
             [
                 CommonSignal(McpUserVerdict.Unset, "unset A"),
-                CommonSignal(McpUserVerdict.Correct, "the confirmed question", ratedBy: CuratorId),
+                CommonSignal(McpUserVerdict.Correct, "the confirmed question", ratedBy: CuratorId, fromCurator: true),
                 CommonSignal(McpUserVerdict.Unset, "unset B")
             ],
-            Curators,
             new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
@@ -91,10 +86,12 @@ public class McpLearningVerdictWeightingTests
             "the curator-confirmed signal is chosen as the representative exemplar");
     }
 
-    // The asker rating its own answer, or a verdict recorded before raters were (no rater), weighs nothing.
+    // The asker rating its own answer, a curator's user rating it through an API key or an MCP caller (attributed to the
+    // curator, not recorded as a curator's), or a verdict recorded before raters were (no rater), weighs nothing.
     [TestCase(AskerId)]
+    [TestCase(CuratorId)]
     [TestCase(null)]
-    public async Task DetectCommonQueries_ACorrectVerdictByANonCurator_WeighsNothing(int? ratedBy)
+    public async Task DetectCommonQueries_ACorrectVerdictNotRecordedByACurator_WeighsNothing(int? ratedBy)
     {
         var captured = new List<McpLearnedPattern>();
         var context = BuildContext(captured);
@@ -106,7 +103,6 @@ public class McpLearningVerdictWeightingTests
                 CommonSignal(McpUserVerdict.Correct, "the self-confirmed question", ratedBy: ratedBy),
                 CommonSignal(McpUserVerdict.Unset, "unset B")
             ],
-            Curators,
             new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
@@ -133,7 +129,7 @@ public class McpLearningVerdictWeightingTests
         }
 
         await Service().DetectCommonQueriesAsync(
-            context, ProjectId, DataSourceId, signals, NoCurators, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+            context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
 
         captured.Should().ContainSingle().Which.ExampleQuestion.Should().BeNull();
     }
@@ -150,7 +146,6 @@ public class McpLearningVerdictWeightingTests
         await Service().DetectCommonQueriesAsync(
             context, ProjectId, DataSourceId,
             [CommonSignal(McpUserVerdict.Unset, question), CommonSignal(McpUserVerdict.Unset, question), CommonSignal(McpUserVerdict.Unset, question)],
-            NoCurators,
             new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
@@ -167,14 +162,13 @@ public class McpLearningVerdictWeightingTests
             context, ProjectId, DataSourceId,
             [JoinSignal(McpUserVerdict.Incorrect), JoinSignal(McpUserVerdict.Incorrect)],
             retainContent: true,
-            NoCurators,
             new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
         captured.Should().BeEmpty("join signals a human marked wrong must not be mined into a join pattern");
     }
 
-    private static McpQuerySignal CommonSignal(McpUserVerdict verdict, string question = "orders last week", int? ratedBy = null) =>
+    private static McpQuerySignal CommonSignal(McpUserVerdict verdict, string question = "orders last week", int? ratedBy = null, bool fromCurator = false) =>
         new()
         {
             Tool = "ask",
@@ -185,7 +179,8 @@ public class McpLearningVerdictWeightingTests
             TablesUsed = "[\"public.orders\"]",
             IsSuccessful = true,
             UserVerdict = verdict,
-            FeedbackByUserId = ratedBy
+            FeedbackByUserId = ratedBy,
+            FeedbackFromCurator = fromCurator
         };
 
     private static McpQuerySignal JoinSignal(McpUserVerdict verdict) =>

@@ -45,6 +45,21 @@ public class McpQuerySignal : BaseEntity
     public int? FeedbackByUserId { get; set; }
 
     /// <summary>
+    /// True when the verdict was recorded by a curator: an interactive session holding Curate in the signal's project at that
+    /// moment (a project admin member, or an Admin) — never an API key or an MCP caller, whoever it acts for. Only such a
+    /// verdict weighs in the learning aggregation. False for a verdict recorded before Beacon recorded where it came from.
+    /// </summary>
+    public bool FeedbackFromCurator { get; set; }
+
+    /// <summary>
+    /// The SHA-256 (lowercase hex) of the SQL a promotion starts from — <see cref="UserCorrectedSql"/>, else
+    /// <see cref="CorrectedSql"/>, else <see cref="GeneratedSql"/> — written together with that SQL, so a promotion's claim
+    /// compares digests, exactly under any collation. Null without SQL, and for a signal recorded before Beacon kept it (a
+    /// promotion stores it first).
+    /// </summary>
+    public string? CandidateSqlHash { get; set; }
+
+    /// <summary>
     /// When an Admin promoted the signal to a golden case: a promotion claims the signal by setting it, once, so the signal
     /// becomes one golden case however many promotions race. Null until promoted, and for a signal promoted before Beacon
     /// recorded it (its case is found by <see cref="McpEvalCase.SourceSignalId"/>).

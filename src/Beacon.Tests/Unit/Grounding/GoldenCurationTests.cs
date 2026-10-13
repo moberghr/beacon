@@ -604,6 +604,69 @@ public class GoldenCurationTests
         check.VerifyNoOtherCalls();
     }
 
+    // A refresh writes its content with the content's digest: landing between the decision's read and its write, it changes
+    // the digest the decision compares, so the decision is not written.
+    [Test]
+    public async Task ARefreshBetweenTheReadAndTheWrite_OfAPatternHoldingItsDigest_IsAConflict_AndTheDecisionIsNotWritten()
+    {
+        var pattern = Pattern("SELECT id FROM orders");
+        pattern.ContentHash = HashOf(pattern);
+        var reviewed = pattern.ContentHash;
+        var store = new Store(pattern);
+        var check = new Mock<IGroundingSqlCheck>();
+        check
+            .Setup(x => x.CheckAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                pattern.ExampleSql = "SELECT status FROM orders";
+                pattern.ContentHash = HashOf(pattern);
+            })
+            .ReturnsAsync((int _, string sql, CancellationToken _) => GroundingSqlCheckResult.Allowed(sql));
+
+        var act = () => StatusHandler(store, check.Object)
+            .Handle(new UpdatePatternStatusCommand { PatternId = pattern.Id, NewStatus = McpPatternStatus.Approved, ReviewedContentHash = reviewed }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(UpdatePatternStatusHandler.ChangedSinceReviewedMessage);
+        pattern.Should().BeEquivalentTo(
+            new { Status = McpPatternStatus.NeedsEvidence, ExampleSql = "SELECT status FROM orders", ReviewedByUserId = (int?)null },
+            x => x.ExcludingMissingMembers());
+    }
+
+    // A decision stores the digest of what it decided — the example SQL as approved, without its comments — also on a pattern
+    // stored before Beacon kept one, whose digest it stores first.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ADecision_StoresTheDigestOfWhatItDecided(bool heldItsDigest)
+    {
+        var pattern = Pattern("SELECT id FROM orders /* the usual */");
+        var reviewed = HashOf(pattern);
+        pattern.ContentHash = heldItsDigest ? reviewed : null;
+        var store = new Store(pattern);
+
+        await StatusHandler(store, TestGroundingSqlChecks.Real())
+            .Handle(new UpdatePatternStatusCommand { PatternId = pattern.Id, NewStatus = McpPatternStatus.Approved, ReviewedContentHash = reviewed }, CancellationToken.None);
+
+        pattern.Should().BeEquivalentTo(
+            new { Status = McpPatternStatus.Approved, ExampleSql = "SELECT id FROM orders" },
+            x => x.ExcludingMissingMembers());
+        pattern.ContentHash.Should().Be(HashOf(pattern), "the digest of the content as stored");
+    }
+
+    // A pattern whose stored digest is not the digest of its content is never decided: the decision compares the digest.
+    [Test]
+    public async Task APatternWhoseDigestIsNotItsContents_IsNotDecided()
+    {
+        var pattern = Pattern("SELECT id FROM orders");
+        pattern.ContentHash = GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, "SELECT ID FROM orders");
+        var store = new Store(pattern);
+
+        var act = () => StatusHandler(store, TestGroundingSqlChecks.PassThrough().Object)
+            .Handle(new UpdatePatternStatusCommand { PatternId = pattern.Id, NewStatus = McpPatternStatus.Rejected, ReviewedContentHash = HashOf(pattern) }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>();
+        pattern.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+    }
+
     // A refresh that lands between the decision's read and its write is never decided unseen: the write is conditional on
     // the content read.
     [Test]
@@ -716,6 +779,59 @@ public class GoldenCurationTests
         store.Saved.Should().BeEmpty("the losing promotion creates no case");
         store.Cases.Should().ContainSingle();
         signal.PromotedEvalCaseId.Should().Be(9, "the winner's claim stands");
+    }
+
+    // Feedback writes corrected SQL with its digest: landing between the promotion's read and its claim, it changes the
+    // digest the claim compares.
+    [Test]
+    public async Task APromotionWhoseSignalHoldingItsDigestChangesBeforeTheClaim_IsAConflict_AndCreatesNothing()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        signal.CandidateSqlHash = Hash("SELECT id FROM orders");
+        store.Signals.Add(signal);
+        var check = WinnerCommitsDuringTheCheck(() =>
+        {
+            signal.UserCorrectedSql = "SELECT status FROM orders";
+            signal.CandidateSqlHash = Hash("SELECT status FROM orders");
+        });
+
+        var act = () => PromoteHandler(store, check).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(PromoteSignalToGoldenHandler.ChangedSinceReviewedMessage);
+        store.Saved.Should().BeEmpty();
+        signal.PromotedAt.Should().BeNull();
+    }
+
+    // A signal recorded before Beacon kept the digest has the digest of its SQL stored by the promotion, which claims by it.
+    [Test]
+    public async Task APromotionOfASignalWithoutADigest_StoresItsDigest_AndClaimsIt()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        store.Signals.Add(signal);
+        store.OnSave = () => store.Saved.OfType<McpEvalCase>().Single().Id = 40;
+
+        await PromoteHandler(store).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
+
+        signal.CandidateSqlHash.Should().Be(Hash("SELECT id FROM orders"));
+        signal.PromotedEvalCaseId.Should().Be(40);
+    }
+
+    // A signal whose stored digest is not the digest of its SQL is never claimed: the claim compares the digest.
+    [Test]
+    public async Task APromotionOfASignalWhoseDigestIsNotItsSqls_IsAConflict_AndCreatesNothing()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        signal.CandidateSqlHash = Hash("SELECT id FROM Orders");
+        store.Signals.Add(signal);
+
+        var act = () => PromoteHandler(store).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>();
+        store.Saved.Should().BeEmpty();
+        signal.PromotedAt.Should().BeNull();
     }
 
     // The signal's SQL or rating changed after the read: the claim matches nothing and the promotion is refused.

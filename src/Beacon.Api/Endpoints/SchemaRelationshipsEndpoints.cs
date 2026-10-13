@@ -49,10 +49,17 @@ internal static class SchemaRelationshipsEndpoints
                     }, ct))
             .WithName("UpdateSchemaRelationship");
 
+        // Verifying names the label and cardinality the curator reviewed: a relationship holding other content is not verified (409).
         relationships.MapPost("/relationships/{relationshipId:int}/verify",
             async (int dataSourceId, int relationshipId, VerifySchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
             {
-                await m.Send(new VerifySchemaRelationshipCommand(dataSourceId, relationshipId, body.IsVerified), ct);
+                await m.Send(
+                    new VerifySchemaRelationshipCommand(dataSourceId, relationshipId, body.IsVerified)
+                    {
+                        ReviewedLabel = body.ReviewedLabel,
+                        ReviewedCardinality = body.ReviewedCardinality
+                    },
+                    ct);
                 return TypedResults.NoContent();
             }).WithName("VerifySchemaRelationship");
 
@@ -90,4 +97,7 @@ internal record CreateSchemaRelationshipBody(
 
 internal record UpdateSchemaRelationshipBody(string? Label, SchemaRelationshipCardinality Cardinality);
 
-internal record VerifySchemaRelationshipBody(bool IsVerified);
+/// <param name="IsVerified">Verify (true) or unverify (false).</param>
+/// <param name="ReviewedLabel">The label the curator reviewed; required to verify.</param>
+/// <param name="ReviewedCardinality">The cardinality the curator reviewed; required to verify.</param>
+internal record VerifySchemaRelationshipBody(bool IsVerified, string? ReviewedLabel, SchemaRelationshipCardinality? ReviewedCardinality);

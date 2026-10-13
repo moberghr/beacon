@@ -257,4 +257,17 @@ public static class GroundingSqlText
 
         return SqlCommentStripper.MarkersOnlyInLiterals(commentFree, dialect) ? commentFree : null;
     }
+
+    /// <summary>
+    /// Grounding SQL in the form two versions of it are compared in: without its comments
+    /// (<see cref="WithoutComments(string, string?)"/>), with each run of whitespace between the dialect's tokens made one
+    /// space — string literals, quoted identifiers and every other token exactly as written, so a changed number, literal or
+    /// identifier (its case included) is a change. Null when it cannot be read so: compare it as stored.
+    /// </summary>
+    public static string? ForComparison(string sql, string? dialect)
+    {
+        var commentFree = WithoutComments(sql, dialect);
+
+        return commentFree == null ? null : SqlCommentStripper.WithWhitespaceCollapsed(commentFree, dialect);
+    }
 }

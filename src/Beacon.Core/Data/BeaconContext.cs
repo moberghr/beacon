@@ -1554,6 +1554,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ExecutionError).HasMaxLength(4000);
             entity.Property(e => e.DryRunError).HasMaxLength(4000);
             entity.Property(e => e.CallerHash).HasMaxLength(128);
+            entity.Property(e => e.CandidateSqlHash).HasMaxLength(64);
 
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => e.DataSourceId);
@@ -1569,6 +1570,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ColumnName).HasMaxLength(200);
             entity.Property(e => e.PatternContent).IsRequired();
             entity.Property(e => e.ExampleQuestion).HasMaxLength(4000);
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             entity.HasIndex(e => new { e.DataSourceId, e.Status, e.TableName });
             entity.HasIndex(e => e.ProjectId);

@@ -302,7 +302,14 @@ export function RelationshipsPage() {
                     <RelationshipRow
                       key={entry.id}
                       entry={entry}
-                      onVerify={(isVerified) => verify.mutate({ id: entry.id, isVerified })}
+                      onVerify={(isVerified) =>
+                        verify.mutate({
+                          id: entry.id,
+                          isVerified,
+                          reviewedLabel: entry.label,
+                          reviewedCardinality: entry.cardinality,
+                        })
+                      }
                       onDelete={() => remove.mutate(entry.id)}
                       onUpdate={(label, cardinality, onDone) =>
                         update.mutate({ id: entry.id, label, cardinality }, { onSuccess: onDone })

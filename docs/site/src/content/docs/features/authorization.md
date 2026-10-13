@@ -1357,8 +1357,8 @@ See [Knowledge Base → Who curates grounding](/features/knowledge-base/#who-cur
   deactivate any you did not choose yourself (the tab's **Deactivate**, or `PUT /beacon/api/eval/golden/{id}` with
   `isActive: false`). Nothing is deactivated automatically.
 - **A signal is promoted once.** A promotion claims its signal — sets `promotedAt` and `promotedEvalCaseId` with one
-  conditional update, only while the signal is unpromoted, still rated `correct` and still holding the reviewed SQL — in
-  the transaction that creates the case. Promoting it again, or two Admins promoting it at the same moment, answers with
+  conditional update, only while the signal is unpromoted, still rated `correct` and still holding the reviewed SQL,
+  compared by the SQL's stored digest (see *Exact comparisons* below) — in the transaction that creates the case. Promoting it again, or two Admins promoting it at the same moment, answers with
   the case already promoted from it (`alreadyPromoted: true`, active or not) and creates nothing; a signal promoted before
   this version answers with the first case promoted from it. Before this version a signal could be promoted more than
   once (by repeated feedback, or by promoting it again): those cases are left as they are.
@@ -1392,7 +1392,13 @@ See [Knowledge Base → Who curates grounding](/features/knowledge-base/#who-cur
   create answer) until a curator verifies it, and a verified relationship that someone without Curate relabels or gives
   another cardinality is stored unverified again; a curator's edit keeps it verified and records the curator as its
   verifier. `PUT /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}` now answers `200` with
-  `isVerified` (it answered `204`). Existing relationships keep their state. The prompt lists unverified relationships
+  `isVerified` (it answered `204`). Every change applies to the relationship as it was read: an edit is written with the
+  verification it leaves in one statement, only while the relationship holds the label, cardinality and verification
+  read; a removal is conditional the same way; and verifying
+  (`POST /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}/verify`) needs `reviewedLabel` and
+  `reviewedCardinality` — the label and cardinality the curator reviewed — besides `isVerified` (`400` without them; not
+  needed to unverify) and is written only while the relationship holds them. A change that lands in between refuses
+  the later request (`409`, "The relationship changed since you loaded it": reload and try again). Existing relationships keep their state. The prompt lists unverified relationships
   under *Join Paths (UNVERIFIED — pending curator verification)*: an inferred one with its confidence, one a user added as
   *added, pending curator verification*.
 - **A learned pattern's review status** is `Approved`, `Rejected` or `Pending` (anything else answers `400`), the
@@ -1403,15 +1409,31 @@ See [Knowledge Base → Who curates grounding](/features/knowledge-base/#who-cur
 - **Approval binds to reviewed content.** The aggregation refresh no longer rewrites the content, example question or
   example SQL of a pattern a person approved or rejected (its signal count and confidence still refresh), and every write
   it makes to an existing pattern is conditional on the status it read. An auto-approved pattern whose content changes goes
-  back to `NeedsEvidence` and is replayed again, and the run logs how many. Content is compared with its counts left out,
-  its question on one line and its SQL without comments, so a `CommonQuery`, `JoinPattern` or `DocumentationGap` pattern
-  whose count moves stays auto-approved. Before an auto-approval the example SQL passes `IGroundingSqlCheck` again, as for
+  back to `NeedsEvidence` and is replayed again, and the run logs how many. Content is compared exactly but for the
+  statistics the job writes into its own sentences (the count of a `CommonQuery` or `JoinPattern` pattern, the error rate
+  and query count of a `DocumentationGap`), its question on one line, and its SQL exactly but for comments and the
+  whitespace between tokens as the data source's dialect reads them; so a pattern whose count moves stays auto-approved,
+  while a changed number in a lesson, a changed literal (its whitespace included) or an identifier in another case sends
+  it back for replay. Before an auto-approval the example SQL passes `IGroundingSqlCheck` again, as for
   a person's approval; a pattern whose SQL fails stays `NeedsEvidence` and the run logs how many, by identifiers only.
   Auto-approval is decided by replay alone: `LearningAutoApproveThreshold` decides nothing.
 - **Only curators' verdicts weigh in mining.** An `incorrect` verdict keeps an answer out of the common-query and join
   patterns, as before. A `correct` verdict makes an answer its pattern's preferred example and raises the pattern's
-  confidence only when a curator of the project (a project admin member or an Admin) recorded it; the asker's own
-  `correct` verdict no longer counts. Example questions come only from `ask` signals.
+  confidence only when it came from a curator: an interactive session holding Curate in the signal's project when it
+  recorded the verdict (a project admin member or an Admin, signed in). The signal records that provenance
+  (`FeedbackFromCurator`) apart from the rating user (`FeedbackByUserId`): a verdict from an API key or an MCP caller —
+  including the `feedback` MCP tool — is attributed to the user it acts for and never weighs as a curator's, whatever
+  that user's roles; nor does the asker's own `correct` verdict. Verdicts recorded before this version weigh as no
+  curator's (their provenance was not recorded). Example questions come only from `ask` signals.
+- **Exact comparisons.** The conditional writes that bind a decision to reviewed content — a pattern's review, its
+  auto-approval and a golden promotion's claim — compare a SHA-256 digest (fixed-length lowercase hex) stored with the
+  content, never the text: on a case-insensitive SQL Server collation, text equality would let a concurrent case-only or
+  trailing-space change pass. Beacon writes the digest with every change to a learned pattern's content
+  (`ContentHash`) and to a signal's promotable SQL (`CandidateSqlHash`: the digest of the rater's corrected SQL, else the
+  signal's corrected SQL, else its generated SQL). Rows stored before this version have none: the first review,
+  auto-approval or promotion that touches one stores it in application code, only while the row still holds no digest
+  and the content read; the migration rewrites nothing. A digest cleared with its content under the content lock is
+  stored again the same way.
 - **Prompts show grounding without comments and hidden characters.** Gold SQL and learned-pattern example SQL stored
   before this version, and glossary metric expressions, are rendered without their comments, read in their data source's
   dialect, and questions on one line; SQL whose comments cannot be removed, and SQL or a question holding characters a reviewer
@@ -1442,12 +1464,17 @@ See [Knowledge Base → Who curates grounding](/features/knowledge-base/#who-cur
   `promotedByName` and `modifiedByName`, a pattern's `reviewedByName` and a patch's `appliedByName` are the user's display
   name, or "User {id}" without one — never the user name or e-mail address.
 
-**Migration.** `AddGroundingAttribution` (PostgreSQL `20261013140000`, SQL Server `20261013140001`) adds five nullable
+**Migrations.** `AddGroundingAttribution` (PostgreSQL `20261013140000`, SQL Server `20261013140001`) adds five nullable
 columns and changes no stored value: `mcp_eval_cases.promoted_by_user_id` and `mcp_eval_cases.modified_by_user_id`,
 `mcp_query_signals.feedback_by_user_id` and `mcp_query_signals.promoted_eval_case_id` (`Users.Id` and `McpEvalCases.Id`;
 no key, no index) and `mcp_query_signals.promoted_at` (a timestamp). Nothing is backfilled: cases, verdicts and
 promotions recorded before keep them null, and a signal promoted before is still found by its cases' `source_signal_id`.
-Rolling it back drops the five columns.
+Rolling it back drops the five columns. `AddGroundingProvenance` (PostgreSQL `20261014120000`, SQL Server
+`20261014120001`) adds three columns and runs no SQL of its own: `mcp_query_signals.feedback_from_curator` (a boolean,
+not null, `false` for existing rows — their provenance was not recorded), and two nullable digests,
+`mcp_query_signals.candidate_sql_hash` and `mcp_learned_patterns.content_hash` (`character varying(64)` /
+`nvarchar(64)`), which existing rows leave empty until Beacon stores them as described above. No index. Rolling it back
+drops the three columns.
 
 **Public API.**
 
@@ -1459,13 +1486,15 @@ Rolling it back drops the five columns.
     still asked for every grounding SQL; the grounding check reads the dialect and whether a catalog exists itself.
   - `GroundingSqlText.WithoutComments(string, DataSourceType, DatabaseEngineType?)` and
     `WithoutComments(string, string? dialect)`; `GroundingText` (`HasHiddenCharacters`, `Question`); `GroundingDialects`
-    (`OfAsync`, `NeedsDialect`, `Withholds`) — all in `Beacon.Core.Services` — and `GroundingCurators.AmongAsync`
-    (`Beacon.Core.Authorization`).
+    (`OfAsync`, `NeedsDialect`, `Withholds`) — all in `Beacon.Core.Services`; `GroundingSqlText.ForComparison(string,
+    string? dialect)` (the form two versions of grounding SQL are compared in); and `GroundingContentHash` (`OfSql`,
+    `OfCandidateSql`, `OfPattern`, `Matches`), now public.
   - `ProjectAction.Curate`; `ProjectCheck.EveryLinkingProjectAction` (default `Write`, so existing shared-source checks
     are unchanged), an optional `everyLinkingProjectAction` parameter on `ProjectCheck.SharedSource`, and
     `ProjectCheck.CurateShared(resource)`.
-  - `McpEvalCase.PromotedByUserId` and `ModifiedByUserId`; `McpQuerySignal.FeedbackByUserId`, `PromotedAt` and
-    `PromotedEvalCaseId`.
+  - `McpEvalCase.PromotedByUserId` and `ModifiedByUserId`; `McpQuerySignal.FeedbackByUserId`, `FeedbackFromCurator`,
+    `CandidateSqlHash`, `PromotedAt` and `PromotedEvalCaseId`; `McpLearnedPattern.ContentHash`.
+  - `VerifySchemaRelationshipCommand.ReviewedLabel` and `ReviewedCardinality` (required to verify).
   - `GetGoldenCandidatesQuery` (a `ListRequest` with `ProjectId`) and `GoldenCandidateItem` (`SignalId`, `ProjectId`,
     `DataSourceId`, `Question`, `Sql`, `SqlHash`, `IsUserCorrected`, `FeedbackNote`, `AskedByUserId`, `AskedByName`,
     `RatedByUserId`, `RatedByName`, `CreatedTime`).
@@ -1488,8 +1517,9 @@ Rolling it back drops the five columns.
   - `CreateSchemaRelationshipResult(int Id, bool IsVerified)` — a new positional parameter.
   - `RecordQueryFeedbackCommand` is an `IRequest<RecordQueryFeedbackResult>` and `UpdateSchemaRelationshipCommand` an
     `IRequest<UpdateSchemaRelationshipResult>` (both were `IRequest`).
-- Changed behaviour: `RecordQueryFeedbackCommand` no longer sends `PromoteSignalToGoldenCommand`, records the rater, and
-  keeps the verdict when it drops the corrected SQL (the result says why); `PromoteSignalToGoldenCommand` promotes only
+- Changed behaviour: `RecordQueryFeedbackCommand` no longer sends `PromoteSignalToGoldenCommand`, records the rater and,
+  apart from it, whether a curator recorded the verdict (`FeedbackFromCurator`), writes `CandidateSqlHash` with the
+  corrected SQL, and keeps the verdict when it drops the corrected SQL (the result says why); `PromoteSignalToGoldenCommand` promotes only
   an `ask` signal still rated `Correct` whose SQL matches `ReviewedSqlHash` (`BeaconConflictException` otherwise), claims
   the signal, and answers with the existing case for a signal promoted already, also when a concurrent promotion wins;
   `PromoteSignalToGoldenCommand`, `UpdateGoldenCaseCommand` and `UpdatePatternStatusCommand` (to `Approved`) throw
@@ -1501,9 +1531,16 @@ Rolling it back drops the five columns.
   `GenerateProjectDocumentationCommand` needs Curate, and `DeleteSchemaRelationshipCommand` throws
   `BeaconForbiddenException` for a verified relationship when the caller may not curate the source;
   `CreateSchemaRelationshipCommand` stores the relationship unverified, and `UpdateSchemaRelationshipCommand` a changed
-  verified one, when the caller may not curate the source; `IMcpLearningAggregationService` stores mined example SQL only
-  when it passes, keeps the content of patterns a person decided, writes existing patterns only while they keep the status
-  it read, re-checks example SQL before an auto-approval, and weighs only curators' `correct` verdicts;
+  verified one, when the caller may not curate the source; `UpdateSchemaRelationshipCommand`,
+  `DeleteSchemaRelationshipCommand` and `VerifySchemaRelationshipCommand` throw `BeaconConflictException` for a
+  relationship that changed since it was read (and the verification for one that no longer holds the reviewed label and
+  cardinality), and `VerifySchemaRelationshipCommand` throws `InvalidOperationException` when verifying without them;
+  `UpdatePatternStatusCommand`, the auto-approval and `PromoteSignalToGoldenCommand` compare the stored digest, storing it
+  first for a row without one; `IMcpLearningAggregationService` stores mined example SQL only when it passes, keeps the
+  content of patterns a person decided, writes existing patterns only while they keep the status it read, stores the
+  content digest with every content write, re-checks example SQL before an auto-approval, compares refreshed content
+  exactly but for its own statistics, comments and the whitespace between SQL tokens, and weighs only verdicts recorded as
+  a curator's;
   `IKnowledgeGraphService.GetRelevantPatternsAsync` (signature unchanged) renders example SQL without comments, reading
   each data source's dialect itself, and example questions on one line, leaving out what cannot be shown so.
 - REST and OpenAPI:
@@ -1511,7 +1548,8 @@ Rolling it back drops the five columns.
     `GoldenCandidateItem`) and `GET /beacon/api/eval/grounding/recheck` (`projectId`; a `RecheckGroundingResult`), both
     Admin by live roles, like the rest of `/eval`.
   - New body fields: `reviewedSqlHash` on `POST /beacon/api/eval/golden/promote`; `reviewedContentHash` on
-    `PUT /beacon/api/mcp/learned-patterns/{id}/status`.
+    `PUT /beacon/api/mcp/learned-patterns/{id}/status`; `reviewedLabel` and `reviewedCardinality` on
+    `POST /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}/verify` (required to verify).
   - New response fields: `promotedByUserId`, `promotedByName`, `modifiedByUserId`, `modifiedByName`, `goldSqlWithheld`
     and `questionWithheld` on `GET /beacon/api/eval/golden`; `alreadyPromoted` on `POST /beacon/api/eval/golden/promote`;
     `reviewedByName`, `reviewedAt`, `canCurate`, `exampleSqlWithheld`, `exampleQuestionWithheld` and `contentHash` on
@@ -1526,7 +1564,9 @@ Rolling it back drops the five columns.
     `PUT /beacon/api/mcp/learned-patterns/{id}/status` for SQL that fails the check (with the reason), and the first two for
     a question holding characters a reviewer cannot see; `POST /beacon/api/eval/golden/promote` for a `query` or `dry_run`
     signal; `PUT /beacon/api/mcp/learned-patterns/{id}/status` for a status other than `Approved`, `Rejected` or
-    `Pending`. Corrected SQL that fails the check no longer refuses `POST /beacon/api/eval/feedback`.
+    `Pending`; `POST /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}/verify` verifying without
+    `reviewedLabel` and `reviewedCardinality`. Corrected SQL that fails the check no longer refuses
+    `POST /beacon/api/eval/feedback`.
   - New `403`s: without Curate, `PUT /beacon/api/mcp/learned-patterns/{id}/status`,
     `PUT /beacon/api/projects/documentation-sections/{id}`, `POST /beacon/api/projects/{id}/generate-documentation`,
     `POST /beacon/api/mcp/documentation-patches/{id}/apply` and `/reject`,
@@ -1536,7 +1576,9 @@ Rolling it back drops the five columns.
     `PUT /beacon/api/eval/golden/{id}` and the relationship verify route.
   - New `404`: `GET /beacon/api/eval/grounding/recheck` for a project that does not exist.
   - New `409`s: `POST /beacon/api/eval/golden/promote` when the candidate's rating or SQL changed since it was reviewed;
-    `PUT /beacon/api/mcp/learned-patterns/{id}/status` when the pattern's content changed since it was reviewed.
+    `PUT /beacon/api/mcp/learned-patterns/{id}/status` when the pattern's content changed since it was reviewed;
+    `PUT` and `DELETE /beacon/api/data-sources/{dataSourceId}/relationships/{relationshipId}` and its `/verify` when the
+    relationship changed since it was read (for `/verify`, when it no longer holds the reviewed label and cardinality).
 
 ## Migration from Previous Versions
 

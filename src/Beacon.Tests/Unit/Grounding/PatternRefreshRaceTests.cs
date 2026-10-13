@@ -16,9 +16,11 @@ namespace Beacon.Tests.Unit.Grounding;
 /// <summary>
 /// The aggregation writes a pattern only while it still holds what was read: a refresh never overwrites a person's decision
 /// made between its read and its write; an auto-approval is written only from NeedsEvidence, and only for the content the
-/// replay measured. A refresh compares content with its counts left out and SQL without comments, so a count that moves —
-/// or SQL stored before comments were removed — keeps an auto-approved pattern approved; a real change sends it back to
-/// NeedsEvidence, counted per run and logged once. The detectors and the promotion step over in-memory sets, no database
+/// replay measured, compared by the stored content digest; a pattern stored before Beacon kept the digest has it stored
+/// first, and every write stores the digest of the content it writes. A refresh compares content with only the detectors'
+/// counts left out and SQL without comments and the whitespace between its tokens, so a count that moves — or SQL stored
+/// before comments were removed — keeps an auto-approved pattern approved; a real change sends it back to NeedsEvidence,
+/// counted per run and logged once. The detectors and the promotion step over in-memory sets, no database
 /// (§4.7); a concurrent change is made from inside the step that runs between the read and the write.
 /// </summary>
 [TestFixture]
@@ -29,8 +31,6 @@ public class PatternRefreshRaceTests
     private const string MinedContent = "Common query pattern for public.orders (3 similar queries)";
     private const string MinedQuestion = "orders last week";
     private const string MinedSql = "SELECT id FROM orders";
-
-    private static readonly IReadOnlySet<int> NoCurators = new HashSet<int>();
 
     // The example SQL is checked between the refresh's read and its write: a person decides the pattern right then.
     [TestCase(McpPatternStatus.Approved)]
@@ -45,7 +45,7 @@ public class PatternRefreshRaceTests
             .ReturnsAsync((int _, string sql, CancellationToken _) => GroundingSqlCheckResult.Allowed(sql));
         var (service, context, _) = Build(check.Object, pattern);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
 
         pattern.Should().BeEquivalentTo(
             new { Status = decided, PatternContent = "older content", ExampleSql = "SELECT status FROM orders", SignalCount = 1 },
@@ -83,16 +83,74 @@ public class PatternRefreshRaceTests
         candidate.ExampleSql.Should().Be("SELECT status FROM orders");
     }
 
+    // A refresh writes its content with the content's digest: landing while the replay measures the candidate, it changes the
+    // digest the auto-approval compares.
     [Test]
-    public async Task AMeasuredUnchangedCandidate_IsAutoApproved()
+    public async Task ARefreshDuringTheReplay_OfACandidateHoldingItsDigest_LeavesItForTheNextMeasurement()
     {
         var candidate = Pattern(McpPatternStatus.NeedsEvidence, MinedContent, MinedQuestion, MinedSql);
+        candidate.ContentHash = DigestOf(candidate);
+        var verifier = ReplayThat(() =>
+        {
+            candidate.ExampleSql = "SELECT status FROM orders";
+            candidate.ContentHash = DigestOf(candidate);
+        });
+        var (service, context, _) = Build(TestGroundingSqlChecks.PassThrough().Object, candidate, verifier.Object);
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, ReplaySettings(), null, CancellationToken.None);
+
+        candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+        candidate.LastVerifiedAt.Should().BeNull();
+    }
+
+    // The auto-approval stores the digest of what it approved — the example SQL as the check returned it — also for a
+    // candidate stored before Beacon kept one, whose digest it stores first.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AMeasuredUnchangedCandidate_IsAutoApproved_WithTheDigestOfWhatWasApproved(bool heldItsDigest)
+    {
+        var candidate = Pattern(McpPatternStatus.NeedsEvidence, MinedContent, MinedQuestion, "SELECT id FROM orders -- the usual");
+        candidate.ContentHash = heldItsDigest ? DigestOf(candidate) : null;
+        var (service, context, _) = Build(TestGroundingSqlChecks.Real(), candidate, ReplayThat(() => { }).Object);
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, ReplaySettings(), null, CancellationToken.None);
+
+        candidate.Should().BeEquivalentTo(new { Status = McpPatternStatus.AutoApproved, ExampleSql = MinedSql }, x => x.ExcludingMissingMembers());
+        candidate.LastVerifiedAt.Should().NotBeNull();
+        candidate.ContentHash.Should().Be(DigestOf(candidate));
+    }
+
+    // A pattern whose stored digest is not the digest of its content is never auto-approved: the write compares the digest.
+    [Test]
+    public async Task ACandidateWhoseDigestIsNotItsContents_IsNotAutoApproved()
+    {
+        var candidate = Pattern(McpPatternStatus.NeedsEvidence, MinedContent, MinedQuestion, MinedSql);
+        candidate.ContentHash = GroundingContentHash.OfPattern(MinedContent, MinedQuestion, "SELECT ID FROM orders");
         var (service, context, _) = Build(TestGroundingSqlChecks.PassThrough().Object, candidate, ReplayThat(() => { }).Object);
 
         await service.PromoteVerifiedCandidatesAsync(context, ProjectId, ReplaySettings(), null, CancellationToken.None);
 
-        candidate.Status.Should().Be(McpPatternStatus.AutoApproved);
-        candidate.LastVerifiedAt.Should().NotBeNull();
+        candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+    }
+
+    // Every content write of the refresh stores the content's digest with it: a new pattern, and a refreshed one.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ARefresh_StoresTheDigestOfTheContentItWrites(bool exists)
+    {
+        var pattern = Pattern(McpPatternStatus.NeedsEvidence, "older content", MinedQuestion, "SELECT status FROM orders");
+        var saved = new List<object>();
+        var patterns = exists ? new List<McpLearnedPattern> { pattern } : [];
+        var context = new RecordingBeaconContext(
+            new Dictionary<Type, object> { [typeof(McpLearnedPattern)] = RecordingBeaconContext.MemorySet(patterns, saved) },
+            saved);
+        var (service, _, _) = Build(TestGroundingSqlChecks.PassThrough().Object, pattern);
+
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        var written = exists ? pattern : saved.OfType<McpLearnedPattern>().Should().ContainSingle().Subject;
+        written.Should().BeEquivalentTo(new { PatternContent = MinedContent, ExampleSql = MinedSql }, x => x.ExcludingMissingMembers());
+        written.ContentHash.Should().Be(GroundingContentHash.OfPattern(MinedContent, MinedQuestion, MinedSql));
     }
 
     // Counts move every run, and SQL stored before comments were removed differs only by them: neither is a change, so the
@@ -107,7 +165,7 @@ public class PatternRefreshRaceTests
         var stats = new McpLearningAggregationService.ExtractionStats();
         var (service, context, _) = Build(TestGroundingSqlChecks.Real(), pattern);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, stats, CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), stats, CancellationToken.None);
 
         pattern.Should().BeEquivalentTo(
             new { Status = McpPatternStatus.AutoApproved, PatternContent = MinedContent, ExampleSql = MinedSql, SignalCount = 3 },
@@ -124,7 +182,7 @@ public class PatternRefreshRaceTests
         var stats = new McpLearningAggregationService.ExtractionStats();
         var (service, context, _) = Build(TestGroundingSqlChecks.Real(), pattern);
 
-        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), NoCurators, stats, CancellationToken.None);
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), stats, CancellationToken.None);
 
         pattern.Should().BeEquivalentTo(
             new { Status = McpPatternStatus.NeedsEvidence, PatternContent = MinedContent, ExampleQuestion = MinedQuestion, ExampleSql = MinedSql },
@@ -168,6 +226,11 @@ public class PatternRefreshRaceTests
             .Which.Should().BeEquivalentTo(
                 new { Level = LogLevel.Information, Message = "1 auto-approved learned pattern(s) went back to NeedsEvidence this run: their content changed" },
                 x => x.ExcludingMissingMembers());
+    }
+
+    private static string DigestOf(McpLearnedPattern pattern)
+    {
+        return GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, pattern.ExampleSql);
     }
 
     private static Mock<IPatternReplayVerifier> ReplayThat(Action duringTheReplay)

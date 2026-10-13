@@ -15,10 +15,13 @@ namespace Beacon.Core.Handlers.McpLearning;
 /// aggregation job's — and records the reviewer, the current caller (403 without a Beacon user: who decided is recorded).
 /// Reviewing needs <see cref="ProjectAction.Curate"/> in the pattern's project. A decision applies only to the content the
 /// reviewer saw: the command carries the hash the pattern list showed (<see cref="LearnedPatternEntry.ContentHash"/>), and
-/// the status is written only while the pattern still holds that content — in one conditional update, so a refresh between
-/// the read and the write is never decided unseen (409 otherwise). Approving a pattern that carries example SQL checks that
-/// SQL again (<see cref="IGroundingSqlCheck"/>, in the pattern's data source's dialect) and stores it without its comments;
-/// SQL the check refuses refuses the approval (§9.8), and nothing is changed.
+/// the status is written only while the pattern still holds that content — in one conditional update comparing the stored
+/// digest (<see cref="Data.Entities.McpLearnedPattern.ContentHash"/>), which compares exactly under any database
+/// collation — so a refresh between the read and the write is never decided unseen (409 otherwise). A pattern stored
+/// before Beacon kept the digest has it stored first, only while it still holds no digest and the content read. Approving
+/// a pattern that carries example SQL checks that SQL again (<see cref="IGroundingSqlCheck"/>, in the pattern's data
+/// source's dialect) and stores it without its comments, with the digest of what is then stored; SQL the check refuses
+/// refuses the approval (§9.8), and nothing is changed.
 /// </summary>
 internal sealed class UpdatePatternStatusHandler(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -61,7 +64,8 @@ internal sealed class UpdatePatternStatusHandler(
                     x.DataSourceId,
                     x.PatternContent,
                     x.ExampleQuestion,
-                    x.ExampleSql
+                    x.ExampleSql,
+                    x.ContentHash
                 })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Pattern {request.PatternId} not found");
@@ -84,16 +88,29 @@ internal sealed class UpdatePatternStatusHandler(
             exampleSql = check.Sql;
         }
 
+        if (pattern.ContentHash == null)
+        {
+            // Stored before Beacon kept the digest: store the digest of the content read, only while the pattern still holds
+            // no digest and that content (every later write of its content writes the digest with it).
+            await context.McpLearnedPatterns
+                .Where(x => x.Id == request.PatternId)
+                .Where(x => x.ContentHash == null)
+                .Where(x => x.PatternContent == pattern.PatternContent)
+                .Where(x => x.ExampleQuestion == pattern.ExampleQuestion)
+                .Where(x => x.ExampleSql == pattern.ExampleSql)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ContentHash, content), cancellationToken);
+        }
+
+        var decidedContent = GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, exampleSql);
         var reviewedAt = DateTime.UtcNow;
         var written = await context.McpLearnedPatterns
             .Where(x => x.Id == request.PatternId)
-            .Where(x => x.PatternContent == pattern.PatternContent)
-            .Where(x => x.ExampleQuestion == pattern.ExampleQuestion)
-            .Where(x => x.ExampleSql == pattern.ExampleSql)
+            .Where(x => x.ContentHash == content)
             .ExecuteUpdateAsync(
                 x => x
                     .SetProperty(y => y.Status, request.NewStatus)
                     .SetProperty(y => y.ExampleSql, exampleSql)
+                    .SetProperty(y => y.ContentHash, decidedContent)
                     .SetProperty(y => y.ReviewedByUserId, reviewer.BeaconUserId)
                     .SetProperty(y => y.ReviewedAt, reviewedAt),
                 cancellationToken);

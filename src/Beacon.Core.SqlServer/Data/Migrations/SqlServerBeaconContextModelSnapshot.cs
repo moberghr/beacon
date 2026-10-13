@@ -2261,6 +2261,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<double>("Confidence")
                         .HasColumnType("float");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -2462,6 +2466,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<string>("CandidateSqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("ColumnsUsed")
                         .HasColumnType("nvarchar(max)");
 
@@ -2496,6 +2504,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int?>("FeedbackByUserId")
                         .HasColumnType("int");
+
+                    b.Property<bool>("FeedbackFromCurator")
+                        .HasColumnType("bit");
 
                     b.Property<string>("FeedbackNote")
                         .HasColumnType("nvarchar(max)");
