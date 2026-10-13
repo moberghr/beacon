@@ -6,9 +6,10 @@ namespace Beacon.Api;
 /// <summary>
 /// Warns at startup about the keys stored values may still be encrypted with (<c>Beacon:PreviousEncryptionKeys</c>): when
 /// the setting is a single value rather than a list (it is read as one key), and, after the host has started, off the
-/// startup thread and best effort, how many stored values are still under a previous key and how many no configured key
-/// decrypts (<see cref="IStoredValueReEncryptionService.CountAsync"/>), so an operator knows whether the previous keys can
-/// be removed. Counts and configuration names only, never a key (§1.11); a database that cannot be read is noted, never a
+/// startup thread and best effort, how many stored values are still under a previous key, how many no configured key
+/// decrypts and how many keyed recipient hashes cannot be rewritten under the current key
+/// (<see cref="IStoredValueReEncryptionService.CountAsync"/>), so an operator knows whether the previous keys can be
+/// removed. Counts and configuration names only, never a key (§1.11); a database that cannot be read is noted, never a
 /// failure.
 /// </summary>
 internal sealed class EncryptionKeyStartupWarnings(
@@ -53,7 +54,7 @@ internal sealed class EncryptionKeyStartupWarnings(
             }
 
             var count = await reEncryption.CountAsync(cancellationToken);
-            if (count.UnderPreviousKeys == 0 && count.Unreadable == 0)
+            if (count.PreviousKeysRemovable)
             {
                 logger.LogInformation(
                     ProjectAccessEvents.StoredValuesReEncrypted,
@@ -65,10 +66,11 @@ internal sealed class EncryptionKeyStartupWarnings(
 
             logger.LogWarning(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "{UnderPreviousKeys} stored values are still encrypted with a key in {Setting}, and {Unreadable} with no configured key. Re-encrypt them with the current key (IStoredValueReEncryptionService; the sample host runs it as a job at startup) before removing a previous key",
+                "{UnderPreviousKeys} stored values are still encrypted with a key in {Setting}, and {Unreadable} with no configured key; {Unresolved} keyed recipient hashes name a definition their recipient does not hold and may still need a previous key. Re-encrypt the values with the current key (IStoredValueReEncryptionService; the sample host runs it as a job at startup) and decide the recipients' pending changes before removing a previous key",
                 count.UnderPreviousKeys,
                 Core.ServiceConfiguration.PreviousEncryptionKeysKey,
-                count.Unreadable);
+                count.Unreadable,
+                count.UnresolvedKeyDependencies);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

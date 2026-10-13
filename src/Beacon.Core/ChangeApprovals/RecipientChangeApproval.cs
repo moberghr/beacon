@@ -14,7 +14,8 @@ namespace Beacon.Core.ChangeApprovals;
 /// the approved destination needs no approval. With the workflow off, a governed recipient whose delivery changes is no
 /// longer governed (it delivers as before the workflow), and the pending requests of it are superseded. Hashes are keyed
 /// (<see cref="RecipientDestinationHasher"/>); an approved hash written under a previous key is rewritten under the current
-/// key when the definition it approves is saved again.
+/// key when the definition it approves is saved again, and a pending request whose hash was written under a previous key
+/// still proposes the definition it names, so a save that leaves that definition as it is keeps the request as it is.
 /// </summary>
 internal sealed class RecipientChangeApproval(ChangeApprovalSubmitter submitter, RecipientSecretProtector protector, RecipientDestinationHasher hasher)
 {
@@ -118,6 +119,9 @@ internal sealed class RecipientChangeApproval(ChangeApprovalSubmitter submitter,
 
         var proposed = ViewOf(recipient.NotificationType, recipient.Destination, recipient.HeadersJson);
         var previous = RecipientDestinationDefinition.ViewOfStored(protector, hasher, before.Type, before.Destination, before.HeadersJson);
+
+        // A pending request proposes where it now delivers when its hash verifies under the current key or a previous one,
+        // as the delivery check verifies it: a request submitted before the key was replaced is still that change.
         var proposal = new ChangeProposal(
             Kind,
             recipient.Id,
@@ -127,7 +131,8 @@ internal sealed class RecipientChangeApproval(ChangeApprovalSubmitter submitter,
             NeedsApproval: !string.Equals(hash, approvedAfter, StringComparison.Ordinal),
             proposed,
             previous,
-            SummaryOf(previous, proposed));
+            SummaryOf(previous, proposed),
+            MatchesDefinition: x => hasher.Matches(x, canonical));
 
         return await submitter.SubmitAsync(context, requester, proposal, cancellationToken);
     }

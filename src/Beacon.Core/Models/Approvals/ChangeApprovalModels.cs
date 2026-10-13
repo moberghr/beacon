@@ -145,9 +145,10 @@ public sealed record CustomSqlRuleView
 }
 
 /// <summary>
-/// Where a recipient delivers, as a reviewer is shown it: its type; what identifies its destination (the host and path,
-/// Slack's workspace and channel ids, a Jira site, email addresses) with every credential masked (user info, query
-/// values, token-like path segments, a token or signature); its header names with a fingerprint of each value; and a
+/// Where a recipient delivers, as a reviewer is shown it: its type; what identifies its destination (the host, a known
+/// provider's documented non-secret ids such as Slack's workspace and webhook ids or a Teams workflow's id, a Jira site,
+/// email addresses) with everything else masked (every other path segment, user info, query values, a fragment, a token
+/// or signature); its header names with a fingerprint of each value; and a
 /// fingerprint of the whole definition. A fingerprint is a short keyed digest: equal fingerprints mean equal values, and
 /// it reveals nothing about the value, so it can be compared out of band (the recipients page shows the same ones to
 /// those who may change the recipient).

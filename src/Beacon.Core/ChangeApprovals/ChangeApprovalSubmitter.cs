@@ -17,9 +17,10 @@ namespace Beacon.Core.ChangeApprovals;
 /// (<see cref="IBeaconActorAccessor"/>), resolved before anything is written; a caller Beacon cannot name submits nothing
 /// (403) unless the host allows self-approval. Inside the unit of work that writes the resource — its row taken first, so
 /// submissions and decisions on one resource run one after the other — a change that alters the definition is refused
-/// (409) while someone else's change of the resource waits; the requester's own earlier pending request is superseded
-/// (and told after the commit); a definition that is not the approved one gets a request unless a pending one already
-/// proposes exactly it.
+/// (409) while someone else's change of the resource waits, and so is any submission that would supersede someone else's
+/// pending request; the requester's own earlier pending request is superseded (and told after the commit); a definition
+/// that is not the approved one gets a request unless a pending one already proposes exactly it (for a recipient, under
+/// the current or a previous key).
 /// </summary>
 internal sealed class ChangeApprovalSubmitter(
     IBeaconActorAccessor actorAccessor,
@@ -99,11 +100,23 @@ internal sealed class ChangeApprovalSubmitter(
             throw new BeaconConflictException(OtherPendingMessage(proposal.Kind));
         }
 
-        // Every pending request that does not propose the definition the resource now holds can no longer be approved.
+        // Every pending request that does not propose the definition the resource now holds can no longer be approved. A
+        // submission supersedes only the requester's own: one that would supersede someone else's is refused, and theirs
+        // stays as it is.
         var superseded = pending
-            .Where(x => !proposal.NeedsApproval || !string.Equals(x.DefinitionHash, proposal.DefinitionHash, StringComparison.Ordinal))
+            .Where(x => !proposal.NeedsApproval || !proposal.Proposes(x.DefinitionHash))
             .Select(x => new SupersededChange(x.Id, x.RequestedByUserId))
             .ToList();
+        if (superseded.Any(x => !IsSameRequester(x.RequestedByUserId, requester.UserId)))
+        {
+            logger.LogWarning(
+                "Change of {Kind} {ResourceId} refused: it would supersede another person's change of it that waits for approval",
+                proposal.Kind,
+                proposal.ResourceId);
+
+            throw new BeaconConflictException(OtherPendingMessage(proposal.Kind));
+        }
+
         if (superseded.Count > 0)
         {
             var supersededIds = superseded
@@ -115,7 +128,7 @@ internal sealed class ChangeApprovalSubmitter(
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.Status, ApprovalStatus.Superseded), cancellationToken);
         }
 
-        var alreadyProposed = pending.Any(x => string.Equals(x.DefinitionHash, proposal.DefinitionHash, StringComparison.Ordinal));
+        var alreadyProposed = pending.Any(x => proposal.Proposes(x.DefinitionHash));
         if (!proposal.NeedsApproval || alreadyProposed)
         {
             return new ChangeSubmission(superseded, null);
@@ -249,7 +262,9 @@ internal sealed record ChangeRequester(string? UserId, string? DisplayName);
 /// <summary>
 /// A change of a governed resource as it is submitted: the definition hash it held before (null for a resource the change
 /// creates) and the one it holds after, whether that one needs approval (it is not the approved definition), and what a
-/// reviewer is shown of the resource before and after.
+/// reviewer is shown of the resource before and after. <c>MatchesDefinition</c> tells whether a pending
+/// request's hash names the definition the resource holds after, where a hash is not compared as written: a recipient's
+/// keyed hash also matches when it was written under a previous key.
 /// </summary>
 internal sealed record ChangeProposal(
     ChangeApprovalKind Kind,
@@ -260,7 +275,18 @@ internal sealed record ChangeProposal(
     bool NeedsApproval,
     object Proposed,
     object? Previous,
-    string ChangeSummary);
+    string ChangeSummary,
+    Func<string, bool>? MatchesDefinition = null)
+{
+    /// <summary>
+    /// True when a pending request whose definition hash is <paramref name="definitionHash"/> proposes the definition the
+    /// resource holds after the change.
+    /// </summary>
+    public bool Proposes(string definitionHash)
+    {
+        return MatchesDefinition?.Invoke(definitionHash) ?? string.Equals(definitionHash, DefinitionHash, StringComparison.Ordinal);
+    }
+}
 
 /// <summary>What a submission did: the pending requests it superseded (told after the commit), and the request it added.</summary>
 internal sealed record ChangeSubmission(IReadOnlyList<SupersededChange> Superseded, ChangeApprovalRequest? Request);

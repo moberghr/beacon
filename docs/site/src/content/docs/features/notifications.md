@@ -63,7 +63,8 @@ reviewed change:
 - **Saves that change nothing where it delivers** (its name, description, body template) submit nothing. Putting back the
   approved destination needs no approval and withdraws the requester's own pending change. A change made while another
   person's change of the same recipient waits is refused (`409`) until that one is approved or rejected; the requester's
-  own earlier change is superseded (and they are told).
+  own earlier change is superseded (and they are told). No save supersedes another person's pending change: one that
+  would is refused (`409`).
 - **A rejected change** leaves the recipient skipped until it is changed back to its approved destination, or saved again
   (which submits it again). The recipients list and the subscription's **Recipients** tab say **Rejected — change it and
   save again**, with the reviewer's comment (`lastApprovalDecision` while no request of it is pending).
@@ -78,10 +79,12 @@ reviewed change:
 
 A reviewer must see where data will go without seeing any credential. The change request shows, before and after:
 
-- the **type**, and what **identifies the destination**: a webhook's scheme, full host, port and path with user info,
-  query values and token-like path segments masked; Slack's workspace and channel ids (`T…/B…`) with the token masked; a
-  Teams or Power Automate workflow's host and path with its signature (in the query) masked, and a legacy Teams
-  connector's secret segment masked; email addresses as they are; a Jira site, project and email;
+- the **type**, and what **identifies the destination**: a webhook's scheme, host and port, with each path segment
+  shown as a mask (so the path's shape is visible) and user info, query values (their names are kept) and a fragment
+  masked. Only the parts a known provider documents as not secret are shown: Slack's workspace and webhook ids
+  (`hooks.slack.com/services/T…/B…/…`, the token masked); a Teams workflow's (Logic Apps or Power Automate) fixed path
+  words and workflow id, its signature (in the query) masked; a legacy Teams connector's group and tenant ids, every
+  segment after them masked. Email addresses are shown as they are; a Jira destination shows its site, project and email;
 - the **custom header names**, each with a **fingerprint** of its value (12 hex characters), never the value;
 - a **fingerprint of the whole definition** (type, destination and headers).
 
@@ -91,7 +94,7 @@ each recipient on the **Recipients** page, so the requester and the reviewer can
 say) before the approval.
 
 When the before and after look the same — same type, same destination as shown, same header names — but the
-fingerprints differ, the change lies only in a masked part (a new token or signature, a new header value). The approval
+fingerprints differ, the change lies only in a masked part (a new path, token or signature, a new header value). The approval
 page says so prominently, and **approving it requires a comment** saying how the reviewer checked the change (`400`
 without one; the page requires it too). A request whose proposed destination cannot be read cannot be approved
 (`mayApprove: false` with the reason); reject it and submit the change again. Recipient requests are visible to
@@ -114,8 +117,14 @@ destination or header value. **Replacing the encryption key holds no recipient**
 `Beacon:PreviousEncryptionKeys` still matches, and the re-encryption run (`IStoredValueReEncryptionService`, see
 [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)) recomputes the approved hashes of
 governed recipients, and those of their pending requests, under the current key — remove the previous key only after it
-reports nothing left. A hash of a destination the recipient no longer holds cannot be recomputed (its plaintext is not
-stored) and keeps matching only while the previous key is configured. Rotating a recipient's own credential (a new
+reports nothing left. A pending request whose hash was written under a previous key still proposes the destination it
+names: a save that leaves where the recipient delivers as it is keeps that request and its requester. A hash of a
+destination the recipient no longer holds (an approved destination it has moved away from while a change waits) cannot
+be recomputed, as its plaintext is not stored, and nothing tells which key wrote it: it keeps matching only while the
+previous key is configured, so the run counts it as an **unresolved key dependency** (logged with the recipient's id)
+and does not report the previous keys removable while one remains. Resolve it by deciding the recipient's pending change
+— an approval writes the approved hash under the current key — or by saving the recipient back to its approved
+destination, then run the re-encryption again. Rotating a recipient's own credential (a new
 webhook token, a new header value) is a change of where it delivers: it waits for approval like any other.
 
 #### Runs that notified nobody

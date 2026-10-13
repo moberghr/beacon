@@ -1193,8 +1193,10 @@ changed [destinations](/features/notifications/#approval-of-new-and-changed-dest
   proposal cannot be read cannot be approved (`409`; the detail says so with `mayApprove: false`). The decision and the
   resource's approved definition commit in one transaction that takes the resource's row first.
 - **One pending change per resource; others wait.** A change supersedes its requester's own pending request (they are
-  told); a change of the definition while another person's request waits is refused (`409`). A save that changes nothing
-  reviewed (a recipient's name, a contract's schedule) submits nothing and leaves pending requests alone.
+  told); a change of the definition while another person's request waits is refused (`409`), and so is any save that
+  would supersede another person's request. A save that changes nothing reviewed (a recipient's name, a contract's
+  schedule) submits nothing and leaves pending requests alone — for a recipient, also a request whose hash was written
+  under a previous encryption key.
 - **A request recorded without a requester** — possible only with `AllowSelfApproval` and a caller Beacon cannot name —
   counts as another person's for everyone: it blocks every change of that resource's definition (`409`) until an Approver
   Beacon can name rejects it. Nobody approves it.
@@ -1207,9 +1209,10 @@ changed [destinations](/features/notifications/#approval-of-new-and-changed-dest
   "Rejected — change it and save again", for a job "Rejected — delete and recreate the job".
 - **What a reviewer sees.** The definition before and after: a migration job's source and destination, query, table, mode
   and transformation; a contract's Custom SQL rules (the waiting ones marked); for a recipient, its type and what
-  identifies where it delivers — the host and path, Slack's workspace and channel ids, a Teams workflow's path, email
-  addresses, a Jira site — with every credential masked (user info, query values, token-like path segments, a token or
-  signature), its header names, and 12-hex keyed **fingerprints** of each header value and of the whole definition.
+  identifies where it delivers — the host, Slack's workspace and webhook ids, a Teams workflow's fixed path words and
+  workflow id, a legacy Teams connector's group and tenant ids, email addresses, a Jira site — with everything else
+  masked (every other path segment, user info, query values, a fragment, a token or signature), its header names, and
+  12-hex keyed **fingerprints** of each header value and of the whole definition.
   Approvers therefore see where a recipient delivers, not its secrets. Admins and SecurityAdmins see the same
   fingerprints on the recipients page, to compare with the reviewer out of band. A recipient change that lies only in a
   masked part (the shown before and after are the same, the fingerprints are not) is flagged
@@ -1232,7 +1235,9 @@ changed [destinations](/features/notifications/#approval-of-new-and-changed-dest
   a Warning from the scheduled run). A contract save that finds Custom SQL rules added meanwhile answers `409`.
 - **Recipient hashes are keyed.** The approved hash of a recipient's destination is an HMAC-SHA256 under a key derived
   from `Beacon:EncryptionKey`, versioned; hashes written under a key in `Beacon:PreviousEncryptionKeys` still match, and
-  the re-encryption run rewrites them under the current key (see [Notifications](/features/notifications/#when-a-delivery-is-checked)).
+  the re-encryption run rewrites them under the current key; one it cannot rewrite (an approved destination the recipient
+  has moved away from) is an unresolved key dependency, and the previous keys are not reported removable while one
+  remains (see [Notifications](/features/notifications/#when-a-delivery-is-checked)).
 - **Turning a switch (or the workflow) off releases** what it held: waiting and rejected jobs run, rules are evaluated,
   recipients receive deliveries, as they are; saves made then supersede the pending requests they make moot. Startup
   warns with the counts.
@@ -1291,7 +1296,10 @@ five columns.
   evaluation that does not update the table's score) and throws `DataContractRulesAwaitApprovalException` when every
   enabled rule waits; `INotificationService.SendNotification` refuses a delivery to a recipient (`RecipientId`) whose
   destination is not the approved one (`NotificationDeliveryException` with the awaiting-approval reason);
-  `IStoredValueReEncryptionService` also rewrites recipient approval hashes under the current key. On every host, the
+  `IStoredValueReEncryptionService` also rewrites recipient approval hashes under the current key, and counts those it
+  cannot rewrite in the new `StoredValueReEncryptionResult.UnresolvedKeyDependencies` (an init property; the positional
+  parameters are unchanged) — `StoredValueReEncryptionResult.PreviousKeysRemovable` is true only when none remain, and the
+  startup check and the run say the previous keys can be removed only then. On every host, the
   result-count trigger ignores skipped runs. `ResolveTaskCommand` resolves only as the assignee, or as an Admin while
   nobody is assigned.
 - REST and OpenAPI:

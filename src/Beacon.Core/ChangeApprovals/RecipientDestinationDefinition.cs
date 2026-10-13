@@ -9,14 +9,50 @@ namespace Beacon.Core.ChangeApprovals;
 /// What an approval of a recipient covers: where it delivers — its type, its destination and its custom headers (names and
 /// values), read in plaintext — character for character. Its name, description and body template are left out. The
 /// definition holds secrets, so only its keyed hash (<see cref="RecipientDestinationHasher"/>) is stored, on the server
-/// only. A reviewer is shown <see cref="ViewOfStored"/>: what identifies where it delivers (the host and path, Slack's
-/// workspace and channel ids, header names) with every credential masked, and short keyed fingerprints of the whole
-/// definition and of each header value, so a change in a masked part is still seen and can be compared out of band.
+/// only. A reviewer is shown <see cref="ViewOfStored"/>: what identifies where it delivers (the host, the parts of a known
+/// provider's path it documents as not secret, header names) with everything else masked, and short keyed fingerprints
+/// of the whole definition and of each header value, so a change in a masked part is still seen and can be compared out
+/// of band.
 /// </summary>
 internal static class RecipientDestinationDefinition
 {
-    private const int TokenLikeLength = 8;
-    private const int LongSegmentLength = 20;
+    private const int SlackIdMinLength = 9;
+    private const int SlackIdMaxLength = 15;
+    private const int WorkflowIdLength = 32;
+
+    // The webhooks whose documented non-secret path parts a reviewer is shown; every other URL shows its host only.
+    private static readonly ProviderPath[] KnownProviders =
+    [
+        // https://hooks.slack.com/services/{workspace id}/{webhook id}/{token}
+        new(
+            x => string.Equals(x, "hooks.slack.com", StringComparison.OrdinalIgnoreCase),
+            [
+                PathSegment.Word("services"), PathSegment.Identifier(x => IsSlackId(x, 'T')), PathSegment.Identifier(x => IsSlackId(x, 'B')),
+                PathSegment.Secret
+            ]),
+
+        // https://{region}.logic.azure.com/workflows/{workflow id}/triggers/{trigger}/paths/invoke?…&sig={signature}
+        new(
+            x => x.EndsWith(".logic.azure.com", StringComparison.OrdinalIgnoreCase),
+            [
+                PathSegment.Word("workflows"), PathSegment.Identifier(IsWorkflowId), PathSegment.Word("triggers"), PathSegment.Identifier(IsManualTrigger),
+                PathSegment.Word("paths"), PathSegment.Word("invoke")
+            ]),
+
+        // https://{environment}.environment.api.powerplatform.com/powerautomate/automations/direct/workflows/{workflow id}/triggers/{trigger}/paths/invoke?…&sig={signature}
+        new(
+            x => x.EndsWith(".api.powerplatform.com", StringComparison.OrdinalIgnoreCase),
+            [
+                PathSegment.Word("powerautomate"), PathSegment.Word("automations"), PathSegment.Word("direct"), PathSegment.Word("workflows"),
+                PathSegment.Identifier(IsWorkflowId), PathSegment.Word("triggers"), PathSegment.Identifier(IsManualTrigger), PathSegment.Word("paths"), PathSegment.Word("invoke")
+            ]),
+
+        // https://{tenant}.webhook.office.com/webhookb2/{group id}@{tenant id}/IncomingWebhook/{secret}/…
+        new(
+            x => x.EndsWith(".webhook.office.com", StringComparison.OrdinalIgnoreCase),
+            [PathSegment.Word("webhookb2"), PathSegment.Identifier(IsGroupAtTenant), PathSegment.Word("IncomingWebhook")],
+            OpenEnded: true)
+    ];
 
     /// <summary>The text a recipient's definition is hashed and fingerprinted from.</summary>
     public static string Canonical(NotificationType type, string destination, string? headersJson)
@@ -149,9 +185,13 @@ internal static class RecipientDestinationDefinition
 
     /// <summary>
     /// What identifies where a destination delivers, its credentials masked. An email destination (addresses) is shown as
-    /// is; a Jira one keeps its site, project and email. A URL keeps its scheme, full host, port and path, with user info,
-    /// query values and token-like path segments masked: Slack's workspace and channel ids are kept and its token masked;
-    /// a Teams workflow keeps its path (its signature is in the query), a legacy Teams connector's secret segment is masked.
+    /// is; a Jira one keeps its site, project and email. A URL keeps its scheme, host and port and masks everything else
+    /// by default: each path segment is shown as a mask (so the path's shape is visible), as are user info, every query
+    /// value (parameter names are kept) and a fragment. Only the parts a known provider documents as not secret are shown:
+    /// Slack's workspace and webhook ids in <c>hooks.slack.com/services/T…/B…/{token}</c>, and the fixed path words and
+    /// workflow id of a Logic Apps or Power Automate workflow (Teams workflows; their signature is a query value) and the
+    /// fixed words and group and tenant ids of a legacy Teams connector. A change in a masked part shows only in the
+    /// fingerprints.
     /// </summary>
     internal static string Identifying(NotificationType type, string destination)
     {
@@ -168,37 +208,64 @@ internal static class RecipientDestinationDefinition
         var segments = uri.AbsolutePath
             .Split('/', StringSplitOptions.RemoveEmptyEntries)
             .ToList();
-        var shown = segments
-            .Select((x, i) => ShowsSegment(type, segments, i) ? x : RecipientSecrets.Mask)
-            .ToList();
+        var shown = KnownProviderPath(uri.IdnHost, segments)
+            ?? segments
+                .Select(_ => RecipientSecrets.Mask)
+                .ToList();
         var userInfo = string.IsNullOrEmpty(uri.UserInfo) ? string.Empty : RecipientSecrets.Mask + "@";
         var port = uri.IsDefaultPort ? string.Empty : $":{uri.Port}";
+        var fragment = uri.Fragment.Length > 1 ? "#" + RecipientSecrets.Mask : string.Empty;
 
-        return $"{uri.Scheme}://{userInfo}{uri.IdnHost}{port}/{string.Join('/', shown)}{MaskedQuery(uri.Query)}";
+        return $"{uri.Scheme}://{userInfo}{uri.IdnHost}{port}/{string.Join('/', shown)}{MaskedQuery(uri.Query)}{fragment}";
     }
 
-    // Whether a path segment is shown: Slack's ids before its token, a Teams path but its legacy connector secret, and
-    // anywhere else a segment that does not look like a token.
-    private static bool ShowsSegment(NotificationType type, IReadOnlyList<string> segments, int index)
+    // The path of a known provider's webhook as shown, its documented non-secret parts kept and every other segment masked;
+    // null when the host is no known provider's or the path does not have the shape the provider documents.
+    private static List<string>? KnownProviderPath(string host, IReadOnlyList<string> segments)
     {
-        switch (type)
+        var provider = KnownProviders
+            .Where(x => x.IsHost(host))
+            .FirstOrDefault();
+        if (provider == null || !provider.Fits(segments))
         {
-            case NotificationType.Slack when segments.Count >= 4 && segments[0] == "services":
-                return index is 0 or 1 or 2;
-            case NotificationType.Teams:
-                return index == 0 || !string.Equals(segments[index - 1], "IncomingWebhook", StringComparison.OrdinalIgnoreCase);
-            default:
-                return !IsTokenLike(segments[index]);
+            return null;
         }
+
+        return segments
+            .Select((x, i) => i < provider.Segments.Count && provider.Segments[i].Shows(x) ? x : RecipientSecrets.Mask)
+            .ToList();
     }
 
-    // A segment of at least 8 characters with a digit in it, or of at least 20, may be a token.
-    private static bool IsTokenLike(string segment)
+    // Slack's workspace (T…) and webhook (B…) ids: upper-case letters and digits.
+    private static bool IsSlackId(string segment, char prefix)
     {
-        return segment.Length >= LongSegmentLength || (segment.Length >= TokenLikeLength && segment.Any(char.IsDigit));
+        return segment.Length is >= SlackIdMinLength and <= SlackIdMaxLength
+            && segment[0] == prefix
+            && segment.All(x => char.IsAsciiDigit(x) || char.IsAsciiLetterUpper(x));
     }
 
-    // Query parameter names are kept, their values masked (a signature or key travels there).
+    // A Logic Apps or Power Automate workflow id: 32 hex digits.
+    private static bool IsWorkflowId(string segment)
+    {
+        return segment.Length == WorkflowIdLength && segment.All(char.IsAsciiHexDigit);
+    }
+
+    // The trigger a Teams or Power Automate workflow is called through, under the name its request trigger is documented with.
+    private static bool IsManualTrigger(string segment)
+    {
+        return string.Equals(segment, "manual", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // A legacy Teams connector's {group id}@{tenant id}: two GUIDs.
+    private static bool IsGroupAtTenant(string segment)
+    {
+        var parts = segment.Split('@');
+
+        return parts.Length == 2 && parts.All(x => Guid.TryParseExact(x, "D", out _));
+    }
+
+    // Query parameter names are kept, their values masked (a signature or key travels there); a parameter without '=' (a
+    // bare value) is masked whole.
     private static string MaskedQuery(string query)
     {
         if (string.IsNullOrEmpty(query) || query == "?")
@@ -209,8 +276,31 @@ internal static class RecipientDestinationDefinition
         var parameters = query
             .TrimStart('?')
             .Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Select(x => x.Split('=', 2)[0] + "=" + RecipientSecrets.Mask);
+            .Select(x => x.Contains('=') ? x.Split('=', 2)[0] + "=" + RecipientSecrets.Mask : RecipientSecrets.Mask);
 
         return "?" + string.Join('&', parameters);
+    }
+
+    // One segment of a provider's documented path: a fixed word (the path must hold it), an identifier the provider
+    // documents as not secret (shown when it has the documented form, masked otherwise), or a part that is always masked.
+    private sealed record PathSegment(Func<string, bool> Shows, bool Required)
+    {
+        public static PathSegment Word(string word) => new(x => string.Equals(x, word, StringComparison.OrdinalIgnoreCase), true);
+
+        public static PathSegment Identifier(Func<string, bool> form) => new(form, false);
+
+        public static PathSegment Secret { get; } = new(_ => false, false);
+    }
+
+    // A known provider's webhook: its hosts, and the path it documents (with OpenEnded, further segments are masked).
+    private sealed record ProviderPath(Func<string, bool> IsHost, IReadOnlyList<PathSegment> Segments, bool OpenEnded = false)
+    {
+        public bool Fits(IReadOnlyList<string> path)
+        {
+            return (OpenEnded ? path.Count >= Segments.Count : path.Count == Segments.Count)
+                && Segments
+                    .Select((x, i) => !x.Required || x.Shows(path[i]))
+                    .All(x => x);
+        }
     }
 }

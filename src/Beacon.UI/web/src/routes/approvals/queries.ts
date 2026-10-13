@@ -213,9 +213,9 @@ export interface RecipientHeaderView {
 }
 
 /**
- * Where a recipient delivers, as a reviewer is shown it: its type, what identifies its destination (host and path, Slack's
- * workspace and channel ids, a workflow path) with every credential masked, its header names with a fingerprint of each
- * value, and a fingerprint of the whole definition. Equal fingerprints mean equal values; they reveal nothing else.
+ * Where a recipient delivers, as a reviewer is shown it: its type, what identifies its destination (the host, Slack's
+ * workspace and webhook ids, a Teams workflow's id) with everything else masked, its header names with a fingerprint of
+ * each value, and a fingerprint of the whole definition. Equal fingerprints mean equal values; they reveal nothing else.
  */
 export interface RecipientDestinationView {
   notificationType: NotificationType;

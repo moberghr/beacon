@@ -1,11 +1,14 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api;
+using Beacon.Core.Authorization;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -23,7 +26,8 @@ namespace Beacon.Tests.Unit;
 /// encrypted column (data-source connection data, repository tokens, sensitive settings, recipient destinations and
 /// headers, archived rows included) is checked; a value only a previous key decrypts is re-encrypted with the current key,
 /// conditional on it being unchanged; values under the current key are left alone; values no key decrypts are counted and
-/// logged by id. The count-only run changes nothing, and the startup warning reports its counts.
+/// logged by id; a keyed recipient hash that cannot be rewritten under the current key keeps the previous keys needed. The
+/// count-only run changes nothing, and the startup warning reports its counts.
 /// </summary>
 [TestFixture]
 public class StoredValueReEncryptionServiceTests
@@ -196,8 +200,8 @@ public class StoredValueReEncryptionServiceTests
 
     // The keyed hashes of where governed recipients deliver move to the current key too: an approved hash, and a pending
     // request's, that match the definition the recipient holds only under the previous key are recomputed; an approved hash
-    // of a definition the recipient no longer holds cannot be (its plaintext is not stored) and keeps matching under the
-    // previous key while that key is configured.
+    // of a definition the recipient no longer holds cannot be (its plaintext is not stored), keeps matching under the
+    // previous key while that key is configured, and is counted as an unresolved key dependency.
     [Test]
     public async Task RecipientApprovalHashesUnderAPreviousKey_AreRecomputedWithTheCurrentKey()
     {
@@ -222,11 +226,53 @@ public class StoredValueReEncryptionServiceTests
         var again = await Service(store, hasher).CountAsync(CancellationToken.None);
 
         counted.UnderPreviousKeys.Should().Be(2);
-        result.Should().Be(new StoredValueReEncryptionResult(2, 2, 0, 0, 0));
+        result.Should().Be(new StoredValueReEncryptionResult(2, 2, 0, 0, 0) { UnresolvedKeyDependencies = 1 });
         store.Recipients[0].ApprovedDestinationHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, hook, null));
         store.Recipients[1].ApprovedDestinationHash.Should().Be(RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, hook, null), "the approved definition is not the one it holds");
         store.Requests[0].DefinitionHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, moved, null));
         again.UnderPreviousKeys.Should().Be(0);
+        again.UnresolvedKeyDependencies.Should().Be(1);
+    }
+
+    // An approved hash of a destination the recipient has moved away from (it holds a pending change) cannot be rewritten
+    // under the current key, and nothing tells which key wrote it: the run counts it as an unresolved key dependency, logs
+    // its id, and neither it nor the startup check reports the previous keys removable while it remains. Once the pending
+    // change is approved, the approved hash is the current key's and the run reports them removable.
+    [Test]
+    public async Task AnApprovedHashOfADestinationTheRecipientNoLongerHolds_KeepsThePreviousKeysNeeded_UntilThePendingChangeIsDecided()
+    {
+        const string hook = "https://hooks.example.test/a";
+        const string moved = "https://hooks.example.test/b";
+        var before = new RecipientDestinationHasher(PreviousKey);
+        var hasher = new RecipientDestinationHasher(CurrentKey, [PreviousKey]);
+        var store = new Store();
+        var recipient = Governed(8, moved, RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, hook, null));
+        store.Recipients.Add(recipient);
+        var request = PendingChange(30, recipient, RecipientDestinationDefinition.Hash(before, NotificationType.Webhook, moved, null), hasher);
+        store.Requests.Add(request);
+
+        var counted = await Service(store, hasher).CountAsync(CancellationToken.None);
+        var withoutPreviousKey = await Service(store, new RecipientDestinationHasher(CurrentKey)).CountAsync(CancellationToken.None);
+        var result = await Service(store, hasher).ReEncryptAsync(CancellationToken.None);
+        await StartupWarnings().WarnAboutValuesUnderPreviousKeysAsync(Services(store, hasher), CancellationToken.None);
+
+        counted.Should().BeEquivalentTo(new { UnderPreviousKeys = 1, UnresolvedKeyDependencies = 1, PreviousKeysRemovable = false });
+        withoutPreviousKey.UnresolvedKeyDependencies.Should().Be(0, "with no previous key configured, nothing depends on one");
+        result.Should().BeEquivalentTo(new { UnderPreviousKeys = 1, ReEncrypted = 1, Unreadable = 0, Failed = 0, UnresolvedKeyDependencies = 1, PreviousKeysRemovable = false });
+        request.DefinitionHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, moved, null), "the request names the destination the recipient holds");
+        _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "The keyed hash of recipient approval 8 names a definition recipient 8 does not hold, so it cannot be rewritten under the current key and may still need a previous key");
+        _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.StartsWith("0 stored values are still encrypted with a key in Beacon:PreviousEncryptionKeys, and 0 with no configured key; 1 keyed recipient hashes", StringComparison.Ordinal));
+        _logs.Entries.Should().NotContain(x => x.Message.Contains("can be removed", StringComparison.Ordinal));
+        _logs.Entries.Should().NotContain(x => x.Message.Contains("hooks.example.test", StringComparison.Ordinal));
+
+        await Approvals(store, hasher).ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None);
+        _logs = new LogRecorder();
+        var decided = await Service(store, hasher).ReEncryptAsync(CancellationToken.None);
+
+        recipient.ApprovedDestinationHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, moved, null));
+        decided.Should().Be(new StoredValueReEncryptionResult(0, 0, 0, 0, 0));
+        decided.PreviousKeysRemovable.Should().BeTrue();
+        _logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Information && x.Message.Contains("can be removed", StringComparison.Ordinal));
     }
 
     [Test]
@@ -264,6 +310,52 @@ public class StoredValueReEncryptionServiceTests
     private StoredValueReEncryptionService Service(Store store, RecipientDestinationHasher? hasher = null)
     {
         return new StoredValueReEncryptionService(store.Factory(), _encryption, _logs.For<StoredValueReEncryptionService>(), hasher);
+    }
+
+    private ServiceProvider Services(Store store, RecipientDestinationHasher hasher)
+    {
+        return new ServiceCollection()
+            .AddScoped<IStoredValueReEncryptionService>(_ => Service(store, hasher))
+            .BuildServiceProvider();
+    }
+
+    private EncryptionKeyStartupWarnings StartupWarnings()
+    {
+        return new EncryptionKeyStartupWarnings(Configuration(), _logs.For<EncryptionKeyStartupWarnings>());
+    }
+
+    // Change requests decided by a reviewer other than the requester.
+    private ChangeApprovalService Approvals(Store store, RecipientDestinationHasher hasher)
+    {
+        return new ChangeApprovalService(
+            store.Factory(),
+            TestChangeApprovals.Caller("ext-cid"),
+            Mock.Of<IBeaconUserContext>(),
+            new RecipientSecretProtector(_encryption),
+            hasher,
+            TestChangeApprovals.On(),
+            NullLogger<ChangeApprovalService>.Instance);
+    }
+
+    // A pending change of where the recipient delivers to what it holds now, requested by someone other than the reviewer,
+    // with the view a reviewer approves.
+    private ChangeApprovalRequest PendingChange(int id, Recipient recipient, string definitionHash, RecipientDestinationHasher hasher)
+    {
+        var view = RecipientDestinationDefinition.ViewOfStored(new RecipientSecretProtector(_encryption), hasher, recipient.NotificationType, recipient.Destination, recipient.HeadersJson);
+        var proposedJson = JsonSerializer.Serialize(view, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        return new ChangeApprovalRequest
+        {
+            Id = id,
+            Kind = ChangeApprovalKind.RecipientDestination,
+            ResourceId = recipient.Id,
+            ResourceName = recipient.Name,
+            Status = ApprovalStatus.Pending,
+            DefinitionHash = definitionHash,
+            ProposedJson = proposedJson,
+            PayloadHash = ChangeApprovalHashes.Sha256(proposedJson),
+            RequestedByUserId = "ext-ada"
+        };
     }
 
     // A governed webhook recipient whose destination is encrypted with the current key.
@@ -311,6 +403,11 @@ public class StoredValueReEncryptionServiceTests
 
         public List<ChangeApprovalRequest> Requests { get; } = [];
 
+        public List<BeaconUser> Users { get; } = [];
+
+        // Transactions (a decision on a change request opens one) are stand-ins; nothing connects.
+        public SqlCapture Offline { get; } = new();
+
         public IDbContextFactory<BeaconContext> Factory()
         {
             var saved = new List<object>();
@@ -320,12 +417,13 @@ public class StoredValueReEncryptionServiceTests
                 [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet(Repositories, saved),
                 [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, saved),
                 [typeof(Recipient)] = RecordingBeaconContext.MemorySet(Recipients, saved),
-                [typeof(ChangeApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, saved)
+                [typeof(ChangeApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, saved),
+                [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(Users, saved)
             };
             var factory = new Mock<IDbContextFactory<BeaconContext>>();
             factory
                 .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
+                .ReturnsAsync(() => new RecordingBeaconContext(sets, saved, Offline));
 
             return factory.Object;
         }

@@ -165,10 +165,10 @@ function RecipientDiff({
       <div className="flex items-start gap-2 text-xs text-text-muted">
         <Info className="size-3.5 mt-0.5 shrink-0" />
         <span>
-          Credentials are masked: user info, query values, token-like path segments, tokens and signatures, and header
-          values. A fingerprint is a short keyed digest of the value: equal fingerprints mean equal values, and it reveals
-          nothing else, so you can compare it with the requester out of band. The recipients page shows its editors the
-          same fingerprints.
+          Only the host and a known provider&apos;s documented ids are shown; every other path segment, user info, query
+          values, tokens and signatures, and header values are masked. A fingerprint is a short keyed digest of the value:
+          equal fingerprints mean equal values, and it reveals nothing else, so you can compare it with the requester out
+          of band. The recipients page shows its editors the same fingerprints.
         </span>
       </div>
     </section>

@@ -48,6 +48,9 @@ internal sealed class RecipientDestinationHasher
             .ToList();
     }
 
+    /// <summary>True when a previous key is configured, so a stored hash may have been written under one.</summary>
+    public bool HasPreviousKeys => _previous.Count > 0;
+
     /// <summary>The keyed hash of <paramref name="canonical"/> under the current key, as it is stored.</summary>
     public string Hash(string canonical)
     {

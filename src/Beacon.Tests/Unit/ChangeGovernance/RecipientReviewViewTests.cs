@@ -21,12 +21,12 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit.ChangeGovernance;
 
 /// <summary>
-/// What a reviewer of a recipient change is shown: what identifies where it delivers — the full host and path, Slack's
-/// workspace and channel ids, a Teams workflow, a Jira site, email addresses — with every credential masked (user info,
-/// query values, token-like segments, a token or signature), header names with a keyed fingerprint of each value, and a
-/// fingerprint of the whole definition; the recipients page shows the same fingerprints to those who may change it. A
-/// change whose before and after look the same is flagged, and approving it needs a comment. A request whose proposal
-/// cannot be read cannot be approved. No API model carries a stored hash.
+/// What a reviewer of a recipient change is shown: what identifies where it delivers — the host, Slack's workspace and
+/// webhook ids, a Teams workflow's fixed path words and id, a Jira site, email addresses — with everything else masked
+/// (every other path segment, user info, query values, a fragment), header names with a keyed fingerprint of each
+/// value, and a fingerprint of the whole definition; the recipients page shows the same fingerprints to those who may
+/// change it. A change whose before and after look the same is flagged, and approving it needs a comment. A request
+/// whose proposal cannot be read cannot be approved. No API model carries a stored hash.
 /// </summary>
 [TestFixture]
 public class RecipientReviewViewTests
@@ -35,27 +35,43 @@ public class RecipientReviewViewTests
     private const string Secret = "T0KEN-PATH-9f8e";
     private const string Destination = "https://hooks.example.com/services/" + Secret;
     private const string Moved = "https://hooks.example.com/services/elsewhere-" + Secret;
+    private const string WorkflowId = "0123456789abcdef0123456789abcdef";
+    private const string GroupId = "11111111-2222-3333-4444-555555555555";
+    private const string TenantId = "66666666-7777-8888-9999-000000000000";
 
     public static IEnumerable<TestCaseData> Destinations()
     {
-        yield return new TestCaseData(NotificationType.Webhook, "https://user:pw@hooks.example.com:8443/api/v2/alerts/Abc123Def456?token=s3cr3t&team=ops", "https://********@hooks.example.com:8443/api/v2/alerts/********?token=********&team=********")
-            .SetName("Identifying_Webhook_KeepsHostAndPath_MasksUserInfoTokenSegmentsAndQueryValues");
+        yield return new TestCaseData(
+                NotificationType.Webhook,
+                "https://user:pw@hooks.example.com:8443/api/v2/alerts/Abc123Def456?token=s3cr3t&team=ops&s3cr3tflag#s3cr3tpart",
+                "https://********@hooks.example.com:8443/********/********/********/********?token=********&team=********&********#********")
+            .SetName("Identifying_Webhook_KeepsSchemeHostAndPort_MasksEveryPathSegmentUserInfoQueryValueAndFragment");
 
-        // Assembled from parts: the source never holds a whole provider-shaped webhook.
+        // Provider-shaped webhooks are assembled from parts: the source never holds a whole one.
         var slack = string.Concat("https://hooks.", "slack.com/services/", "T0123ABCD", "/", "B0456EFGH", "/", "token-", "value");
         yield return new TestCaseData(NotificationType.Slack, slack, string.Concat("https://hooks.", "slack.com/services/T0123ABCD/B0456EFGH/********"))
-            .SetName("Identifying_Slack_KeepsWorkspaceAndChannel_MasksTheToken");
+            .SetName("Identifying_Slack_KeepsWorkspaceAndWebhookIds_MasksTheToken");
 
+        var logicApp = string.Concat("https://prod-12.westeurope.", "logic.azure.com:443/workflows/", WorkflowId, "/triggers/manual/paths/invoke?api-version=2016-06-01&sig=", "AbCdEf");
         yield return new TestCaseData(
                 NotificationType.Teams,
-                "https://prod-12.westeurope.logic.azure.com:443/workflows/0123456789abcdef0123456789abcdef/triggers/manual/paths/invoke?api-version=2016-06-01&sig=AbCdEf",
-                "https://prod-12.westeurope.logic.azure.com/workflows/0123456789abcdef0123456789abcdef/triggers/manual/paths/invoke?api-version=********&sig=********")
-            .SetName("Identifying_TeamsWorkflow_KeepsTheWorkflowPath_MasksItsSignature");
+                logicApp,
+                string.Concat("https://prod-12.westeurope.", "logic.azure.com/workflows/", WorkflowId, "/triggers/manual/paths/invoke?api-version=********&sig=********"))
+            .SetName("Identifying_TeamsWorkflow_KeepsItsFixedPathWordsAndWorkflowId_MasksItsSignature");
+
+        var powerAutomate = string.Concat("https://default0123.ab.environment.", "api.powerplatform.com/powerautomate/automations/direct/workflows/", WorkflowId, "/triggers/manual/paths/invoke?api-version=1&sig=", "AbCdEf");
         yield return new TestCaseData(
                 NotificationType.Teams,
-                "https://contoso.webhook.office.com/webhookb2/aaaa-bbbb@cccc-dddd/IncomingWebhook/s3cretpart/eeee",
-                "https://contoso.webhook.office.com/webhookb2/aaaa-bbbb@cccc-dddd/IncomingWebhook/********/eeee")
-            .SetName("Identifying_LegacyTeamsConnector_MasksItsSecretSegment");
+                powerAutomate,
+                string.Concat("https://default0123.ab.environment.", "api.powerplatform.com/powerautomate/automations/direct/workflows/", WorkflowId, "/triggers/manual/paths/invoke?api-version=********&sig=********"))
+            .SetName("Identifying_PowerAutomateWorkflow_KeepsItsFixedPathWordsAndWorkflowId_MasksItsSignature");
+
+        var connector = string.Concat("https://contoso.", "webhook.office.com/webhookb2/", GroupId, "@", TenantId, "/IncomingWebhook/", "s3cretpart", "/", GroupId);
+        yield return new TestCaseData(
+                NotificationType.Teams,
+                connector,
+                string.Concat("https://contoso.", "webhook.office.com/webhookb2/", GroupId, "@", TenantId, "/IncomingWebhook/********/********"))
+            .SetName("Identifying_LegacyTeamsConnector_KeepsItsGroupAndTenantIds_MasksEverySegmentAfterThem");
         yield return new TestCaseData(NotificationType.Jira, "acme;OPS;bot@example.com;tok", "acme;OPS;bot@example.com;********")
             .SetName("Identifying_Jira_KeepsSiteProjectAndEmail");
         yield return new TestCaseData(NotificationType.Email, "ops@example.com", "ops@example.com")
@@ -66,6 +82,38 @@ public class RecipientReviewViewTests
     public void TheView_ShowsWhatIdentifiesTheDestination_AndMasksEveryCredential(NotificationType type, string destination, string shown)
     {
         RecipientDestinationDefinition.Identifying(type, destination).Should().Be(shown);
+    }
+
+    // Outside a known provider's documented shape no path segment is shown, whatever it looks like: each is one mask, so
+    // the path's shape stays visible and a reviewer relies on the fingerprint for the rest.
+    [TestCase("https://notify.example.org/hooks/abcdefghijklmnop", 2, TestName = "Identifying_AShortAlphabeticSegment_IsMasked")]
+    [TestCase("https://notify.example.org/hook/12345", 2, TestName = "Identifying_AShortNumericSegment_IsMasked")]
+    [TestCase("https://notify.example.org/in/a1B2c3", 2, TestName = "Identifying_AShortMixedSegment_IsMasked")]
+    [TestCase("https://notify.example.org/zq/Zq8vR2mK9pL4nW7tY1uE5oI3aS6dF0gH", 2, TestName = "Identifying_ALongRandomSegment_IsMasked")]
+    [TestCase("https://notify.example.org/services/T0123ABCD/B0456EFGH/tokenvalue", 4, TestName = "Identifying_ASlackShapedPathOnAnotherHost_IsMasked")]
+    [TestCase("https://hooks.slack.com/services/T0123ABCD/B0456EFGH", 3, TestName = "Identifying_ASlackPathOfAnotherShape_IsMasked")]
+    [TestCase("https://prod-1.westeurope.logic.azure.com/workflows/abc/triggers/manual/paths/invoke/extra", 7, TestName = "Identifying_AWorkflowPathOfAnotherShape_IsMasked")]
+    public void TheView_OfAPathOutsideAKnownProvidersShape_ShowsNoSegment(string destination, int segments)
+    {
+        var uri = new Uri(destination);
+
+        var shown = RecipientDestinationDefinition.Identifying(NotificationType.Webhook, destination);
+
+        shown.Should().Be($"https://{uri.Host}/{string.Join('/', Enumerable.Repeat(RecipientSecrets.Mask, segments))}");
+    }
+
+    // Within a known provider's shape, a segment where the provider documents an identifier is shown only when it has that
+    // identifier's form; anything else there is masked.
+    [Test]
+    public void TheView_OfAKnownProvidersPath_ShowsOnlyIdentifiersInTheirDocumentedForm()
+    {
+        var slack = string.Concat("https://hooks.", "slack.com/services/", "tlowercase1", "/", "B0456EFGH", "/", "token-", "value");
+        var workflow = string.Concat("https://prod-1.westeurope.", "logic.azure.com/workflows/", "not-a-workflow-id", "/triggers/", "custom-trigger", "/paths/invoke");
+
+        RecipientDestinationDefinition.Identifying(NotificationType.Slack, slack)
+            .Should().Be(string.Concat("https://hooks.", "slack.com/services/********/B0456EFGH/********"));
+        RecipientDestinationDefinition.Identifying(NotificationType.Teams, workflow)
+            .Should().Be(string.Concat("https://prod-1.westeurope.", "logic.azure.com/workflows/********/triggers/********/paths/invoke"));
     }
 
     // Header names are shown with a keyed fingerprint of each value: a changed value changes its fingerprint (and the

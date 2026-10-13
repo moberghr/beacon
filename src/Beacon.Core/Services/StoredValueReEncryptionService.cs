@@ -16,8 +16,12 @@ namespace Beacon.Core.Services;
 /// previous key is recomputed under the current key. Idempotent and safe to run repeatedly or
 /// from several replicas: each write is conditional on the stored value being unchanged, so a concurrent save wins (it is
 /// already encrypted with the current key). Values no configured key decrypts are counted and logged by id, never
-/// changed. Once a run reports no value left under a previous key, the previous keys can be removed from the
-/// configuration. The sample host runs it as a background job at startup while a previous key is configured.
+/// changed. A keyed recipient hash of a definition the recipient does not hold cannot be recomputed (its plaintext is not
+/// stored): while a previous key is configured it is counted as an unresolved key dependency and logged by id, until the
+/// recipient's pending change is decided (an approval writes the approved hash under the current key) or the recipient is
+/// saved back to its approved destination. Once a run reports no value left under a previous key, none unreadable and no
+/// unresolved key dependency, the previous keys can be removed from the configuration. The sample host runs it as a
+/// background job at startup while a previous key is configured.
 /// </summary>
 public interface IStoredValueReEncryptionService
 {
@@ -28,8 +32,10 @@ public interface IStoredValueReEncryptionService
     Task<StoredValueReEncryptionResult> ReEncryptAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Counts the stored values only a previous key decrypts (<see cref="StoredValueReEncryptionResult.UnderPreviousKeys"/>)
-    /// and those no configured key decrypts (<see cref="StoredValueReEncryptionResult.Unreadable"/>), changing nothing.
+    /// Counts the stored values only a previous key decrypts (<see cref="StoredValueReEncryptionResult.UnderPreviousKeys"/>),
+    /// those no configured key decrypts (<see cref="StoredValueReEncryptionResult.Unreadable"/>) and the keyed hashes that
+    /// cannot be rewritten under the current key (<see cref="StoredValueReEncryptionResult.UnresolvedKeyDependencies"/>),
+    /// changing nothing.
     /// </summary>
     Task<StoredValueReEncryptionResult> CountAsync(CancellationToken cancellationToken);
 }
@@ -38,7 +44,18 @@ public interface IStoredValueReEncryptionService
 /// One run's counts: values found under a previous key, re-encrypted, skipped because they changed while the run was going
 /// (a save already encrypted them with the current key), that no configured key decrypts, and that failed to be written.
 /// </summary>
-public sealed record StoredValueReEncryptionResult(int UnderPreviousKeys, int ReEncrypted, int SkippedAsChanged, int Unreadable, int Failed);
+public sealed record StoredValueReEncryptionResult(int UnderPreviousKeys, int ReEncrypted, int SkippedAsChanged, int Unreadable, int Failed)
+{
+    /// <summary>
+    /// Keyed recipient hashes (approved, or of a pending change request) that name a definition the recipient does not hold,
+    /// so they cannot be rewritten under the current key and may still need a previous key; counted only while a previous
+    /// key is configured. The previous keys are not removable while any remain.
+    /// </summary>
+    public int UnresolvedKeyDependencies { get; init; }
+
+    /// <summary>True when nothing stored needs a previous key any more: the previous keys can be removed.</summary>
+    public bool PreviousKeysRemovable => UnderPreviousKeys == 0 && Unreadable == 0 && Failed == 0 && UnresolvedKeyDependencies == 0;
+}
 
 internal sealed class StoredValueReEncryptionService(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -58,22 +75,32 @@ internal sealed class StoredValueReEncryptionService(
         }
 
         var result = await ScanAsync(new Run(encryption, logger, write: true), cancellationToken);
-        if (result.UnderPreviousKeys > 0 || result.Unreadable > 0 || result.Failed > 0)
+        if (!result.PreviousKeysRemovable)
         {
             logger.LogWarning(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "Stored value re-encryption: {UnderPreviousKeys} under a previous key, {ReEncrypted} re-encrypted with the current key, {Skipped} changed meanwhile, {Unreadable} readable with no configured key, {Failed} failed",
+                "Stored value re-encryption: {UnderPreviousKeys} under a previous key, {ReEncrypted} re-encrypted with the current key, {Skipped} changed meanwhile, {Unreadable} readable with no configured key, {Failed} failed, {Unresolved} keyed recipient hashes that cannot be rewritten under the current key",
                 result.UnderPreviousKeys,
                 result.ReEncrypted,
                 result.SkippedAsChanged,
                 result.Unreadable,
-                result.Failed);
+                result.Failed,
+                result.UnresolvedKeyDependencies);
         }
         else
         {
             logger.LogInformation(
                 ProjectAccessEvents.StoredValuesReEncrypted,
                 "Stored value re-encryption: no value is under a previous key; Beacon:PreviousEncryptionKeys can be removed");
+        }
+
+        if (result.UnresolvedKeyDependencies > 0)
+        {
+            logger.LogWarning(
+                ProjectAccessEvents.StoredValuesReEncrypted,
+                "{Unresolved} keyed recipient hashes name a definition their recipient does not hold and may still need a previous key; keep {Setting} until none remain. Decide each recipient's pending change (an approval writes its approved hash under the current key), or save the recipient back to its approved destination, then run again",
+                result.UnresolvedKeyDependencies,
+                ServiceConfiguration.PreviousEncryptionKeysKey);
         }
 
         if (result.Failed > 0)
@@ -185,8 +212,11 @@ internal sealed class StoredValueReEncryptionService(
 
     // The keyed hashes of where governed recipients deliver (approved, and of their pending requests) that match the
     // recipient's definition only under a previous key: rewritten under the current key, each conditional on being
-    // unchanged. A hash of a definition the recipient no longer holds cannot be recomputed (its plaintext is not stored);
-    // it keeps matching under the previous key while that key is configured.
+    // unchanged. A keyed hash of a definition the recipient does not hold (an approved destination it has moved away from,
+    // a request of a change it no longer holds or of a recipient that is gone) cannot be recomputed, as its plaintext is
+    // not stored, nor can a hash of a recipient whose destination cannot be read; nothing tells which key wrote it, so while
+    // a previous key is configured each counts as an unresolved key dependency and the previous keys are not reported
+    // removable.
     private static async Task RehashRecipientApprovalsAsync(
         BeaconContext context,
         Run run,
@@ -209,12 +239,22 @@ internal sealed class StoredValueReEncryptionService(
             .ToListAsync(cancellationToken);
         var canonicals = governed
             .Select(x => (x.Id, x.ApprovedDestinationHash, Canonical: RecipientDestinationDefinition.CanonicalOfStored(protector, x.NotificationType, x.Destination, x.HeadersJson)))
-            .Where(x => x.Canonical != null)
             .ToDictionary(x => x.Id);
 
         foreach (var (id, approved, canonical) in canonicals.Values)
         {
-            if (!hasher.Matches(approved, canonical!) || hasher.IsCurrent(approved, canonical!))
+            if (!IsKeyed(approved))
+            {
+                continue;
+            }
+
+            if (canonical == null || !hasher.Matches(approved, canonical))
+            {
+                run.Unresolved(hasher.HasPreviousKeys, "recipient approval", id, id);
+                continue;
+            }
+
+            if (hasher.IsCurrent(approved, canonical))
             {
                 continue;
             }
@@ -223,7 +263,7 @@ internal sealed class StoredValueReEncryptionService(
                 .IgnoreQueryFilters()
                 .Where(x => x.Id == id)
                 .Where(x => x.ApprovedDestinationHash == approved)
-                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ApprovedDestinationHash, hasher.Hash(canonical!)), cancellationToken), cancellationToken);
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ApprovedDestinationHash, hasher.Hash(canonical)), cancellationToken), cancellationToken);
         }
 
         var requests = await context.ChangeApprovalRequests
@@ -239,9 +279,19 @@ internal sealed class StoredValueReEncryptionService(
             .ToListAsync(cancellationToken);
         foreach (var request in requests)
         {
-            if (!canonicals.TryGetValue(request.ResourceId, out var recipient)
-                || !hasher.Matches(request.DefinitionHash, recipient.Canonical!)
-                || hasher.IsCurrent(request.DefinitionHash, recipient.Canonical!))
+            if (!IsKeyed(request.DefinitionHash))
+            {
+                continue;
+            }
+
+            var canonical = canonicals.TryGetValue(request.ResourceId, out var recipient) ? recipient.Canonical : null;
+            if (canonical == null || !hasher.Matches(request.DefinitionHash, canonical))
+            {
+                run.Unresolved(hasher.HasPreviousKeys, "recipient change request", request.Id, request.ResourceId);
+                continue;
+            }
+
+            if (hasher.IsCurrent(request.DefinitionHash, canonical))
             {
                 continue;
             }
@@ -249,8 +299,14 @@ internal sealed class StoredValueReEncryptionService(
             await run.RewriteAsync("recipient change request", request.Id, () => context.ChangeApprovalRequests
                 .Where(x => x.Id == request.Id)
                 .Where(x => x.DefinitionHash == request.DefinitionHash)
-                .ExecuteUpdateAsync(x => x.SetProperty(y => y.DefinitionHash, hasher.Hash(recipient.Canonical!)), cancellationToken), cancellationToken);
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.DefinitionHash, hasher.Hash(canonical)), cancellationToken), cancellationToken);
         }
+    }
+
+    // A keyed hash, as opposed to the marker of a resource with nothing approved yet.
+    private static bool IsKeyed(string? hash)
+    {
+        return hash != null && hash.StartsWith(RecipientDestinationHasher.Prefix, StringComparison.Ordinal);
     }
 
     // The counts of one run, and the re-encryption of one value (or, without write, only its count).
@@ -263,6 +319,7 @@ internal sealed class StoredValueReEncryptionService(
         private int _skipped;
         private int _unreadable;
         private int _failed;
+        private int _unresolved;
 
         // A stored value is the prefix (recipient secrets carry one) followed by the cipher text. A value only a previous key
         // decrypts is written again, encrypted with the current key, by writeIfUnchanged (a conditional update that answers
@@ -345,9 +402,35 @@ internal sealed class StoredValueReEncryptionService(
             }
         }
 
+        // A keyed hash that cannot be rewritten under the current key: while a previous key is configured it may depend on
+        // one, so it is counted and, with write, logged by id with how to resolve it.
+        public void Unresolved(bool previousKeysConfigured, string kind, int id, int recipientId)
+        {
+            if (!previousKeysConfigured)
+            {
+                return;
+            }
+
+            _unresolved++;
+            if (!write)
+            {
+                return;
+            }
+
+            logger.LogWarning(
+                ProjectAccessEvents.StoredValuesReEncrypted,
+                "The keyed hash of {Kind} {Id} names a definition recipient {RecipientId} does not hold, so it cannot be rewritten under the current key and may still need a previous key",
+                kind,
+                id,
+                recipientId);
+        }
+
         public StoredValueReEncryptionResult Result()
         {
-            return new StoredValueReEncryptionResult(_underPreviousKeys, _reEncrypted, _skipped, _unreadable, _failed);
+            return new StoredValueReEncryptionResult(_underPreviousKeys, _reEncrypted, _skipped, _unreadable, _failed)
+            {
+                UnresolvedKeyDependencies = _unresolved
+            };
         }
     }
 }

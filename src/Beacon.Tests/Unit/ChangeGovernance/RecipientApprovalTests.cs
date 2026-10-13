@@ -36,6 +36,12 @@ public class RecipientApprovalTests
     private const string Destination = "https://hooks.example.com/services/" + Secret;
     private const string Moved = "https://hooks.example.com/services/elsewhere-" + Secret;
 
+    // After the encryption key was replaced: hashes are written under a new key, and those written under the tests' key
+    // (ChangeApprovalStore.HookHash) verify as a previous key's.
+    private static readonly RecipientDestinationHasher ReplacedKeyHasher = new(
+        Convert.ToBase64String(Enumerable.Range(0, 32).Select(x => (byte)((x * 53) + 7)).ToArray()),
+        [TestEncryptionKey.Value]);
+
     [Test]
     public async Task Create_UnderTheWorkflow_HoldsTheRecipientUntilApproved_AndShowsTheReviewerOnlyTheMask()
     {
@@ -229,6 +235,81 @@ public class RecipientApprovalTests
         store.Offline.Commits.Should().Be(1);
     }
 
+    // After a key change, a pending request's hash written under the previous key still names the change it proposes, as
+    // the delivery check verifies it: another person's save that leaves where the recipient delivers as it is keeps that
+    // request and its requester, and adds none.
+    [Test]
+    public async Task AfterAKeyChange_AnotherPersonsSaveThatLeavesTheDestination_KeepsThePendingRequestAndItsRequester()
+    {
+        var store = new ChangeApprovalStore();
+        var recipient = store.AddRecipient(Moved, ChangeApprovalStore.HookHash(Destination));
+        var pending = store.AddRequest(ChangeApprovalKind.RecipientDestination, recipient.Id, ChangeApprovalStore.HookHash(Moved), Ada);
+        var notifier = new Mock<IApprovalNotifier>();
+
+        await ReplacedKeyUpdateHandler(store, TestChangeApprovals.Caller("ext-ben"), notifier.Object).Handle(Update(recipient, null, "renamed"), CancellationToken.None);
+        store.Commit();
+
+        recipient.Name.Should().Be("renamed");
+        recipient.ApprovedDestinationHash.Should().Be(ChangeApprovalStore.HookHash(Destination));
+        pending.Should().BeEquivalentTo(
+            new { Status = ApprovalStatus.Pending, RequestedByUserId = Ada, DefinitionHash = ChangeApprovalStore.HookHash(Moved) },
+            x => x.ExcludingMissingMembers());
+        store.Requests.Should().ContainSingle();
+        notifier.VerifyNoOtherCalls();
+        store.Offline.Commits.Should().Be(1);
+    }
+
+    [Test]
+    public async Task AfterAKeyChange_AnotherPersonsChangeOfTheDestination_IsRefused_AndKeepsThePendingRequest()
+    {
+        var store = new ChangeApprovalStore();
+        var recipient = store.AddRecipient(Moved, ChangeApprovalStore.HookHash(Destination));
+        var pending = store.AddRequest(ChangeApprovalKind.RecipientDestination, recipient.Id, ChangeApprovalStore.HookHash(Moved), Ada);
+
+        var act = () => ReplacedKeyUpdateHandler(store, TestChangeApprovals.Caller("ext-ben")).Handle(Update(recipient, Destination), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(ChangeApprovalSubmitter.OtherPendingMessage(ChangeApprovalKind.RecipientDestination));
+        pending.Should().BeEquivalentTo(new { Status = ApprovalStatus.Pending, RequestedByUserId = Ada }, x => x.ExcludingMissingMembers());
+        store.Offline.Commits.Should().Be(0);
+    }
+
+    [Test]
+    public async Task AfterAKeyChange_TheRequestersOwnNewChange_SupersedesTheirPendingOne()
+    {
+        var store = new ChangeApprovalStore();
+        var recipient = store.AddRecipient(Moved, ChangeApprovalStore.HookHash(Destination));
+        var pending = store.AddRequest(ChangeApprovalKind.RecipientDestination, recipient.Id, ChangeApprovalStore.HookHash(Moved), Ada);
+        const string third = "https://hooks.example.com/services/third";
+
+        await ReplacedKeyUpdateHandler(store, TestChangeApprovals.Caller(Ada)).Handle(Update(recipient, third), CancellationToken.None);
+        store.Commit();
+
+        pending.Status.Should().Be(ApprovalStatus.Superseded);
+        store.Requests.Should().ContainSingle(x => x.Status == ApprovalStatus.Pending)
+            .Which.Should().BeEquivalentTo(
+                new { RequestedByUserId = Ada, DefinitionHash = RecipientDestinationDefinition.Hash(ReplacedKeyHasher, NotificationType.Webhook, third, null) },
+                x => x.ExcludingMissingMembers());
+    }
+
+    // No save supersedes another person's pending request: one whose hash no configured key verifies (its key is no longer
+    // configured) does not propose where the recipient delivers, and a save that leaves the destination as it is, which
+    // would supersede it, is refused instead.
+    [Test]
+    public async Task ASaveThatWouldSupersedeAnotherPersonsPendingRequest_IsRefused_EvenWhenItLeavesTheDestinationAsItIs()
+    {
+        var store = new ChangeApprovalStore();
+        var recipient = store.AddRecipient(Moved, ChangeApprovalStore.HookHash(Destination));
+        var unverifiable = RecipientDestinationDefinition.Hash(ReplacedKeyHasher, NotificationType.Webhook, Moved, null);
+        var pending = store.AddRequest(ChangeApprovalKind.RecipientDestination, recipient.Id, unverifiable, Ada);
+
+        var act = () => UpdateHandler(store, TestChangeApprovals.On(), caller: TestChangeApprovals.Caller("ext-ben")).Handle(Update(recipient, null, "renamed"), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(ChangeApprovalSubmitter.OtherPendingMessage(ChangeApprovalKind.RecipientDestination));
+        pending.Should().BeEquivalentTo(new { Status = ApprovalStatus.Pending, RequestedByUserId = Ada, DefinitionHash = unverifiable }, x => x.ExcludingMissingMembers());
+        store.Requests.Should().ContainSingle();
+        store.Offline.Commits.Should().Be(0);
+    }
+
     // A grandfathered recipient whose stored destination cannot be read has no destination to keep approved: the new one
     // waits with nothing approved, and the reviewer is told the old one could not be read.
     [Test]
@@ -396,9 +477,9 @@ public class RecipientApprovalTests
 
         var detail = await Approvals(store).GetDetailAsync(request.Id, ChangeApprovalScope.Approver, CancellationToken.None);
 
-        // What identifies where it delivers — the full host and path — with the token-like segment masked.
-        detail!.PreviousRecipientDestination.Should().BeEquivalentTo(new { NotificationType = NotificationType.Webhook, Destination = "https://hooks.example.com/services/********" }, x => x.ExcludingMissingMembers());
-        detail.ProposedRecipientDestination.Should().BeEquivalentTo(new { NotificationType = NotificationType.Webhook, Destination = "https://other.example.org/in/********" }, x => x.ExcludingMissingMembers());
+        // What identifies where it delivers — the host — with every path segment masked.
+        detail!.PreviousRecipientDestination.Should().BeEquivalentTo(new { NotificationType = NotificationType.Webhook, Destination = "https://hooks.example.com/********/********" }, x => x.ExcludingMissingMembers());
+        detail.ProposedRecipientDestination.Should().BeEquivalentTo(new { NotificationType = NotificationType.Webhook, Destination = "https://other.example.org/********/********" }, x => x.ExcludingMissingMembers());
         detail.ChangeSummary.Should().Be("Destination changed");
         detail.MayApprove.Should().BeTrue();
         JsonSerializer.Serialize(detail).Should().NotContain(Secret).And.NotContain(request.DefinitionHash);
@@ -435,6 +516,16 @@ public class RecipientApprovalTests
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
             TestChangeApprovals.Recipients(store.Protector, configuration, caller ?? TestChangeApprovals.Caller(Ada), notifier),
+            NullLogger<UpdateRecipientHandler>.Instance);
+
+    private static UpdateRecipientHandler ReplacedKeyUpdateHandler(ChangeApprovalStore store, IBeaconActorAccessor caller, IApprovalNotifier? notifier = null) =>
+        new(
+            store.Factory(),
+            Editor(store),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            TestProjectAccess.Actors(),
+            TestPermissions.Admin,
+            new RecipientChangeApproval(TestChangeApprovals.Submitter(TestChangeApprovals.On(), caller, notifier), store.Protector, ReplacedKeyHasher),
             NullLogger<UpdateRecipientHandler>.Instance);
 
     private static RecipientDeliveryApproval Deliveries(ChangeApprovalStore store) =>
