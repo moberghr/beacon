@@ -1,3 +1,5 @@
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.DataQuality.CreateDataContract;
 using Beacon.Core.Handlers.DataQuality.DeleteDataContract;
 using Beacon.Core.Handlers.DataQuality.EvaluateDataContract;
@@ -5,6 +7,7 @@ using Beacon.Core.Handlers.DataQuality.GetDataContractDetail;
 using Beacon.Core.Handlers.DataQuality.GetDataContracts;
 using Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 using Beacon.Core.Handlers.DataQuality.GetEvaluationHistory;
+using Beacon.Core.Handlers.DataQuality.SetDataContractOwner;
 using Beacon.Core.Handlers.DataQuality.UpdateDataContract;
 using Beacon.Core.Models.DataQuality;
 using MediatR;
@@ -29,27 +32,37 @@ internal static class DataQualityEndpoints
                 m.Send(new GetDataContractDetailQuery(id), ct))
             .WithName("GetDataContractDetail");
 
+        // Create, update, delete and evaluate need the Execute scope (§1.4): an enabled contract schedules rule SQL,
+        // evaluate runs it. A contract with a Custom SQL rule is further restricted to Admins by the handlers.
         quality.MapPost("/contracts", (CreateDataContractCommand cmd, IMediator m, CancellationToken ct) =>
                 m.Send(cmd, ct))
-            .WithName("CreateDataContract");
+            .WithName("CreateDataContract")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         quality.MapPut("/contracts/{id:int}", async (int id, UpdateDataContractBody body, IMediator m, CancellationToken ct) =>
         {
             // OwnerUserId intentionally not accepted from the request body — ownership
-            // transfer must go through a dedicated admin endpoint, not the generic update
+            // transfer goes through the Admin-only owner route below, not the generic update
             // path. See spec 2026-06-01-pr11-merge-fixes (§9.8 / impersonation guard).
             await m.Send(new UpdateDataContractCommand(
                 id, body.DataSourceId, body.SchemaName, body.TableName, body.Name,
                 body.Description, body.CronExpression, body.IsEnabled,
                 body.AlertOnFailure, body.FailureThresholdScore, body.Rules, body.RecipientIds), ct);
             return TypedResults.NoContent();
-        }).WithName("UpdateDataContract");
+        }).WithName("UpdateDataContract").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         quality.MapDelete("/contracts/{id:int}", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new DeleteDataContractCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteDataContract");
+        }).WithName("DeleteDataContract").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+
+        // Making a user the owner of a contract (for instance one created before owners were recorded) is a UserAdmin's.
+        quality.MapPut("/contracts/{id:int}/owner", async (int id, SetDataContractOwnerBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new SetDataContractOwnerCommand(id, body.UserId), ct);
+            return TypedResults.NoContent();
+        }).WithName("SetDataContractOwner").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         quality.MapGet("/contracts/{id:int}/evaluations", (int id, [FromQuery] int? take, IMediator m, CancellationToken ct) =>
                 m.Send(new GetEvaluationHistoryQuery(id, take), ct))
@@ -57,7 +70,8 @@ internal static class DataQualityEndpoints
 
         quality.MapPost("/contracts/{id:int}/evaluate", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new EvaluateDataContractCommand(id), ct))
-            .WithName("EvaluateDataContract");
+            .WithName("EvaluateDataContract")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         return group;
     }
@@ -75,3 +89,5 @@ internal sealed record UpdateDataContractBody(
     int FailureThresholdScore,
     List<DataContractRuleData> Rules,
     List<int>? RecipientIds);
+
+internal sealed record SetDataContractOwnerBody(int UserId);

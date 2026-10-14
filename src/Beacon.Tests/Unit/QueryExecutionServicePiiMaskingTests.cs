@@ -45,6 +45,81 @@ public class QueryExecutionServicePiiMaskingTests
         structuredValues.Should().NotContain(RawEmail);
     }
 
+    // PII detection another live project linking the data source turns on applies to this project's callers too.
+    [Test]
+    public async Task ExecuteAsync_AnotherProjectLinkingTheSourceDetectsPii_MasksForThisProjectToo()
+    {
+        var sharedSources = TestSharedSources.Linking(1, new Dictionary<int, McpSettingsData>
+        {
+            [1] = new() { EnablePiiDetection = false },
+            [2] = new() { EnablePiiDetection = true }
+        });
+        var service = BuildService(piiDetectionOn: false, sharedSources: sharedSources);
+
+        var result = await service.ExecuteAsync(1, "SELECT email, name FROM users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail).And.Contain("a***m");
+    }
+
+    // BigQuery reads `#` as a comment: the row cap goes on a new line and the alias resolves, so only the PII column is
+    // masked. Parsed generically, the cap would land inside the comment and every column would be masked.
+    [Test]
+    public async Task ExecuteAsync_BigQuerySource_CapsAndMasksInBigQueryDialect()
+    {
+        var executed = new List<string>();
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
+            dataSourceType: DataSourceType.BigQuery,
+            engine: null,
+            executed: executed);
+
+        var result = await service.ExecuteAsync(1, "SELECT email AS contact, name FROM users # note", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal("SELECT email AS contact, name FROM users # note\nLIMIT 100");
+        StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_DatabricksSource_RunsCappedAndMasked()
+    {
+        var executed = new List<string>();
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
+            dataSourceType: DataSourceType.Databricks,
+            engine: null,
+            executed: executed);
+
+        var result = await service.ExecuteAsync(1, "SELECT email AS contact, name FROM main.crm.users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal("SELECT email AS contact, name FROM main.crm.users LIMIT 100");
+        StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
+    }
+
+    // Each database engine caps the statement in its own dialect: MySQL reads `#` as a comment, so the cap goes on a new
+    // line after it; SQL Server has no LIMIT.
+    [TestCase(DatabaseEngineType.MySQL, "SELECT email AS contact, name FROM users # note", "SELECT email AS contact, name FROM users # note\nLIMIT 100")]
+    [TestCase(DatabaseEngineType.MSSQL, "SELECT email AS contact, name FROM users", "SELECT TOP 100 email AS contact, name FROM users")]
+    public async Task ExecuteAsync_DatabaseSource_CapsAndMasksInItsEnginesDialect(DatabaseEngineType engine, string sql, string capped)
+    {
+        var executed = new List<string>();
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
+            engine: engine,
+            executed: executed);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal(capped);
+        StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
+    }
+
     [Test]
     public async Task ExecuteAsync_PiiDetectionOff_ReturnsRawValues()
     {
@@ -56,6 +131,33 @@ public class QueryExecutionServicePiiMaskingTests
         result.FormattedResult.Should().Contain(RawEmail);
         StructuredRowValues(result).Should().Contain(RawEmail);
     }
+
+    // The database's error quotes a row value: the MCP caller (the ask flow, dry_run) gets it redacted while PII detection
+    // is on, as it was otherwise.
+    [TestCase(true, "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.")]
+    [TestCase(false, DatabaseErrorWithAValue)]
+    public async Task ExecuteAsync_AFailureQuotingAValue_IsRedactedWhilePiiDetectionIsOn(bool piiDetectionOn, string expected)
+    {
+        var service = BuildService(piiDetectionOn, result: new ProviderQueryResult { Success = false, ErrorMessage = DatabaseErrorWithAValue });
+
+        var result = await service.ExecuteAsync(1, "SELECT total FROM orders", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(expected);
+    }
+
+    [TestCase(true, "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.")]
+    [TestCase(false, DatabaseErrorWithAValue)]
+    public async Task ValidateAsync_ADryRunFailureQuotingAValue_IsRedactedWhilePiiDetectionIsOn(bool piiDetectionOn, string expected)
+    {
+        var service = BuildService(piiDetectionOn, validation: new Beacon.Core.Models.Providers.QueryValidationResult { IsValid = false, Errors = [DatabaseErrorWithAValue] });
+
+        var outcome = await service.ValidateAsync(1, "SELECT total FROM orders", CancellationToken.None);
+
+        outcome.Error.Should().Be(expected);
+    }
+
+    private const string DatabaseErrorWithAValue = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
 
     private static List<string?> StructuredRowValues(QueryExecutionResult result)
     {
@@ -86,21 +188,81 @@ public class QueryExecutionServicePiiMaskingTests
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != 7), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [TestCase("SELECT * FROM users", "email")]
+    [TestCase("SELECT customer_email FROM users", "customer_email")]
+    [TestCase("SELECT email_address FROM users", "email_address")]
+    public async Task ExecuteAsync_PiiDetectionOn_MasksPiiResultColumnsTheSqlTextDoesNotName(string sql, string resultColumn)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { [resultColumn] = RawEmail, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: true, rows: rows);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail);
+        result.FormattedResult.Should().Contain("Alice");
+        StructuredRowValues(result).Should().Contain("a***m").And.NotContain(RawEmail);
+    }
+
+    // SC7: the result key "contact" is not PII by name and the SQL-text match is "email" — only the executed SQL's
+    // alias resolution masks it.
+    [TestCase("SELECT email AS contact, name FROM users")]
+    [TestCase("SELECT lower(u.email) AS contact, name FROM users u")]
+    public async Task ExecuteAsync_PiiDetectionOn_MasksAnAliasedPiiColumn(string sql)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["contact"] = RawEmail, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: true, rows: rows);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().NotContain(RawEmail);
+        result.FormattedResult.Should().Contain("Alice");
+        StructuredRowValues(result).Should().Contain("a***m").And.NotContain(RawEmail);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_PiiDetectionOff_DoesNotMaskResultColumns()
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["customer_email"] = RawEmail, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: false, rows: rows);
+
+        var result = await service.ExecuteAsync(1, "SELECT * FROM users", 100, CancellationToken.None);
+
+        result.FormattedResult.Should().Contain(RawEmail);
+    }
+
     private static QueryExecutionService BuildService(
         bool piiDetectionOn,
         int activeProjectId = 1,
         IReadOnlyDictionary<int, McpSettingsData>? perProject = null,
-        Action<Mock<IMcpSettingsProvider>>? captureProvider = null)
+        Action<Mock<IMcpSettingsProvider>>? captureProvider = null,
+        List<Dictionary<string, object?>>? rows = null,
+        DataSourceType dataSourceType = DataSourceType.Database,
+        DatabaseEngineType? engine = DatabaseEngineType.PostgreSQL,
+        List<string>? executed = null,
+        ISharedSourceSettings? sharedSources = null,
+        ProviderQueryResult? result = null,
+        Beacon.Core.Models.Providers.QueryValidationResult? validation = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SeededDataSourceContext());
+            .ReturnsAsync(() => new SeededDataSourceContext(dataSourceType, engine));
 
-        var providerResult = new ProviderQueryResult
+        var providerResult = result ?? new ProviderQueryResult
         {
             Success = true,
-            Rows =
+            Rows = rows ??
             [
                 new Dictionary<string, object?> { ["email"] = RawEmail, ["name"] = "Alice" }
             ]
@@ -113,7 +275,11 @@ public class QueryExecutionServicePiiMaskingTests
                 It.IsAny<string>(),
                 It.IsAny<Dictionary<string, object?>>(),
                 It.IsAny<CancellationToken>()))
+            .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => executed?.Add(sql))
             .ReturnsAsync(providerResult);
+        provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(validation ?? new Beacon.Core.Models.Providers.QueryValidationResult { IsValid = true });
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -129,7 +295,7 @@ public class QueryExecutionServicePiiMaskingTests
             factory.Object,
             providerFactory.Object,
             new QueryGuardrailService(),
-            settingsProvider.Object,
+            sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] });
     }
 
@@ -141,19 +307,26 @@ public class QueryExecutionServicePiiMaskingTests
                 .UseSnakeCaseNamingConvention()
                 .Options;
 
-        public SeededDataSourceContext() : base(_options, "beacon") { }
+        private readonly DataSourceType _dataSourceType;
+        private readonly DatabaseEngineType? _engine;
+
+        public SeededDataSourceContext(DataSourceType dataSourceType, DatabaseEngineType? engine) : base(_options, "beacon")
+        {
+            _dataSourceType = dataSourceType;
+            _engine = engine;
+        }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
             if (typeof(TEntity) == typeof(DataSource))
             {
-                return (DbSet<TEntity>)(object)BuildDataSourceSet();
+                return (DbSet<TEntity>)(object)BuildDataSourceSet(_dataSourceType, _engine);
             }
 
             return base.Set<TEntity>();
         }
 
-        private static DbSet<DataSource> BuildDataSourceSet()
+        private static DbSet<DataSource> BuildDataSourceSet(DataSourceType dataSourceType, DatabaseEngineType? engine)
         {
             var data = new List<DataSource>
             {
@@ -161,9 +334,9 @@ public class QueryExecutionServicePiiMaskingTests
                 {
                     Id = 1,
                     Name = "ds",
-                    DataSourceType = DataSourceType.Database,
+                    DataSourceType = dataSourceType,
                     EncryptedConnectionData = "x",
-                    DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                    DatabaseEngineType = engine
                 }
             }.AsQueryable();
 

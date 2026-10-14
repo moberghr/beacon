@@ -3,16 +3,24 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class GetMigrationExecutionsHandler(IMigrationService migrationService)
+internal sealed class GetMigrationExecutionsHandler(
+    IMigrationService migrationService,
+    IProjectAccessEvaluator projectAccess,
+    MigrationJobAccess access,
+    MigrationWritePolicy writePolicy)
     : IRequestHandler<GetMigrationExecutionsQuery, PagedList<MigrationExecutionDto>>
 {
-    public Task<PagedList<MigrationExecutionDto>> Handle(
+    public async Task<PagedList<MigrationExecutionDto>> Handle(
         GetMigrationExecutionsQuery request,
         CancellationToken cancellationToken)
     {
+        writePolicy.DemandEnabled();
+
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         var serviceRequest = new GetMigrationExecutionsRequest
         {
             Page = request.Page,
@@ -22,16 +30,38 @@ internal sealed class GetMigrationExecutionsHandler(IMigrationService migrationS
             Status = request.Status,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
+            Readable = readable,
         };
 
-        return migrationService.GetMigrationExecutions(serviceRequest, cancellationToken);
+        var page = await migrationService.GetMigrationExecutions(serviceRequest, cancellationToken);
+
+        // A failed run's error can quote any data source the job reads: shown only to callers who read all of them.
+        var hidden = await access.JobsReadingUnreadableSourcesAsync(
+            page.Items
+                .Where(x => x.ErrorMessage != null)
+                .Select(x => x.MigrationJobId)
+                .Distinct()
+                .ToList(),
+            readable,
+            cancellationToken);
+        if (hidden.Count == 0)
+        {
+            return page;
+        }
+
+        return page.Map(x => x.ErrorMessage != null && hidden.Contains(x.MigrationJobId)
+            ? x with { ErrorMessage = MigrationJobAccess.HiddenErrorMessage }
+            : x);
     }
 }
 
 /// <summary>
 /// Newest first unless <c>sort</c> names <c>startedAt</c>, <c>completedAt</c>, <c>status</c> or
-/// <c>sourceRowsRead</c> (optionally <c>-</c> prefixed).
+/// <c>sourceRowsRead</c> (optionally <c>-</c> prefixed). Only the runs of jobs whose data sources the caller reads; a run's
+/// error text only where the caller also reads the data source of every step the job runs. Only while the deployment runs
+/// migrations (409 otherwise).
 /// </summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; the list is filtered to runs of jobs whose data sources the caller reads", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record GetMigrationExecutionsQuery : ListRequest, IRequest<PagedList<MigrationExecutionDto>>
 {
     public int? MigrationJobId { get; init; }

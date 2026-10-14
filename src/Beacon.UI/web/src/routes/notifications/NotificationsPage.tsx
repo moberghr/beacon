@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { NotificationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useNotificationsList, type NotificationEntry } from './queries';
+import { RunComment } from './RunComment';
 
 const STATUS_LABELS: Record<number, { label: string; tone: PillProps['tone'] }> = {
   [NotificationStatus.Created]: { label: 'Created', tone: 'neutral' },
@@ -15,6 +16,8 @@ const STATUS_LABELS: Record<number, { label: string; tone: PillProps['tone'] }> 
   [NotificationStatus.Timeout]: { label: 'Timeout', tone: 'crit' },
   [NotificationStatus.BelowThreshold]: { label: 'Below threshold', tone: 'neutral' },
   [NotificationStatus.Failed]: { label: 'Failed', tone: 'crit' },
+  // Not run: the owner it runs as may not run its query.
+  [NotificationStatus.Skipped]: { label: 'Skipped', tone: 'warn' },
 };
 
 const COLUMNS: Column<NotificationEntry>[] = [
@@ -31,9 +34,7 @@ const COLUMNS: Column<NotificationEntry>[] = [
     render: n => (
       <div>
         <div className="font-semibold text-text">{n.queryName ?? '—'}</div>
-        {n.comment && (
-          <div className="text-text-muted text-xs mt-0.5">{n.comment}</div>
-        )}
+        <RunComment comment={n.comment} className="mt-0.5" />
       </div>
     ),
   },

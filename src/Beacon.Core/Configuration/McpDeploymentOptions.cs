@@ -4,19 +4,37 @@ namespace Beacon.Core.Configuration;
 
 /// <summary>
 /// Deployment-level MCP guarantees bound from <c>Beacon:Mcp</c>. Locks pin a setting for the global row and
-/// every project regardless of what an admin stores (the UI hides the toggle, the API answers 409); ceilings
-/// bound the numeric settings — a stored value above a ceiling resolves to the ceiling. An absent section means
-/// no locks and no ceilings, which is today's behaviour.
+/// every project regardless of what an admin stores — an Admin included (the UI disables the switch, the API answers
+/// 409); only the host's configuration lifts one. Ceilings bound the numeric settings — a stored value above a ceiling
+/// resolves to the ceiling. An absent section means the read-only and PII-detection locks are on, content retention and
+/// row data to the LLM are not locked, and there are no ceilings beyond the built-in SQL / question length caps.
 /// </summary>
 public sealed class McpDeploymentOptions
 {
     public const string SectionName = "Beacon:Mcp";
 
-    /// <summary>Pins <c>EnforceReadOnly = true</c> everywhere (R2).</summary>
-    public bool ForceReadOnly { get; set; }
+    /// <summary>
+    /// Pins <c>EnforceReadOnly = true</c> everywhere, and makes the execution gate enforce read-only whatever a caller
+    /// asks for. On by default; set it to <c>false</c> to let an Admin turn read-only enforcement off at runtime.
+    /// </summary>
+    public bool ForceReadOnly { get; set; } = true;
 
-    /// <summary>Pins <c>RetainQueryContent = false</c> everywhere (R1).</summary>
+    /// <summary>
+    /// Pins <c>EnablePiiDetection = true</c> everywhere. On by default; set it to <c>false</c> to let an Admin turn PII
+    /// detection off at runtime.
+    /// </summary>
+    public bool ForcePiiDetection { get; set; } = true;
+
+    /// <summary>Pins <c>RetainQueryContent = false</c> everywhere.</summary>
     public bool ForceNoContentRetention { get; set; }
+
+    /// <summary>
+    /// Pins <c>EnableSampleValueCollection</c>, <c>EnableValueGrounding</c> and <c>EnableEvalJudge</c> to <c>false</c>
+    /// everywhere, so no row value read from a data source goes to the LLM provider: no sample values are collected or
+    /// shown, no value is probed for grounding, documentation discovers no column values, and no eval judge sees result
+    /// rows. Off by default.
+    /// </summary>
+    public bool ForbidRowDataToLlm { get; set; }
 
     public McpCeilingOptions Ceilings { get; set; } = new();
 
@@ -38,14 +56,30 @@ public sealed class McpAuditOptions
     public string? RequestIdHeader { get; set; } = DefaultRequestIdHeader;
 }
 
-/// <summary>Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling.</summary>
+/// <summary>
+/// Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling, except for the input caps
+/// <see cref="MaxSqlChars"/> and <see cref="MaxQuestionChars"/>, which always apply and fall back to a built-in default.
+/// </summary>
 public sealed class McpCeilingOptions
 {
+    internal const int DefaultMaxSqlChars = 100_000;
+    internal const int DefaultMaxQuestionChars = 4_000;
+
     public int? MaxRowLimit { get; set; }
     public int? StatementTimeoutSeconds { get; set; }
     public int? MaxResultBytes { get; set; }
     public decimal? MaxExplainCost { get; set; }
     public int? MaxConcurrentQueriesPerKey { get; set; }
+
+    /// <summary>Longest SQL text the execution gate evaluates; <c>null</c> = 100 000 characters.</summary>
+    public int? MaxSqlChars { get; set; }
+
+    /// <summary>Longest question the <c>ask</c> tool accepts; <c>null</c> = 4 000 characters.</summary>
+    public int? MaxQuestionChars { get; set; }
+
+    public int EffectiveMaxSqlChars => MaxSqlChars ?? DefaultMaxSqlChars;
+
+    public int EffectiveMaxQuestionChars => MaxQuestionChars ?? DefaultMaxQuestionChars;
 }
 
 internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploymentOptions>
@@ -59,6 +93,8 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         RequirePositive(failures, nameof(McpCeilingOptions.StatementTimeoutSeconds), ceilings.StatementTimeoutSeconds);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxResultBytes), ceilings.MaxResultBytes);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxConcurrentQueriesPerKey), ceilings.MaxConcurrentQueriesPerKey);
+        RequirePositive(failures, nameof(McpCeilingOptions.MaxSqlChars), ceilings.MaxSqlChars);
+        RequirePositive(failures, nameof(McpCeilingOptions.MaxQuestionChars), ceilings.MaxQuestionChars);
 
         if (ceilings.MaxExplainCost is <= 0)
         {

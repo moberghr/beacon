@@ -447,6 +447,7 @@ public class McpLearningDetectionTests
         return new McpLearningAggregationService(
             factory.Object,
             settingsProvider.Object,
+            TestGroundingSqlChecks.PassThrough().Object,
             NullLogger<McpLearningAggregationService>.Instance,
             lessonExtractor: lessonExtractor,
             replayVerifier: null);
@@ -470,6 +471,7 @@ public class McpLearningDetectionTests
         var service = new McpLearningAggregationService(
             factory.Object,
             SettingsProviderMock.Create().Object,
+            TestGroundingSqlChecks.PassThrough().Object,
             NullLogger<McpLearningAggregationService>.Instance,
             lessonExtractor: extractor,
             replayVerifier: null);

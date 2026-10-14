@@ -3,14 +3,17 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
+import { AlertTriangle, History, Info } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
-import { Button, Field, Textarea } from '@/components/beacon';
+import { Banner, Button, Field, Textarea } from '@/components/beacon';
+import { ApprovalStatus } from '@/lib/enums';
 import { formatDateTime } from '@/lib/format';
 import {
   useApprovalDetailQuery,
   useApproveQueryChange,
   useRejectQueryChange,
 } from './queries';
+import { ApprovalChangeDiff } from './ApprovalChangeDiff';
 
 const SCHEMA = z.object({
   comment: z.string().trim().max(2000, 'Max 2000 characters').optional(),
@@ -52,7 +55,8 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
     const comment = values.comment?.trim() || null;
     try {
       if (actionRef.current === 'approve') {
-        await approve.mutateAsync({ id: approvalId, comment });
+        // Bound to what the dialog shows: the server refuses (409) when the proposal holds other content.
+        await approve.mutateAsync({ id: approvalId, comment, expectedContentHash: data?.contentHash ?? null });
         toast.success('Approval granted');
       } else {
         await reject.mutateAsync({ id: approvalId, comment });
@@ -65,7 +69,8 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
   });
 
   const data = detail.data;
-  const proposedSql = data?.proposedVersion?.finalQuery;
+  const isPending = data?.status === ApprovalStatus.Pending;
+  const mayApprove = isPending && data?.mayApprove === true;
   const busy = isSubmitting || approve.isPending || reject.isPending;
 
   return (
@@ -83,7 +88,7 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
             form="review-approval-form"
             variant="danger"
             onClick={() => { actionRef.current = 'reject'; }}
-            disabled={busy || data == null}
+            disabled={busy || !isPending}
           >
             {reject.isPending ? 'Rejecting…' : 'Reject'}
           </Button>
@@ -92,7 +97,8 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
             form="review-approval-form"
             variant="primary"
             onClick={() => { actionRef.current = 'approve'; }}
-            disabled={busy || data == null}
+            disabled={busy || !mayApprove}
+            title={mayApprove ? undefined : data?.approveBlockedReason ?? undefined}
           >
             {approve.isPending ? 'Approving…' : 'Approve'}
           </Button>
@@ -124,16 +130,29 @@ export function ReviewApprovalDialog({ open, approvalId, onClose }: ReviewApprov
               />
             </dl>
 
-            {proposedSql && (
-              <div className="mt-2">
-                <div className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted mb-1.5">
-                  Proposed SQL
-                </div>
-                <pre className="bg-surface-2 border border-border rounded-sm p-3 text-xs m-0 whitespace-pre-wrap overflow-auto max-h-80 mono">
-                  {proposedSql}
-                </pre>
-              </div>
-            )}
+            <div className="flex flex-col gap-2 mb-3">
+              {data.status === ApprovalStatus.Superseded && (
+                <Banner
+                  tone="info"
+                  icon={<History />}
+                  title="A newer submission replaced this request"
+                  sub="It can no longer be decided."
+                />
+              )}
+              {isPending && data.isStale && (
+                <Banner
+                  tone="warn"
+                  icon={<AlertTriangle />}
+                  title="The query changed since this request was made"
+                  sub="It cannot be approved: reject it, or submit the change again."
+                />
+              )}
+              {isPending && !mayApprove && !data.isStale && data.approveBlockedReason && (
+                <Banner tone="info" icon={<Info />} title="You cannot approve this request" sub={data.approveBlockedReason} />
+              )}
+            </div>
+
+            <ApprovalChangeDiff detail={data} />
 
             <div className="mt-4">
               <Field label="Reviewer comment">

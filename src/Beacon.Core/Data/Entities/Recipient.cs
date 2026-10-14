@@ -18,6 +18,16 @@ public class Recipient : ArchivableBaseEntity
 
     public string? BodyTemplate { get; set; }
 
+    /// <summary>
+    /// While the change approval workflow governs the recipient: the hash of where it delivers (type, destination and
+    /// headers, <see cref="ChangeApprovals.RecipientDestinationDefinition"/>) a second person approved, and deliveries
+    /// reach it only while it hashes to it; <see cref="ChangeApprovals.ChangeApprovalHashes.NothingApproved"/> for a
+    /// recipient created under the workflow and not approved yet. Null for a recipient the workflow does not govern
+    /// (stored before Beacon reviewed recipients, or last saved with the workflow off), which receives deliveries as
+    /// before.
+    /// </summary>
+    public string? ApprovedDestinationHash { get; set; }
+
     public List<Subscription> Subscriptions { get; set; } = new();
 
     public List<DataContract> DataContracts { get; set; } = new();

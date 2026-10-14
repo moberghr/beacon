@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
-using Beacon.Core.Models;
+using Beacon.Core.Notifications;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -13,17 +13,17 @@ namespace Beacon.Core.Adapters.Slack;
 /// </summary>
 internal class SlackAdapter : IAdapter
 {
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly NotificationHttpSender _sender;
     private readonly SlackMessageBuilder _messageBuilder;
     private readonly BeaconConfiguration _configuration;
     private readonly ILogger<SlackAdapter> _logger;
 
     public SlackAdapter(
-        IHttpClientFactory httpClientFactory,
+        NotificationHttpSender sender,
         BeaconConfiguration configuration,
         ILogger<SlackAdapter> logger)
     {
-        _httpClientFactory = httpClientFactory;
+        _sender = sender;
         _configuration = configuration;
         _logger = logger;
 
@@ -39,7 +39,6 @@ internal class SlackAdapter : IAdapter
         int? lastNotificationResultCount,
         CancellationToken cancellationToken = default)
     {
-        var client = _httpClientFactory.CreateClient();
         var queryResult = recipientQueryResult.QueryResult;
 
         string jsonPayload;
@@ -63,15 +62,7 @@ internal class SlackAdapter : IAdapter
         }
 
         var content = new StringContent(jsonPayload, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Slack webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
-            throw new BeaconException(
-                $"Failed to send Slack notification: {response.StatusCode}. {errorBody}");
-        }
+        await _sender.PostAsync(NotificationType.Slack, recipientQueryResult.RecipientDestination, content, headers: null, cancellationToken);
     }
 
     private string BuildDefaultSlackMessage(RecipientQueryResult recipientQueryResult, QueryResult queryResult)

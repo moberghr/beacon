@@ -7,18 +7,22 @@ namespace Beacon.AI.Handlers.Projects;
 
 internal sealed class GenerateProjectDocumentationHandler(
     IBeaconScheduler beaconScheduler,
-    IBeaconUserContext userContext)
+    IBeaconUserContext userContext,
+    IActorUserResolver actorUserResolver)
     : IRequestHandler<GenerateProjectDocumentationCommand, GenerateProjectDocumentationResult>
 {
     public async Task<GenerateProjectDocumentationResult> Handle(
         GenerateProjectDocumentationCommand request,
         CancellationToken cancellationToken)
     {
-        // notifyUserId lets the host scope JobStatusChanged push events on
-        // /beacon/api/hub to the enqueueing user only.
+        // The job records who enqueued it: the caller's stored user when the request names none. notifyUserId lets the
+        // host scope JobStatusChanged push events on /beacon/api/hub to the enqueueing user only.
+        var enqueuedBy = request.UserId != 0
+            ? request.UserId
+            : await actorUserResolver.ResolveActorUserIdAsync(cancellationToken) ?? 0;
         var jobId = await beaconScheduler.EnqueueProjectDocumentation(
             request.ProjectId,
-            request.UserId,
+            enqueuedBy,
             string.IsNullOrWhiteSpace(userContext.UserId) ? null : userContext.UserId);
 
         return new GenerateProjectDocumentationResult(jobId);

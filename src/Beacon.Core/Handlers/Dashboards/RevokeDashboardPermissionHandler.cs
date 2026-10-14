@@ -45,4 +45,5 @@ internal sealed class RevokeDashboardPermissionHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record RevokeDashboardPermissionCommand(int PermissionId) : IRequest<Unit>;

@@ -93,7 +93,7 @@ Other frontend commands (run inside `src/Beacon.UI/web`):
 | **`/openapi/v1.json`** | OpenAPI document |
 | **`/beacon/mcp`** | MCP server (auth required) |
 
-On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup.
+On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup. The setup page asks for a **setup token**: the value of `Beacon:UserManagement:SetupToken`, or, when it is not set, the token Beacon prints once to the process console (standard error, not the log) at startup while no super admin has ever existed. A configured token must be at least 32 characters. Configure the token explicitly when several replicas serve the setup page, since each replica generates its own.
 
 ---
 
@@ -156,13 +156,12 @@ See [Step 2](#step-2-generate-the-encryption-key) below.
 
 ### B3. Configure `appsettings.json`
 
+Keep `Beacon:EncryptionKey` out of this file: supply it through User Secrets, the `Beacon__EncryptionKey` environment variable or a secrets manager (see [Step 2](#step-2-generate-the-encryption-key)).
+
 ```json
 {
   "ConnectionStrings": {
     "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-  },
-  "Beacon": {
-    "EncryptionKey": "k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA="
   },
   "Logging": {
     "LogLevel": {
@@ -225,6 +224,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 // 4. REST API + real-time. SignalR is wired for you — add nothing.
 //    Opt out with: AddBeaconApiServices(x => x.Realtime = false)
 builder.Services.AddBeaconApiServices();
+builder.Services.AddBeaconApiAuthorization();   // the API, Admin and Execute-scope policies (MapBeaconApi, MapBeaconMcp)
 
 // 5. Authentication, AI, MCP, OpenAPI
 builder.Services.AddBeaconCookieAuthentication("/");          // login redirect target
@@ -247,7 +247,7 @@ app.UseAntiforgery();
 app.MapOpenApi();                 // /openapi/v1.json
 app.MapBeaconApi();               // /beacon/api/* + the SignalR hub at /beacon/api/hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);
-app.MapMcp("/beacon/mcp").RequireAuthorization();
+app.MapBeaconMcp();               // MCP server at /beacon/mcp, behind the Execute-scope policy
 app.MapBeaconUi();                // React SPA at root /
 
 app.Run();
@@ -397,19 +397,13 @@ On first run Beacon applies EF Core migrations, creates the `beacon` schema, and
 
 ## Step 2: Generate the Encryption Key
 
-Beacon **requires** an encryption key (`Beacon:EncryptionKey`) to encrypt sensitive data — most importantly data-source connection strings — at rest with AES-256.
+Beacon **requires** an encryption key (`Beacon:EncryptionKey`) to encrypt sensitive data — most importantly data-source connection strings — at rest with AES-256. It must be base64 that decodes to at least 32 random bytes; generate one with:
 
 ```bash
 openssl rand -base64 32
 ```
 
-**Example output:**
-
-```
-k8Jt2mVq9Xw4Zr7yLp3nB6hTsE1dCaG5uFoQiRxYjMA=
-```
-
-Store it via User Secrets, an environment variable, or a secrets manager — never commit it. See the [Configuration Guide](/getting-started/configuration/) for production patterns.
+Store it via User Secrets, the `Beacon__EncryptionKey` environment variable (double underscore), or a secrets manager — never commit it, and never copy a key printed in a guide. Beacon refuses at startup, in every environment, a missing or short key, a passphrase, a published sample value and a `${...}` placeholder (.NET configuration does not expand it). See the [Configuration Guide](/getting-started/configuration/#encryption-key-configuration-required) for production patterns and for replacing a key.
 
 ---
 
@@ -422,7 +416,7 @@ Beacon supports:
 - **Login form** — React `/login` route, backed by the cookie scheme
 - **OIDC / SSO** — optional, via `AddBeaconOidcAuthentication(...)`
 - **JWT bearer** — for MCP clients
-- **API keys** — SHA256-hashed at rest, carry scopes (`Read`, `Execute`, `Admin`) and optional project restrictions; the raw key is shown once at creation
+- **API keys** — SHA256-hashed at rest, carry scopes (`Read`, `Execute`) and optional project restrictions, always expire, and stop working when their owner is disabled; the raw key is shown once at creation
 
 See the [Configuration Guide](/getting-started/configuration/#authentication) and the [User Management Guide](/features/user-management/) for details.
 
@@ -430,13 +424,15 @@ See the [Configuration Guide](/getting-started/configuration/#authentication) an
 
 ## Troubleshooting
 
-### "Beacon:EncryptionKey must be configured"
+### "Beacon:EncryptionKey must be configured" (or "must be base64…", "is a publicly known value")
 
-Generate and configure the key:
+Generate and configure a new key:
 
 ```bash
 openssl rand -base64 32
 ```
+
+If values were already encrypted with the key that was refused, list that key in `Beacon:PreviousEncryptionKeys` so they stay readable (see [Configuration → Replacing the key](/getting-started/configuration/#replacing-the-key)).
 
 ### "Cannot create database schema"
 
@@ -486,7 +482,7 @@ GRANT CREATE SCHEMA TO your_user;
 
 ### Security
 
-- **Set a strong admin password** during first-run setup — there are no default credentials.
+- **Set a strong admin password** during first-run setup — there are no default credentials. Keep the setup token out of shared channels; it stops working once the super admin exists.
 - **Keep the encryption key out of source control** — use environment variables or a secrets manager.
 - **Enable HTTPS** in production.
 - **Use OIDC/SSO** for production identity where possible.

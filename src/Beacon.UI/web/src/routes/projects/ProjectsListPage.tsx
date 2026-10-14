@@ -5,7 +5,8 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatRelativeTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
-import { useProjectsList, type ProjectSummaryEntry } from './queries';
+import { PROJECT_ROLE_LABEL, useProjectsList, type ProjectSummaryEntry } from './queries';
+import { RestrictedPill } from './RestrictedPill';
 
 const COLUMNS: Column<ProjectSummaryEntry>[] = [
   {
@@ -14,7 +15,10 @@ const COLUMNS: Column<ProjectSummaryEntry>[] = [
     header: 'Name',
     render: p => (
       <div>
-        <div className="font-semibold text-text">{p.name}</div>
+        <div className="flex items-center gap-2 font-semibold text-text">
+          {p.name}
+          {p.requiresMembership && <RestrictedPill />}
+        </div>
         {p.description && (
           <div className="text-xs text-text-muted mt-0.5">
             {p.description.length > 80 ? `${p.description.slice(0, 80)}…` : p.description}
@@ -22,6 +26,14 @@ const COLUMNS: Column<ProjectSummaryEntry>[] = [
         )}
       </div>
     ),
+  },
+  {
+    key: 'role',
+    header: 'Your role',
+    render: p =>
+      p.myRole != null
+        ? <span className="text-text-muted">{PROJECT_ROLE_LABEL[p.myRole]}</span>
+        : <span className="text-text-muted">—</span>,
   },
   {
     key: 'datasources',
@@ -57,7 +69,7 @@ const COLUMNS: Column<ProjectSummaryEntry>[] = [
   },
 ];
 
-const GRID_TEMPLATE = '2.4fr 0.7fr 0.7fr 1.1fr 1.1fr 28px';
+const GRID_TEMPLATE = '2.4fr 0.9fr 0.7fr 0.7fr 1.1fr 1.1fr 28px';
 
 export default function ProjectsListPage() {
   const navigate = useNavigate();

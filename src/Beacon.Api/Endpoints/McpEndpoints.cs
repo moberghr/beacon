@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Mcp.RunMcpTool;
@@ -16,8 +17,16 @@ internal static class McpEndpoints
     {
         var mcp = group.MapGroup("/mcp").WithTags("Mcp");
 
+        // The settings (limits, PII detection and its custom patterns, prompts): an Auditor or a SecurityAdmin reads them, a
+        // SecurityAdmin changes them.
         mcp.MapGet("/settings", (IMediator m, CancellationToken ct) => m.Send(new GetMcpSettingsQuery(), ct))
-            .WithName("GetMcpSettings");
+            .WithName("GetMcpSettings")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
+
+        // The settings the deployment pins (Beacon:Mcp locks): the page disables them, a write that changes one is refused (409).
+        mcp.MapGet("/settings/locks", (IMediator m, CancellationToken ct) => m.Send(new GetMcpDeploymentLocksQuery(), ct))
+            .WithName("GetMcpDeploymentLocks")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
 
         mcp.MapPut("/settings", async (UpdateMcpSettingsBody body, IMediator m, CancellationToken ct) =>
         {
@@ -25,12 +34,13 @@ internal static class McpEndpoints
             return TypedResults.NoContent();
         })
         .WithName("UpdateMcpSettings")
-        .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        .RequireBeaconPermission(BeaconPermissions.SecurityAdminPolicy);
 
-        // Per-project overrides (spec mcp-project-settings). GET mirrors the global GET (authenticated), PUT is admin.
+        // Per-project overrides. GET mirrors the global GET, PUT likewise.
         mcp.MapGet("/projects/{projectId:int}/settings", (int projectId, IMediator m, CancellationToken ct) =>
                 m.Send(new GetMcpProjectSettingsQuery(projectId), ct))
-            .WithName("GetMcpProjectSettings");
+            .WithName("GetMcpProjectSettings")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
 
         mcp.MapPut("/projects/{projectId:int}/settings", async (int projectId, UpdateMcpProjectSettingsBody body, IMediator m, CancellationToken ct) =>
         {
@@ -38,24 +48,24 @@ internal static class McpEndpoints
             return TypedResults.NoContent();
         })
         .WithName("UpdateMcpProjectSettings")
-        .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+        .RequireBeaconPermission(BeaconPermissions.SecurityAdminPolicy);
 
         mcp.MapGet("/learned-patterns", ([AsParameters] GetLearnedPatternsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetLearnedPatterns");
 
+        // Approve, reject or set back to pending (anything else: 400); needs the project admin role in the pattern's project.
+        // Decides the content the reviewer saw (its contentHash): 409 when the pattern changed since.
         mcp.MapPut("/learned-patterns/{id:int}/status", async (
             int id,
             UpdatePatternStatusBody body,
-            IActorUserResolver actorResolver,
             IMediator m,
             CancellationToken ct) =>
         {
-            var reviewerId = await actorResolver.ResolveActorUserIdAsync(ct);
             await m.Send(new UpdatePatternStatusCommand
             {
                 PatternId = id,
                 NewStatus = body.NewStatus,
-                ReviewedByUserId = reviewerId,
+                ReviewedContentHash = body.ReviewedContentHash
             }, ct);
             return TypedResults.NoContent();
         }).WithName("UpdatePatternStatus");
@@ -98,7 +108,7 @@ internal static class McpEndpoints
                 m.Send(new GetLearningStatsQuery { ProjectId = projectId }, ct))
             .WithName("GetLearningStats");
 
-        // Admin, paged audit export. Rows are returned exactly as stored (retention redaction already
+        // The Auditor's paged audit export. Rows are returned exactly as stored (retention redaction already
         // applied); reading the audit is itself audited (Beacon.Audit 9103, §9.5).
         mcp.MapGet("/audit", async (
                 [FromQuery] DateTime from,
@@ -119,7 +129,7 @@ internal static class McpEndpoints
                     new GetMcpAuditLogsQuery(from, to, projectId, tool, callerHash, userId, page, pageSize, actorId), ct);
             })
             .WithName("GetMcpAuditLogs")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconPermission(BeaconPermissions.AuditorPolicy);
 
         return group;
     }
@@ -127,4 +137,6 @@ internal static class McpEndpoints
 
 internal sealed record UpdateMcpSettingsBody(McpSettingsData Data);
 internal sealed record UpdateMcpProjectSettingsBody(McpProjectSettingsData Data);
-internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus);
+/// <param name="NewStatus">Approved, Rejected or Pending.</param>
+/// <param name="ReviewedContentHash">The pattern's <c>contentHash</c> from the learned-pattern list, as reviewed.</param>
+internal sealed record UpdatePatternStatusBody(McpPatternStatus NewStatus, string ReviewedContentHash);

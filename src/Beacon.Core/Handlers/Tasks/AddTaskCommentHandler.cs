@@ -28,6 +28,12 @@ internal sealed class AddTaskCommentHandler(
     }
 }
 
-public record AddTaskCommentCommand(int TaskId, string Content) : IRequest<AddTaskCommentResult>;
+public record AddTaskCommentCommand(int TaskId, string Content) : IRequest<AddTaskCommentResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Write)
+    ];
+}
 
 public record AddTaskCommentResult(int Id);

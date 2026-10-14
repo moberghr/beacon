@@ -1,6 +1,7 @@
 using MediatR;
 using Beacon.Core.Services;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Approvals;
 
@@ -12,7 +13,8 @@ internal sealed class ApproveQueryChangeHandler(
 {
     public async Task Handle(ApproveQueryChangeCommand request, CancellationToken cancellationToken)
     {
-        await approvalService.ApproveAsync(request.RequestId, request.ReviewerUserId, request.ReviewerName, request.Comment, cancellationToken);
+        // The reviewer is the request's caller, never an id the request carries.
+        var decision = await approvalService.ApproveAsync(request.RequestId, request.Comment, request.ExpectedContentHash, cancellationToken);
 
         // The decision is already persisted above; the push is a side-channel that tells open
         // browser tabs about it. A host that never registered a notifier (Beacon.Api supplies one
@@ -28,15 +30,27 @@ internal sealed class ApproveQueryChangeHandler(
             return;
         }
 
-        var detail = await approvalService.GetApprovalDetailAsync(request.RequestId, cancellationToken);
-        await approvalNotifier.ApprovalUpdatedAsync(request.RequestId, "approved", request.ReviewerUserId, detail?.RequestedByUserId, cancellationToken);
+        // Both are recorded by Users.ExternalId, the id the realtime hub names a signed-in user by.
+        await approvalNotifier.ApprovalUpdatedAsync(request.RequestId, "approved", decision.ReviewerUserId, decision.RequesterUserId, cancellationToken);
     }
 }
 
+[ProjectScopeExempt("gated by the Approver permission: approving a change is an approval decision, and an Approver reads every approval request", Policy = BeaconPermissions.ApproverPolicy)]
 public record ApproveQueryChangeCommand : IRequest
 {
     public required int RequestId { get; init; }
+
+    [Obsolete("Ignored: the reviewer is the request's caller.")]
     public string? ReviewerUserId { get; init; }
+
+    [Obsolete("Ignored: the reviewer is named by their user label.")]
     public string? ReviewerName { get; init; }
+
     public string? Comment { get; init; }
+
+    /// <summary>
+    /// The content the reviewer approves: the <c>ContentHash</c> of the request's detail they were shown. Required; an
+    /// approval of other content than the proposal holds is refused (409).
+    /// </summary>
+    public string? ExpectedContentHash { get; init; }
 }

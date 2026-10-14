@@ -4,6 +4,7 @@ using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -70,7 +71,7 @@ internal sealed class CreateSubscriptionHandler(ISubscriptionService subscriptio
 public record CreateSubscriptionCommand(
     int QueryId,
     string CronExpression,
-    List<int> RecipientIds,
+    [property: ProjectScopeExempt("recipients are project-less; attaching them needs Write on the subscription's query, checked")] List<int> RecipientIds,
     int? MaxRows,
     int? TimeoutSeconds,
     bool IncludeAttachment,
@@ -81,7 +82,13 @@ public record CreateSubscriptionCommand(
     int? MinimumRowCount,
     FileType? ResultAttachmentType,
     List<CreateSubscriptionParameter>? Parameters,
-    CreateSubscriptionAnomalyConfig? AnomalyConfig) : IRequest<CreateSubscriptionResult>;
+    CreateSubscriptionAnomalyConfig? AnomalyConfig) : IRequest<CreateSubscriptionResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Query(QueryId), ProjectAction.Write)
+    ];
+}
 
 public record CreateSubscriptionParameter(string QueryPlaceholder, string Value);
 

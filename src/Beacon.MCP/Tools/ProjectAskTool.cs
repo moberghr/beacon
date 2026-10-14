@@ -2,12 +2,15 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -16,6 +19,7 @@ namespace Beacon.MCP.Tools;
 internal sealed class ProjectAskTool(
     IKnowledgeGraphService knowledgeGraph,
     IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IServiceProvider serviceProvider,
     IProjectContext projectContext,
     McpAuditService auditService,
@@ -26,6 +30,7 @@ internal sealed class ProjectAskTool(
     IDataSourceRouter dataSourceRouter,
     IKnowledgeAnswerService knowledgeAnswerService,
     ICrossSourceQueryService crossSourceQueryService,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<ProjectAskTool> logger)
 {
     [McpServerTool(Name = "ask", Title = "Ask a Data Question", ReadOnly = true, Idempotent = false, Destructive = false, OpenWorld = false)]
@@ -49,11 +54,20 @@ internal sealed class ProjectAskTool(
         if (string.IsNullOrEmpty(question))
             return await FailAsync(signal, sw, null, question ?? "", "Missing required parameter: question", cancellationToken);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "ask", project_id, out var projectId);
         if (resolveError != null)
             return await FailAsync(signal, sw, null, question, resolveError, cancellationToken);
 
         signal.SetProjectId(projectId);
+
+        // After project resolution so the audit row is attributed to the authorized project and that project's
+        // content-retention decision governs the stored question.
+        var maxQuestionChars = (deploymentOptions.Value.Ceilings ?? new McpCeilingOptions()).EffectiveMaxQuestionChars;
+        if (question.Length > maxQuestionChars)
+        {
+            return await FailAsync(signal, sw, projectId, question,
+                $"Question is {question.Length} characters long; the limit is {maxQuestionChars}.", cancellationToken);
+        }
 
         try
         {
@@ -101,6 +115,15 @@ internal sealed class ProjectAskTool(
                     "Could not determine which data source to query for this question.", cancellationToken);
             }
 
+            // SQL runs with the strictest guardrails of the live projects that link the routed data sources.
+            var sourceSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(
+                projectId,
+                routing.Sources
+                    .Select(x => x.DataSourceId)
+                    .Distinct()
+                    .ToList(),
+                cancellationToken);
+
             var askSucceeded = true;
             JsonNode? resultPayload = null;
             string? generatedSql = null;
@@ -114,7 +137,7 @@ internal sealed class ProjectAskTool(
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
                 var outcome = await GenerateAndExecuteSqlAsync(
-                    llmProvider, source.DataSourceId, projectId, question, settings, execute, signal, cancellationToken);
+                    llmProvider, source.DataSourceId, projectId, question, sourceSettings, execute, signal, cancellationToken);
                 text += outcome.Text;
                 askSucceeded = outcome.Succeeded;
                 resultPayload = outcome.ResultPayload;
@@ -129,7 +152,7 @@ internal sealed class ProjectAskTool(
                 text += "\n";
 
                 var (crossText, crossSucceeded) = await crossSourceQueryService.ExecuteAsync(
-                    llmProvider, routing.Sources, projectId, question, settings, execute, signal, cancellationToken);
+                    llmProvider, routing.Sources, projectId, question, sourceSettings, execute, signal, cancellationToken);
                 text += crossText;
                 askSucceeded = crossSucceeded;
                 // Cross-source flow builds its markdown internally; structured content for this path
@@ -151,7 +174,8 @@ internal sealed class ProjectAskTool(
         catch (Exception ex)
         {
             sw.Stop();
-            signal.SetExecutionFailed(ex.Message);
+            // The stored signal never holds an error's raw text, which can quote row values.
+            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, signal.GeneratedSql, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
                 question, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
@@ -199,6 +223,8 @@ internal sealed class ProjectAskTool(
 
         foreach (var repair in outcome.Repairs)
         {
+            // The pipeline hands its dry-run and execution repair errors over redacted, so the stored signal never holds a
+            // database error's raw text.
             switch (repair.Trigger)
             {
                 case "schema":

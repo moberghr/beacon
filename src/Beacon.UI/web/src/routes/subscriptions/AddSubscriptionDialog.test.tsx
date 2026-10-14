@@ -45,7 +45,7 @@ function stubRecipients(items: unknown[]) {
 const OPS_RECIPIENT = {
   id: 7,
   name: 'Ops',
-  description: null,
+  description: 'Operations inbox',
   destination: 'ops@example.com',
   notificationType: 2,
   headersJson: null,
@@ -92,8 +92,10 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     await waitForQuery(12);
     next();
 
-    // Notify — pick Ops.
+    // Notify — pick Ops. The picker shows the description and type, never the destination.
     await screen.findByText(/Ops/);
+    expect(screen.getByText('Operations inbox')).toBeInTheDocument();
+    expect(screen.queryByText('ops@example.com')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
     next();
 
@@ -120,6 +122,28 @@ describe('AddSubscriptionDialog (multi-step)', () => {
       parameters: [],
       anomalyConfig: null,
     });
+  });
+
+  it('warns that a timeout above the default statement limit is refused unless the deployment raised it', async () => {
+    stubQueryEndpoints(12);
+    stubRecipients([OPS_RECIPIENT]);
+
+    renderWithProviders(<AddSubscriptionDialog open onClose={vi.fn()} initialQueryId={12} />);
+
+    await waitForQuery(12);
+    next();
+    await screen.findByText(/Ops/);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
+    next();
+
+    const timeout = await screen.findByLabelText(/timeout \(seconds\)/i);
+    expect(screen.getByText(/empty uses the deployment's limit/i)).toBeInTheDocument();
+    fireEvent.change(timeout, { target: { value: '90' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.change(timeout, { target: { value: '600' } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Beacon:Query:StatementTimeoutSeconds/);
+    expect(screen.getByRole('alert')).toHaveTextContent(/refused unless this deployment raised its limit to at least 600 seconds/);
   });
 
   it('sends the notification trigger, row threshold, attachment format and anomaly settings', async () => {

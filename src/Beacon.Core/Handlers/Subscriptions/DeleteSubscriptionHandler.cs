@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -12,4 +13,10 @@ internal sealed class DeleteSubscriptionHandler(ISubscriptionService subscriptio
     }
 }
 
-public record DeleteSubscriptionCommand(int SubscriptionId) : IRequest;
+public record DeleteSubscriptionCommand(int SubscriptionId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Manage)
+    ];
+}

@@ -1,8 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Cronos;
+using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
@@ -35,11 +39,19 @@ public interface ISubscriptionService
 internal class SubscriptionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconScheduler beaconScheduler,
-    IAnomalyDetectionService anomalyDetectionService)
+    IAnomalyDetectionService anomalyDetectionService,
+    IBeaconActorAccessor actorAccessor,
+    BeaconConfiguration configuration,
+    IOptions<QueryExecutionOptions> queryOptions)
     : ISubscriptionService
 {
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
+
+        // The owner its runs act as: the caller, never a value from the request.
+        var ownerUserId = ScheduledWorkOwner.Require(await actorAccessor.GetCurrentAsync(cancellationToken), configuration);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         CronExpression.Parse(subscriptionData.CronExpression);
@@ -82,6 +94,7 @@ internal class SubscriptionService(
             StoreResults = subscriptionData.StoreResults,
             CreateTasks = subscriptionData.CreateTasks,
             NotificationTrigger = subscriptionData.NotificationTrigger,
+            OwnerUserId = ownerUserId,
             Recipients = recipients,
             Parameters = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters)
         };
@@ -191,14 +204,18 @@ internal class SubscriptionService(
                     QueryName = x.Query.Name,
                     AiActorId = x.AiActorId,
                     AiActorName = x.AiActor != null ? x.AiActor.Name : null,
-                    Recipients = x.Recipients.Select(y => new RecipientData
-                    {
-                        RecipientId = y.Id,
-                        Name = y.Name,
-                        Description = y.Description,
-                        Destination = y.Destination,
-                        NotificationType = y.NotificationType
-                    }).ToList(),
+                    // Destinations are secrets: never part of a subscription read (admins see them masked on recipients).
+                    Recipients = x.Recipients
+                        .Select(y =>
+                            new RecipientData
+                            {
+                                RecipientId = y.Id,
+                                Name = y.Name,
+                                Description = y.Description,
+                                Destination = string.Empty,
+                                NotificationType = y.NotificationType
+                            })
+                        .ToList(),
                     CronExpression = x.CronExpression,
                     MaxRows = x.MaxRows,
                     MinimumRowCount = x.MinimumRowCount,
@@ -219,6 +236,8 @@ internal class SubscriptionService(
 
     public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
+        EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         CronExpression.Parse(subscriptionData.CronExpression);
@@ -332,14 +351,20 @@ internal class SubscriptionService(
             {
                 SubscriptionId = x.Id,
                 QueryId = x.QueryId,
-                Recipients = x.Recipients.Select(y => new RecipientData
-                {
-                    RecipientId = y.Id,
-                    Name = y.Name,
-                    Description = y.Description,
-                    Destination = y.Destination,
-                    NotificationType = y.NotificationType
-                }).ToList(),
+                // IgnoreQueryFilters (archived subscriptions have details too) drops the recipients' soft-delete filter,
+                // so it is re-applied: an archived recipient must not reappear. Destinations are never part of this read.
+                Recipients = x.Recipients
+                    .Where(y => y.ArchivedTime == null)
+                    .Select(y =>
+                        new RecipientData
+                        {
+                            RecipientId = y.Id,
+                            Name = y.Name,
+                            Description = y.Description,
+                            Destination = string.Empty,
+                            NotificationType = y.NotificationType
+                        })
+                    .ToList(),
                 QueryName = x.Query.Name,
                 AiActorId = x.AiActorId,
                 AiActorName = x.AiActor != null ? x.AiActor.Name : null,
@@ -354,6 +379,23 @@ internal class SubscriptionService(
                 CreateTasks = x.CreateTasks,
                 NotificationTrigger = x.NotificationTrigger,
                 Status = x.ArchivedTime.HasValue ? "Archived" : "Active",
+                OwnerUserId = x.OwnerUserId,
+                OwnerDisplayName = context.Users
+                    .Where(y => y.ExternalId == x.OwnerUserId)
+                    .Select(UserLabel.OfUser)
+                    .FirstOrDefault(),
+                // The last run was skipped for its owner (not because its query's change is not approved).
+                OwnerNotAuthorized = x.QueryExecutionHistory!
+                    .OrderByDescending(y => y.CreatedTime)
+                    .Take(1)
+                    .Where(y => y.NotificationStatus == NotificationStatus.Skipped)
+                    .Any(y => y.Comment != NotificationFailureReasons.NotApproved),
+                // The last run was skipped because the query's stored SQL is not its approved version.
+                NotApproved = x.QueryExecutionHistory!
+                    .OrderByDescending(y => y.CreatedTime)
+                    .Take(1)
+                    .Where(y => y.NotificationStatus == NotificationStatus.Skipped)
+                    .Any(y => y.Comment == NotificationFailureReasons.NotApproved),
                 Parameters = x.Parameters.Select(y => new SubscriptionParameterData()
                 {
                     QueryPlaceholder = y.QueryPlaceholder,
@@ -430,6 +472,18 @@ internal class SubscriptionService(
             await context.SaveChangesAsync(CancellationToken.None);
 
             throw;
+        }
+    }
+
+    // Every statement of a run stops at Beacon:Query:StatementTimeoutSeconds; a subscription's own timeout may only be
+    // shorter, so a longer one is refused rather than silently cut to the limit.
+    private void EnsureTimeoutWithinTheStatementLimit(int? timeoutSeconds)
+    {
+        var limit = queryOptions.Value.StatementTimeoutSeconds;
+        if (timeoutSeconds > limit)
+        {
+            throw new InvalidOperationException(
+                $"The timeout may be at most {limit} seconds: every statement stops at {QueryExecutionOptions.SectionName}:{nameof(QueryExecutionOptions.StatementTimeoutSeconds)} ({limit} seconds in this deployment).");
         }
     }
 }

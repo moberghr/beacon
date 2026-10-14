@@ -66,6 +66,28 @@ public class BeaconUser : ArchivableBaseEntity
     public DateTime? LastLoginAt { get; set; }
 
     /// <summary>
+    /// The generation of this user's API keys. Disabling, archiving and re-enabling the user advance it in the same
+    /// save that revokes their keys; a key works only while its <see cref="ApiKeyCredential.OwnerGeneration"/> equals
+    /// it, so a key approved before such a change and stored after it never works.
+    /// </summary>
+    public int ApiKeyGeneration { get; set; }
+
+    /// <summary>
+    /// A random value every sign-in session of this user carries; a session whose value is no longer this one is signed
+    /// out when it is next revalidated. Changed by a password change or reset, enabling or disabling, archiving, a role
+    /// change, a change of the user name or e-mail address, and "sign out everywhere". Null until it first changes: a
+    /// session carrying no value matches it.
+    /// </summary>
+    public string? SecurityStamp { get; set; }
+
+    /// <summary>
+    /// The user must choose a new password before they can sign in: set when an administrator chooses their password (a
+    /// new internal user, a password reset), cleared when the user sets their own. False for every user that existed
+    /// before the flag.
+    /// </summary>
+    public bool MustChangePassword { get; set; }
+
+    /// <summary>
     /// Roles assigned to this user.
     /// </summary>
     public List<BeaconUserRole> UserRoles { get; set; } = new();

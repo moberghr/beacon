@@ -2,11 +2,13 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
@@ -92,6 +94,54 @@ public class DocChunkIndexingServiceTests
     }
 
     [Test]
+    public async Task ReindexAsync_AValueListingSectionsBlurbRequests_AreLoggedAsStoredDocumentation()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = true, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var expectedChunks = DocumentChunker.Chunk(SectionContent, settings.DocChunkWindowSentences, settings.DocChunkOverlapSentences);
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = "blurb" });
+        var log = new LogRecorder();
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), llm.Object,
+            existingChunks: [], existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: [],
+            sectionType: ProjectDocSectionType.DataModel,
+            egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()));
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        log.Entries.Should().HaveCount(expectedChunks.Count)
+            .And.OnlyContain(x => x.Message == $"An LLM request carrying stored-documentation read from data sources  of project {ProjectId} was handed to the provider for caller {DocChunkIndexingService.CallerId}");
+    }
+
+    // Under the row-data lock a section that can list discovered values never reaches the provider: its chunks are stored
+    // and embedded raw, without a blurb.
+    [Test]
+    public async Task ReindexAsync_UnderTheRowDataLock_AValueListingSectionGetsNoBlurb()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = true, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var expectedChunks = DocumentChunker.Chunk(SectionContent, settings.DocChunkWindowSentences, settings.DocChunkOverlapSentences);
+        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
+        var embeddings = new CapturingEmbeddingService();
+        var capturedChunks = new List<McpDocChunk>();
+
+        var service = BuildService(
+            settings, embeddings, llm.Object,
+            existingChunks: [], existingEmbeddings: [],
+            capturedChunks, capturedEmbeddings: [], removedChunks: [], removedEmbeddings: [],
+            sectionType: ProjectDocSectionType.Glossary,
+            forbidRowData: true);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        llm.Invocations.Should().BeEmpty();
+        capturedChunks.Should().HaveCount(expectedChunks.Count).And.OnlyContain(x => x.ContextualBlurb == null);
+        embeddings.BatchTexts.Should().Equal(expectedChunks);
+    }
+
+    [Test]
     public async Task ReindexAsync_ContextualRetrievalOn_CallsLlmAndStoresAndPrependsBlurb()
     {
         const string blurb = "This chunk covers the greek-letter enumeration in the overview section.";
@@ -155,6 +205,8 @@ public class DocChunkIndexingServiceTests
             settings.Object,
             llm.Object,
             new FakeVectorColumnWriter(),
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<DocChunkIndexingService>.Instance);
 
         await service.ReindexAsync(CancellationToken.None);
@@ -306,7 +358,10 @@ public class DocChunkIndexingServiceTests
         List<McpDocChunk> removedChunks,
         List<McpEmbedding> removedEmbeddings,
         ILogger<DocChunkIndexingService>? logger = null,
-        FakeVectorColumnWriter? vectorWriter = null)
+        FakeVectorColumnWriter? vectorWriter = null,
+        ProjectDocSectionType sectionType = ProjectDocSectionType.ProjectOverview,
+        ILlmRowDataEgress? egress = null,
+        bool forbidRowData = false)
     {
         var documentation = new ProjectDocumentation
         {
@@ -320,7 +375,7 @@ public class DocChunkIndexingServiceTests
         {
             Id = SectionId,
             ProjectDocumentationId = documentation.Id,
-            SectionType = ProjectDocSectionType.ProjectOverview,
+            SectionType = sectionType,
             Title = "Project Overview",
             Content = SectionContent,
             SortOrder = 0,
@@ -380,6 +435,8 @@ public class DocChunkIndexingServiceTests
             settingsProvider.Object,
             llmProvider,
             vectorWriter ?? new FakeVectorColumnWriter(),
+            egress ?? TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
             logger ?? NullLogger<DocChunkIndexingService>.Instance);
     }
 

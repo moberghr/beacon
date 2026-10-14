@@ -2,10 +2,12 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
-internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetLearningStatsQuery, LearningStatsResult>
 {
     public async Task<LearningStatsResult> Handle(GetLearningStatsQuery request, CancellationToken cancellationToken)
@@ -15,10 +17,12 @@ internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> c
         var last30Days = now.AddDays(-30);
 
         // Run signal stats, pattern stats, and patch stats in parallel using separate contexts
-        var signalStatsTask = GetSignalStatsAsync(request.ProjectId, last7Days, last30Days, cancellationToken);
-        var patternStatsTask = GetPatternStatsAsync(request.ProjectId, cancellationToken);
-        var patchStatsTask = GetPatchStatsAsync(request.ProjectId, cancellationToken);
-        var problemTablesTask = GetProblemTablesAsync(request.ProjectId, cancellationToken);
+        // Signals, patterns and patches of the projects the caller may read; a signal without a project is an Admin's.
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
+        var signalStatsTask = GetSignalStatsAsync(request.ProjectId, readable, last7Days, last30Days, cancellationToken);
+        var patternStatsTask = GetPatternStatsAsync(request.ProjectId, readable, cancellationToken);
+        var patchStatsTask = GetPatchStatsAsync(request.ProjectId, readable, cancellationToken);
+        var problemTablesTask = GetProblemTablesAsync(request.ProjectId, readable, cancellationToken);
 
         await Task.WhenAll(signalStatsTask, patternStatsTask, patchStatsTask, problemTablesTask);
 
@@ -42,10 +46,11 @@ internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> c
     }
 
     private async Task<(int Total, int Last7d, int Last30d, double SuccessRate)> GetSignalStatsAsync(
-        int? projectId, DateTime last7Days, DateTime last30Days, CancellationToken ct)
+        int? projectId, ProjectSet readable, DateTime last7Days, DateTime last30Days, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var query = context.McpQuerySignals.AsQueryable();
+        var query = context.McpQuerySignals
+            .WhereProjectIn(readable, x => x.ProjectId);
         if (projectId.HasValue) query = query.Where(s => s.ProjectId == projectId.Value);
 
         var total = await query.CountAsync(ct);
@@ -57,10 +62,11 @@ internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> c
         return (total, last7d, last30d, rate);
     }
 
-    private async Task<(int Approved, int Pending, int Rejected)> GetPatternStatsAsync(int? projectId, CancellationToken ct)
+    private async Task<(int Approved, int Pending, int Rejected)> GetPatternStatsAsync(int? projectId, ProjectSet readable, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var query = context.McpLearnedPatterns.AsQueryable();
+        var query = context.McpLearnedPatterns
+            .WhereProjectIn(readable, x => x.ProjectId);
         if (projectId.HasValue) query = query.Where(p => p.ProjectId == projectId.Value);
 
         var approved = await query.CountAsync(p => p.Status == McpPatternStatus.Approved || p.Status == McpPatternStatus.AutoApproved, ct);
@@ -70,10 +76,11 @@ internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> c
         return (approved, pending, rejected);
     }
 
-    private async Task<(int Applied, int Proposed)> GetPatchStatsAsync(int? projectId, CancellationToken ct)
+    private async Task<(int Applied, int Proposed)> GetPatchStatsAsync(int? projectId, ProjectSet readable, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var query = context.McpDocumentationPatches.AsQueryable();
+        var query = context.McpDocumentationPatches
+            .WhereProjectIn(readable, x => x.ProjectId);
         if (projectId.HasValue) query = query.Where(p => p.ProjectId == projectId.Value);
 
         var applied = await query.CountAsync(p => p.Status == McpDocPatchStatus.Applied, ct);
@@ -82,10 +89,11 @@ internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> c
         return (applied, proposed);
     }
 
-    private async Task<List<ProblemTableEntry>> GetProblemTablesAsync(int? projectId, CancellationToken ct)
+    private async Task<List<ProblemTableEntry>> GetProblemTablesAsync(int? projectId, ProjectSet readable, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var query = context.McpQuerySignals.AsQueryable();
+        var query = context.McpQuerySignals
+            .WhereProjectIn(readable, x => x.ProjectId);
         if (projectId.HasValue) query = query.Where(s => s.ProjectId == projectId.Value);
 
         var problemTables = await query
@@ -112,8 +120,9 @@ internal sealed class GetLearningStatsHandler(IDbContextFactory<BeaconContext> c
     }
 }
 
-public record GetLearningStatsQuery : IRequest<LearningStatsResult>
+public record GetLearningStatsQuery : IRequest<LearningStatsResult>, IProjectFilteredRequest
 {
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? ProjectId { get; init; }
 }
 

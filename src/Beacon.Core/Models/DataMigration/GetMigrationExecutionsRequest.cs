@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 
@@ -16,4 +17,10 @@ public record GetMigrationExecutionsRequest : ListRequest
     public DateTime? StartDate { get; init; }
 
     public DateTime? EndDate { get; init; }
+
+    /// <summary>
+    /// The projects the caller reads: only runs of jobs whose source and destination data sources it reads are listed.
+    /// Null lists every run.
+    /// </summary>
+    public ProjectSet? Readable { get; init; }
 }

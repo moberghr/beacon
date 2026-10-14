@@ -24,4 +24,10 @@ public class McpEvalCase : BaseEntity
 
     public bool IsActive { get; set; } = true;
     public string? Notes { get; set; }
+
+    /// <summary>The <c>Users.Id</c> of the user who promoted the case; null for a case created before Beacon recorded it.</summary>
+    public int? PromotedByUserId { get; set; }
+
+    /// <summary>The <c>Users.Id</c> of the user who last edited the case; null until it is edited.</summary>
+    public int? ModifiedByUserId { get; set; }
 }

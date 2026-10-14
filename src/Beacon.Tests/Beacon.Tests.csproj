@@ -27,6 +27,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <None Include="Unit\ProjectAuthorization\FastPathGolden\*.sql" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
         <ProjectReference Include="..\Beacon.Connector.Api\Beacon.Connector.Api.csproj" />
         <ProjectReference Include="..\Beacon.SampleProject\Beacon.SampleProject.csproj" />

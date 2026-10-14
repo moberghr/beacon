@@ -95,6 +95,13 @@ UI is refused; restart the host (or call the sync again) instead.
   - identifiers compare as the engine compares them (PostgreSQL: unquoted names fold to lower case, quoted names are
     exact; SQL Server: case-insensitive) — for tables, CTE names, aliases and columns alike, so a CTE never hides a
     real table (`WITH "AuditLog" AS (…) SELECT … FROM auditlog` is rejected);
+  - on PostgreSQL, every identifier is read as the server names it: an identifier longer than 63 bytes in UTF-8 is
+    shortened to 63 bytes on a character boundary, as PostgreSQL silently does (quoted names too, output aliases
+    included), and compared and masked by that name. Only what the server would read differently than written is
+    rejected: two different identifiers of the statement that are the same in their first 63 bytes (PostgreSQL would
+    read them as one — use names that differ sooner, or, when the host's own names collide, expose a view or rename the
+    column on the host), and an unquoted identifier with a non-ASCII letter that changes case, such as `Šifra` or the
+    Kelvin sign (PostgreSQL folds only `A`–`Z`; write it in lower case or quote it, `"Šifra"`);
   - names resolve with per-`SELECT` scopes: an unqualified column must be an exposed column of a relation in that
     `SELECT`'s own `FROM`; a correlated (outer) reference must be qualified with the outer alias; output aliases are
     visible only to the same `SELECT`'s `ORDER BY` (and PostgreSQL's `GROUP BY`) and to outer queries through a
@@ -111,10 +118,18 @@ UI is refused; restart the host (or call the sync again) instead.
     `col IS NOT NULL`. Any other use — `WHERE`, `JOIN … ON`/`USING`, `GROUP BY`, `ORDER BY` (by name, alias or
     ordinal), `DISTINCT`, `UNION`/`INTERSECT`/`EXCEPT`, window specifications, `COUNT(DISTINCT …)`, any other function,
     `CASE`, casts, or a subquery used as a value — is rejected, so masked values cannot be probed.
-  Host-masked values are masked **fully** in every result (`***`; `NULL` stays `NULL`).
+  Host-masked values are masked **fully** in every result (`***`; `NULL` stays `NULL`). The result is masked by
+  **output position**, not by column name: the check knows which columns of the statement carry a masked value, and
+  the provider masks those columns of the result whatever the database calls them — under any alias, a repeated
+  name or another case. Names serve only as a consistency check that fails closed: a result column the database names
+  differently than the check derived is masked too (logged as a warning with the data source id and counts), and a
+  result whose column count differs from the statement's is discarded (`The result's columns did not line up with
+  the columns the host data source policy checked, so the result was discarded.`). Every path that runs SQL on a host
+  data source reads it through the provider — previews (paged ones included), subscriptions and their attachments,
+  MCP tools, saved-query tools and the rows the in-memory join reads — so all of them return the masked values.
 - **Errors stay generic.** When a statement fails on the host database the caller gets
-  `Query failed on the host database.` and the log records only the exception type — server messages can quote
-  column values.
+  `Query failed on the host database.` and the log records only the exception type and the driver's error code —
+  server messages can quote column values.
 - **Read-only login.** SQL Server has no read-only transaction mode, so `SupportsDatabaseReadOnlyEnforcement`
   stays `false`; the parser gates plus the dedicated read-only login are the guarantee. On PostgreSQL the
   `READ ONLY` transaction backstop applies as usual.
@@ -131,7 +146,20 @@ UI is refused; restart the host (or call the sync again) instead.
 - On case-sensitive SQL Server collations, identifiers are still compared case-insensitively (a mismatch fails on
   the server rather than widening access).
 - Some valid SQL is refused on purpose: unqualified correlated references, the same alias in an inner and an outer
-  query, `NATURAL` joins, `DISTINCT`/set operations over masked columns.
+  query, `NATURAL` joins, `DISTINCT`/set operations over masked columns, and on PostgreSQL two identifiers that share
+  their first 63 bytes or an unquoted one with a non-ASCII letter that changes case.
+- The 63-byte limit assumes a stock PostgreSQL build (`NAMEDATALEN` 64) and counts UTF-8 bytes; SQL Server keeps names
+  up to 128 characters as written (a longer one is an error on the server), so no length rule applies there.
+
+:::caution[Upgrading]
+Host column masking now works by output position. On PostgreSQL host data sources, a statement with two identifiers
+that are the same in their first 63 bytes, or with an unquoted identifier that has a non-ASCII letter that changes
+case, is now refused with a validation message — use names that differ sooner, write the name in lower case or quote
+it. A single identifier longer than 63 bytes is accepted and read as PostgreSQL shortens it. Check saved queries,
+subscriptions and saved-query tools on PostgreSQL host data sources for such aliases. A result column the database
+names differently than the check derived is now masked (the MCP `query` tool notes how many), and a host data source
+result whose columns do not match the statement now fails instead of being returned.
+:::
 
 ## Netgiro-style example
 

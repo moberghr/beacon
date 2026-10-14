@@ -98,6 +98,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     // Approval Workflow
     public DbSet<QueryApprovalRequest> QueryApprovalRequests => Set<QueryApprovalRequest>();
 
+    public DbSet<ChangeApprovalRequest> ChangeApprovalRequests => Set<ChangeApprovalRequest>();
+
     // App Settings
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
 
@@ -128,6 +130,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<Project> Projects => Set<Project>();
 
     public DbSet<ProjectDataSource> ProjectDataSources => Set<ProjectDataSource>();
+
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
 
     public DbSet<GitHubRepository> GitHubRepositories => Set<GitHubRepository>();
 
@@ -763,6 +767,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.UserId).HasMaxLength(100);
             entity.Property(e => e.ChangeReason).HasMaxLength(2000);
 
+            // DataSourceId records the step's source at the time of the change; it is no foreign key, so the history
+            // outlives the source.
+
             // Indexes
             // Note: Don't add explicit HasIndex for FK columns - EF Core creates indexes automatically for FKs
             entity.HasIndex(e => e.ChangedAt);
@@ -794,12 +801,19 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.AiActorId);
             entity.HasIndex(e => e.IsLocked);
             entity.Property(e => e.LockedByUserId).HasMaxLength(100);
+
+            // The creator (Users.ExternalId, like Subscription.OwnerUserId).
+            entity.Property(e => e.OwnerUserId).HasMaxLength(200);
         });
 
         // Add indexes to Subscription for AiActorId
         modelBuilder.Entity<Subscription>(entity =>
         {
             entity.HasIndex(e => e.AiActorId);
+
+            // The owner scheduled runs act as (Users.ExternalId, like DataContract.OwnerUserId).
+            entity.Property(e => e.OwnerUserId).HasMaxLength(200);
+            entity.HasIndex(e => e.OwnerUserId).HasDatabaseName("ix_subscriptions_owner_user_id");
         });
     }
 
@@ -908,6 +922,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ReviewedByUserName).HasMaxLength(200);
             entity.Property(e => e.ReviewComment).HasMaxLength(2000);
             entity.Property(e => e.ChangeSummary).HasMaxLength(2000);
+            entity.Property(e => e.ApprovedContentHash).HasMaxLength(64);
 
             // Indexes
             entity.HasIndex(e => new { e.QueryId, e.Status });
@@ -926,6 +941,40 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .HasForeignKey(e => e.QueryVersionId)
                 .OnDelete(DeleteBehavior.NoAction);
         });
+
+        // A change of another governed resource: the resource is named by kind and id, not a key, so a request outlives the
+        // resource it was about.
+        modelBuilder.Entity<ChangeApprovalRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.ResourceName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.DefinitionHash).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.PayloadHash).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.ProposedJson).IsRequired();
+            entity.Property(e => e.RequestedByUserId).HasMaxLength(100);
+            entity.Property(e => e.RequestedByUserName).HasMaxLength(200);
+            entity.Property(e => e.ReviewedByUserId).HasMaxLength(100);
+            entity.Property(e => e.ReviewedByUserName).HasMaxLength(200);
+            entity.Property(e => e.ReviewComment).HasMaxLength(2000);
+            entity.Property(e => e.ChangeSummary).HasMaxLength(2000);
+
+            entity.HasIndex(e => new { e.Kind, e.ResourceId, e.Status });
+            entity.HasIndex(e => new { e.Status, e.CreatedTime });
+        });
+
+        // The approved definition each governed resource is checked against (null: not governed).
+        modelBuilder.Entity<MigrationJob>()
+            .Property(e => e.ApprovedDefinitionHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<DataContractRule>()
+            .Property(e => e.ApprovedSqlHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<Recipient>()
+            .Property(e => e.ApprovedDestinationHash)
+            .HasMaxLength(64);
     }
 
     protected void ConfigureQueryMcpToolEntities(ModelBuilder modelBuilder)
@@ -960,6 +1009,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.CreatedByUserName).HasMaxLength(200);
             entity.Property(e => e.ChangeSource).HasMaxLength(50);
             entity.Property(e => e.ChangeReason).HasMaxLength(2000);
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             // Unique version number per query
             entity.HasIndex(e => new { e.QueryId, e.VersionNumber }).IsUnique();
@@ -1000,6 +1050,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.DisplayName).HasMaxLength(200);
             entity.Property(e => e.PasswordHash).HasMaxLength(500);
             entity.Property(e => e.PasswordSalt).HasMaxLength(500);
+            entity.Property(e => e.SecurityStamp).HasMaxLength(64);
 
             // Unique constraint on ExternalId
             entity.HasIndex(e => e.ExternalId).IsUnique();
@@ -1132,6 +1183,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.Description).HasMaxLength(1000);
             entity.Property(e => e.CronExpression).HasMaxLength(100).IsRequired();
             entity.Property(e => e.OwnerUserId).HasMaxLength(100);
+            entity.Property(e => e.OwnerNotAuthorizedSince);
 
             entity.HasOne(e => e.DataSource)
                 .WithMany()
@@ -1247,6 +1299,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             // by its (non-unique, user-editable) name. Ordinary projects leave it null.
             entity.Property(e => e.HostManagedKey).HasMaxLength(200);
             entity.HasIndex(e => e.HostManagedKey).IsUnique();
+
+            // Restricted projects are reached through membership only; no store default, every new row sets it.
+            entity.Property(e => e.RequiresMembership).IsRequired();
         });
 
         modelBuilder.Entity<DataSource>(entity =>
@@ -1255,6 +1310,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.HostManagedKey).HasMaxLength(200);
             entity.Property(e => e.HostModelHash).HasMaxLength(64);
             entity.HasIndex(e => e.HostManagedKey).IsUnique();
+
+            // Every new row sets it (false); the migration that added it opened the sources that existed then.
+            entity.Property(e => e.OpenWhenUnlinked).IsRequired();
         });
 
         modelBuilder.Entity<ProjectDataSource>(entity =>
@@ -1267,6 +1325,33 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasIndex(e => new { e.ProjectId, e.DataSourceId }).IsUnique();
+
+            // LinkedByUserId names a Users.Id without a foreign key, like ProjectMember.AddedByUserId.
+        });
+
+        // A user's role in a project. The names are explicit so both providers create the same objects. No check
+        // constraint on Role: handlers validate it. AddedByUserId is no foreign key (a second path from Users).
+        modelBuilder.Entity<ProjectMember>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("pk_project_members");
+            entity.Property(e => e.Role).HasConversion<int>();
+
+            entity.HasOne(e => e.Project)
+                .WithMany(e => e.Members)
+                .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_project_members_projects_project_id");
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_project_members_users_user_id");
+
+            entity.HasIndex(e => new { e.ProjectId, e.UserId })
+                .IsUnique()
+                .HasDatabaseName("ux_project_members_project_id_user_id");
+            entity.HasIndex(e => e.UserId).HasDatabaseName("ix_project_members_user_id");
         });
 
         modelBuilder.Entity<GitHubRepository>(entity =>
@@ -1426,7 +1511,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.GetDocumentationDescription).HasMaxLength(1000);
             entity.Property(e => e.AskDescription).HasMaxLength(1000);
             entity.Property(e => e.CustomPiiPatterns).HasMaxLength(4000);
-            entity.Property(e => e.EnableSampleValueCollection).HasDefaultValue(true);
+            entity.Property(e => e.EnableSampleValueCollection).HasDefaultValue(false);
             entity.Property(e => e.EnableReplayVerification).HasDefaultValue(true);
             entity.Property(e => e.LearningReplayMinFlips).HasDefaultValue(1);
             entity.Property(e => e.EnableContextualRetrieval).HasDefaultValue(false);
@@ -1469,6 +1554,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ExecutionError).HasMaxLength(4000);
             entity.Property(e => e.DryRunError).HasMaxLength(4000);
             entity.Property(e => e.CallerHash).HasMaxLength(128);
+            entity.Property(e => e.CandidateSqlHash).HasMaxLength(64);
 
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => e.DataSourceId);
@@ -1484,6 +1570,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.ColumnName).HasMaxLength(200);
             entity.Property(e => e.PatternContent).IsRequired();
             entity.Property(e => e.ExampleQuestion).HasMaxLength(4000);
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             entity.HasIndex(e => new { e.DataSourceId, e.Status, e.TableName });
             entity.HasIndex(e => e.ProjectId);

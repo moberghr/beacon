@@ -45,6 +45,9 @@ public class DryRunToolTests
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpAuditLog> _auditLogs = null!;
     private List<McpQuerySignal> _signals = null!;
+    private RecordingSqlGate _gate = null!;
+    private DataSourceType _warehouseType;
+    private DatabaseEngineType? _warehouseEngine;
 
     [SetUp]
     public void SetUp()
@@ -54,9 +57,11 @@ public class DryRunToolTests
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _auditLogs = [];
         _signals = [];
+        _warehouseType = DataSourceType.Database;
+        _warehouseEngine = DatabaseEngineType.PostgreSQL;
 
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 ["customers"] = ["id", "name", "email"],
@@ -72,6 +77,36 @@ public class DryRunToolTests
         _queryExecution
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ProviderDryRunOutcome.Valid());
+    }
+
+    [TestCase(DataSourceType.BigQuery, "bigquery")]
+    [TestCase(DataSourceType.Databricks, "databricks")]
+    public async Task WarehouseWithoutEngineType_IsGatedInItsOwnDialect(DataSourceType type, string dialect)
+    {
+        _warehouseType = type;
+        _warehouseEngine = null;
+
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        result.StructuredContent!.Value.GetProperty("valid").GetBoolean().Should().BeTrue();
+        _gate.Dialects.Should().Equal(dialect);
+    }
+
+    // The provider's dry-run error is the database's own and can quote a row value: the stored signal never holds it raw,
+    // whatever the PII setting (the caller's copy is redacted upstream while detection is on).
+    [Test]
+    public async Task AProviderDryRunErrorQuotingAValue_IsStoredOnTheSignalRedacted()
+    {
+        _queryExecution
+            .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderDryRunOutcome("22P02: invalid input syntax for type integer: \"Ivan Horvat\"", false));
+
+        await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        _signals.Should().ContainSingle()
+            .Which.DryRunError.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
     }
 
     [Test]
@@ -227,7 +262,7 @@ public class DryRunToolTests
     public async Task EmptyCatalog_AddsSchemaSkipAdvisory_InvalidatesVerdict_ButProviderDryRunStillRuns()
     {
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
 
         var result = await CreateTool().ExecuteAsync(
@@ -361,7 +396,7 @@ public class DryRunToolTests
     public async Task SchemaCatalogThrows_CatchPathAudits_WithResolvedProjectId()
     {
         _knowledgeGraph
-            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("catalog offline"));
 
         var result = await CreateTool().ExecuteAsync(
@@ -394,6 +429,22 @@ public class DryRunToolTests
             .Should().Equal("email");
     }
 
+    // The strictest guardrails of the live projects that link the data source apply, whichever of them asks.
+    [Test]
+    public async Task AnotherProjectLinkingTheSource_LowersTheRowLimit()
+    {
+        var sharedSources = TestSharedSources.Linking(DataSourceId, new Dictionary<int, McpSettingsData>
+        {
+            [ProjectId] = new() { MaxRowLimit = 1000 },
+            [ProjectId + 1] = new() { MaxRowLimit = 5 }
+        });
+
+        var result = await CreateTool(sharedSources: sharedSources).ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 5");
+    }
+
     private void SetupGuardrailValidation(bool isValid, string? error, List<string>? piiColumns)
     {
         _guardrail
@@ -401,28 +452,31 @@ public class DryRunToolTests
             .Returns(new QueryValidationResult(isValid, error, isValid, piiColumns));
     }
 
-    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null)
+    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
         // (§4.7 — async-queryable doubles, no DB). Mirrors FeedbackToolTests.
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals));
+            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals, _warehouseType, _warehouseEngine));
 
         settingsProvider ??= SettingsProviderMock.Create();
 
-        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] };
+        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
 
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
+        _gate = new RecordingSqlGate(TestSqlGate.Create(_guardrail.Object));
+
         return new DryRunTool(
             factory.Object,
-            TestSqlGate.Create(_guardrail.Object),
+            _gate,
+            TestConfiguredDatabases.None,
             _knowledgeGraph.Object,
             _queryExecution.Object,
-            settingsProvider.Object,
+            sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
             auditService,
             signalService,
@@ -448,8 +502,18 @@ public class DryRunToolTests
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
         private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
 
-        public DryRunTestContext(List<McpAuditLog> auditLogs, List<McpQuerySignal> signals) : base(Options, "beacon")
+        private readonly DataSourceType _warehouseType;
+        private readonly DatabaseEngineType? _warehouseEngine;
+
+        public DryRunTestContext(
+            List<McpAuditLog> auditLogs,
+            List<McpQuerySignal> signals,
+            DataSourceType warehouseType,
+            DatabaseEngineType? warehouseEngine)
+            : base(Options, "beacon")
         {
+            _warehouseType = warehouseType;
+            _warehouseEngine = warehouseEngine;
             _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))
                 .Callback<McpAuditLog>(auditLogs.Add);
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
@@ -476,9 +540,9 @@ public class DryRunToolTests
                     {
                         Id = DataSourceId,
                         Name = "warehouse",
-                        DataSourceType = DataSourceType.Database,
+                        DataSourceType = _warehouseType,
                         EncryptedConnectionData = "encrypted",
-                        DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                        DatabaseEngineType = _warehouseEngine
                     },
                     new()
                     {

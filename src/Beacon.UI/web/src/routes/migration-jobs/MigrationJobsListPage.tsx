@@ -7,14 +7,16 @@ import { useSearchFilter } from '@/lib/usePagedList';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { MigrationMode } from '@/lib/enums';
+import { ChangeApprovalKind, MigrationMode } from '@/lib/enums';
 import { formatDateTime, formatNumber } from '@/lib/format';
+import { useAccess } from '@/auth/useAuth';
 import {
   useMigrationJobsList,
   useDeleteMigrationJob,
   type MigrationJobListItem,
 } from './queries';
 import { MIGRATION_MODE_LABEL } from '@/routes/migration-history/queries';
+import { AwaitingApprovalPill, RejectedChangeNote } from '@/routes/approvals/AwaitingApproval';
 
 const GRID_TEMPLATE = '0.5fr 1.4fr 1.4fr 1fr 0.7fr 0.6fr 1.1fr 60px';
 
@@ -25,6 +27,8 @@ export default function MigrationJobsListPage() {
   const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
   const deleteMutation = useDeleteMigrationJob();
   const [deleting, setDeleting] = useState<MigrationJobListItem | null>(null);
+  // Jobs are listed only where the caller reads their data sources: without a Viewer or Editor role, none may be.
+  const readsNoProjectData = useAccess().isFunctionalOnly;
 
   const jobs = list.items;
 
@@ -34,7 +38,27 @@ export default function MigrationJobsListPage() {
       key: 'name',
       sortKey: 'name',
       header: 'Name',
-      render: r => <span className="font-semibold text-text">{r.name}</span>,
+      render: r => (
+        <span className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-2">
+            <span className="font-semibold text-text">{r.name}</span>
+            {r.awaitingApproval && (
+              <AwaitingApprovalPill
+                kind={ChangeApprovalKind.MigrationJob}
+                requestId={r.pendingApprovalRequestId}
+                lastDecision={r.lastApprovalDecision}
+              />
+            )}
+          </span>
+          {r.awaitingApproval && (
+            <RejectedChangeNote
+              kind={ChangeApprovalKind.MigrationJob}
+              requestId={r.pendingApprovalRequestId}
+              lastDecision={r.lastApprovalDecision}
+            />
+          )}
+        </span>
+      ),
     },
     {
       key: 'flow',
@@ -153,11 +177,23 @@ export default function MigrationJobsListPage() {
           gridTemplate={GRID_TEMPLATE}
           onRowClick={r => navigate(`/migration-jobs/${r.id}`)}
           empty={
-            <EmptyState
-              icon={<ArrowLeftRight />}
-              title={isLoading ? 'Loading jobs…' : 'No migration jobs yet'}
-              description={isLoading ? '' : 'Create your first job above.'}
-            />
+            isLoading || !readsNoProjectData ? (
+              <EmptyState
+                icon={<ArrowLeftRight />}
+                title={isLoading ? 'Loading jobs…' : 'No migration jobs yet'}
+                description={isLoading ? '' : 'Create your first job above.'}
+              />
+            ) : (
+              <EmptyState
+                icon={<ArrowLeftRight />}
+                title="No migration jobs you can see"
+                description={
+                  'Only jobs whose data sources you can read are listed, and a job needs read access to its data ' +
+                  'sources and write access to its destination. Ask a Beacon administrator for a Viewer or Editor role ' +
+                  'in the projects that hold them.'
+                }
+              />
+            )
           }
         />
       )}

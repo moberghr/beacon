@@ -7,6 +7,11 @@ interface DataSourcePickerProps {
   onSelect: (dataSource: DataSourceEntry | null) => void;
   /** Only sources with a database engine (SQL targets). */
   databaseOnly?: boolean;
+  /**
+   * True: only migration write targets (a migration's destination). Otherwise only the sources Beacon reads: a write
+   * target is never queried, so no query, step, rule or actor can use one.
+   */
+  migrationTargets?: boolean;
   /** Offer "All data sources" (a filter) instead of forcing a choice. */
   clearLabel?: string;
   /** Known label for the current value, which skips the by-id lookup (e.g. the name stored on a step). */
@@ -23,6 +28,7 @@ export function DataSourcePicker({
   value,
   onSelect,
   databaseOnly,
+  migrationTargets = false,
   clearLabel,
   selectedLabel,
   placeholder = 'Search data sources…',
@@ -35,11 +41,15 @@ export function DataSourcePicker({
   const label =
     selectedLabel ??
     (selected.data ? `${selected.data.name} (${dataSourceEngine(selected.data)})` : undefined);
+  const params = {
+    ...(databaseOnly ? { databaseOnly: true } : {}),
+    migrationTargets,
+  };
 
   return (
     <SearchPicker<DataSourceEntry>
       path="/beacon/api/data-sources"
-      params={databaseOnly ? { databaseOnly: true } : undefined}
+      params={params}
       queryKey={['data-sources']}
       value={value}
       selectedLabel={label}

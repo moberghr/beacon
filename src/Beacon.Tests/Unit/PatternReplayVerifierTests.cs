@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Eval;
@@ -8,6 +9,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Learning;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -371,7 +373,7 @@ public class PatternReplayVerifierTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
 
         var sqlGen = new Mock<ISqlGenerationService>();
@@ -411,6 +413,8 @@ public class PatternReplayVerifierTests
             knowledge.Object,
             sqlGen.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
 
         return new McpEvalService(
@@ -420,8 +424,10 @@ public class PatternReplayVerifierTests
             providerFactory.Object,
             guardrail.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestConfiguredDatabases.None,
             settings.Object,
             llm.Object,
+            TestRowDataEgress.Discarding(),
             NullLogger<McpEvalService>.Instance);
     }
 

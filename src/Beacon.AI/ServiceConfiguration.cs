@@ -70,6 +70,9 @@ public static class ServiceConfiguration
         // every completion through LlmRequestQueue.
         services.AddSingleton<ILlmProvider, DelegatingLlmProvider>();
 
+        // The log of row-derived data sent to the LLM provider (ids and categories only).
+        services.TryAddTransient<ILlmRowDataEgress, LlmRowDataEgress>();
+
         // AI services
         services.TryAddScoped<IAiAlertGenerationService, AiAlertGenerationService>();
 
@@ -86,7 +89,8 @@ public static class ServiceConfiguration
         // Local ONNX embeddings (in-process, no egress). Singleton for session reuse.
         services.AddBeaconEmbeddings();
 
-        // Knowledge Graph
+        // Knowledge Graph. Grounding a prompt leaves out is logged once per row and interval, across requests.
+        services.TryAddSingleton<WithheldGroundingLog>();
         services.TryAddTransient<IKnowledgeGraphService, KnowledgeGraphService>();
 
         // Ask-time value grounding (spec item 5) — probes candidate string columns for literal-looking

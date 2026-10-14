@@ -1,3 +1,5 @@
+using Beacon.Core;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.SavedQueries;
 using FluentAssertions;
@@ -162,5 +164,39 @@ public class SavedQueryToolSourceTests
         tools.Single(x => x.McpToolName == "without_description").Description.Should().Be("Description of query 2");
     }
 
-    private static SavedQueryToolSource Source(SavedQueryTestData data) => new(data.Store.Factory().Object);
+    // Strict mode: a tool runs only a version approved for exactly its content. An approval recorded before Beacon kept
+    // hashes still counts outside strict mode (the host notes those tools at startup), not in it.
+    [TestCase(false, false, true)]
+    [TestCase(true, false, false)]
+    [TestCase(true, true, true)]
+    public async Task InStrictMode_OnlyAVersionApprovedForItsHashIsCallable(bool strictMode, bool approvedForItsHash, bool callable)
+    {
+        var data = new SavedQueryTestData();
+        data.Project(ProjectA, "A", data.DataSource(10, "warehouse"));
+        var query = data.Query(1, "loan_book", [Step(1, 10, "SELECT 1")]);
+        query.ActiveVersion!.ContentHash = new string('a', 64);
+        data.Store.ListFor<QueryApprovalRequest>().Single().ApprovedContentHash = approvedForItsHash ? query.ActiveVersion.ContentHash : null;
+        var configuration = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, RequireApprovedVersionToRun = strictMode } };
+
+        var tools = await Source(data, configuration).GetToolsAsync([ProjectA], CancellationToken.None);
+
+        tools.Should().HaveCount(callable ? 1 : 0);
+    }
+
+    // An approval of another content than the active version's (a hash that does not match) never counts in strict mode.
+    [Test]
+    public async Task InStrictMode_AnApprovalOfOtherContent_DoesNotCount()
+    {
+        var data = new SavedQueryTestData();
+        data.Project(ProjectA, "A", data.DataSource(10, "warehouse"));
+        var query = data.Query(1, "loan_book", [Step(1, 10, "SELECT 1")]);
+        query.ActiveVersion!.ContentHash = new string('a', 64);
+        data.Store.ListFor<QueryApprovalRequest>().Single().ApprovedContentHash = new string('b', 64);
+        var strict = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true, RequireApprovedVersionToRun = true } };
+
+        (await Source(data, strict).GetToolsAsync([ProjectA], CancellationToken.None)).Should().BeEmpty();
+    }
+
+    private static SavedQueryToolSource Source(SavedQueryTestData data, BeaconConfiguration? configuration = null) =>
+        new(data.Store.Factory().Object, configuration ?? new BeaconConfiguration());
 }

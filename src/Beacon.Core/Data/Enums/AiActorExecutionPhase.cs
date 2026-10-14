@@ -33,5 +33,12 @@ public enum AiActorExecutionPhase
     /// <summary>
     /// Think cycle failed with an error
     /// </summary>
-    Failed = 6
+    Failed = 6,
+
+    /// <summary>
+    /// A background think cycle that did not run: the actor's creator may no longer work with its data source (an inactive
+    /// creator, a lost membership, or an actor without a creator on data that is not openly reachable). No LLM call and no
+    /// SQL ran; not a failure.
+    /// </summary>
+    Skipped = 7
 }

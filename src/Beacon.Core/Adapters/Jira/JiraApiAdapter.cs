@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Refit;
-using Beacon.Core.Models;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Jira;
 
@@ -89,10 +89,9 @@ public class JiraApiAdapter(
             }
             catch (ApiException ex)
             {
-                var errorContent = ex.Content ?? "No error content";
-                logger.LogError(ex, "Failed to create Jira issue. Project: {Project}, IssueType: {IssueType}, Error: {Error}",
-                    credentials.Project, issueType, errorContent);
-                throw new BeaconException($"Failed to create Jira issue: {errorContent}", ex);
+                // The response body is remote content: never logged (§1.11) and never in the exception users see.
+                logger.LogDebug("Jira rejected the issue ({IssueType}) with HTTP {StatusCode}", issueType, (int)ex.StatusCode);
+                throw NotificationDeliveryException.ForStatus(ex.StatusCode);
             }
         }
         else
@@ -126,8 +125,9 @@ public class JiraApiAdapter(
 
         if (transition == null)
         {
-            logger.LogWarning("Transition '{TransitionName}' not found for issue {IssueKey}. Available transitions: {Transitions}",
-                transitionName, issueKey, string.Join(", ", transitionsResponse.Transitions.Select(t => t.Name)));
+            // The available transitions are remote content (§1.11): only their number is logged.
+            logger.LogWarning("Transition '{TransitionName}' not found for issue {IssueKey} ({TransitionCount} available)",
+                transitionName, issueKey, transitionsResponse.Transitions.Length);
             return;
         }
 

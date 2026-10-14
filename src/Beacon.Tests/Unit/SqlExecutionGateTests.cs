@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -19,10 +22,14 @@ public class SqlExecutionGateTests
 {
     private SqlExecutionGate _gate = null!;
 
+    // A deployment that lets read-only enforcement be switched off (Beacon:Mcp:ForceReadOnly = false).
+    private SqlExecutionGate _unlocked = null!;
+
     [SetUp]
     public void SetUp()
     {
         _gate = TestSqlGate.Create();
+        _unlocked = TestSqlGate.Create(deployment: TestSqlGate.Unlocked);
     }
 
     private static Dictionary<string, HashSet<string>> Catalog() => new(StringComparer.OrdinalIgnoreCase)
@@ -170,6 +177,23 @@ public class SqlExecutionGateTests
         report.LintFindings.Should().BeEmpty();
     }
 
+    // Read-only enforcement off lets unparseable SQL reach the lint stage, which then has no opinion rather than a pass. The
+    // in-memory SQLite join reaches no other database, so its SQL skips the cross-database stage, which would block it.
+    [Test]
+    public void Evaluate_UnparseableSqlWithReadOnlyOff_LintIsSkippedNotPassed()
+    {
+        var report = _unlocked.Evaluate(Request("SELECT FROM WHERE", "SQLite") with
+        {
+            EnforceReadOnly = false,
+            InMemoryJoin = true,
+            LintContext = LintContext()
+        });
+
+        report.Verdicts.Lint.Status.Should().Be(SqlGateStatus.Skipped);
+        report.Verdicts.Lint.Code.Should().Be(SqlGateCodes.ParseFailed);
+        report.LintFindings.Should().BeEmpty();
+    }
+
     [Test]
     public void Evaluate_LintNotRequested_SkippedNotRequested()
     {
@@ -194,7 +218,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("  ", "PostgreSQL", settings));
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("  ", "PostgreSQL", settings));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be("empty");
@@ -206,7 +230,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("SELECT email FROM customers", "PostgreSQL", settings));
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("SELECT email FROM customers", "PostgreSQL", settings));
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.ReadOnly.Code.Should().Be("disabled");
@@ -219,11 +243,58 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
 
-        // Read-only disabled is the legacy admin mode the R2 lock removes; the gate must honour it today.
+        // Read-only enforcement switched off is honoured only where the deployment unlocks it.
         report.Blocked.Should().BeFalse();
         report.Verdicts.ReadOnly.Code.Should().Be("disabled");
+    }
+
+    [Test]
+    public void Evaluate_UnderTheDefaultReadOnlyLock_ACallerTurningReadOnlyOff_IsStillJudgedReadOnly()
+    {
+        var settings = TestSqlGate.DefaultSettings();
+        settings.EnforceReadOnly = false;
+
+        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
+
+        report.Blocked.Should().BeTrue("Beacon:Mcp:ForceReadOnly is on unless the deployment turns it off");
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        report.BlockReason.Should().Contain("deployment lock Beacon:Mcp:ForceReadOnly");
+    }
+
+    [Test]
+    public void Evaluate_ARefusalTheReadOnlyLockCausesOverStoredSettings_NamesTheLock_AndNoOtherRefusalDoes()
+    {
+        var stored = new McpSettingsData { EnforceReadOnly = false };
+        var resolved = Beacon.Core.Services.McpSettingsProvider.Resolve(stored, null, new McpDeploymentOptions()).Effective;
+
+        var write = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", resolved));
+        var empty = _gate.Evaluate(SqlGateRequest.FromSettings("   ", "PostgreSQL", resolved));
+        var enforcedAnyway = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", TestSqlGate.DefaultSettings()));
+
+        resolved.EnforceReadOnly.Should().BeTrue();
+        resolved.ReadOnlyPinnedByLock.Should().BeTrue();
+        write.Blocked.Should().BeTrue();
+        write.BlockReason.Should().Contain("deployment lock Beacon:Mcp:ForceReadOnly");
+        empty.Blocked.Should().BeTrue();
+        empty.BlockReason.Should().NotContain("deployment lock", "a blank statement is refused whatever read-only says");
+        enforcedAnyway.Blocked.Should().BeTrue();
+        enforcedAnyway.BlockReason.Should().NotContain("deployment lock", "the stored settings enforce read-only themselves");
+    }
+
+    [Test]
+    public void Evaluate_UnderTheDefaultReadOnlyLock_TheInMemoryJoin_IsJudgedReadOnly()
+    {
+        var settings = TestSqlGate.DefaultSettings();
+        settings.EnforceReadOnly = false;
+
+        var locked = _gate.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT * FROM result1; ATTACH DATABASE '/tmp/x.db' AS x", settings));
+        var unlocked = _unlocked.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT * FROM result1; ATTACH DATABASE '/tmp/x.db' AS x", settings));
+
+        locked.Blocked.Should().BeTrue();
+        locked.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        unlocked.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.Disabled, "only an unlocked deployment lets the settings switch it off");
     }
 
     [Test]
@@ -289,7 +360,8 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("SELECT ??? FROM", "PostgreSQL", settings) with { MaxRows = 100 });
+        // The in-memory SQLite join skips the cross-database stage, which would block SQL it cannot parse.
+        var report = _unlocked.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT ??? FROM", settings) with { MaxRows = 100 });
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.RowLimit.Status.Should().Be(SqlGateStatus.Pass);
@@ -335,5 +407,75 @@ public class SqlExecutionGateTests
         report.Blocked.Should().BeFalse();
         report.Verdicts.Schema.Status.Should().Be(SqlGateStatus.Fail);
         report.Verdicts.Lint.Status.Should().Be(SqlGateStatus.Pass, "lint is evaluated on advisory schema failures so the ask repair loop can compare findings");
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Evaluate_SqlOverDefaultCap_FailsSqlTooLong_BeforeAnyRegexRuns(bool enforceReadOnly)
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        var gate = TestSqlGate.Create(guardrail.Object, deployment: TestSqlGate.Unlocked);
+        var settings = TestSqlGate.DefaultSettings();
+        settings.EnforceReadOnly = enforceReadOnly;
+        var sql = "SELECT " + new string('1', 100_001 - "SELECT ".Length);
+
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "PostgreSQL", settings) with
+        {
+            Catalog = Catalog(),
+            LintContext = LintContext(),
+            MaxRows = 10
+        });
+
+        sql.Length.Should().Be(100_001);
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        report.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.SqlTooLong);
+        report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.NotEvaluated);
+        report.Verdicts.Lint.Code.Should().Be(SqlGateCodes.NotEvaluated);
+        report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.NotEvaluated);
+        report.BlockReason.Should().Contain("100000").And.NotContain("SELECT", "the reason carries counts, never SQL text (§1.11)");
+        report.FinalSql.Should().Be(sql);
+        report.TablesUsed.Should().BeEmpty();
+        guardrail.Verify(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions>()), Times.Never);
+    }
+
+    [Test]
+    public void Evaluate_SqlAtDefaultCap_PassesTheLengthStage()
+    {
+        var guardrail = new Mock<IQueryGuardrailService>();
+        guardrail
+            .Setup(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions>()))
+            .Returns(new QueryValidationResult(true));
+        var gate = TestSqlGate.Create(guardrail.Object);
+        var sql = "SELECT 1" + new string(' ', 100_000 - "SELECT 1".Length);
+
+        var report = gate.Evaluate(Request(sql));
+
+        sql.Length.Should().Be(100_000);
+        report.Blocked.Should().BeFalse();
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Pass);
+        guardrail.Verify(x => x.ValidateQuery(sql, It.IsAny<QueryGuardrailOptions>()), Times.Once);
+    }
+
+    [Test]
+    public void Evaluate_ConfiguredMaxSqlChars_IsHonoured()
+    {
+        var options = Options.Create(new McpDeploymentOptions { Ceilings = new McpCeilingOptions { MaxSqlChars = 20 } });
+        var gate = new SqlExecutionGate(
+            new QueryGuardrailService(),
+            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            new SqlSchemaValidator(),
+            new SqlSemanticLinter(),
+            NullLogger<SqlExecutionGate>.Instance,
+            deploymentOptions: options);
+
+        var over = gate.Evaluate(Request("SELECT id FROM orders"));
+        var atCap = gate.Evaluate(Request("SELECT id FROM items"));
+
+        over.Blocked.Should().BeTrue();
+        over.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.SqlTooLong);
+        over.BlockReason.Should().Contain("20");
+        atCap.Blocked.Should().BeFalse();
+        atCap.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Pass);
     }
 }

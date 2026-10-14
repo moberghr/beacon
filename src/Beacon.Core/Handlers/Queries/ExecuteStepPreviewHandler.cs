@@ -2,6 +2,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Queries;
 
@@ -29,7 +30,7 @@ internal sealed class ExecuteStepPreviewHandler(IQueryExecutionPreviewService pr
 }
 
 /// <summary>Runs one step on its own and returns one page of its result; <c>sort</c> names a result column.</summary>
-public record ExecuteStepPreviewCommand : ListRequest, IRequest<QueryPreviewResult>
+public record ExecuteStepPreviewCommand : ListRequest, IRequest<QueryPreviewResult>, IProjectAuthorizedRequest
 {
     public required int QueryId { get; init; }
 
@@ -39,4 +40,15 @@ public record ExecuteStepPreviewCommand : ListRequest, IRequest<QueryPreviewResu
 
     /// <summary>The editor's unsaved steps; when set the step runs from here instead of the stored query.</summary>
     public QueryDraft? Draft { get; init; }
+
+    // A stored query runs (Run); a draft runs the editor's own SQL on its steps' data sources (Query there, and reading
+    // the query it edits).
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+        Draft == null
+            ? [new(ProjectResource.Query(QueryId), ProjectAction.Run)]
+            :
+            [
+                new(ProjectResource.Query(QueryId), ProjectAction.Read),
+                new(ProjectResource.DataSources(Draft.Steps?.Select(x => x.DataSourceId)), ProjectAction.Query)
+            ];
 }

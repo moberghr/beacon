@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 
@@ -46,7 +47,7 @@ internal static class McpToolDescriptionOverrides
                 var logger = request.Services?
                     .GetService<ILoggerFactory>()?
                     .CreateLogger(typeof(McpToolDescriptionOverrides));
-                logger?.LogWarning(ex, "Failed to apply MCP tool description overrides; serving compiled descriptions.");
+                logger?.LogWarning("Failed to apply MCP tool description overrides; serving compiled descriptions ({Failure}).", FailureCodes.Describe(ex));
             }
 
             return result;

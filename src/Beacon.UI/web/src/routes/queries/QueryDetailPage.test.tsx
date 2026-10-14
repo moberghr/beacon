@@ -32,6 +32,7 @@ const SAMPLE_DETAIL = {
   finalQueryDataSourceId: null,
   aiActorId: null,
   aiActorName: null,
+  activeVersionId: 5,
   isLocked: false,
   subscriptions: [],
   notificationHistory: [],
@@ -77,5 +78,34 @@ describe('QueryDetailPage', () => {
 
     // Steps card shows the SQL.
     expect(screen.getByText(/SELECT \* FROM beacon.revenue/)).toBeInTheDocument();
+  });
+
+  // With the approval workflow on, a new query has no live steps until its first version is approved.
+  it.each([
+    [3, true],
+    [4, false],
+  ])('says a new query waits for its first approval (version status %s: %s)', async (status, shown) => {
+    mswServer.use(
+      http.get('*/beacon/api/queries/42', () => HttpResponse.json({ ...SAMPLE_DETAIL, steps: [], activeVersionId: null })),
+      http.get('*/beacon/api/queries/42/versions', () =>
+        HttpResponse.json({ items: [{ id: 30, versionNumber: 1, status, name: 'Daily revenue alert' }], totalCount: 1, pageCount: 1 }),
+      ),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/queries/:id" element={<QueryDetailPage />} />
+      </Routes>,
+      { initialEntries: ['/queries/42'] },
+    );
+
+    await screen.findByText('Daily revenue alert');
+    const message = "This query's first version is waiting for approval; nothing runs until it is approved.";
+    if (shown) {
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      return;
+    }
+
+    await waitFor(() => expect(screen.queryByText(message)).not.toBeInTheDocument());
   });
 });

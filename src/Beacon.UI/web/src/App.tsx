@@ -2,6 +2,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from './auth/RequireAuth';
+import { RequireMigrations } from './auth/RequireMigrations';
 import { AppShell } from './components/layout/AppShell';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { lazyWithRetry } from './lib/lazyWithRetry';
@@ -34,6 +35,7 @@ const NewProjectPage = lazyWithRetry(() => import('./routes/projects/NewProjectP
 const NewMigrationJobPage = lazyWithRetry(() => import('./routes/migration-jobs/NewMigrationJobPage'));
 const MigrationJobDetailPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobDetailPage'));
 const ApprovalDetailPage = lazyWithRetry(() => import('./routes/approvals/ApprovalDetailPage'));
+const ChangeApprovalDetailPage = lazyWithRetry(() => import('./routes/approvals/ChangeApprovalDetailPage'));
 const AiActorEditPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorEditPage'));
 const AdminSettingsPage = lazyWithRetry(() => import('./routes/admin-settings/AdminSettingsPage'));
 const SettingsPage = lazyWithRetry(() => import('./routes/settings/SettingsPage'));
@@ -95,10 +97,13 @@ export default function App() {
                   <Route path="/notifications" element={lazyRoute(NotificationsPage)} />
                   <Route path="/notifications/:id" element={lazyRoute(NotificationDetailPage)} />
                   <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />
-                  <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
-                  <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
-                  <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
-                  <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                  {/* Data migration exists only while the deployment runs it (Beacon:Migrations:Enabled). */}
+                  <Route element={<RequireMigrations />}>
+                    <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
+                    <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
+                    <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
+                    <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                  </Route>
                   <Route path="/queries" element={lazyRoute(QueriesListPage)} />
                   <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />
                   <Route path="/queries/:id" element={lazyRoute(QueryDetailPage)} />
@@ -110,6 +115,7 @@ export default function App() {
                   <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
                   <Route path="/approvals" element={lazyRoute(ApprovalsListPage)} />
                   <Route path="/approvals/:id" element={lazyRoute(ApprovalDetailPage)} />
+                  <Route path="/approvals/changes/:id" element={lazyRoute(ChangeApprovalDetailPage)} />
                   <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
                   <Route path="/users" element={lazyRoute(UsersListPage)} />
                   <Route path="/subscriptions" element={lazyRoute(SubscriptionsListPage)} />

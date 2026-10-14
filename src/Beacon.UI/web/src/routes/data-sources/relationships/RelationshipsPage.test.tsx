@@ -1,10 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
 import { mswServer } from '../../../../vitest.setup';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/render';
 import RelationshipsPage from './RelationshipsPage';
+import { VERIFIED_DELETE_REFUSED } from './queries';
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 // The page reads :id via useParams, so it must be mounted behind its real route pattern.
 function renderPage() {
@@ -43,6 +49,7 @@ const RELATIONSHIPS = {
       confidence: 1,
       isVerified: true,
       verifiedTime: null,
+      canCurate: true,
     },
     {
       id: 2,
@@ -58,6 +65,7 @@ const RELATIONSHIPS = {
       confidence: 0.9,
       isVerified: false,
       verifiedTime: null,
+      canCurate: true,
     },
   ],
 };
@@ -73,6 +81,11 @@ function mockEndpoints(
 }
 
 describe('RelationshipsPage', () => {
+  beforeEach(() => {
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+  });
+
   it('renders persisted relationships with their origin and verification state', async () => {
     mockEndpoints();
     renderPage();
@@ -102,7 +115,7 @@ describe('RelationshipsPage', () => {
     expect(screen.getByText('sales.order_products')).toBeInTheDocument();
   });
 
-  it('verifies an unverified relationship', async () => {
+  it('verifies an unverified relationship, naming the label and cardinality the curator reviewed', async () => {
     mockEndpoints();
     let verifiedBody: unknown = null;
     mswServer.use(
@@ -117,7 +130,82 @@ describe('RelationshipsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /verify relationship/i }));
 
-    await waitFor(() => expect(verifiedBody).toEqual({ isVerified: true }));
+    await waitFor(() =>
+      expect(verifiedBody).toEqual({ isVerified: true, reviewedLabel: 'account', reviewedCardinality: 2 }),
+    );
+  });
+
+  it('does not let a caller who may not curate the source verify, and says why', async () => {
+    mockEndpoints({
+      items: RELATIONSHIPS.items.map(x => ({ ...x, canCurate: false })),
+    });
+
+    renderPage();
+    await screen.findByText(/billing\.invoices\.account_id/);
+
+    const verify = screen.getByRole('button', { name: /verify relationship/i });
+    expect(verify).toBeDisabled();
+    expect(verify).toHaveAttribute('title', expect.stringMatching(/project admin of every project linking this data source/i));
+    expect(screen.getByRole('button', { name: /remove verification/i })).toBeDisabled();
+  });
+
+  it('says a relationship added by someone who may not curate waits for a curator', async () => {
+    mockEndpoints();
+    mswServer.use(
+      http.post('*/beacon/api/data-sources/:id/relationships', () => HttpResponse.json({ id: 9, isVerified: false })),
+    );
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getByRole('button', { name: /add relationship/i }));
+    for (const [label, value] of [
+      ['Source schema', 'hr'],
+      ['Source table', 'employees'],
+      ['Source column', 'department_id'],
+      ['Target schema', 'hr'],
+      ['Target table', 'departments'],
+      ['Target column', 'id'],
+    ]) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    }
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Relationship added, pending verification by a curator'),
+    );
+  });
+
+  it('says nothing more when the relationship added is verified', async () => {
+    mockEndpoints();
+    mswServer.use(
+      http.post('*/beacon/api/data-sources/:id/relationships', () => HttpResponse.json({ id: 9, isVerified: true })),
+      http.post('*/beacon/api/data-sources/:id/relationships/discover-preview', () =>
+        HttpResponse.json({
+          proposals: [
+            {
+              sourceSchema: 'hr',
+              sourceTable: 'employees',
+              sourceColumn: 'department_id',
+              targetSchema: 'hr',
+              targetTable: 'departments',
+              targetColumn: 'id',
+              label: 'department',
+              origin: 1,
+              cardinality: 2,
+              confidence: 0.9,
+            },
+          ],
+        }),
+      ),
+    );
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getByRole('button', { name: /discover/i }));
+    await screen.findByText(/Discovered proposals \(1\)/);
+    fireEvent.click(screen.getByRole('button', { name: /accept/i }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Relationship added'));
   });
 
   it('lists discovery proposals without saving them until accepted', async () => {
@@ -165,5 +253,100 @@ describe('RelationshipsPage', () => {
         targetTable: 'departments',
       }),
     );
+  });
+
+  it('sends a relabel and says when the changed relationship waits for a curator', async () => {
+    mockEndpoints();
+    let body: unknown = null;
+    mswServer.use(
+      http.put('*/beacon/api/data-sources/:id/relationships/:relationshipId', async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ isVerified: false });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getAllByRole('button', { name: /edit relationship/i })[0]);
+    fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'buyer' } });
+    fireEvent.change(screen.getByLabelText('Relationship cardinality'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(body).toEqual({ label: 'buyer', cardinality: 1 }));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Relationship updated, pending curator verification'),
+    );
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^save$/i })).toBeNull());
+  });
+
+  it('says nothing more when the changed relationship stays verified', async () => {
+    mockEndpoints();
+    mswServer.use(
+      http.put('*/beacon/api/data-sources/:id/relationships/:relationshipId', () => HttpResponse.json({ isVerified: true })),
+    );
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getAllByRole('button', { name: /edit relationship/i })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Relationship updated'));
+  });
+
+  it('tells a caller who may not curate that changing a verified relationship unverifies it', async () => {
+    mockEndpoints({ items: RELATIONSHIPS.items.map(x => ({ ...x, canCurate: false })) });
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getAllByRole('button', { name: /edit relationship/i })[0]);
+
+    expect(screen.getByText(/Changing it sets it back to pending curator verification/)).toBeInTheDocument();
+  });
+
+  it('does not offer a caller who may not curate the deletion of a verified relationship, and says why', async () => {
+    mockEndpoints({ items: RELATIONSHIPS.items.map(x => ({ ...x, canCurate: false })) });
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+
+    const [verified, unverified] = screen.getAllByRole('button', { name: /delete relationship/i });
+    expect(verified).toBeDisabled();
+    expect(verified).toHaveAttribute('title', expect.stringMatching(/verified relationship is removed only by a project admin/i));
+    expect(unverified).toBeEnabled();
+  });
+
+  it('explains a refused delete, which the server answers with a bare 403', async () => {
+    mockEndpoints();
+    mswServer.use(
+      http.delete('*/beacon/api/data-sources/:id/relationships/:relationshipId', () =>
+        HttpResponse.json(
+          { title: 'Forbidden', status: 403 },
+          { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+        )),
+    );
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getAllByRole('button', { name: /delete relationship/i })[0]);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(VERIFIED_DELETE_REFUSED));
+    expect(VERIFIED_DELETE_REFUSED).toMatch(/verified relationship needs the project admin role/);
+  });
+
+  it('shows the server reason for any other refused delete', async () => {
+    mockEndpoints();
+    mswServer.use(
+      http.delete('*/beacon/api/data-sources/:id/relationships/:relationshipId', () =>
+        HttpResponse.json(
+          { title: 'Not Found', status: 404 },
+          { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+        )),
+    );
+
+    renderPage();
+    await screen.findByText(/sales\.orders\.customer_id/);
+    fireEvent.click(screen.getAllByRole('button', { name: /delete relationship/i })[0]);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not Found'));
   });
 });

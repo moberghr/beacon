@@ -1,15 +1,21 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Notifications;
 
-internal sealed class GetNotificationDetailHandler(INotificationService notificationService)
+internal sealed class GetNotificationDetailHandler(
+    INotificationService notificationService,
+    IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetNotificationDetailQuery, GetNotificationDetailResult>
 {
     public async Task<GetNotificationDetailResult> Handle(GetNotificationDetailQuery request, CancellationToken cancellationToken)
     {
-        var data = await notificationService.GetNotificationDetails(request.NotificationId, cancellationToken);
+        // A run outside the caller's projects reads as not found, like a missing one.
+        var scope = await StoredRunAccess.ScopeOfAsync(projectAccess, cancellationToken);
+        var data = await notificationService.GetNotificationDetails(request.NotificationId, scope, cancellationToken);
 
         if (data == null)
         {
@@ -34,7 +40,13 @@ internal sealed class GetNotificationDetailHandler(INotificationService notifica
     }
 }
 
-public record GetNotificationDetailQuery(int NotificationId) : IRequest<GetNotificationDetailResult>;
+public record GetNotificationDetailQuery(int NotificationId) : IRequest<GetNotificationDetailResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Notification(NotificationId), ProjectAction.Read)
+    ];
+}
 
 public record GetNotificationDetailResult(NotificationDetailEntry? Entry);
 

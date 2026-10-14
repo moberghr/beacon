@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Beacon.Core;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -93,6 +94,45 @@ public class SavedQueryToolServiceTests
         await Service([2]).ListToolsAsync(CancellationToken.None);
 
         _source.Verify(x => x.GetToolsAsync(It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { 2 })), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task ASavedQuery_IsVisibleOnlyWhereTheCallerMayRunStoredSql()
+    {
+        // The caller reads projects 1 and 2 but may run stored SQL in project 1 only.
+        _tools.Add(LoanBook([1, 2]));
+        var access = new ProjectAccessScope(
+            false,
+            new Dictionary<ProjectAction, ProjectSet>
+            {
+                [ProjectAction.Read] = new([1, 2], false, []),
+                [ProjectAction.Run] = new([1], false, [])
+            },
+            new Dictionary<int, ProjectGrant>
+            {
+                [1] = new(ProjectRole.Viewer, new HashSet<ProjectAction> { ProjectAction.Read, ProjectAction.Run }),
+                [2] = new(ProjectRole.Viewer, new HashSet<ProjectAction> { ProjectAction.Read })
+            });
+        var service = Service([1, 2], access: access);
+
+        var tools = await service.ListToolsAsync(CancellationToken.None);
+        var elsewhere = await service.CallAsync("q_loan_book", Json("""{ "from": "2026-01-01", "to": "2026-02-01", "project_id": 2 }"""), CancellationToken.None);
+
+        _source.Verify(x => x.GetToolsAsync(It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { 1 })), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        tools.Should().ContainSingle().Which.Name.Should().Be("q_loan_book");
+        Text(elsewhere).Should().StartWith("Access denied");
+        _executor.Verify(x => x.ExecuteAsync(It.IsAny<SavedQueryToolDefinition>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ACallerThatMayRunNoStoredSql_SeesNoSavedQueries_AndTheSourceIsNotAsked()
+    {
+        _tools.Add(LoanBook([1]));
+
+        var tools = await Service([1], access: ProjectAccessScope.None).ListToolsAsync(CancellationToken.None);
+
+        tools.Should().BeEmpty();
+        _source.Verify(x => x.GetToolsAsync(It.IsAny<IReadOnlyCollection<int>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -274,7 +314,12 @@ public class SavedQueryToolServiceTests
     private static SavedQueryToolDefinition LoanBook(IReadOnlyList<int> projects) =>
         Tool("loan_book", [Step(1, 10, "SELECT * FROM loans WHERE issued >= {from} AND issued < {to}", Parameter("from", ParameterType.DateTime), Parameter("to", ParameterType.DateTime))], projects);
 
-    private SavedQueryToolService Service(List<int> allowedProjects, int namedToolLimit = 25, IReadOnlyDictionary<int, McpSettingsData>? projectSettings = null)
+    // The caller's project access defaults to reading and running stored SQL in each of its projects.
+    private SavedQueryToolService Service(
+        List<int> allowedProjects,
+        int namedToolLimit = 25,
+        IReadOnlyDictionary<int, McpSettingsData>? projectSettings = null,
+        ProjectAccessScope? access = null)
     {
         var projectContext = new McpProjectContext { AllowedProjectIds = allowedProjects, UserId = 11 };
         var audit = new McpAuditService(
@@ -285,7 +330,9 @@ public class SavedQueryToolServiceTests
             NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
         var configuration = new BeaconConfiguration { SavedQueryTools = new SavedQueryToolOptions { NamedToolLimit = namedToolLimit } };
 
-        return new SavedQueryToolService(_source.Object, _executor.Object, projectContext, audit, NullLogger<SavedQueryToolService>.Instance, configuration);
+        var evaluator = TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn([.. allowedProjects]));
+
+        return new SavedQueryToolService(_source.Object, _executor.Object, projectContext, evaluator, audit, NullLogger<SavedQueryToolService>.Instance, configuration);
     }
 
     private static Dictionary<string, JsonElement> Json(string json) =>

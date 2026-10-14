@@ -1,14 +1,36 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeftRight } from 'lucide-react';
-import { Button, Card, CardBody, KPI, KPIGrid, PageHeader } from '@/components/beacon';
+import { Button, Card, CardBody, KPI, KPIGrid, PageHeader, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useAiActorDetailsQuery, ACTOR_STATUS_LABEL } from './queries';
+import { useAccess } from '@/auth/useAuth';
+import { SetOwnerDialog } from '../users/SetOwnerDialog';
+import {
+  useAiActorDetailsQuery,
+  useSetAiActorOwner,
+  ACTOR_PHASE_LABEL,
+  ACTOR_STATUS_LABEL,
+  type AiActorDetails,
+} from './queries';
+
+/** The creator by name, never by id: a neutral label when none is recorded or the user no longer exists. */
+function ownerLabel(actor: Pick<AiActorDetails, 'hasOwner' | 'ownerDisplayName'>): string {
+  if (!actor.hasOwner) {
+    return 'No owner recorded';
+  }
+  return actor.ownerDisplayName ?? 'Unknown user';
+}
 
 export default function AiActorDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id ? Number(params.id) : undefined;
   const { data, isLoading, isError, error } = useAiActorDetailsQuery(id);
+  const setOwner = useSetAiActorOwner(id ?? 0);
+  // Giving an actor a new owner is a UserAdmin's (an Admin holds it).
+  const canChangeOwner = useAccess().hasPermission('UserAdmin');
+  const [changingOwner, setChangingOwner] = useState(false);
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -21,19 +43,36 @@ export default function AiActorDetailPage() {
             : null
         }
         actions={
-          <Link to="/ai-actors">
-            <Button type="button" icon={<ArrowLeftRight />}>
-              All actors
-            </Button>
-          </Link>
+          <>
+            {canChangeOwner && data && (
+              <Button type="button" onClick={() => setChangingOwner(true)}>
+                Change owner
+              </Button>
+            )}
+            <Link to="/ai-actors">
+              <Button type="button" icon={<ArrowLeftRight />}>
+                All actors
+              </Button>
+            </Link>
+          </>
         }
       />
+
+      {canChangeOwner && changingOwner && (
+        <SetOwnerDialog
+          open
+          noun="AI actor"
+          busy={setOwner.isPending}
+          onClose={() => setChangingOwner(false)}
+          onSubmit={userId => setOwner.mutate(userId, { onSuccess: () => setChangingOwner(false) })}
+        />
+      )}
 
       {isError && (
         <EmptyState
           icon={<AlertTriangle />}
-          title="Failed to load actor"
-          description={error instanceof Error ? error.message : 'Unknown error'}
+          title={isNotFound(error) ? 'AI actor not found' : 'Failed to load actor'}
+          description={isNotFound(error) ? NOT_FOUND_DETAIL : error instanceof Error ? error.message : 'Unknown error'}
         />
       )}
 
@@ -78,7 +117,39 @@ export default function AiActorDetailPage() {
                 <dt className="text-text-muted">Max subscriptions/query</dt><dd>{data.maxSubscriptionsPerQuery}</dd>
                 <dt className="text-text-muted">Requires approval</dt><dd>{data.requiresApproval ? 'Yes' : 'No'}</dd>
                 <dt className="text-text-muted">Status</dt><dd>{ACTOR_STATUS_LABEL[data.status ?? 0]}</dd>
+                <dt className="text-text-muted">Owner</dt><dd>{ownerLabel(data)}</dd>
               </dl>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <h2 className="m-0 mb-2 text-base font-semibold text-text">Recent think cycles</h2>
+              {(data.recentExecutions ?? []).length === 0 ? (
+                <p className="m-0 text-sm text-text-muted">No think cycles yet.</p>
+              ) : (
+                <ul className="m-0 p-0 list-none flex flex-col">
+                  {data.recentExecutions.map(x => {
+                    const phase = ACTOR_PHASE_LABEL[x.phase] ?? { label: String(x.phase), tone: 'neutral' as const };
+                    return (
+                      <li
+                        key={x.executionId}
+                        className="flex flex-col gap-0.5 py-2 border-b border-border last:border-b-0 text-sm"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Pill tone={phase.tone}>{phase.label}</Pill>
+                          <span className="text-text-muted text-xs">{formatDateTime(x.startedAt)}</span>
+                        </span>
+                        {(x.errorMessage ?? x.decisionSummary) && (
+                          <span className={x.errorMessage ? 'text-xs text-text-muted' : 'text-xs'}>
+                            {x.errorMessage ?? x.decisionSummary}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </CardBody>
           </Card>
         </>

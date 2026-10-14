@@ -5,20 +5,47 @@ namespace Beacon.Core.Services.Security;
 
 internal sealed class QueryGuardrailService : IQueryGuardrailService
 {
+    // Declared first: static fields initialise in textual order and every pattern below is built with it.
+    // Each pattern is linear on its own; the timeout is the backstop, and IsMatchFailClosed reads it as a match.
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(250);
+
     // SQL keywords that indicate write operations
     private static readonly Regex WriteOperationPattern = new(
         @"\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM|DROP\s+|ALTER\s+|TRUNCATE\s+|CREATE\s+|GRANT\s+|REVOKE\s+|EXEC\s+|EXECUTE\s+|MERGE\s+)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        MatchTimeout);
 
-    // Common PII column name patterns
+    // Common PII column name patterns, banking identifiers included (IBAN, account number, OIB, JMBG). The short banking
+    // words match as a whole name segment only — snake_case, camelCase or an upper-case run (customer_iban, ClientOib,
+    // IBANNumber) — never inside a longer word (Libanon, Kibana, foible); the boundaries are case-sensitive.
     private static readonly Regex PiiColumnPattern = new(
-        @"(email|e_mail|phone|telephone|mobile|ssn|social_security|tax_id|passport|credit_card|card_number|cvv|password|pwd|secret|token|birth_?date|dob|address|zip_?code|postal|ip_address|national_id)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        @"(email|e_mail|phone|telephone|mobile|ssn|social_security|tax_id|passport|credit_card|card_number|cvv|password|pwd|secret|token|birth_?date|dob|address|zip_?code|postal|ip_address|national_id|(?-i:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z]))(iban|oib|jmbg)s?(?-i:(?![A-Za-z])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z]))|(account|acct)_?(no|nr|num|number)(?![a-z]))",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        MatchTimeout);
 
-    // Dangerous patterns (comments hiding write ops, stacked queries)
+    // Stacked statement whose second statement writes.
     private static readonly Regex DangerousPattern = new(
-        @"(;\s*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|EXEC))|(/\*.*?(INSERT|UPDATE|DELETE|DROP).*?\*/)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
+        @";\s*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|EXEC)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        MatchTimeout);
+
+    // A `/*` followed — anywhere later — by a write keyword and then by a `*/`. Same language as the former
+    // `/\*.*?(INSERT|UPDATE|DELETE|DROP).*?\*/` alternative, which backtracked super-linearly (16 KB → 1.7 s):
+    // anchored at \A, each atomic lazy step commits to the EARLIEST occurrence, which is the one most likely to
+    // complete the match (the keywords cannot overlap one another), so the scan is one linear pass. Kept rather
+    // than dropped because it is not redundant: it rejects write keywords WriteOperationPattern cannot see, such
+    // as a MySQL executable comment `/*!50000DELETE*/ FROM t`.
+    private static readonly Regex CommentHiddenWritePattern = new(
+        @"\A(?>.*?/\*)(?>.*?(?:INSERT|UPDATE|DELETE|DROP))(?>.*?\*/)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline,
+        MatchTimeout);
+
+    // Matches when the query does NOT start with SELECT, WITH or EXPLAIN — phrased as a rejection so it goes
+    // through IsMatchFailClosed like every other check (a timeout rejects rather than admits).
+    private static readonly Regex NonReadOnlyPrefixPattern = new(
+        @"^(?!\s*(SELECT|WITH|EXPLAIN)\s)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        MatchTimeout);
 
     public QueryValidationResult ValidateQuery(string sql, QueryGuardrailOptions? options = null)
     {
@@ -31,20 +58,31 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
 
         if (options.ReadOnly)
         {
+            // Judged without its comments when the dialect is known, so a leading "-- note" or a "/* delete old rows */"
+            // remark does not read as a write; executable comments and hints stay and are judged like any other text.
+            var statement = SqlCommentStripper.Strip(trimmedSql, options.Dialect).Trim();
+
             // Check for write operations
-            if (WriteOperationPattern.IsMatch(trimmedSql))
+            if (IsMatchFailClosed(WriteOperationPattern, statement))
+            {
                 return new QueryValidationResult(false, "Write operations are not allowed. Only SELECT queries are permitted.", false);
+            }
 
             // Check for dangerous patterns (stacked queries with writes, comments hiding writes)
-            if (DangerousPattern.IsMatch(trimmedSql))
+            if (IsMatchFailClosed(DangerousPattern, statement) || IsMatchFailClosed(CommentHiddenWritePattern, statement))
+            {
                 return new QueryValidationResult(false, "Query contains potentially dangerous patterns.", false);
+            }
 
             // Must start with SELECT, WITH, or EXPLAIN
-            if (!Regex.IsMatch(trimmedSql, @"^\s*(SELECT|WITH|EXPLAIN)\s", RegexOptions.IgnoreCase))
+            if (IsMatchFailClosed(NonReadOnlyPrefixPattern, statement))
+            {
                 return new QueryValidationResult(false, "Query must start with SELECT, WITH, or EXPLAIN.", false);
+            }
         }
 
-        // Detect PII columns in the query
+        // Detect PII columns in the query. Not a yes/no check, so it cannot go through IsMatchFailClosed: a
+        // timeout here propagates and aborts the call, which runs nothing.
         List<string>? piiColumns = null;
         if (options.DetectPii)
         {
@@ -82,19 +120,24 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
     {
         // Placement is decided on the parsed AST (SqlRowLimitRewriter) so a LIMIT/TOP inside a string
         // literal or a subquery no longer reads as "already bounded" and leaves the outer result uncapped.
-        return SqlRowLimitRewriter.Apply(sql, maxRows, databaseEngine).Sql;
+        var result = SqlRowLimitRewriter.Apply(sql, maxRows, databaseEngine);
+
+        // A statement too deep to cap, or holding a character the parser cannot read past, must not run uncapped.
+        return result.Outcome == SqlRowLimitOutcome.Refused
+            ? throw new InvalidOperationException(result.RefusalMessage ?? SqlAst.TooDeepMessage)
+            : result.Sql;
     }
 
     public List<string> DetectPiiColumns(string sql, IEnumerable<string> columnNames)
     {
         return columnNames
-            .Where(col => PiiColumnPattern.IsMatch(col))
+            .Where(x => IsMatchFailClosed(PiiColumnPattern, x))
             .ToList();
     }
 
     public bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null)
     {
-        if (PiiColumnPattern.IsMatch(columnName))
+        if (IsMatchFailClosed(PiiColumnPattern, columnName))
         {
             return true;
         }
@@ -139,5 +182,19 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         }
 
         return masked;
+    }
+
+    // The one seam every guardrail match goes through (§1.5 fail closed): a pattern that cannot finish within its
+    // timeout counts as a match — the dangerous / PII answer — never as a pass. Internal for unit tests.
+    internal static bool IsMatchFailClosed(Regex pattern, string input)
+    {
+        try
+        {
+            return pattern.IsMatch(input);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
     }
 }

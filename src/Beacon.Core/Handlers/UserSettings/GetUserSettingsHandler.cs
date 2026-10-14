@@ -32,6 +32,7 @@ internal sealed class GetUserSettingsHandler(
     }
 }
 
+[ProjectScopeExempt("owner-scoped: the caller's own settings")]
 public record GetUserSettingsQuery : IRequest<GetUserSettingsResult>;
 
 public record GetUserSettingsResult(UserSettingsView User);

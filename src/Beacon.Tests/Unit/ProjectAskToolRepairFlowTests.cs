@@ -1,7 +1,9 @@
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
@@ -18,6 +20,7 @@ using Beacon.MCP.Tools;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 
 namespace Beacon.Tests.Unit;
 
@@ -55,7 +58,7 @@ public class ProjectAskToolRepairFlowTests
         _settings = new McpSettingsData();
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -77,13 +80,13 @@ public class ProjectAskToolRepairFlowTests
     {
         _executor
             .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("column \"bogus\" does not exist");
+            .ReturnsAsync("relation \"orders\" does not exist");
         _executor
             .Setup(x => x.DryRunAsync(DataSourceId, CorrectedSql, It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                "column \"bogus\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<CancellationToken>()))
+                "relation \"orders\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
@@ -96,9 +99,230 @@ public class ProjectAskToolRepairFlowTests
         outcome.Text.Should().Contain(CorrectedSql);
         _executor.Verify(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()), Times.Once);
         _executor.Verify(x => x.ExecuteAsync(DataSourceId, GeneratedSql, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
-        outcome.DryRunError.Should().Contain("bogus");
+        outcome.DryRunError.Should().Contain("orders");
         outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run" && x.Succeeded);
         outcome.CorrectedSql.Should().Be(CorrectedSql);
+    }
+
+    // A database error that quotes a row value goes into the repair prompt as its class, code and a generic description
+    // only — and the log carries none of the value either.
+    [Test]
+    public async Task AnExecutionErrorQuotingARowValue_ReachesTheRepairPromptRedacted()
+    {
+        SetupCleanDryRun();
+        var log = new LogRecorder();
+        string? prompted = null;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, "22P02: invalid input syntax for type integer: \"Ivan Horvat\" in column \"orders\"; DETAIL: Key (id)=(ivan@bank.example)", 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompted = error)
+            .ReturnsAsync((string?)null);
+        var pipeline = new AskSqlPipeline(
+            _knowledgeGraph.Object,
+            _sqlGeneration.Object,
+            TestSqlGate.Create(_guardrail.Object),
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
+            log.For<AskSqlPipeline>());
+
+        await pipeline.RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        prompted.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
+        log.Contains("Horvat").Should().BeFalse();
+        log.Contains("ivan@bank.example").Should().BeFalse();
+    }
+
+    // The caller reads a database error redacted while PII detection is on, as it was otherwise; the repair steps the
+    // stored signal is built from hold it redacted either way.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AnExecutionErrorQuotingARowValue_ReachesTheCallerByTheSetting_AndTheRepairStepsRedacted(bool piiDetectionOn)
+    {
+        SetupCleanDryRun();
+        _settings.EnablePiiDetection = piiDetectionOn;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "execution").Which.Error.Should().Be(RedactedError);
+        if (piiDetectionOn)
+        {
+            outcome.Text.Should().Contain($"**Execution Error:** {RedactedError}").And.NotContain("Horvat");
+            return;
+        }
+
+        outcome.Text.Should().Contain($"**Execution Error:** {ErrorQuotingAValue}");
+    }
+
+    [Test]
+    public async Task ADryRunErrorQuotingARowValue_IsKeptRedactedOnTheOutcome()
+    {
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ErrorQuotingAValue);
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.DryRunError.Should().Be(RedactedError);
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run").Which.Error.Should().Be(RedactedError);
+    }
+
+    // The repair prompt gets the dry-run error without the value it quotes, and the log its class only.
+    [Test]
+    public async Task ADryRunErrorQuotingARowValue_ReachesTheRepairPromptAndTheLogRedacted()
+    {
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ErrorQuotingAValue);
+        string? repairError = null;
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => repairError = error)
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        var log = new LogRecorder();
+
+        await CreatePipeline(log.For<AskSqlPipeline>()).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        repairError.Should().Be(RedactedError);
+        log.Entries.Should().Contain(x => x.Message == "Dry-run validation failed, retrying (Database error 22P02 (data exception).)");
+        log.Contains("Horvat").Should().BeFalse();
+    }
+
+    private const string ErrorQuotingAValue = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
+
+    private const string RedactedError = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
+
+    private const string NameError = "42P01: relation \"orders\" does not exist";
+
+    private const string RaisedError = "Msg 50000, Level 16, State 1: Customer ivan.horvat@bank.example is blocked";
+
+    private const string WithheldRaisedError = "Database error 50000 (unrecognised): not an error Beacon recognises. The database's message is withheld because it can quote row values.";
+
+    // A repair prompt gets the database's error redacted — a name error keeps the names it knows — or, while row data may not
+    // reach the provider, its class and code only; after a dry run and after execution alike. The repair steps the stored
+    // signal is built from keep the redacted error either way.
+    [TestCase(false, NameError, RedactedError)]
+    [TestCase(true, "Database error 42P01 (undefined table).", "Database error 22P02 (data exception).")]
+    public async Task TheRepairPrompts_GetTheRedactedError_OrUnderTheRowDataLockItsClassOnly(bool forbidRowData, string dryRunPrompt, string executionPrompt)
+    {
+        var prompts = new List<string>();
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NameError);
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, CorrectedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompts.Add(error))
+            .ReturnsAsync(CorrectedSql);
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), CorrectedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompts.Add(error))
+            .ReturnsAsync((string?)null);
+
+        var outcome = await CreatePipeline(forbidRowData: forbidRowData).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        prompts.Should().Equal(dryRunPrompt, executionPrompt);
+        outcome.Repairs.Select(x => x.Error).Should().Equal(NameError, RedactedError);
+    }
+
+    // An error the statement's own code raised holds its author's values unquoted: the caller (detection on), the repair
+    // prompt and the repair steps the stored signal is built from all get its class and code.
+    [Test]
+    public async Task ARaisedExecutionError_IsWithheldFromTheCallerTheRepairPromptAndTheRepairSteps()
+    {
+        SetupCleanDryRun();
+        _settings.EnablePiiDetection = true;
+        string? prompted = null;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, RaisedError, 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompted = error)
+            .ReturnsAsync((string?)null);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        prompted.Should().Be(WithheldRaisedError);
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "execution").Which.Error.Should().Be(WithheldRaisedError);
+        outcome.Text.Should().Contain($"**Execution Error:** {WithheldRaisedError}").And.NotContain("ivan.horvat@bank.example");
+    }
+
+    // Every request whose prompt carries the context's row data is logged before it is sent, with ids and categories only.
+    [Test]
+    public async Task EveryPromptCarryingRowData_IsLoggedWithIdsAndCategoriesOnly()
+    {
+        SetupCleanDryRun();
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context Examples: [Horvat]",
+                DatabaseDialect = "PostgreSQL",
+                TotalTableCount = 1,
+                RowDataCategories = [LlmRowDataCategories.SampleValues, LlmRowDataCategories.ValueMatches]
+            });
+        var llm = new Mock<ILlmProvider>();
+        llm
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Beacon.Core.Models.Ai.LlmResponse { Content = GeneratedSql });
+        var generation = new SqlGenerationService();
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        var log = new LogRecorder();
+        var pipeline = new AskSqlPipeline(
+            _knowledgeGraph.Object,
+            generation,
+            TestSqlGate.Create(_guardrail.Object),
+            TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()),
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<AskSqlPipeline>.Instance);
+
+        await pipeline.RunAsync(llm.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        var calls = llm.Invocations.Count(x => x.Method.Name == nameof(ILlmProvider.CompleteAsync));
+        calls.Should().BePositive("the request still goes through the provider handed in");
+        var egress = log.Entries
+            .Where(x => x.EventId == Beacon.Core.Authorization.ProjectAccess.ProjectAccessEvents.RowDataSentToLlm)
+            .ToList();
+        egress.Should().HaveCount(calls, "one record per request");
+        egress.Should().OnlyContain(x => x.Message == $"An LLM request carrying sample-values, value-matches read from data sources {DataSourceId} of project {ProjectId} was handed to the provider for caller {TestRowDataEgress.CallerId}");
+        log.Contains("Horvat").Should().BeFalse("a value never reaches the log");
     }
 
     [Test]
@@ -183,14 +407,14 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AskExecutionResult(null, "execution error", 0, false));
+            .ReturnsAsync(new AskExecutionResult(null, "42601: syntax error at end of input", 0, false));
 
         var outcome = await CreatePipeline().RunAsync(
             _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
-        outcome.Text.Should().Contain("**Execution Error:** execution error");
+        outcome.Text.Should().Contain("**Execution Error:** 42601: syntax error at end of input");
         outcome.EmptyResultRetried.Should().BeFalse();
     }
 
@@ -287,8 +511,9 @@ public class ProjectAskToolRepairFlowTests
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
-            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId] },
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
@@ -297,6 +522,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IDataSourceRouter>(),
             knowledgeAnswer.Object,
             Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);
 
         var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
@@ -306,6 +532,160 @@ public class ProjectAskToolRepairFlowTests
         handed!.MaxRowLimit.Should().Be(10, "project 42's override, not the global 1000");
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(ProjectId, It.IsAny<CancellationToken>()), Times.AtLeastOnce);
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ask runs its SQL under the strictest guardrails of the live projects that link the routed data sources.
+    [Test]
+    public async Task ExecuteAsync_ARoutedSourceAnotherProjectLinks_RunsUnderTheStricterGuardrails()
+    {
+        var settingsProvider = SettingsProviderMock.Create(
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new() { MaxRowLimit = 1000 } });
+        var sharedSources = TestSharedSources.Linking(DataSourceId, new Dictionary<int, McpSettingsData>
+        {
+            [ProjectId] = new() { MaxRowLimit = 1000 },
+            [ProjectId + 1] = new() { MaxRowLimit = 5, EnforceReadOnly = true }
+        });
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.DataQuery);
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new DataSourceKnowledge { DataSourceId = DataSourceId, Name = "warehouse" }]);
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "warehouse", Reason = "orders" }] });
+        McpSettingsData? handed = null;
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(), It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, int, int, string, McpSettingsData, IAskSqlExecutor, AskSqlPipelineOptions, CancellationToken>((_, _, _, _, settings, _, _, _) => handed = settings)
+            .ThrowsAsync(new InvalidOperationException("stopped after the settings were handed over"));
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        var tool = new ProjectAskTool(
+            knowledgeGraph.Object,
+            settingsProvider.Object,
+            sharedSources,
+            serviceProvider.Object,
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
+            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            pipeline.Object,
+            _executor.Object,
+            intentClassifier.Object,
+            router.Object,
+            Mock.Of<IKnowledgeAnswerService>(),
+            Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
+            NullLogger<ProjectAskTool>.Instance);
+
+        await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        handed.Should().NotBeNull();
+        handed!.MaxRowLimit.Should().Be(5);
+        handed.EnforceReadOnly.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_QuestionOverDefaultCap_FailsAuditedAndSignalled_BeforeTheLlm()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var serviceProvider = new Mock<IServiceProvider>();
+        var intentClassifier = new Mock<IIntentClassifier>();
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier);
+
+        var result = await tool.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Contain("4001").And.Contain("4000");
+
+        // §1.7 / §9.5 — the early return is audited and signalled like every other failure, attributed to the
+        // authorized project so that project's content-retention decision applies to the stored question.
+        var audit = auditLogs.Should().ContainSingle().Subject;
+        audit.Tool.Should().Be("ask");
+        audit.ProjectId.Should().Be(ProjectId);
+        audit.ErrorMessage.Should().Be(error);
+        var signal = signals.Should().ContainSingle().Subject;
+        signal.ExecutionFailed.Should().BeTrue();
+        signal.ProjectId.Should().Be(ProjectId);
+
+        serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Never);
+        intentClassifier.Verify(
+            x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task ARefusedAsk_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var tool = CreateAuditedTool(auditLogs, signals, new Mock<IServiceProvider>(), new Mock<IIntentClassifier>(), userId: 17);
+
+        var result = await tool.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        auditLogs.Should().ContainSingle().Which.UserId.Should().Be(17);
+        signals.Should().ContainSingle().Which.UserId.Should().Be(17);
+    }
+
+    [Test]
+    public async Task AnAnsweredAsk_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.Knowledge);
+        var knowledgeAnswer = new Mock<IKnowledgeAnswerService>();
+        knowledgeAnswer
+            .Setup(x => x.AnswerAsync(It.IsAny<ILlmProvider>(), ProjectId, Question, It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("Notifications go out after each run.");
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, userId: 17, knowledgeAnswer: knowledgeAnswer.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        auditLogs.Should().ContainSingle().Which.Should().Match<McpAuditLog>(x => x.UserId == 17 && x.ErrorMessage == null);
+        signals.Should().ContainSingle().Which.UserId.Should().Be(17);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_QuestionAtDefaultCap_PassesTheLengthCheck()
+    {
+        var serviceProvider = new Mock<IServiceProvider>();
+        var tool = CreateAuditedTool([], [], serviceProvider, new Mock<IIntentClassifier>());
+
+        // No ILlmProvider is registered, so the call fails one step later — proving the length check let it through.
+        var result = await tool.ExecuteAsync(new string('q', 4_000), cancellationToken: CancellationToken.None);
+
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("AI features not configured");
+        serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Once);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ConfiguredMaxQuestionChars_IsHonoured()
+    {
+        var options = new McpDeploymentOptions { Ceilings = new McpCeilingOptions { MaxQuestionChars = 10 } };
+        var serviceProvider = new Mock<IServiceProvider>();
+        var tool = CreateAuditedTool([], [], serviceProvider, new Mock<IIntentClassifier>(), options);
+
+        var rejected = await tool.ExecuteAsync(new string('q', 11), cancellationToken: CancellationToken.None);
+        var accepted = await tool.ExecuteAsync(new string('q', 10), cancellationToken: CancellationToken.None);
+
+        (rejected.IsError ?? false).Should().BeTrue();
+        rejected.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("11").And.Contain("10");
+        accepted.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("AI features not configured");
+        serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Once, "only the question within the configured cap reaches the LLM step");
     }
 
     [Test]
@@ -346,6 +726,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             SettingsProviderMock.Create().Object,
+            SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             Mock.Of<IServiceProvider>(),
             Mock.Of<IProjectContext>(),
             null!,
@@ -356,6 +737,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IDataSourceRouter>(),
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
@@ -427,6 +809,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             SettingsProviderMock.Create().Object,
+            SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             Mock.Of<IServiceProvider>(),
             Mock.Of<IProjectContext>(),
             null!,
@@ -437,6 +820,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IDataSourceRouter>(),
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
@@ -563,12 +947,89 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync((string?)null);
     }
 
-    private AskSqlPipeline CreatePipeline()
+    private AskSqlPipeline CreatePipeline(ILogger<AskSqlPipeline>? logger = null, bool forbidRowData = false)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
-            NullLogger<AskSqlPipeline>.Instance);
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
+            logger ?? NullLogger<AskSqlPipeline>.Instance);
+    }
+
+    // The real audit + signal services over a capturing context (§4.7 — no DB), so a test can assert the rows
+    // an early return writes.
+    private ProjectAskTool CreateAuditedTool(
+        List<McpAuditLog> auditLogs,
+        List<McpQuerySignal> signals,
+        Mock<IServiceProvider> serviceProvider,
+        Mock<IIntentClassifier> intentClassifier,
+        McpDeploymentOptions? deploymentOptions = null,
+        int? userId = 1,
+        IKnowledgeAnswerService? knowledgeAnswer = null)
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new AuditCaptureContext(auditLogs, signals));
+        var settingsProvider = SettingsProviderMock.Create();
+
+        return new ProjectAskTool(
+            Mock.Of<IKnowledgeGraphService>(),
+            settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
+            serviceProvider.Object,
+            new McpProjectContext { UserId = userId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
+            new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            Mock.Of<IAskSqlPipeline>(),
+            _executor.Object,
+            intentClassifier.Object,
+            Mock.Of<IDataSourceRouter>(),
+            knowledgeAnswer ?? Mock.Of<IKnowledgeAnswerService>(),
+            Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(deploymentOptions ?? new McpDeploymentOptions()),
+            NullLogger<ProjectAskTool>.Instance);
+    }
+
+    private sealed class AuditCaptureContext : BeaconContext
+    {
+        private static readonly DbContextOptions<AuditCaptureContext> Options =
+            new DbContextOptionsBuilder<AuditCaptureContext>()
+                .UseNpgsql("Host=localhost;Database=unused")
+                .UseSnakeCaseNamingConvention()
+                .Options;
+
+        private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
+        private readonly Mock<DbSet<McpQuerySignal>> _signalSet = new();
+
+        public AuditCaptureContext(List<McpAuditLog> auditLogs, List<McpQuerySignal> signals) : base(Options, "beacon")
+        {
+            _auditSet
+                .Setup(x => x.Add(It.IsAny<McpAuditLog>()))
+                .Callback<McpAuditLog>(auditLogs.Add);
+            _signalSet
+                .Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
+                .Callback<McpQuerySignal>(signals.Add);
+        }
+
+        public override DbSet<TEntity> Set<TEntity>() where TEntity : class
+        {
+            if (typeof(TEntity) == typeof(McpAuditLog))
+            {
+                return (DbSet<TEntity>)(object)_auditSet.Object;
+            }
+
+            if (typeof(TEntity) == typeof(McpQuerySignal))
+            {
+                return (DbSet<TEntity>)(object)_signalSet.Object;
+            }
+
+            return base.Set<TEntity>();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
     }
 }

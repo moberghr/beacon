@@ -7,7 +7,8 @@ namespace Beacon.Core.Handlers.Tasks;
 
 internal sealed class GetTaskDetailHandler(
     ITaskService taskService,
-    IBeaconUserContext userContext)
+    IBeaconUserContext userContext,
+    IBeaconActorAccessor actorAccessor)
     : IRequestHandler<GetTaskDetailQuery, TaskDetailResult?>
 {
     public async Task<TaskDetailResult?> Handle(GetTaskDetailQuery request, CancellationToken cancellationToken)
@@ -20,6 +21,8 @@ internal sealed class GetTaskDetailHandler(
         {
             return null;
         }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         return new TaskDetailResult(
             details.Id,
@@ -41,19 +44,34 @@ internal sealed class GetTaskDetailHandler(
             details.LastExecutionAt,
             details.CronExpression,
             details.Priority,
-            details.AssigneeUserId,
+            details.AssigneeUserId != null,
             details.AssigneeUserName,
+            actor.IsAssignee(details.AssigneeUserId),
             details.SnoozedUntil,
             details.SlaHours,
             details.WatcherCount,
             details.IsWatching,
-            details.OwnerUserId,
-            details.OwnerUserName);
+            details.HasOwner,
+            details.OwnerDisplayName);
     }
 }
 
-public record GetTaskDetailQuery(int Id) : IRequest<TaskDetailResult?>;
+public record GetTaskDetailQuery(int Id) : IRequest<TaskDetailResult?>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(Id), ProjectAction.Read)
+    ];
+}
 
+/// <summary>
+/// A task's detail. <c>HasAssignee</c> says whether the task is assigned, <c>AssigneeUserName</c> names the assignee
+/// (display name or "User {id}"; null when the assignee is not a Beacon user) and <c>AssignedToCaller</c> says whether the
+/// caller is the task's assignee, the check resolving, snoozing, setting the priority and releasing the task are made
+/// against (besides the Admin role); the assignee's external id is not returned. <c>HasOwner</c>: the
+/// task's subscription is managed by an AI actor with a recorded creator; <c>OwnerDisplayName</c>: that creator's
+/// display name, or a neutral "User {id}" label, never an external id or user name.
+/// </summary>
 public record TaskDetailResult(
     int Id,
     int QueryId,
@@ -74,11 +92,12 @@ public record TaskDetailResult(
     DateTime? LastExecutionAt,
     string? CronExpression,
     TaskPriority Priority,
-    string? AssigneeUserId,
+    bool HasAssignee,
     string? AssigneeUserName,
+    bool AssignedToCaller,
     DateTime? SnoozedUntil,
     int? SlaHours,
     int WatcherCount,
     bool IsWatching,
-    string? OwnerUserId,
-    string? OwnerUserName);
+    bool HasOwner,
+    string? OwnerDisplayName);

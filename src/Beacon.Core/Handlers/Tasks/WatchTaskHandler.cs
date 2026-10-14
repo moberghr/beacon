@@ -52,4 +52,10 @@ internal sealed class WatchTaskHandler(
     }
 }
 
-public record WatchTaskCommand(int TaskId) : IRequest;
+public record WatchTaskCommand(int TaskId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Read)
+    ];
+}

@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -22,7 +24,7 @@ public class UpdateMcpSettingsHandlerTests
         // invoked on the rejection path — a throwing factory proves the validation short-circuits first.
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var provider = new Mock<IMcpSettingsProvider>(MockBehavior.Strict);
-        return new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options ?? new McpDeploymentOptions()));
+        return new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options ?? new McpDeploymentOptions()), TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance);
     }
 
     [TestCase("(unclosed")]
@@ -97,6 +99,41 @@ public class UpdateMcpSettingsHandlerTests
         saves().Should().Be(1);
     }
 
+    // Under the row-data lock the page sends the three fields as the lock pins them (off); the values stored before the
+    // lock survive an unrelated save, so lifting the lock restores them.
+    [Test]
+    public async Task AnUnrelatedGlobalSave_UnderTheLock_KeepsTheStoredRowDataFlags()
+    {
+        var stored = new McpSettings { EnableSampleValueCollection = true, EnableValueGrounding = true, EnableEvalJudge = true, MaxRowLimit = 1000 };
+        var (handler, saves) = CreateHandlerWithRow(stored, new McpDeploymentOptions { ForbidRowDataToLlm = true });
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnableSampleValueCollection = false, EnableValueGrounding = false, EnableEvalJudge = false, MaxRowLimit = 250 }),
+            CancellationToken.None);
+
+        stored.EnableSampleValueCollection.Should().BeTrue();
+        stored.EnableValueGrounding.Should().BeTrue();
+        stored.EnableEvalJudge.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(250, "the unrelated field is written");
+        saves().Should().Be(1);
+    }
+
+    // Without the lock the same save is a deliberate edit and turns them off.
+    [Test]
+    public async Task AGlobalSave_WithoutTheLock_WritesTheRowDataFlags()
+    {
+        var stored = new McpSettings { EnableSampleValueCollection = true, EnableValueGrounding = true, EnableEvalJudge = true };
+        var (handler, _) = CreateHandlerWithRow(stored, new McpDeploymentOptions());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnableSampleValueCollection = false, EnableValueGrounding = false, EnableEvalJudge = false }),
+            CancellationToken.None);
+
+        stored.EnableSampleValueCollection.Should().BeFalse();
+        stored.EnableValueGrounding.Should().BeFalse();
+        stored.EnableEvalJudge.Should().BeFalse();
+    }
+
     [Test]
     public async Task Handle_LockedFieldEchoedBack_KeepsStoredValue()
     {
@@ -119,7 +156,7 @@ public class UpdateMcpSettingsHandlerTests
     public async Task Handle_NoCeilingOrLock_WritesEveryFieldAsSent()
     {
         var stored = new McpSettings { MaxRowLimit = 9000, EnforceReadOnly = false };
-        var (handler, _) = CreateHandlerWithRow(stored, new McpDeploymentOptions());
+        var (handler, _) = CreateHandlerWithRow(stored, Unlocked());
 
         await handler.Handle(
             new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 1000, EnforceReadOnly = true }),
@@ -129,17 +166,123 @@ public class UpdateMcpSettingsHandlerTests
         stored.EnforceReadOnly.Should().BeTrue();
     }
 
-    private static (UpdateMcpSettingsHandler Handler, Func<int> Saves) CreateHandlerWithRow(McpSettings row, McpDeploymentOptions options)
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task ASecurityAdmin_TurningReadOnlyEnforcementOrPiiDetectionOff_IsForbidden(bool readOnlyOff, bool piiOff)
+    {
+        var stored = new McpSettings { EnforceReadOnly = true, EnablePiiDetection = true, MaxRowLimit = 100 };
+        var (handler, saves) = CreateHandlerWithRow(stored, Unlocked(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+
+        var act = () => handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = !readOnlyOff, EnablePiiDetection = !piiOff, MaxRowLimit = 5 }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(McpSafetySettings.AdminOnlyMessage);
+        stored.EnforceReadOnly.Should().BeTrue();
+        stored.EnablePiiDetection.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(100, "nothing of a refused change is written");
+        saves().Should().Be(0);
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_TurnsThemOn_AndChangesTheRest()
+    {
+        var stored = new McpSettings { EnforceReadOnly = false, EnablePiiDetection = false };
+        var (handler, _) = CreateHandlerWithRow(stored, Unlocked(), TestPermissions.Holding(BeaconPermissions.SecurityAdmin));
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = true, EnablePiiDetection = true, MaxRowLimit = 5 }),
+            CancellationToken.None);
+
+        stored.EnforceReadOnly.Should().BeTrue();
+        stored.EnablePiiDetection.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(5);
+    }
+
+    [Test]
+    public async Task AnAdmin_TurnsThemOff()
+    {
+        var stored = new McpSettings { EnforceReadOnly = true, EnablePiiDetection = true };
+        var (handler, _) = CreateHandlerWithRow(stored, Unlocked());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = false, EnablePiiDetection = false }),
+            CancellationToken.None);
+
+        stored.EnforceReadOnly.Should().BeFalse();
+        stored.EnablePiiDetection.Should().BeFalse();
+    }
+
+    // The default deployment locks read-only enforcement and PII detection on, for an Admin too: only the host's
+    // configuration lifts the lock.
+    [TestCase(false, true, "EnforceReadOnly")]
+    [TestCase(true, false, "EnablePiiDetection")]
+    public async Task UnderTheDefaultLocks_AnAdminTurningReadOnlyEnforcementOrPiiDetectionOff_IsRefused(bool readOnly, bool pii, string field)
+    {
+        var stored = new McpSettings { EnforceReadOnly = true, EnablePiiDetection = true, MaxRowLimit = 100 };
+        var (handler, saves) = CreateHandlerWithRow(stored, new McpDeploymentOptions(), TestPermissions.Admin);
+
+        var act = () => handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = readOnly, EnablePiiDetection = pii, MaxRowLimit = 5 }),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<SettingLockedException>()).Which.FieldName.Should().Be(field);
+        stored.EnforceReadOnly.Should().BeTrue();
+        stored.EnablePiiDetection.Should().BeTrue();
+        stored.MaxRowLimit.Should().Be(100, "nothing of a refused change is written");
+        saves().Should().Be(0);
+    }
+
+    [Test]
+    public async Task ASettingsChange_IsRecordedInTheSettingsHistory_WithWhoAndBeforeAndAfter()
+    {
+        var stored = new McpSettings { EnforceReadOnly = true, EnablePiiDetection = true, MaxRowLimit = 100, AskSystemPrompt = "Be brief." };
+        var history = new List<AppSettingHistory>();
+        var (handler, saves) = CreateHandlerWithRow(stored, Unlocked(), history: history);
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { EnforceReadOnly = false, EnablePiiDetection = true, MaxRowLimit = 250, AskSystemPrompt = "Be brief." }),
+            CancellationToken.None);
+
+        saves().Should().Be(1);
+        history.Select(x => (x.SettingKey, x.OldValue, x.NewValue)).Should().Contain(
+        [
+            ("Mcp.EnforceReadOnly", "true", "false"),
+            ("Mcp.MaxRowLimit", "100", "250")
+        ]);
+        history.Should().NotContain(x => x.SettingKey == "Mcp.EnablePiiDetection" || x.SettingKey == "Mcp.AskSystemPrompt", "unchanged settings are not recorded");
+        history.Should().OnlyContain(x => x.ChangedByUserId == "3" && x.ChangedAt > DateTime.UtcNow.AddMinutes(-1));
+    }
+
+    [Test]
+    public async Task ASaveThatChangesNothing_RecordsNoHistory()
+    {
+        var stored = new McpSettings { MaxRowLimit = 100 };
+        var history = new List<AppSettingHistory>();
+        var (handler, _) = CreateHandlerWithRow(stored, new McpDeploymentOptions(), history: history);
+
+        await handler.Handle(new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 100 }), CancellationToken.None);
+
+        history.Should().BeEmpty();
+    }
+
+    private static McpDeploymentOptions Unlocked() => new() { ForceReadOnly = false, ForcePiiDetection = false };
+
+    private static (UpdateMcpSettingsHandler Handler, Func<int> Saves) CreateHandlerWithRow(
+        McpSettings row,
+        McpDeploymentOptions options,
+        IBeaconPermissionAccessor? permissions = null,
+        List<AppSettingHistory>? history = null)
     {
         var saves = 0;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SettingsRowTestContext([row], () => saves++));
+            .ReturnsAsync(() => new SettingsRowTestContext([row], () => saves++, history ?? []));
 
         var provider = SettingsProviderMock.Create();
 
-        return (new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options)), () => saves);
+        return (new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance), () => saves);
     }
 
     /// <summary>The single McpSettings row over async-queryable doubles; no DB (§4.7).</summary>
@@ -153,15 +296,26 @@ public class UpdateMcpSettingsHandlerTests
 
         private readonly List<McpSettings> _rows;
         private readonly Action _onSave;
+        private readonly List<AppSettingHistory> _history;
 
-        public SettingsRowTestContext(List<McpSettings> rows, Action onSave) : base(Options, "beacon")
+        public SettingsRowTestContext(List<McpSettings> rows, Action onSave, List<AppSettingHistory> history) : base(Options, "beacon")
         {
             _rows = rows;
             _onSave = onSave;
+            _history = history;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
+            if (typeof(TEntity) == typeof(AppSettingHistory))
+            {
+                var history = new Mock<DbSet<AppSettingHistory>>();
+                history
+                    .Setup(x => x.Add(It.IsAny<AppSettingHistory>()))
+                    .Callback<AppSettingHistory>(x => _history.Add(x));
+                return (DbSet<TEntity>)(object)history.Object;
+            }
+
             if (typeof(TEntity) == typeof(McpSettings))
             {
                 var queryable = _rows.AsQueryable();

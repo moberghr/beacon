@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.ControlTower;
 using Beacon.Core.Helpers;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
@@ -85,6 +88,13 @@ internal class ControlTowerService(
                     LastExecutionTime = hasLastExecution ? lastExecution.CreatedTime : null,
                     LastExecutionStatus = hasLastExecution ? lastExecution.NotificationStatus : null,
                     LastResultCount = hasLastExecution ? lastExecution.ResultCount : null,
+                    // A run skipped because its query's change is not approved is not about the owner.
+                    OwnerNotAuthorized = hasLastExecution
+                        && lastExecution.NotificationStatus == NotificationStatus.Skipped
+                        && lastExecution.Comment != NotificationFailureReasons.NotApproved,
+                    NotApproved = hasLastExecution
+                        && lastExecution.NotificationStatus == NotificationStatus.Skipped
+                        && lastExecution.Comment == NotificationFailureReasons.NotApproved,
                     UnresolvedTaskCount = item.UnresolvedTaskCount,
                     TotalTaskCount = item.TotalTaskCount,
                     AnomalyCount30Days = anomalyCountsBySubscription.GetValueOrDefault(item.Id, 0),
@@ -106,7 +116,8 @@ internal class ControlTowerService(
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}";
+        // The statistics depend on what the caller may read, so callers share an entry only with the same scope.
+        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}:{ProjectSetFingerprint.Of(request.Readable)}";
         if (memoryCache.TryGetValue(cacheKey, out ControlTowerStatistics? cached))
         {
             return cached!;
@@ -181,6 +192,18 @@ internal class ControlTowerService(
             ? (double)totalSuccessful / totalExecutions * 100
             : 100;
 
+        // Scheduled contract evaluations that are not happening: their owner may no longer run them.
+        var skippedContracts = context.DataContracts
+            .WhereSourceAccessible(context, request.Readable, x => x.DataSourceId)
+            .Where(x => x.IsEnabled)
+            .Where(x => x.OwnerNotAuthorizedSince != null);
+        if (request.DataSourceId.HasValue)
+        {
+            skippedContracts = skippedContracts.Where(x => x.DataSourceId == request.DataSourceId.Value);
+        }
+
+        var ownerNotAuthorizedContracts = await skippedContracts.CountAsync(cancellationToken);
+
         var statistics = new ControlTowerStatistics
         {
             TotalSubscriptions = rows.Count,
@@ -191,7 +214,8 @@ internal class ControlTowerService(
             TotalUnresolvedTasks = totalUnresolved,
             TotalAnomalies30Days = anomaliesInWindow,
             OverallSuccessRate = overallSuccessRate,
-            TimeRangeDays = request.TimeRangeDays
+            TimeRangeDays = request.TimeRangeDays,
+            OwnerNotAuthorizedContracts = ownerNotAuthorizedContracts
         };
 
         memoryCache.Set(cacheKey, statistics, CacheDuration);
@@ -201,6 +225,7 @@ internal class ControlTowerService(
     public async Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
         int subscriptionId,
         int timeRangeDays,
+        StoredRunScope runScope,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -227,6 +252,7 @@ internal class ControlTowerService(
 
         var recentExecutions = await context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == subscriptionId)
+            .WhereReadableWithin(context, runScope)
             .OrderByDescending(x => x.CreatedTime)
             .Take(20)
             .Select(x =>
@@ -237,7 +263,7 @@ internal class ControlTowerService(
                     NotificationStatus = x.NotificationStatus,
                     ResultCount = x.ResultCount,
                     ExecutionTimeMs = x.ExecutionTimeMs,
-                    ErrorMessage = x.Comment
+                    ErrorMessage = NotificationFailureReasons.Displayable(x.Comment)
                 })
             .ToListAsync(cancellationToken);
 
@@ -294,7 +320,8 @@ internal class ControlTowerService(
         GetControlTowerDataRequest request,
         DateTime windowStart)
     {
-        var query = context.Subscriptions.AsQueryable();
+        var query = context.Subscriptions
+            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Query.Steps.Select(y => y.DataSourceId), x => x.Query.OwnerUserId);
 
         if (request.FolderId.HasValue)
         {
@@ -392,7 +419,7 @@ internal class ControlTowerService(
             .ThenBy(x => x.Id);
     }
 
-    private static async Task<Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount)>>
+    private static async Task<Dictionary<int, (NotificationStatus NotificationStatus, DateTime CreatedTime, int ResultCount, string? Comment)>>
         LoadLastExecutions(BeaconContext context, List<int> pageIds, CancellationToken cancellationToken)
     {
         if (pageIds.Count == 0)
@@ -409,13 +436,14 @@ internal class ControlTowerService(
                     SubscriptionId = g.Key,
                     NotificationStatus = g.OrderByDescending(y => y.CreatedTime).Select(y => y.NotificationStatus).First(),
                     CreatedTime = g.OrderByDescending(y => y.CreatedTime).Select(y => y.CreatedTime).First(),
-                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First()
+                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First(),
+                    Comment = g.OrderByDescending(y => y.CreatedTime).Select(y => y.Comment).First()
                 })
             .ToListAsync(cancellationToken);
 
         return rows.ToDictionary(
             x => x.SubscriptionId,
-            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount));
+            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount, x.Comment));
     }
 
     private static async Task<Dictionary<int, List<AnomalySparklinePoint>>> LoadAnomalySparklines(
@@ -512,8 +540,13 @@ public interface IControlTowerService
         GetControlTowerDataRequest request,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The subscription's health detail; its recent runs are those readable within <paramref name="runScope"/>, each
+    /// with its displayable failure reason.
+    /// </summary>
     Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
         int subscriptionId,
         int timeRangeDays,
+        StoredRunScope runScope,
         CancellationToken cancellationToken);
 }

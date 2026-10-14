@@ -3,8 +3,9 @@ using System.Text.RegularExpressions;
 namespace Beacon.Core.Services.Security;
 
 /// <summary>
-/// Value-shaped PII screen: email addresses, SSN-like, credit-card-like, phone-like patterns
-/// (§1.6 — a benignly named column can still hold PII values). Extracted from
+/// Value-shaped PII screen: email addresses, SSN-like, credit-card-like, phone-like patterns, and IBANs, OIBs and JMBGs
+/// whose check digits are right (<see cref="BankingIdentifiers"/>) (§1.6 — a benignly named column can still hold PII
+/// values). Extracted from
 /// <c>ColumnValueSampler</c> so <c>Beacon.AI</c>'s value-grounding probes can screen results too,
 /// without a reference into the internal Core sampler type.
 /// </summary>
@@ -26,7 +27,7 @@ public static partial class PiiValueScreen
         {
             try
             {
-                if (PiiValuePattern().IsMatch(value))
+                if (PiiValuePattern().IsMatch(value) || BankingIdentifiers.ContainsBankingIdentifier(value))
                 {
                     return true;
                 }

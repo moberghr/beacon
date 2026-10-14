@@ -1,17 +1,31 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
 
 namespace Beacon.AI.Handlers.Projects;
 
+/// <summary>
+/// Applies an instruction to one stored documentation section through the LLM provider. A section whose stored text can
+/// list values discovered in the data (<see cref="ProjectDocSectionTypes.ListingValues"/>) is row data: the request is
+/// logged by the row-data egress log, and while row data may not reach the provider (<c>Beacon:Mcp:ForbidRowDataToLlm</c>)
+/// such a section is refused — regenerating the documentation is the way to change it then.
+/// </summary>
 internal sealed class InstructDocumentationHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    ILlmProvider llmProvider)
+    ILlmProvider llmProvider,
+    ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions)
     : IRequestHandler<InstructDocumentationCommand, InstructDocumentationResult>
 {
+    /// <summary>What a caller is told when the row-data lock keeps a value-listing section from the provider.</summary>
+    internal const string LockedSectionMessage =
+        "This section can list values discovered in the data, which this deployment does not send to the LLM provider. Regenerate the documentation to change it.";
+
     public async Task<InstructDocumentationResult> Handle(
         InstructDocumentationCommand request,
         CancellationToken cancellationToken)
@@ -26,13 +40,20 @@ internal sealed class InstructDocumentationHandler(
                     x.Id,
                     x.Title,
                     x.Content,
-                    x.SectionType
+                    x.SectionType,
+                    x.Documentation.ProjectId
                 })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (section == null)
         {
             throw new InvalidOperationException("Documentation section not found.");
+        }
+
+        var listsValues = section.SectionType.ListsValues();
+        if (listsValues && deploymentOptions.Value.ForbidRowDataToLlm)
+        {
+            throw new InvalidOperationException(LockedSectionMessage);
         }
 
         var systemPrompt = BuildSystemPrompt(section.Title, section.SectionType);
@@ -46,7 +67,10 @@ internal sealed class InstructDocumentationHandler(
             MaxTokens = 8192
         };
 
-        var response = await llmProvider.CompleteAsync(llmRequest, cancellationToken);
+        var provider = rowDataEgress.Track(
+            llmProvider,
+            new LlmRowDataScope(section.ProjectId, [], listsValues ? [LlmRowDataCategories.StoredDocumentation] : []));
+        var response = await provider.CompleteAsync(llmRequest, cancellationToken);
 
         return new InstructDocumentationResult(response.Content);
     }

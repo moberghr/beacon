@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Learning;
@@ -13,15 +14,20 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// Part B — human-verdict weighting in pattern mining (§ Part B). Execution success is not correctness:
 /// a signal a human marked <see cref="McpUserVerdict.Incorrect"/> must be excluded from CommonQuery /
-/// JoinPattern mining, and a group containing a <see cref="McpUserVerdict.Correct"/> signal is more
-/// trustworthy — it earns a confidence bonus and supplies the representative exemplar. Drives the (now
-/// internal) detection methods directly over a mocked context (no DB — §4.7).
+/// JoinPattern mining, and a group containing a curator's <see cref="McpUserVerdict.Correct"/> verdict (one recorded by an
+/// interactive session holding Curate in the project, <see cref="McpQuerySignal.FeedbackFromCurator"/>) is more
+/// trustworthy — it earns a confidence bonus and supplies the representative exemplar; any other Correct verdict weighs
+/// nothing, whoever the rater's user is. An example question comes only from an answer to a question
+/// (an <c>ask</c> signal), on one line, never with characters that do not show. Drives the (now internal) detection
+/// methods directly over a mocked context (no DB — §4.7).
 /// </summary>
 [TestFixture]
 public class McpLearningVerdictWeightingTests
 {
     private const int ProjectId = 1;
     private const int DataSourceId = 1;
+    private const int CuratorId = 40;
+    private const int AskerId = 41;
 
     [Test]
     public async Task DetectCommonQueries_ExcludesIncorrectVerdictSignals()
@@ -31,9 +37,10 @@ public class McpLearningVerdictWeightingTests
 
         // Three otherwise-mineable signals, but all human-marked INCORRECT → all excluded → below the
         // 3-signal threshold → no pattern is mined.
-        await McpLearningAggregationService.DetectCommonQueriesAsync(
+        await Service().DetectCommonQueriesAsync(
             context, ProjectId, DataSourceId,
             [CommonSignal(McpUserVerdict.Incorrect), CommonSignal(McpUserVerdict.Incorrect), CommonSignal(McpUserVerdict.Incorrect)],
+            new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
         captured.Should().BeEmpty("a query a human marked wrong must never become a learned 'common query' pattern");
@@ -45,9 +52,10 @@ public class McpLearningVerdictWeightingTests
         var captured = new List<McpLearnedPattern>();
         var context = BuildContext(captured);
 
-        await McpLearningAggregationService.DetectCommonQueriesAsync(
+        await Service().DetectCommonQueriesAsync(
             context, ProjectId, DataSourceId,
             [CommonSignal(McpUserVerdict.Unset), CommonSignal(McpUserVerdict.Unset), CommonSignal(McpUserVerdict.Unset)],
+            new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
         captured.Should().ContainSingle();
@@ -56,25 +64,92 @@ public class McpLearningVerdictWeightingTests
     }
 
     [Test]
-    public async Task DetectCommonQueries_HumanConfirmedGroup_GetsConfidenceBonusAndRepresentative()
+    public async Task DetectCommonQueries_CuratorConfirmedGroup_GetsConfidenceBonusAndRepresentative()
     {
         var captured = new List<McpLearnedPattern>();
         var context = BuildContext(captured);
 
-        await McpLearningAggregationService.DetectCommonQueriesAsync(
+        await Service().DetectCommonQueriesAsync(
             context, ProjectId, DataSourceId,
             [
                 CommonSignal(McpUserVerdict.Unset, "unset A"),
-                CommonSignal(McpUserVerdict.Correct, "the confirmed question"),
+                CommonSignal(McpUserVerdict.Correct, "the confirmed question", ratedBy: CuratorId, fromCurator: true),
                 CommonSignal(McpUserVerdict.Unset, "unset B")
             ],
+            new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
         captured.Should().ContainSingle();
         captured[0].Confidence.Should().BeApproximately(0.9, 0.0001,
-            "a human-confirmed group earns +0.2 over the 0.7 execution-only baseline");
+            "a curator-confirmed group earns +0.2 over the 0.7 execution-only baseline");
         captured[0].ExampleQuestion.Should().Be("the confirmed question",
-            "the human-confirmed signal is chosen as the representative exemplar");
+            "the curator-confirmed signal is chosen as the representative exemplar");
+    }
+
+    // The asker rating its own answer, a curator's user rating it through an API key or an MCP caller (attributed to the
+    // curator, not recorded as a curator's), or a verdict recorded before raters were (no rater), weighs nothing.
+    [TestCase(AskerId)]
+    [TestCase(CuratorId)]
+    [TestCase(null)]
+    public async Task DetectCommonQueries_ACorrectVerdictNotRecordedByACurator_WeighsNothing(int? ratedBy)
+    {
+        var captured = new List<McpLearnedPattern>();
+        var context = BuildContext(captured);
+
+        await Service().DetectCommonQueriesAsync(
+            context, ProjectId, DataSourceId,
+            [
+                CommonSignal(McpUserVerdict.Unset, "unset A"),
+                CommonSignal(McpUserVerdict.Correct, "the self-confirmed question", ratedBy: ratedBy),
+                CommonSignal(McpUserVerdict.Unset, "unset B")
+            ],
+            new McpLearningAggregationService.ExtractionStats(),
+            CancellationToken.None);
+
+        captured.Should().ContainSingle();
+        captured[0].Confidence.Should().BeApproximately(0.7, 0.0001, "no curator confirmed the group");
+        captured[0].ExampleQuestion.Should().Be("unset A", "the non-curator's verdict earns its signal no preference");
+    }
+
+    // A query signal's "question" is the SQL it ran: it never becomes an example question.
+    [Test]
+    public async Task DetectCommonQueries_ARepresentativeThatAnswersNoQuestion_GivesNoExampleQuestion()
+    {
+        var captured = new List<McpLearnedPattern>();
+        var context = BuildContext(captured);
+        var signals = new List<McpQuerySignal>
+        {
+            CommonSignal(McpUserVerdict.Unset, "SELECT id FROM public.orders"),
+            CommonSignal(McpUserVerdict.Unset, "SELECT id FROM public.orders"),
+            CommonSignal(McpUserVerdict.Unset, "SELECT id FROM public.orders")
+        };
+        foreach (var signal in signals)
+        {
+            signal.Tool = "query";
+        }
+
+        await Service().DetectCommonQueriesAsync(
+            context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        captured.Should().ContainSingle().Which.ExampleQuestion.Should().BeNull();
+    }
+
+    // An example question is stored as a prompt shows it: on one line, never with characters that do not show.
+    [TestCase("orders\nlast week", "orders last week")]
+    [TestCase("orders last\r\n-- week", "orders last  -- week")]
+    [TestCase("orders \u202Elast week", null)]
+    public async Task DetectCommonQueries_StoresTheExampleQuestionAsAPromptShowsIt(string question, string? stored)
+    {
+        var captured = new List<McpLearnedPattern>();
+        var context = BuildContext(captured);
+
+        await Service().DetectCommonQueriesAsync(
+            context, ProjectId, DataSourceId,
+            [CommonSignal(McpUserVerdict.Unset, question), CommonSignal(McpUserVerdict.Unset, question), CommonSignal(McpUserVerdict.Unset, question)],
+            new McpLearningAggregationService.ExtractionStats(),
+            CancellationToken.None);
+
+        captured.Should().ContainSingle().Which.ExampleQuestion.Should().Be(stored);
     }
 
     [Test]
@@ -83,16 +158,17 @@ public class McpLearningVerdictWeightingTests
         var captured = new List<McpLearnedPattern>();
         var context = BuildContext(captured);
 
-        await McpLearningAggregationService.DetectJoinPatternsAsync(
+        await Service().DetectJoinPatternsAsync(
             context, ProjectId, DataSourceId,
             [JoinSignal(McpUserVerdict.Incorrect), JoinSignal(McpUserVerdict.Incorrect)],
             retainContent: true,
+            new McpLearningAggregationService.ExtractionStats(),
             CancellationToken.None);
 
         captured.Should().BeEmpty("join signals a human marked wrong must not be mined into a join pattern");
     }
 
-    private static McpQuerySignal CommonSignal(McpUserVerdict verdict, string question = "orders last week") =>
+    private static McpQuerySignal CommonSignal(McpUserVerdict verdict, string question = "orders last week", int? ratedBy = null, bool fromCurator = false) =>
         new()
         {
             Tool = "ask",
@@ -102,7 +178,9 @@ public class McpLearningVerdictWeightingTests
             GeneratedSql = "SELECT id FROM public.orders",
             TablesUsed = "[\"public.orders\"]",
             IsSuccessful = true,
-            UserVerdict = verdict
+            UserVerdict = verdict,
+            FeedbackByUserId = ratedBy,
+            FeedbackFromCurator = fromCurator
         };
 
     private static McpQuerySignal JoinSignal(McpUserVerdict verdict) =>
@@ -117,6 +195,15 @@ public class McpLearningVerdictWeightingTests
             IsSuccessful = true,
             UserVerdict = verdict
         };
+
+    private static McpLearningAggregationService Service()
+    {
+        return new McpLearningAggregationService(
+            Mock.Of<IDbContextFactory<BeaconContext>>(),
+            SettingsProviderMock.Create().Object,
+            TestGroundingSqlChecks.PassThrough().Object,
+            NullLogger<McpLearningAggregationService>.Instance);
+    }
 
     private static DetectionTestContext BuildContext(List<McpLearnedPattern> captured)
     {

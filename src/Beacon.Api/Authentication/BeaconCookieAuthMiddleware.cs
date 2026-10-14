@@ -7,6 +7,10 @@ namespace Beacon.Api.Authentication;
 /// <summary>
 /// Explicitly authenticates requests using the cookie scheme within the Beacon pipeline.
 /// This ensures Beacon routes use cookie auth without overriding the host app's default scheme.
+/// The cookie's result is recorded as the request's authentication result (<see cref="BeaconAuthenticationFeatures"/>),
+/// the way the framework's authentication middleware records the default scheme's, so what reads it (SignalR closing a hub
+/// connection when the session's expiry passes, a scheme-less authorization policy) sees the cookie session even where
+/// another scheme (OIDC) is registered and the cookie is not the default.
 /// </summary>
 public sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
 {
@@ -23,7 +27,7 @@ public sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
         var result = await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         if (result.Succeeded)
         {
-            context.User = result.Principal;
+            BeaconAuthenticationFeatures.Set(context, result);
         }
 
         await next(context);

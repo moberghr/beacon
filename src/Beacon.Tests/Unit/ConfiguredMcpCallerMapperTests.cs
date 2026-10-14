@@ -21,6 +21,7 @@ using Beacon.Core.Models.UserManagement;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -333,6 +334,35 @@ public class ConfiguredMcpCallerMapperTests
         act.Should().Throw<ArgumentException>();
     }
 
+    // Beacon:Mcp:CallerHashKey keeps the subject hashes across a change of the encryption key: set to the encryption key
+    // in use before the change, it derives the same hashes.
+    [Test]
+    public void TheCallerHashKey_WhenSet_IsWhatTheHashesDeriveFrom_SoTheyOutliveAKeyChange()
+    {
+        var before = new McpCallerSubjectHasher(McpCallerSubjectHasher.KeySource(HashConfiguration(null), EncryptionKey));
+        var afterTheKeyChange = new McpCallerSubjectHasher(McpCallerSubjectHasher.KeySource(HashConfiguration(EncryptionKey), "a new encryption key"));
+        var withoutIt = new McpCallerSubjectHasher(McpCallerSubjectHasher.KeySource(HashConfiguration(null), "a new encryption key"));
+
+        afterTheKeyChange.Hash(TenantId, UserOid).Should().Be(before.Hash(TenantId, UserOid));
+        withoutIt.Hash(TenantId, UserOid).Should().NotBe(before.Hash(TenantId, UserOid));
+    }
+
+    [Test]
+    public void ACallerHashKeyPlaceholder_FailsStartup_WithoutItsValue()
+    {
+        var act = () => McpCallerSubjectHasher.KeySource(HashConfiguration("${CALLER_HASH_KEY}"), EncryptionKey);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*{McpCallerSubjectHasher.CallerHashKeyKey}*")
+            .Which.Message.Should().NotContain("CALLER_HASH_KEY");
+    }
+
+    private static IConfiguration HashConfiguration(string? callerHashKey)
+    {
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [McpCallerSubjectHasher.CallerHashKeyKey] = callerHashKey })
+            .Build();
+    }
+
     [Test]
     public void Startup_RegistersTheHasher_KeyedByTheConfiguredEncryptionKey()
     {
@@ -341,7 +371,7 @@ public class ConfiguredMcpCallerMapperTests
         var hasher = provider.GetRequiredService<McpCallerSubjectHasher>();
 
         hasher.Hash(TenantId, UserOid).Should().Be(
-            new McpCallerSubjectHasher(Convert.ToBase64String(new byte[32])).Hash(TenantId, UserOid));
+            new McpCallerSubjectHasher(TestEncryptionKey.Value).Hash(TenantId, UserOid));
         hasher.Hash(TenantId, UserOid).Should().NotBe(Hasher.Hash(TenantId, UserOid));
     }
 
@@ -558,6 +588,21 @@ public class ConfiguredMcpCallerMapperTests
         caller!.BeaconUserId.Should().Be(21, "the losing request re-reads the user the winning request created");
     }
 
+    [TestCase("Admin", false)]
+    [TestCase("approver", false)]
+    [TestCase("Viewer", true)]
+    public void AProvisionedUsersDefaultRole_IsNeverTheAdminRoleOrAFunctionalRole(string defaultRoleName, bool valid)
+    {
+        var options = new McpCallerOptions
+        {
+            Users = new McpUserCallerOptions { Enabled = true, AutoProvision = true, DefaultRoleName = defaultRoleName }
+        };
+
+        var result = new McpCallerOptionsValidator(null, Options.Create(new RoleMappingOptions())).Validate(null, options);
+
+        (result.FailureMessage?.Contains("Users:DefaultRoleName cannot be", StringComparison.Ordinal) ?? false).Should().Be(!valid);
+    }
+
     [Test]
     public void UniqueViolation_RecognisesPostgresAndIgnoresOtherErrors()
     {
@@ -731,7 +776,7 @@ public class ConfiguredMcpCallerMapperTests
     private static ServiceProvider BuildBeaconProvider(Dictionary<string, string?> settings, JwtAuthenticationOptions? jwtOptions = null)
     {
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
-        settings["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32]);
+        settings["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(settings)
             .Build();

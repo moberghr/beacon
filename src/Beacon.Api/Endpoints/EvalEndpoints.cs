@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
@@ -17,15 +18,17 @@ internal static class EvalEndpoints
     public static RouteGroupBuilder MapEvalEndpoints(this RouteGroupBuilder group)
     {
         // The eval harness is admin tuning surface: it executes SQL against live data sources and
-        // writes/edits golden cases. Gate the whole group with the admin policy (matching MCP management,
-        // data-sources, migrations, users) rather than the base authenticated policy (§1.1/§1.4).
+        // writes/edits golden cases. Gate the whole group with the admin policy, and an Admin by live roles (a
+        // session whose Admin role was removed is refused), rather than the base authenticated policy (§1.1/§1.4).
         var eval = group.MapGroup("/eval").WithTags("Eval")
-            .RequireAuthorization(BeaconApiEndpoints.AdminPolicyName);
+            .RequireBeaconAdmin();
 
+        // Promotes what the Admin reviewed: 409 when the candidate's rating or SQL (its sqlHash) changed since.
         eval.MapPost("/golden/promote", (PromoteSignalToGoldenBody body, IMediator m, CancellationToken ct) =>
-                m.Send(new PromoteSignalToGoldenCommand(body.SignalId, body.Notes), ct))
+                m.Send(new PromoteSignalToGoldenCommand(body.SignalId, body.ReviewedSqlHash, body.Notes), ct))
             .WithName("PromoteSignalToGolden");
 
+        // The answer says whether the corrected SQL was kept, and why not.
         eval.MapPost("/feedback", (RecordQueryFeedbackBody body, IMediator m, CancellationToken ct) =>
                 m.Send(new RecordQueryFeedbackCommand(body.SignalId, body.Verdict, body.CorrectedSql, body.Note), ct))
             .WithName("RecordQueryFeedback");
@@ -37,6 +40,17 @@ internal static class EvalEndpoints
                 CancellationToken ct) =>
                 m.Send(new GetGoldenCasesQuery { ProjectId = projectId, DataSourceId = dataSourceId }, ct))
             .WithName("GetGoldenCases");
+
+        // Correct verdicts no golden case was promoted from yet; a candidate becomes one only through /golden/promote.
+        eval.MapGet("/golden/candidates", ([AsParameters] GetGoldenCandidatesQuery query, IMediator m, CancellationToken ct) =>
+                m.Send(query, ct))
+            .WithName("GetGoldenCandidates");
+
+        // Checks a project's active golden cases and approved learned patterns against today's grounding checks and lists
+        // what they refuse, by id, with the reasons. Changes nothing: the Admin decides per row.
+        eval.MapGet("/grounding/recheck", ([FromQuery] int projectId, IMediator m, CancellationToken ct) =>
+                m.Send(new RecheckGroundingQuery(projectId), ct))
+            .WithName("RecheckGrounding");
 
         eval.MapPut("/golden/{id:int}", async (int id, UpdateGoldenCaseBody body, IMediator m, CancellationToken ct) =>
         {
@@ -77,7 +91,10 @@ internal static class EvalEndpoints
     }
 }
 
-internal sealed record PromoteSignalToGoldenBody(int SignalId, string? Notes);
+/// <param name="SignalId">The candidate to promote.</param>
+/// <param name="ReviewedSqlHash">The candidate's <c>sqlHash</c> from the golden candidates list, as reviewed.</param>
+/// <param name="Notes">Notes stored on the golden case.</param>
+internal sealed record PromoteSignalToGoldenBody(int SignalId, string ReviewedSqlHash, string? Notes);
 internal sealed record RecordQueryFeedbackBody(int SignalId, McpUserVerdict Verdict, string? CorrectedSql, string? Note);
 internal sealed record RunEvalBody(int? ProjectId);
 internal sealed record UpdateGoldenCaseBody(string? Question, string? GoldSql, bool? IsActive, string? Notes);

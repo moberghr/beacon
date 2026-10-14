@@ -1,11 +1,11 @@
 using System.Data.Common;
 using System.Dynamic;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Models.Queries;
@@ -48,8 +48,8 @@ internal partial class MigrationService
 
         try
         {
-            // Parse query steps from JSON format
-            var querySteps = ParseQueryStepsFromJson(migrationJob.QueryText);
+            // Parse query steps from JSON format, as the job's access was decided
+            var querySteps = MigrationQuerySteps.Parse(migrationJob.QueryText);
 
             if (!querySteps.Any())
             {
@@ -64,18 +64,26 @@ internal partial class MigrationService
                 Steps = querySteps
             };
 
-            // Execute the query to get source data using preview service
+            // Read the source through the temporary-query path, within the migration's own row budget (Beacon:Migrations:MaxRows):
+            // a larger source fails the run here, before anything is written.
             var parameters = request.Parameters?.Select(kvp => new ParameterValue
             {
                 Name = kvp.Key,
                 Value = kvp.Value?.ToString() ?? ""
             }).ToList() ?? new List<ParameterValue>();
 
-            var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, cancellationToken, parameters);
+            var queryResult = await previewService.ExecuteTemporaryQueryPreview(queryData, parameters, _options.MaxRows, cancellationToken);
 
-            if (!queryResult.Success || queryResult.FinalResult?.AllRecords == null)
+            // Nothing is written from a source read that failed or ran out of time, in any step or in the final query: a
+            // timed-out read has no rows, and writing them would empty the destination in Truncate mode.
+            if (queryResult == null
+                || !queryResult.Success
+                || queryResult.StepResults.Any(x => !x.Success)
+                || queryResult.FinalResult is not { AllRecords: not null, TimedOut: false })
             {
-                throw new InvalidOperationException($"Source query execution failed: {queryResult.ErrorMessage}");
+                var reason = queryResult?.FinalResult?.TimedOut == true ? "the source query timed out" : queryResult?.ErrorMessage;
+
+                throw new InvalidOperationException($"Source query execution failed: {reason ?? "no result"}");
             }
 
             var sourceData = queryResult.FinalResult.AllRecords;
@@ -140,51 +148,8 @@ internal partial class MigrationService
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Migration execution failed");
+            logger.LogError("Migration execution failed ({Failure})", FailureCodes.Describe(ex));
             throw;
-        }
-    }
-
-    private List<QueryStepData> ParseQueryStepsFromJson(string queryTextJson)
-    {
-        if (string.IsNullOrWhiteSpace(queryTextJson))
-            return new List<QueryStepData>();
-
-        try
-        {
-            // Try to parse as JSON first (new format)
-            var stepObjects = JsonSerializer.Deserialize<List<JsonElement>>(queryTextJson);
-            return stepObjects?.Select((step, index) => new QueryStepData
-            {
-                StepId = 0, // Temporary step
-                StepOrder = step.TryGetProperty("StepOrder", out var stepOrder) ? stepOrder.GetInt32() : index + 1,
-                Name = step.TryGetProperty("Name", out var name) ? name.GetString() : $"Step {index + 1}",
-                Description = step.TryGetProperty("Description", out var desc) ? desc.GetString() : null,
-                SqlValue = step.TryGetProperty("SqlValue", out var sql) ? sql.GetString() ?? "" : "",
-                DataSourceId = step.TryGetProperty("DataSourceId", out var dataSourceId) ? dataSourceId.GetInt32() : 0,
-                DataSourceName = step.TryGetProperty("DataSourceName", out var dataSourceName) ? dataSourceName.GetString() : "",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Default
-                Parameters = new List<QueryStepParameterData>()
-            }).ToList() ?? new List<QueryStepData>();
-        }
-        catch
-        {
-            // Fallback: treat as plain SQL (old format)
-            return new List<QueryStepData>
-            {
-                new QueryStepData
-                {
-                    StepId = 0,
-                    StepOrder = 1,
-                    Name = "Migration Query",
-                    Description = "Data extraction query",
-                    SqlValue = queryTextJson,
-                    DataSourceId = 0, // Will need to be resolved
-                    DataSourceName = "Unknown",
-                    DatabaseEngineType = DatabaseEngineType.PostgreSQL,
-                    Parameters = new List<QueryStepParameterData>()
-                }
-            };
         }
     }
 

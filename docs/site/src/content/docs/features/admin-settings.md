@@ -13,17 +13,26 @@ Admin Settings provides:
 - **LLM Provider Management** - Configure and hot-swap AI providers at runtime
 - **Change History** - Full audit trail of all setting changes with user attribution
 - **Encrypted Storage** - Sensitive values (API keys, endpoints) encrypted in the database
-- **Role-Restricted** - Only Admin users can access settings
+- **Role-Restricted** - Admins, and the [functional roles](/features/authorization/#functional-permissions) Auditor (read) and SecurityAdmin (read and change), reach the settings; the LLM connection stays an Admin's
 
 ## Accessing Admin Settings
 
-1. Log in as an Admin user
+1. Log in as an Admin, an Auditor or a SecurityAdmin
 2. Navigate to **Admin Settings** in the navigation menu (`/admin-settings`)
 3. Configure settings across the available tabs
 
-:::note
-Admin Settings is only visible to users with the Admin role or Super Admin flag.
-:::
+### Who may do what
+
+| Action | Route | Admin | SecurityAdmin | Auditor |
+|---|---|---|---|---|
+| Read the settings (secrets shown only as set or not set) and their history | `GET /beacon/api/admin-settings` | ✓ | ✓ | ✓ |
+| Change the models and the rate and budget limits | `PUT /beacon/api/admin-settings` | ✓ | ✓ | – |
+| Change the **Base URL** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
+| Change the LLM **provider**, **endpoint**, **region**, Bedrock **authentication mode** or any **credential** (API key, session token, AWS keys) | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
+| Test the stored LLM connection | `POST /beacon/api/admin-settings/test-llm` | ✓ | ✓ | – |
+| Test with another provider, endpoint, region, authentication mode or credential | `POST /beacon/api/admin-settings/test-llm` | ✓ | – (`403`) | – |
+
+The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests, with the stored credentials: were they a SecurityAdmin's to change or test, the credentials would follow an endpoint the SecurityAdmin chose. The Base URL is the address of every link Beacon sends out (notifications, invitations), so it is an Admin's too. A SecurityAdmin's save sends the stored values back unchanged (the UI sends credentials and the endpoint as `null`, "leave as is", and the stored Base URL, whose field is read-only for them); a request that changes any of them answers `403` and saves nothing. The refusal is logged with ids only.
 
 ## Configuration Tabs
 
@@ -71,7 +80,7 @@ Admin Settings can change the LLM provider at runtime without restarting the app
 
 ### How It Works
 
-1. Admin updates LLM settings via the UI
+1. An Admin updates LLM settings via the UI
 2. `AppSettingsService` saves encrypted values to the database
 3. `LlmProviderManager` receives the update via `ILlmConfigurationUpdater`
 4. A new provider instance is created with the updated configuration
@@ -216,7 +225,7 @@ Settings are cached in memory for 1 hour to minimize database queries. The cache
 
 ## MCP Settings
 
-MCP server behavior has its own admin page at `/mcp-settings`, organised into four tabs — **Pre-prompt** (SQL-generation system prompt, global instruction), **Tool descriptions** (overrides applied to the live `tools/list` response), **Guardrails** (max row limit, read-only enforcement, PII detection with custom patterns, the execution limits, the content-retention switches, and the learning knobs), and **Context preview** (see the grounding context for a project exactly as the tools assemble it).
+MCP server behavior has its own page at `/mcp-settings` (an Auditor or a SecurityAdmin reads it, a SecurityAdmin changes it, and Admins do both; turning read-only enforcement or PII detection off, globally or for a project, is an Admin's alone, `403` otherwise), organised into four tabs — **Pre-prompt** (SQL-generation system prompt, global instruction), **Tool descriptions** (overrides applied to the live `tools/list` response), **Guardrails** (max row limit, read-only enforcement, PII detection with custom patterns, the execution limits, the content-retention switches, and the learning knobs), and **Context preview** (see the grounding context for a project exactly as the tools assemble it).
 
 A scope selector switches between the global defaults and a single project. Per project, each guardrail can either inherit the global value or carry its own override. Prompts and tool descriptions stay global — `tools/list` is answered before a project is known.
 
@@ -230,4 +239,5 @@ See the [MCP Server Guide](/features/mcp-server/#configuration) for details. Add
 - [MCP Server](/features/mcp-server/) - MCP settings, guardrails, and the learning loop
 - [Knowledge Base & Grounding](/features/knowledge-base/) - Retrieval, exemplar, and eval settings
 - [User Management](/features/user-management/) - Role-based access to Admin Settings
+- [Authorization](/features/authorization/#functional-permissions) - The functional permissions (Auditor, SecurityAdmin)
 - [Configuration Guide](/getting-started/configuration/) - Startup configuration reference

@@ -2,9 +2,11 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.HostData;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 using FluentAssertions;
@@ -37,7 +39,10 @@ public class QueryServiceHostStepTests
 
         var act = () => service.PreviewQueryStep(1, 1, [new ParameterValue { Name = "id", Value = "5" }], CancellationToken.None);
 
-        await act.Should().ThrowAsync<ExecutionReachedException>("the bound step passed the read-only gate and the host policy");
+        // The provider reports a failure on a host data source with generic text; reaching the connection lookup is the proof.
+        await act.Should().ThrowAsync<QueryExecutionFailedException>("the bound step passed the read-only gate and the host policy")
+            .WithMessage(DatabaseProvider.HostQueryFailedMessage);
+        resolver.Verify(x => x.GetConnectionString(It.IsAny<DataSource>()), Times.Once);
     }
 
     [TestCase(false, "SELECT c.Name FROM dbo.Customer c WHERE c.SSN = {ssn}")]
@@ -91,17 +96,7 @@ public class QueryServiceHostStepTests
 
         var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql);
 
-        return new QueryService(
-            factory.Object,
-            resolver,
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            null!,
-            Mock.Of<IBeaconUserContext>(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            new HostDataSourceGuard(new SingleHostRegistry(snapshot)));
+        return TestQueryServices.QueryService(factory.Object, resolver, new HostDataSourceGuard(new SingleHostRegistry(snapshot)), new ConfiguredDatabaseResolver(resolver, NullLogger<ConfiguredDatabaseResolver>.Instance));
     }
 
     private sealed class ExecutionReachedException : Exception;

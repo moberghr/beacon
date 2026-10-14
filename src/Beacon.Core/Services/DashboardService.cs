@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Dashboards;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Services;
 
@@ -36,13 +37,20 @@ internal class DashboardService(
             return null; // User has no access
         }
 
+        // The owner is named by display name or "User {id}", never by user name or external id.
+        var ownerName = dashboard.CreatedByUserId == null
+            ? null
+            : await context.Users
+                .Where(x => x.ExternalId == dashboard.CreatedByUserId)
+                .Select(UserLabel.OfUser)
+                .FirstOrDefaultAsync(cancellationToken);
+
         return new DashboardDetailsData
         {
             Id = dashboard.Id,
             Name = dashboard.Name,
             Description = dashboard.Description,
-            CreatedByUserId = dashboard.CreatedByUserId,
-            CreatedByUserName = dashboard.CreatedByUserName,
+            CreatedByUserName = ownerName,
             IsShared = dashboard.IsShared,
             IsDefault = dashboard.IsDefault,
             RefreshIntervalSeconds = dashboard.RefreshIntervalSeconds,

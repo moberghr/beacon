@@ -22,6 +22,12 @@ public class DataContract : ArchivableBaseEntity
 
     public string? OwnerUserId { get; set; }
 
+    /// <summary>
+    /// When a scheduled evaluation was first skipped because the owner may no longer run the contract's rules; null once
+    /// an evaluation runs again, or when none was skipped.
+    /// </summary>
+    public DateTime? OwnerNotAuthorizedSince { get; set; }
+
     public bool AlertOnFailure { get; set; } = true;
 
     public int FailureThresholdScore { get; set; } = 80;

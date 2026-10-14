@@ -3,6 +3,7 @@ import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
+import type { ChangeApprovalOutcome } from '@/routes/approvals/queries';
 
 export type ScoreTone = 'ok' | 'warn' | 'crit' | 'neutral';
 
@@ -29,6 +30,8 @@ export interface DataQualityOverviewData {
   healthyTables: number;
   degradingTables: number;
   activeContracts: number;
+  /** Enabled contracts on the source whose scheduled evaluations are skipped: their owner may no longer run them. */
+  ownerNotAuthorizedContracts: number;
   tableScores: DataQualityScoreData[];
 }
 
@@ -42,12 +45,15 @@ export interface DataContractRuleData {
   severity: number;
   weight: number;
   isEnabled: boolean;
+  /** Read only: with the approval workflow on, this Custom SQL rule's SQL waits for approval, so evaluations leave it out. */
+  awaitingApproval?: boolean;
 }
 
 export interface DataContractRecipientData {
   id: number;
   name: string;
-  destination?: string;
+  /** Always null: destinations are secrets, shown masked to admins on the recipients page only. */
+  destination?: string | null;
   notificationType?: number;
 }
 
@@ -61,13 +67,25 @@ export interface DataContractData {
   description?: string | null;
   cronExpression: string;
   isEnabled: boolean;
-  ownerUserId?: string | null;
+  /** An owner is recorded: scheduled evaluations run as the owner, checked at every run. */
+  hasOwner: boolean;
+  /** The owner's display name or a neutral "User {id}" label; null when no owner or no matching user. Never an id. */
+  ownerDisplayName: string | null;
+  /**
+   * A scheduled evaluation was skipped because the owner may no longer run the contract's rules, and none has run since:
+   * its scheduled checks are not happening.
+   */
+  ownerNotAuthorized: boolean;
   alertOnFailure: boolean;
   failureThresholdScore: number;
   createdTime: string;
   latestScore: number | null;
   rules: DataContractRuleData[];
   recipients: DataContractRecipientData[];
+  /** The pending change request of the contract's Custom SQL rules, if one waits (an Approver opens it). */
+  pendingApprovalRequestId?: number | null;
+  /** While Custom SQL rules wait and no request of them is pending: the last decision (a rejection: change and save again). */
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 }
 
 export interface DataQualityRuleResultData {
@@ -88,9 +106,39 @@ export interface DataQualityEvaluationData {
   passedRules: number;
   failedRules: number;
   totalRules: number;
+  /** The enabled Custom SQL rules left out because their SQL waits for approval; more than none makes the score partial. */
+  awaitingApprovalRules?: number;
+  /** The score leaves out rules that wait for approval: it does not stand for the whole contract. */
+  isPartial?: boolean;
+  /** The alert recipients this evaluation's alert skipped because where they deliver waits for approval. */
+  heldAlertRecipients?: number;
   executionTimeMs: number;
   createdTime: string;
   ruleResults: DataQualityRuleResultData[];
+}
+
+/** What an evaluation left out or held back, in a sentence; null when it left out nothing and held no alert. */
+export function evaluationNote(evaluation: Pick<DataQualityEvaluationData, 'isPartial' | 'awaitingApprovalRules' | 'heldAlertRecipients'>): string | null {
+  const parts: string[] = [];
+  const awaiting = evaluation.awaitingApprovalRules ?? 0;
+  if (evaluation.isPartial || awaiting > 0) {
+    parts.push(
+      `Partial: ${awaiting} Custom SQL rule${awaiting === 1 ? '' : 's'} awaiting approval ${awaiting === 1 ? 'was' : 'were'} not evaluated`,
+    );
+  }
+
+  const held = evaluation.heldAlertRecipients ?? 0;
+  if (held > 0) {
+    parts.push(`the alert skipped ${held} recipient${held === 1 ? '' : 's'} whose destination awaits approval`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const sentence = parts.join('; ');
+
+  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
 
 export const DATA_QUALITY_OVERVIEW_KEY = ['data-quality', 'overview'] as const;
@@ -164,6 +212,20 @@ export function useDeleteContract() {
   );
 }
 
+/** Admin only: makes a Beacon user the contract's owner. */
+export function useSetContractOwner(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (userId) => beaconApi().setDataContractOwner(id, { userId }),
+      invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id)],
+      successMsg: 'Owner updated',
+      errorFallback: 'Changing the owner failed',
+    }),
+  );
+}
+
 export interface CreateContractPayload {
   dataSourceId: number;
   schemaName: string;
@@ -172,7 +234,6 @@ export interface CreateContractPayload {
   description: string | null;
   cronExpression: string;
   isEnabled: boolean;
-  ownerUserId: string | null;
   alertOnFailure: boolean;
   failureThresholdScore: number;
   rules: DataContractRuleData[];
@@ -182,14 +243,20 @@ export interface CreateContractPayload {
 export function useCreateContract() {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<CreateContractPayload, { dataContractId: number }>({
+    createSimpleMutation<CreateContractPayload, { dataContractId: number; awaitingApproval: boolean; message: string | null }>({
       qc,
       mutationFn: async (payload) => {
         const result = await beaconApi().createDataContract(payload as never);
-        return { dataContractId: result.dataContractId ?? 0 };
+        return {
+          dataContractId: result.dataContractId ?? 0,
+          awaitingApproval: result.awaitingApproval ?? false,
+          message: result.message ?? null,
+        };
       },
       invalidate: [DATA_CONTRACTS_KEY, DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Create contract failed',
+      // The contract dialog shows the server's reason in a banner.
+      errorToast: false,
     }),
   );
 }
@@ -202,6 +269,8 @@ export function useUpdateContract(id: number) {
       mutationFn: (payload) => beaconApi().updateDataContract(id, payload as never),
       invalidate: [DATA_CONTRACTS_KEY, dataContractKey(id), DATA_QUALITY_OVERVIEW_KEY],
       errorFallback: 'Update contract failed',
+      // The contract dialog shows the server's reason in a banner.
+      errorToast: false,
     }),
   );
 }

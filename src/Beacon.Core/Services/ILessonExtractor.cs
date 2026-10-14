@@ -42,7 +42,11 @@ public sealed record FailureCluster(
     string? GeneratedSql,
     string? Error,
     string? CorrectedSql,
-    string? SchemaSlice);
+    string? SchemaSlice)
+{
+    /// <summary>The project whose signals the cluster was mined from, for the row-data egress log.</summary>
+    public int? ProjectId { get; init; }
+}
 
 /// <summary>
 /// The structured lesson emitted by the LLM. <see cref="PatternContent"/> / <see cref="ExampleQuestion"/>

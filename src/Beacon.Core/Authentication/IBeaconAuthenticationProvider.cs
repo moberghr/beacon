@@ -20,11 +20,14 @@ public interface IBeaconAuthenticationProvider
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Validates whether a user session is still valid.
+    /// Validates whether a user session is still valid. Beacon does not call it: with user management on, sessions are
+    /// revalidated against the user store; without it, only their absolute lifetime applies, and a host that needs more
+    /// revalidates in its own cookie events.
     /// </summary>
     /// <param name="userId">The user ID to validate.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True if the session is valid, false otherwise.</returns>
+    [Obsolete("Beacon never calls ValidateSessionAsync. Sessions are revalidated against the user store while Beacon user management is on (Beacon:Authentication:Session, BeaconSessionEvents); a host without it revalidates in its own cookie authentication events.")]
     Task<bool> ValidateSessionAsync(
         string userId,
         CancellationToken cancellationToken = default);

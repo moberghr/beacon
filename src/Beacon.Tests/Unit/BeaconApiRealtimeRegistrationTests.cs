@@ -102,6 +102,22 @@ public class BeaconApiRealtimeRegistrationTests
     }
 
     [Test]
+    public async Task MapBeaconApi_Hub_AdmitsOnlyCallersWhoMayUseIt_AndClosesConnectionsWhenTheSessionExpires()
+    {
+        var endpoints = await MapAndCollectRootEndpointsAsync(realtime: true);
+
+        var hub = endpoints
+            .Where(x => (x.RoutePattern.RawText ?? string.Empty).StartsWith("/beacon/api/hub", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        hub.Should().NotBeEmpty();
+        hub.Should().OnlyContain(x => x.Metadata.GetOrderedMetadata<AuthorizationPolicy>().Contains(BeaconApiEndpoints.HubAccessPolicy));
+        hub.SelectMany(x => x.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Http.Connections.HttpConnectionDispatcherOptions>())
+            .Should().NotBeEmpty()
+            .And.OnlyContain(x => x.CloseOnAuthenticationExpiration);
+    }
+
+    [Test]
     public async Task MapBeaconApi_SkipsHub_WhenRealtimeDisabled()
     {
         var endpoints = await MapAndCollectRootEndpointsAsync(realtime: false);

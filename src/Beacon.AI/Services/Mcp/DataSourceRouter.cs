@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.Mcp;
 
@@ -117,7 +118,11 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to parse routing response: {Json}", json);
+            // The response's length only, never its text, which can repeat the question (§1.11).
+            logger.LogWarning(
+                "Failed to parse a routing response of {Length} characters ({Failure})",
+                json.Length,
+                FailureCodes.Describe(ex));
             return new RoutingResult
             {
                 Sources = [new RoutedSource

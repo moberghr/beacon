@@ -29,10 +29,35 @@ public class AuthenticationResult
     public ClaimsPrincipal? TokenPrincipal { get; init; }
 
     /// <summary>
+    /// The validated token's JOSE header <c>typ</c> (for example <c>at+jwt</c>), set only by bearer-token validation.
+    /// The header is not among <see cref="TokenPrincipal"/>'s claims.
+    /// </summary>
+    public string? TokenType { get; init; }
+
+    /// <summary>
+    /// The Beacon user id the result is bound to, when the provider bound one (the login-form JWT flow binds the token
+    /// to an existing Beacon user). A provider that wraps another re-reads exactly this user, never one found by a
+    /// provider-agnostic external id.
+    /// </summary>
+    public int? BeaconUserId { get; init; }
+
+    /// <summary>
+    /// The credentials were right, but the user must choose a new password before signing in (an administrator set the
+    /// current one). <see cref="Success"/> is false, so no session is issued; <see cref="ErrorMessage"/> says what to do.
+    /// </summary>
+    public bool PasswordChangeRequired { get; init; }
+
+    /// <summary>
     /// Creates a failed authentication result with an error message.
     /// </summary>
     public static AuthenticationResult Failed(string message) =>
         new() { Success = false, ErrorMessage = message };
+
+    /// <summary>
+    /// Creates the result for a user who must choose a new password first: not signed in, with <paramref name="message"/>.
+    /// </summary>
+    public static AuthenticationResult PasswordChangeNeeded(string message) =>
+        new() { Success = false, PasswordChangeRequired = true, ErrorMessage = message };
 
     /// <summary>
     /// Creates a successful authentication result with user details.

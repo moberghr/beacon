@@ -28,6 +28,8 @@ export interface RoleEntry {
   description: string | null;
   level: number;
   isSystemRole: boolean;
+  /** The functional permission a functional role grants (e.g. `Auditor`); null for Admin, Editor, Viewer and others. */
+  permission?: string | null;
 }
 
 interface GetRolesResult {
@@ -113,6 +115,23 @@ export function useUpdateUser() {
   );
 }
 
+/**
+ * Replaces the user's roles (`PUT /users/{id}/roles`, the complete set). Not toasted: the dialog shows the server's
+ * reason (400 separation of duties or an unknown role, 403 a change the caller may not make) beside the roles.
+ */
+export function useSetUserRoles() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ id: number; roleIds: number[] }, void>({
+      qc,
+      mutationFn: ({ id, roleIds }) => beaconApi().setUserRoles(id, { roleIds }),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Saving the roles failed',
+      errorToast: false,
+    }),
+  );
+}
+
 export function useToggleUserEnabled() {
   const qc = useQueryClient();
   return useMutation(
@@ -121,6 +140,22 @@ export function useToggleUserEnabled() {
       mutationFn: (id) => beaconApi().toggleUserEnabled(id),
       invalidate: [USERS_ALL_KEY],
       errorFallback: 'Toggle user enabled failed',
+    }),
+  );
+}
+
+/**
+ * Signs out every session of the user (`POST /users/{id}/sign-out-everywhere`): their security stamp changes, so each
+ * session ends at its next check against the user store. Their API keys keep working.
+ */
+export function useSignUserOutEverywhere() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (id) => beaconApi().signUserOutEverywhere(id),
+      invalidate: [USERS_ALL_KEY],
+      errorFallback: 'Signing the user out failed',
     }),
   );
 }

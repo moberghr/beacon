@@ -1,6 +1,8 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Helpers;
+using Beacon.Core.Services;
 
 namespace Beacon.AI.Services.Learning;
 
@@ -100,10 +102,8 @@ internal sealed class PatternReplayVerifier(
                 // A case we could not measure counts as Errored (never a flip, never a regression), so a
                 // flaky/erroring case can neither help a candidate over the promotion bar nor block it.
                 errored++;
-                logger.LogWarning(
-                    ex,
-                    "Replay verification threw for a case on pattern {PatternId} ({Schema}.{Table}); counting as errored",
-                    candidate.Id, candidate.SchemaName, candidate.TableName);
+                logger.LogWarning("Replay verification threw for a case on pattern {PatternId} ({Schema}.{Table}); counting as errored ({Failure})",
+                    candidate.Id, candidate.SchemaName, candidate.TableName, FailureCodes.Describe(ex));
             }
         }
 
@@ -132,7 +132,8 @@ internal sealed class PatternReplayVerifier(
     }
 
     // The candidate lesson rendered as a prompt block, appended to the smart context during the candidate
-    // replay pass. Mirrors KnowledgeGraphService.FormatLearnedPatternsForLlm's style (content + example).
+    // replay pass. Mirrors KnowledgeGraphService.FormatLearnedPatternsForLlm's style (content + example); the example
+    // question as a prompt shows it (on one line; left out when it holds characters that do not show).
     private static string BuildLessonBlock(McpLearnedPattern candidate)
     {
         var sb = new StringBuilder();
@@ -140,9 +141,10 @@ internal sealed class PatternReplayVerifier(
         sb.AppendLine("## Candidate Learned Pattern (under evaluation)");
         sb.AppendLine();
         sb.Append("- ").AppendLine(candidate.PatternContent);
-        if (!string.IsNullOrEmpty(candidate.ExampleQuestion))
+        var exampleQuestion = GroundingText.Question(candidate.ExampleQuestion);
+        if (!string.IsNullOrEmpty(exampleQuestion))
         {
-            sb.Append("  \"").Append(candidate.ExampleQuestion).AppendLine("\"");
+            sb.Append("  \"").Append(exampleQuestion).AppendLine("\"");
         }
 
         if (!string.IsNullOrEmpty(candidate.ExampleSql))

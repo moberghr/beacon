@@ -1,12 +1,16 @@
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -89,7 +93,11 @@ public class KnowledgeAnswerTopKTests
             .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new LlmResponse { Content = "answer" });
 
-        var service = new KnowledgeAnswerService(knowledgeGraph.Object, documentationService.Object);
+        var service = new KnowledgeAnswerService(
+            knowledgeGraph.Object,
+            documentationService.Object,
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()));
 
         await service.AnswerAsync(
             llm.Object, ProjectId, Question, new McpSettingsData { DocChunkTopK = distinctiveTopK }, CancellationToken.None);
@@ -100,7 +108,69 @@ public class KnowledgeAnswerTopKTests
             Times.Once);
     }
 
-    private static KnowledgeAnswerService BuildService(IReadOnlyList<DocChunkHit> chunks, out ILlmProvider llmProvider)
+    // Chunks of the sections that can list values discovered in the data carry row data: the request is logged with the
+    // stored-documentation category; chunks of other sections are not.
+    [TestCase(ProjectDocSectionType.DataModel, true)]
+    [TestCase(ProjectDocSectionType.Glossary, true)]
+    [TestCase(ProjectDocSectionType.BusinessDomains, true)]
+    [TestCase(ProjectDocSectionType.ProjectOverview, false)]
+    [TestCase(ProjectDocSectionType.DataFlows, false)]
+    public async Task AnswerAsync_LogsAPromptCarryingAValueListingSection(ProjectDocSectionType sectionType, bool logged)
+    {
+        var log = new LogRecorder();
+        var service = BuildService(
+            [new DocChunkHit("CHUNK status values: open, shipped", null) { SectionType = sectionType }],
+            out var llm,
+            egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()));
+
+        await service.AnswerAsync(llm, ProjectId, Question, new McpSettingsData(), CancellationToken.None);
+
+        if (logged)
+        {
+            log.Entries.Should().ContainSingle()
+                .Which.Message.Should().Be($"An LLM request carrying stored-documentation read from data sources  of project {ProjectId} was handed to the provider for caller {TestRowDataEgress.CallerId}");
+            return;
+        }
+
+        log.Entries.Should().BeEmpty();
+    }
+
+    // Under the row-data lock the chunks of value-listing sections stay out of the prompt, and the documentation fallback
+    // is exported without those sections.
+    [Test]
+    public async Task AnswerAsync_UnderTheRowDataLock_LeavesValueListingSectionsOut()
+    {
+        var log = new LogRecorder();
+        var documentation = new Mock<IProjectDocumentationService>();
+        documentation
+            .Setup(x => x.ExportLatestToMarkdownAsync(ProjectId, It.IsAny<IReadOnlyCollection<ProjectDocSectionType>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("EXPORT_WITHOUT_VALUE_SECTIONS");
+        var service = BuildService(
+            [
+                new DocChunkHit("CHUNK_OVERVIEW the shop sells books", null) { SectionType = ProjectDocSectionType.ProjectOverview },
+                new DocChunkHit("CHUNK_MODEL status values: open, shipped", null) { SectionType = ProjectDocSectionType.DataModel }
+            ],
+            out var llm,
+            egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()),
+            forbidRowData: true,
+            documentation: documentation);
+
+        var answer = await service.AnswerAsync(llm, ProjectId, Question, new McpSettingsData(), CancellationToken.None);
+
+        answer.Should().Contain("CHUNK_OVERVIEW").And.NotContain("CHUNK_MODEL");
+        log.Entries.Should().BeEmpty();
+        documentation.Verify(
+            x => x.ExportLatestToMarkdownAsync(ProjectId, ProjectDocSectionTypes.ListingValues, It.IsAny<CancellationToken>()),
+            Times.Once);
+        documentation.Verify(x => x.ExportLatestToMarkdownAsync(ProjectId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static KnowledgeAnswerService BuildService(
+        IReadOnlyList<DocChunkHit> chunks,
+        out ILlmProvider llmProvider,
+        ILlmRowDataEgress? egress = null,
+        bool forbidRowData = false,
+        Mock<IProjectDocumentationService>? documentation = null)
     {
         var knowledgeGraph = new Mock<IKnowledgeGraphService>();
         knowledgeGraph
@@ -113,7 +183,7 @@ public class KnowledgeAnswerTopKTests
             .Setup(x => x.SearchProjectAsync(Question, ProjectId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
 
-        var documentationService = new Mock<IProjectDocumentationService>();
+        var documentationService = documentation ?? new Mock<IProjectDocumentationService>();
         documentationService
             .Setup(x => x.ExportLatestToMarkdownAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync($"{FallbackSentinel}\n\nThe orders table stores order rows.");
@@ -125,6 +195,10 @@ public class KnowledgeAnswerTopKTests
             .ReturnsAsync((LlmRequest request, CancellationToken _) => new LlmResponse { Content = request.Messages[0].Content });
 
         llmProvider = llm.Object;
-        return new KnowledgeAnswerService(knowledgeGraph.Object, documentationService.Object);
+        return new KnowledgeAnswerService(
+            knowledgeGraph.Object,
+            documentationService.Object,
+            egress ?? TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }));
     }
 }

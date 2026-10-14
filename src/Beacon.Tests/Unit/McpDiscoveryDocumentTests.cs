@@ -34,7 +34,7 @@ public class McpDiscoveryDocumentTests
             .Should().Equal("header");
         document["scopes_supported"]!.AsArray()
             .Select(x => x!.GetValue<string>())
-            .Should().Equal("Execute", "Admin");
+            .Should().Equal("Execute");
         document["resource_name"]!.GetValue<string>().Should().Be("Beacon MCP");
         document["resource_documentation"]!.GetValue<string>().Should().NotBeNullOrWhiteSpace();
     }
@@ -67,7 +67,7 @@ public class McpDiscoveryDocumentTests
         authentication["type"]!.GetValue<string>().Should().Be("bearer");
         authentication["scopes_supported"]!.AsArray()
             .Select(x => x!.GetValue<string>())
-            .Should().Equal("Execute", "Admin");
+            .Should().Equal("Execute");
         authentication["resource_metadata"]!.GetValue<string>()
             .Should().Be($"{BaseUrl}/.well-known/oauth-protected-resource");
     }

@@ -16,6 +16,9 @@ public class QueryExecutionResult
     public bool IsCrossDataSource { get; set; }
     public bool IsCrossDatabase { get; set; }
     public List<string> DataSourcesInvolved { get; set; } = new();
+
+    /// <summary>The data sources the run read: those of every step that ran, including a step that failed.</summary>
+    public List<int> DataSourceIds { get; set; } = new();
     public List<DatabaseEngineType> DatabaseEnginesUsed { get; set; } = new();
     public Dictionary<string, double> ExecutionTimeByDataSource { get; set; } = new();
 }

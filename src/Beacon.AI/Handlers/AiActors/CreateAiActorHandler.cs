@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.Core.Authorization;
+using Beacon.Core;
 using Beacon.Core.Handlers.AiActors;
 
 namespace Beacon.AI.Handlers.AiActors;
@@ -11,13 +13,19 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
 {
     private readonly IAiActorServiceExtended _aiActorService;
     private readonly ILogger<CreateAiActorHandler> _logger;
+    private readonly IBeaconActorAccessor _actorAccessor;
+    private readonly BeaconConfiguration _configuration;
 
     public CreateAiActorHandler(
         IAiActorServiceExtended aiActorService,
-        ILogger<CreateAiActorHandler> logger)
+        ILogger<CreateAiActorHandler> logger,
+        IBeaconActorAccessor actorAccessor,
+        BeaconConfiguration configuration)
     {
         _aiActorService = aiActorService;
         _logger = logger;
+        _actorAccessor = actorAccessor;
+        _configuration = configuration;
     }
 
     public async Task<CreateAiActorResult> Handle(
@@ -27,6 +35,10 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
         _logger.LogInformation("Creating AI Actor '{Name}' for DataSource {DataSourceId}",
             request.Name, request.DataSourceId);
 
+        // The creator is the signed-in caller, never a value from the request; an actor is never stored without one, and
+        // with user management on its creator is a stored Beacon user (its think cycles act with the creator's access).
+        var creatorUserId = ScheduledWorkOwner.Require(await _actorAccessor.GetCurrentAsync(cancellationToken), _configuration);
+
         var options = new CreateAiActorOptions
         {
             Name = request.Name,
@@ -35,7 +47,7 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
             AdditionalContext = request.AdditionalContext,
             MaxQueries = request.MaxQueries ?? 10,
             MaxSubscriptionsPerQuery = request.MaxSubscriptionsPerQuery ?? 3,
-            CreatedByUserId = request.CreatedByUserId,
+            CreatedByUserId = creatorUserId,
             DefaultRecipientIds = request.DefaultRecipientIds,
             ActivateImmediately = request.ActivateImmediately ?? true
         };

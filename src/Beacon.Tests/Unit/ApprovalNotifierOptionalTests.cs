@@ -1,3 +1,4 @@
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
@@ -17,12 +18,16 @@ namespace Beacon.Tests.Unit;
 [TestFixture]
 public class ApprovalNotifierOptionalTests
 {
+    // The decision names the requester and the reviewer (the caller), by the ids the realtime hub names users by.
     private static Mock<IQueryApprovalService> ServiceReturning(string? requestedBy)
     {
         var service = new Mock<IQueryApprovalService>();
         service
-            .Setup(x => x.GetApprovalDetailAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ApprovalRequestDetail { Id = 7, RequestedByUserId = requestedBy });
+            .Setup(x => x.ApproveAsync(It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((int id, string? _, string? _, CancellationToken _) => new QueryApprovalDecision(id, ApprovalStatus.Approved, requestedBy, "reviewer-9"));
+        service
+            .Setup(x => x.RejectAsync(It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((int id, string? _, CancellationToken _) => new QueryApprovalDecision(id, ApprovalStatus.Rejected, requestedBy, "reviewer-9"));
         return service;
     }
 
@@ -34,10 +39,10 @@ public class ApprovalNotifierOptionalTests
         var handler = new ApproveQueryChangeHandler(service.Object, NullLogger<ApproveQueryChangeHandler>.Instance, notifier.Object);
 
         await handler.Handle(
-            new ApproveQueryChangeCommand { RequestId = 7, ReviewerUserId = "reviewer-9" },
+            new ApproveQueryChangeCommand { RequestId = 7, ExpectedContentHash = "abc" },
             CancellationToken.None);
 
-        service.Verify(x => x.ApproveAsync(7, "reviewer-9", null, null, It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(x => x.ApproveAsync(7, null, "abc", It.IsAny<CancellationToken>()), Times.Once);
         notifier.Verify(
             x => x.ApprovalUpdatedAsync(7, "approved", "reviewer-9", "requester-1", It.IsAny<CancellationToken>()),
             Times.Once);
@@ -51,10 +56,10 @@ public class ApprovalNotifierOptionalTests
         var handler = new RejectQueryChangeHandler(service.Object, NullLogger<RejectQueryChangeHandler>.Instance, notifier.Object);
 
         await handler.Handle(
-            new RejectQueryChangeCommand { RequestId = 7, ReviewerUserId = "reviewer-9" },
+            new RejectQueryChangeCommand { RequestId = 7 },
             CancellationToken.None);
 
-        service.Verify(x => x.RejectAsync(7, "reviewer-9", null, null, It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(x => x.RejectAsync(7, null, It.IsAny<CancellationToken>()), Times.Once);
         notifier.Verify(
             x => x.ApprovalUpdatedAsync(7, "rejected", "reviewer-9", "requester-1", It.IsAny<CancellationToken>()),
             Times.Once);
@@ -68,11 +73,11 @@ public class ApprovalNotifierOptionalTests
         var handler = new ApproveQueryChangeHandler(service.Object, logger);
 
         var act = async () => await handler.Handle(
-            new ApproveQueryChangeCommand { RequestId = 7, ReviewerUserId = "reviewer-9" },
+            new ApproveQueryChangeCommand { RequestId = 7, ExpectedContentHash = "abc" },
             CancellationToken.None);
 
         await act.Should().NotThrowAsync();
-        service.Verify(x => x.ApproveAsync(7, "reviewer-9", null, null, It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(x => x.ApproveAsync(7, null, "abc", It.IsAny<CancellationToken>()), Times.Once);
         logger.Warnings.Should().ContainSingle()
             .Which.Should().Contain("no IApprovalNotifier is registered");
     }
@@ -85,11 +90,11 @@ public class ApprovalNotifierOptionalTests
         var handler = new RejectQueryChangeHandler(service.Object, logger);
 
         var act = async () => await handler.Handle(
-            new RejectQueryChangeCommand { RequestId = 7, ReviewerUserId = "reviewer-9" },
+            new RejectQueryChangeCommand { RequestId = 7 },
             CancellationToken.None);
 
         await act.Should().NotThrowAsync();
-        service.Verify(x => x.RejectAsync(7, "reviewer-9", null, null, It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(x => x.RejectAsync(7, null, It.IsAny<CancellationToken>()), Times.Once);
         logger.Warnings.Should().ContainSingle()
             .Which.Should().Contain("no IApprovalNotifier is registered");
     }

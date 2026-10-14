@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Lock, ShieldAlert } from 'lucide-react';
+import { Eye, Lock, ShieldAlert } from 'lucide-react';
 import {
   PageHeader,
   Banner,
@@ -15,11 +15,13 @@ import {
   Textarea,
 } from '@/components/beacon';
 import { Tabs } from '@/components/Tabs';
-import { useRequireAdmin } from '@/auth/useRequireAdmin';
+import { useAccess } from '@/auth/useAuth';
+import { useRequirePermission } from '@/auth/useRequirePermission';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { ProjectPicker } from '@/routes/projects/ProjectPicker';
 import {
+  useMcpDeploymentLocks,
   useMcpProjectSettings,
   useMcpSettings,
   useUpdateMcpProjectSettings,
@@ -40,6 +42,8 @@ const SCHEMA = z.object({
   enforceReadOnly: z.boolean(),
   enablePiiDetection: z.boolean(),
   customPiiPatternsText: z.string(),
+  enableSampleValueCollection: z.boolean(),
+  enableValueGrounding: z.boolean(),
   enableLearning: z.boolean(),
   learningAutoApproveThreshold: z.number().min(0).max(1),
   learningInjectionBudgetChars: z.number().int().min(0),
@@ -58,6 +62,15 @@ const SCHEMA = z.object({
 });
 
 type FormValues = z.infer<typeof SCHEMA>;
+
+/** The settings that send values read from the data to the LLM provider, which Beacon:Mcp:ForbidRowDataToLlm pins off. */
+const ROW_DATA_KEYS = ['enableSampleValueCollection', 'enableValueGrounding'] as const;
+
+/** One label per row-data switch, on the global form and the per-project overrides alike. */
+const ROW_DATA_LABEL = {
+  enableSampleValueCollection: 'Collect sample values',
+  enableValueGrounding: 'Ground questions in live values (value grounding)',
+} as const;
 type TabKey = 'prompt' | 'tools' | 'guardrails' | 'context';
 type Scope = 'global' | number;
 
@@ -76,6 +89,8 @@ export const FIELD_TAB: Record<keyof FormValues, TabKey> = {
   enforceReadOnly: 'guardrails',
   enablePiiDetection: 'guardrails',
   customPiiPatternsText: 'guardrails',
+  enableSampleValueCollection: 'guardrails',
+  enableValueGrounding: 'guardrails',
   enableLearning: 'guardrails',
   learningAutoApproveThreshold: 'guardrails',
   learningInjectionBudgetChars: 'guardrails',
@@ -88,10 +103,11 @@ export const FIELD_TAB: Record<keyof FormValues, TabKey> = {
   allowExplicitFeedbackContent: 'guardrails',
 };
 
+/** Read by an Auditor or a SecurityAdmin; changed by a SecurityAdmin (an Admin holds both). */
 export default function McpSettingsPage() {
-  const isAdmin = useRequireAdmin();
+  const allowed = useRequirePermission('Auditor', 'SecurityAdmin');
 
-  if (isAdmin === undefined) {
+  if (allowed === undefined) {
     return (
       <div className="flex flex-col gap-5 p-7">
         <PageHeader
@@ -102,9 +118,21 @@ export default function McpSettingsPage() {
       </div>
     );
   }
-  if (isAdmin === false) return null;
+  if (allowed === false) return null;
 
   return <McpSettingsShell />;
+}
+
+/** Shown to an Auditor: the settings are theirs to read, a SecurityAdmin's to change. */
+function ReadOnlyBanner() {
+  return (
+    <Banner
+      tone="info"
+      icon={<Eye />}
+      title="Read only"
+      sub="You can read these settings. Changing them needs the SecurityAdmin permission."
+    />
+  );
 }
 
 /**
@@ -113,11 +141,14 @@ export default function McpSettingsPage() {
  * header so it stays reachable while a scope is loading or failed to load.
  */
 function McpSettingsShell() {
+  const access = useAccess();
+  const readOnly = !access.hasPermission('SecurityAdmin');
   const [scope, setScope] = useState<Scope>('global');
   // The picked project's name, for the heading; the picker fetches matches as the user types.
   const [scopeName, setScopeName] = useState<string | null>(null);
 
-  const scopeSelector = (
+  // Picking a project lists the projects, which needs a Viewer or Editor role: without one, only the global scope.
+  const scopeSelector = access.isFunctionalOnly ? null : (
     <ProjectPicker
       ariaLabel="Settings scope"
       className="w-auto min-w-[14rem]"
@@ -131,7 +162,7 @@ function McpSettingsShell() {
   );
 
   if (scope === 'global') {
-    return <McpSettingsForm scopeSelector={scopeSelector} />;
+    return <McpSettingsForm scopeSelector={scopeSelector} readOnly={readOnly} />;
   }
 
   const projectName = scopeName ?? `#${scope}`;
@@ -141,12 +172,18 @@ function McpSettingsShell() {
       projectId={scope}
       projectName={projectName}
       scopeSelector={scopeSelector}
+      readOnly={readOnly}
     />
   );
 }
 
-function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
+function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode; readOnly: boolean }) {
+  const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpSettings();
+  // Settings the deployment pins: their switches stay as pinned, for every role.
+  const locked = new Set((useMcpDeploymentLocks().data ?? []).map(lowerFirst));
+  const safetyLocked = locked.has('enforceReadOnly') || locked.has('enablePiiDetection');
+  const rowDataLocked = ROW_DATA_KEYS.some(x => locked.has(x));
   const updateMutation = useUpdateMcpSettings();
   const [tab, setTab] = useState<TabKey>('prompt');
 
@@ -162,11 +199,15 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
   const { errors } = form.formState;
 
   function onSubmit(values: FormValues) {
+    if (readOnly) return;
     // Blank/whitespace-only nullable text fields must round-trip back to null so
     // the backend's `?? default` fallback keeps working — saving '' would wipe
     // the default Ask system prompt and tool descriptions.
     const orNull = (s: string | null) => (s && s.trim() !== '' ? s : null);
+    // Every setting the page loaded goes back as it was read, so one the page does not show is never reset to a
+    // default by a save; the form's own fields overwrite theirs.
     const payload: McpSettingsData = {
+      ...data,
       askSystemPrompt: orNull(values.askSystemPrompt),
       globalInstruction: orNull(values.globalInstruction),
       getContextDescription: orNull(values.getContextDescription),
@@ -181,8 +222,8 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
         .split('\n')
         .map(s => s.trim())
         .filter(Boolean),
-      // No UI toggle yet — preserve the stored value so saving never silently flips it
-      enableSampleValueCollection: data?.enableSampleValueCollection ?? true,
+      enableSampleValueCollection: values.enableSampleValueCollection,
+      enableValueGrounding: values.enableValueGrounding,
       enableLearning: values.enableLearning,
       learningAutoApproveThreshold: values.learningAutoApproveThreshold,
       learningInjectionBudgetChars: values.learningInjectionBudgetChars,
@@ -246,12 +287,16 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
           actions={
             <div className="flex items-center gap-2">
               {scopeSelector}
-              <Button variant="primary" type="submit" disabled={updateMutation.isPending}>
-                {updateMutation.isPending ? 'Saving…' : 'Save settings'}
-              </Button>
+              {!readOnly && (
+                <Button variant="primary" type="submit" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? 'Saving…' : 'Save settings'}
+                </Button>
+              )}
             </div>
           }
         />
+
+        {readOnly && <ReadOnlyBanner />}
 
         <Tabs<TabKey>
           active={tab}
@@ -265,6 +310,8 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
         />
 
         <Card className="p-4">
+          {/* The context preview reads a project's context and stays usable; the settings tabs are read-only for an Auditor. */}
+          <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">
           {tab === 'prompt' && (
             <div className="flex flex-col gap-3">
               <p className="text-text-muted text-sm">
@@ -320,13 +367,36 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
                 />
               </Field>
               <label className="flex gap-2 items-center text-sm">
-                <input type="checkbox" {...form.register('enforceReadOnly')} />
+                <input
+                  type="checkbox"
+                  disabled={locked.has('enforceReadOnly') || (!isAdmin && data?.enforceReadOnly === true)}
+                  {...form.register('enforceReadOnly')}
+                />
                 Enforce read-only queries
+                {locked.has('enforceReadOnly') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
               <label className="flex gap-2 items-center text-sm">
-                <input type="checkbox" {...form.register('enablePiiDetection')} />
+                <input
+                  type="checkbox"
+                  disabled={locked.has('enablePiiDetection') || (!isAdmin && data?.enablePiiDetection === true)}
+                  {...form.register('enablePiiDetection')}
+                />
                 Enable PII detection
+                {locked.has('enablePiiDetection') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
+              {safetyLocked && (
+                <p className="m-0 text-xs text-text-muted">
+                  Locked on by the deployment (<span className="mono">Beacon:Mcp:ForceReadOnly</span>,{' '}
+                  <span className="mono">Beacon:Mcp:ForcePiiDetection</span>): nobody can turn{' '}
+                  {locked.has('enforceReadOnly') && locked.has('enablePiiDetection')
+                    ? 'them'
+                    : locked.has('enforceReadOnly') ? 'read-only enforcement' : 'PII detection'}{' '}
+                  off here or per project, an Admin included; only the host&apos;s configuration can.
+                </p>
+              )}
+              {!readOnly && !isAdmin && !(locked.has('enforceReadOnly') && locked.has('enablePiiDetection')) && (
+                <p className="text-xs text-text-muted">Only an Admin can turn read-only enforcement or PII detection off.</p>
+              )}
               <Field label="Custom PII patterns (one per line)">
                 <Textarea
                   rows={6}
@@ -336,14 +406,52 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
               </Field>
 
               <hr className="my-2 border-0 border-t border-border" />
+              <h3 className="m-0 text-sm font-semibold text-text">Row data sent to the LLM provider</h3>
+              <p className="m-0 text-text-muted text-xs">
+                Off by default. While on, values read from the data sources reach the LLM provider: sample values in
+                grounding context and documentation, and live values matched to the words of a question. A project can
+                override either for itself.
+              </p>
+              <label className="flex gap-2 items-center text-sm">
+                <input
+                  type="checkbox"
+                  disabled={locked.has('enableSampleValueCollection')}
+                  {...form.register('enableSampleValueCollection')}
+                />
+                {ROW_DATA_LABEL.enableSampleValueCollection}
+                {locked.has('enableSampleValueCollection') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
+              </label>
+              <label className="flex gap-2 items-center text-sm">
+                <input
+                  type="checkbox"
+                  disabled={locked.has('enableValueGrounding')}
+                  {...form.register('enableValueGrounding')}
+                />
+                {ROW_DATA_LABEL.enableValueGrounding}
+                {locked.has('enableValueGrounding') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
+              </label>
+              {rowDataLocked && (
+                <p className="m-0 text-xs text-text-muted">
+                  Off by the deployment (<span className="mono">Beacon:Mcp:ForbidRowDataToLlm</span>): no value read
+                  from the data is sent to the LLM provider. Nobody can turn these on here or per project, an Admin
+                  included; only the host&apos;s configuration can.
+                </p>
+              )}
+
+              <hr className="my-2 border-0 border-t border-border" />
               <h3 className="m-0 text-sm font-semibold text-text">Execution</h3>
               <p className="m-0 text-text-muted text-xs">
                 Deployment-level locks and ceilings (<span className="mono">Beacon:Mcp</span>) win
                 over these values; a save that contradicts a lock is refused.
               </p>
               <label className="flex gap-2 items-center text-sm">
-                <input type="checkbox" {...form.register('retainQueryContent')} />
+                <input
+                  type="checkbox"
+                  disabled={locked.has('retainQueryContent')}
+                  {...form.register('retainQueryContent')}
+                />
                 Retain question and SQL text in signals and audit
+                {locked.has('retainQueryContent') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
               <Field
                 label="Statement timeout (s)"
@@ -476,6 +584,7 @@ function McpSettingsForm({ scopeSelector }: { scopeSelector: ReactNode }) {
               </Field>
             </div>
           )}
+          </fieldset>
 
           {tab === 'context' && <ProjectContextPreview />}
         </Card>
@@ -534,7 +643,12 @@ export const OVERRIDE_SECTIONS: OverrideSection[] = [
       },
       {
         key: 'enableSampleValueCollection',
-        label: 'Collect sample values',
+        label: ROW_DATA_LABEL.enableSampleValueCollection,
+        kind: 'bool',
+      },
+      {
+        key: 'enableValueGrounding',
+        label: ROW_DATA_LABEL.enableValueGrounding,
         kind: 'bool',
       },
     ],
@@ -607,14 +721,21 @@ export const OVERRIDE_SECTIONS: OverrideSection[] = [
   },
 ];
 
+/** The safety switches only an Admin loosens, per project as globally; anyone else who may edit only tightens them. */
+const SAFETY_KEYS: ReadonlySet<OverrideKey> = new Set<OverrideKey>(['enforceReadOnly', 'enablePiiDetection']);
+
 interface ProjectSettingsFormProps {
   projectId: number;
   projectName: string;
   scopeSelector: ReactNode;
+  readOnly: boolean;
 }
 
-function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectSettingsFormProps) {
+function ProjectSettingsForm({ projectId, projectName, scopeSelector, readOnly }: ProjectSettingsFormProps) {
+  const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpProjectSettings(projectId);
+  // The global values decide whether clearing an override that pins a safety switch on loosens it.
+  const global = useMcpSettings().data;
   const updateMutation = useUpdateMcpProjectSettings();
   // Draft of the override row. Fields the UI does not edit ride along untouched so a
   // save never clears an override it cannot show.
@@ -667,13 +788,24 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
     setDraft(prev => ({ ...(prev ?? {}), [key]: value }));
   }
 
+  // A non-Admin only tightens a safety switch (the server refuses the rest, 403): it keeps the switch on unless the
+  // stored override already pins it off, and clears an override pinning it on only while the global value is on too.
+  function mayTurnOff(key: OverrideKey): boolean {
+    return isAdmin || !SAFETY_KEYS.has(key) || data!.overrides[key] === false;
+  }
+
+  function mayClear(key: OverrideKey): boolean {
+    return isAdmin || !SAFETY_KEYS.has(key) || data!.overrides[key] !== true || global?.[key] === true;
+  }
+
   function toggleOverride(field: OverrideFieldDef, on: boolean) {
     // Turning an override on seeds it with the effective value so the row shows what
     // the project will keep getting until the admin changes it. A null effective value
     // (e.g. no EXPLAIN cost limit) would read as "inherit" again, so seed a kind-appropriate
-    // placeholder the admin then edits.
+    // placeholder the admin then edits. A safety switch the caller may not turn off is pinned on.
     const effective = data!.effective[field.key] as McpProjectSettingsData[OverrideKey];
-    setOverride(field.key, on ? (effective ?? seedFor(field)) : null);
+    const seed = mayTurnOff(field.key) ? (effective ?? seedFor(field)) : true;
+    setOverride(field.key, on ? seed : null);
   }
 
   function onSave() {
@@ -715,22 +847,30 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
     <div className="flex flex-col gap-5 p-7">
       {header(
         'Checked fields override the global value for this project; unchecked fields inherit it (shown greyed).',
-        <Button
-          variant="primary"
-          type="button"
-          onClick={onSave}
-          disabled={updateMutation.isPending}
-        >
-          {updateMutation.isPending ? 'Saving…' : 'Save overrides'}
-        </Button>,
+        readOnly ? undefined : (
+          <Button
+            variant="primary"
+            type="button"
+            onClick={onSave}
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending ? 'Saving…' : 'Save overrides'}
+          </Button>
+        ),
       )}
+
+      {readOnly && <ReadOnlyBanner />}
 
       {data.lockedFields.length > 0 && (
         <Banner
           tone="warn"
           icon={<Lock />}
           title="Locked by deployment configuration"
-          sub={`${data.lockedFields.join(', ')} ${data.lockedFields.length === 1 ? 'is' : 'are'} pinned by Beacon:Mcp and cannot be changed here or globally.`}
+          sub={`${data.lockedFields.join(', ')} ${data.lockedFields.length === 1 ? 'is' : 'are'} pinned by Beacon:Mcp and cannot be changed here or globally.${
+            ROW_DATA_KEYS.some(x => locked.has(x))
+              ? ' Beacon:Mcp:ForbidRowDataToLlm keeps every value read from the data away from the LLM provider.'
+              : ''
+          }`}
         />
       )}
       {data.clampedFields.length > 0 && (
@@ -743,7 +883,12 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
       )}
 
       <Card className="p-4">
-        <div className="flex flex-col gap-3">
+        {!readOnly && !isAdmin && (
+          <p className="m-0 mb-3 text-xs text-text-muted">
+            Only an Admin can turn read-only enforcement or PII detection off for a project.
+          </p>
+        )}
+        <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0 flex flex-col gap-3">
           {OVERRIDE_SECTIONS.map(section => {
             const visible = section.fields.filter(f => !locked.has(f.key));
             if (visible.length === 0) return null;
@@ -757,6 +902,8 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
                     overridden={isOverridden(f.key)}
                     value={isOverridden(f.key) ? draft[f.key] : data.effective[f.key]}
                     clamped={clamped.has(f.key)}
+                    mayTurnOff={mayTurnOff(f.key)}
+                    mayClear={mayClear(f.key)}
                     onToggle={on => toggleOverride(f, on)}
                     onChange={v => setOverride(f.key, v)}
                   />
@@ -765,7 +912,7 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector }: ProjectS
               </div>
             );
           })}
-        </div>
+        </fieldset>
       </Card>
     </div>
   );
@@ -776,15 +923,20 @@ interface OverrideRowProps {
   overridden: boolean;
   value: unknown;
   clamped: boolean;
+  /** False when the caller may not turn this switch off (it stays on). */
+  mayTurnOff: boolean;
+  /** False when the caller may not clear this override (inheriting would loosen it). */
+  mayClear: boolean;
   onToggle: (on: boolean) => void;
   onChange: (value: McpProjectSettingsData[OverrideKey]) => void;
 }
 
-function OverrideRow({ field, overridden, value, clamped, onToggle, onChange }: OverrideRowProps) {
+function OverrideRow({ field, overridden, value, clamped, mayTurnOff, mayClear, onToggle, onChange }: OverrideRowProps) {
   const toggle = (
     <input
       type="checkbox"
       aria-label={`Override ${field.label}`}
+      disabled={overridden && !mayClear}
       checked={overridden}
       onChange={e => onToggle(e.target.checked)}
     />
@@ -811,7 +963,7 @@ function OverrideRow({ field, overridden, value, clamped, onToggle, onChange }: 
         <label className="flex gap-2 items-center">
           <input
             type="checkbox"
-            disabled={!overridden}
+            disabled={!overridden || (Boolean(value) && !mayTurnOff)}
             checked={Boolean(value)}
             onChange={e => onChange(e.target.checked)}
           />
@@ -961,6 +1113,9 @@ function settingsToForm(data: McpSettingsData | undefined): FormValues {
     enforceReadOnly: data?.enforceReadOnly ?? true,
     enablePiiDetection: data?.enablePiiDetection ?? true,
     customPiiPatternsText: (data?.customPiiPatterns ?? []).join('\n'),
+    // Off by default: both send values read from the data to the LLM provider.
+    enableSampleValueCollection: data?.enableSampleValueCollection ?? false,
+    enableValueGrounding: data?.enableValueGrounding ?? false,
     enableLearning: data?.enableLearning ?? true,
     learningAutoApproveThreshold: data?.learningAutoApproveThreshold ?? 0.85,
     learningInjectionBudgetChars: data?.learningInjectionBudgetChars ?? 4000,

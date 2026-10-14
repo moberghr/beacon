@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Beacon.Core.HostData;
 using Beacon.Core.Services.Security;
 
@@ -6,9 +8,12 @@ namespace Beacon.Core.Services.Validation;
 
 /// <summary>
 /// Composes the existing validators into one ordered gate (§1.5 defense in depth). Stage order and the
-/// fail-closed rules are load-bearing: the regex guardrail runs first, the AST validator second, and a
-/// read-only failure short-circuits every later stage so no schema, lint or row-limit work is ever done
-/// on a statement that may not run. Stateless — the validators keep their own identifier-only logging.
+/// fail-closed rules are load-bearing: the length cap runs first (so no regex or parser ever sees an
+/// over-long input), the refusal of control characters and Unicode noncharacters second (the parser reads U+FFFF as the end
+/// of its input), the regex guardrail third, the AST validator fourth, and a read-only failure
+/// short-circuits every later stage so no schema, lint or row-limit work is ever done on a statement that
+/// may not run. A name in another database than the target's configured one, and a host policy violation, then block
+/// whatever the read-only and schema settings. Stateless — the validators keep their own identifier-only logging.
 /// </summary>
 public sealed class SqlExecutionGate(
     IQueryGuardrailService guardrail,
@@ -16,22 +21,48 @@ public sealed class SqlExecutionGate(
     SqlSchemaValidator schemaValidator,
     SqlSemanticLinter semanticLinter,
     ILogger<SqlExecutionGate> logger,
-    IHostDataSourceGuard? hostGuard = null) : ISqlExecutionGate
+    IHostDataSourceGuard? hostGuard = null,
+    IOptions<McpDeploymentOptions>? deploymentOptions = null) : ISqlExecutionGate
 {
     private const string NotRequested = SqlGateCodes.NotRequested;
     private const string NotEvaluated = SqlGateCodes.NotEvaluated;
 
     public SqlGateReport Evaluate(SqlGateRequest request)
     {
+        // The deployment's read-only lock (Beacon:Mcp:ForceReadOnly, on unless the host turns it off) wins over the
+        // caller: read-only enforcement is relaxed only where the deployment allows it — for the in-memory join and the
+        // ask / query / dry_run tools alike, whatever the settings a caller passes say.
+        if (!request.EnforceReadOnly && (deploymentOptions?.Value ?? new McpDeploymentOptions()).ForceReadOnly)
+        {
+            request = request with { EnforceReadOnly = true, ReadOnlyPinnedByLock = true };
+        }
+
+        if (IsTooLong(request.Sql, out var maxSqlChars))
+        {
+            return RejectBeforeParsing(
+                request,
+                SqlGateCodes.SqlTooLong,
+                $"SQL is {request.Sql.Length} characters long; the limit is {maxSqlChars}.");
+        }
+
+        // Before any regex or parser sees the text: the parser reads U+FFFF as the end of its input, so every later stage
+        // would judge only the part before it. Refused whatever the read-only setting, the in-memory join included.
+        var disallowed = SqlAst.IndexOfDisallowedCharacter(request.Sql);
+        if (disallowed >= 0)
+        {
+            return RejectBeforeParsing(request, SqlGateCodes.DisallowedCharacter, SqlAst.DisallowedCharacterMessageAt(disallowed));
+        }
+
         var validation = guardrail.ValidateQuery(request.Sql, new QueryGuardrailOptions
         {
             ReadOnly = request.EnforceReadOnly,
             DetectPii = request.DetectPii,
-            CustomPiiPatterns = request.CustomPiiPatterns?.ToList()
+            CustomPiiPatterns = request.CustomPiiPatterns?.ToList(),
+            Dialect = request.Dialect
         });
 
         var piiColumns = (IReadOnlyList<string>?)validation.PiiColumns ?? [];
-        var readOnly = EvaluateReadOnly(request, validation);
+        var readOnly = NameTheLockIfItCausedTheRefusal(request, EvaluateReadOnly(request, validation));
 
         if (readOnly.Status == SqlGateStatus.Fail)
         {
@@ -53,6 +84,30 @@ public sealed class SqlExecutionGate(
         // The schema walk always runs so TablesUsed / ColumnsUsed are available even when no catalog check
         // was requested; the verdict alone reflects whether a catalog was supplied.
         var schemaResult = schemaValidator.Validate(request.Sql, ToCatalog(request.Catalog), request.Dialect);
+
+        // A name in another database, or a function or path that reaches another server, file or storage, leaves the data
+        // source's boundary: authorization, not advice — it always blocks, also with read-only enforcement off (SQL that
+        // cannot be parsed cannot be checked, so it blocks too). Only the in-memory join, which reaches nothing else, is
+        // not checked.
+        var crossDatabaseError = request.InMemoryJoin
+            ? null
+            : SqlCrossDatabaseRule.Validate(request.Sql, request.Dialect, request.ConfiguredDatabase);
+        if (crossDatabaseError != null)
+        {
+            return new SqlGateReport(
+                true,
+                crossDatabaseError,
+                request.Sql,
+                schemaResult.TablesUsed,
+                schemaResult.ColumnsUsed,
+                piiColumns,
+                [],
+                new SqlGateVerdicts(
+                    readOnly,
+                    SqlGateVerdict.Fail(SqlGateCodes.CrossDatabase, crossDatabaseError),
+                    SqlGateVerdict.Skipped(NotEvaluated),
+                    SqlGateVerdict.Skipped(NotEvaluated)));
+        }
 
         // Host-exposed DbContext: the allow-list is authorization, not advice — a violation always blocks.
         var hostCheck = EvaluateHostPolicy(request);
@@ -89,6 +144,14 @@ public sealed class SqlExecutionGate(
         var (lint, lintFindings) = EvaluateLint(request, blocked);
         var (rowLimit, finalSql) = EvaluateRowLimit(request, blocked);
 
+        // A statement too deep to cap, or whose own bound cannot be capped, never runs uncapped, even with read-only
+        // enforcement off.
+        if (rowLimit.Status == SqlGateStatus.Fail)
+        {
+            blocked = true;
+            blockReason = rowLimit.Message;
+        }
+
         return new SqlGateReport(
             blocked,
             blockReason,
@@ -98,6 +161,32 @@ public sealed class SqlExecutionGate(
             piiColumns,
             lintFindings,
             new SqlGateVerdicts(readOnly, schema, lint, rowLimit));
+    }
+
+    private bool IsTooLong(string? sql, out int maxSqlChars)
+    {
+        maxSqlChars = (deploymentOptions?.Value.Ceilings ?? new McpCeilingOptions()).EffectiveMaxSqlChars;
+
+        return (sql?.Length ?? 0) > maxSqlChars;
+    }
+
+    // Read-only verdict, so every caller's existing "read-only failed → blocked, nothing ran" handling applies.
+    // The reason carries counts and positions only, never SQL text (§1.11).
+    private static SqlGateReport RejectBeforeParsing(SqlGateRequest request, string code, string message)
+    {
+        return new SqlGateReport(
+            true,
+            message,
+            request.Sql,
+            [],
+            [],
+            [],
+            [],
+            new SqlGateVerdicts(
+                SqlGateVerdict.Fail(code, message),
+                SqlGateVerdict.Skipped(NotEvaluated),
+                SqlGateVerdict.Skipped(NotEvaluated),
+                SqlGateVerdict.Skipped(NotEvaluated)));
     }
 
     private HostPolicyResult? EvaluateHostPolicy(SqlGateRequest request)
@@ -131,6 +220,27 @@ public sealed class SqlExecutionGate(
         return astError == null
             ? SqlGateVerdict.Passed
             : SqlGateVerdict.Fail(SqlGateCodes.Ast, astError);
+    }
+
+    // A refusal that only read-only enforcement causes, while the deployment lock turned it on over stored settings that
+    // had it off, says so: the caller's settings page shows read-only off, and the lock is what to look at.
+    private SqlGateVerdict NameTheLockIfItCausedTheRefusal(SqlGateRequest request, SqlGateVerdict readOnly)
+    {
+        if (readOnly.Status != SqlGateStatus.Fail || !request.ReadOnlyPinnedByLock)
+        {
+            return readOnly;
+        }
+
+        var causedByReadOnly = readOnly.Code == SqlGateCodes.Ast
+            || (readOnly.Code == SqlGateCodes.Guardrail
+                && guardrail.ValidateQuery(request.Sql, new QueryGuardrailOptions { ReadOnly = false, Dialect = request.Dialect }).IsValid);
+
+        return causedByReadOnly
+            ? readOnly with
+            {
+                Message = $"{readOnly.Message} Read-only enforcement is on because the deployment lock {McpDeploymentOptions.SectionName}:{nameof(McpDeploymentOptions.ForceReadOnly)} pins it, whatever the stored MCP settings say."
+            }
+            : readOnly;
     }
 
     private static SqlGateVerdict EvaluateSchema(SqlGateRequest request, SqlValidationResult result)
@@ -169,7 +279,10 @@ public sealed class SqlExecutionGate(
             return (SqlGateVerdict.Skipped(NotEvaluated), []);
         }
 
-        var findings = semanticLinter.Lint(request.Sql, request.Dialect, request.LintContext);
+        if (!semanticLinter.TryLint(request.Sql, request.Dialect, request.LintContext, out var findings))
+        {
+            return (SqlGateVerdict.Skipped(SqlGateCodes.ParseFailed, "The SQL could not be parsed, so the semantic lint did not run."), []);
+        }
 
         return (SqlGateVerdict.Passed, findings);
     }
@@ -189,7 +302,8 @@ public sealed class SqlExecutionGate(
         var result = SqlRowLimitRewriter.Apply(request.Sql, request.MaxRows.Value, request.Dialect);
         if (result.Outcome == SqlRowLimitOutcome.TextualFallback)
         {
-            // Reachable only when EnforceReadOnly is off (the AST gate rejects unparseable SQL otherwise).
+            // Reachable when EnforceReadOnly is off (the AST gate rejects unparseable SQL otherwise); the rewriter
+            // falls back to text only when the parser throws.
             // The textual heuristic is the pre-gate behaviour and cannot see inside comments or literals,
             // so say so on the verdict and leave an identifier-only trace (§1.11) — never the SQL text.
             logger.LogWarning(
@@ -202,7 +316,11 @@ public sealed class SqlExecutionGate(
         {
             SqlRowLimitOutcome.Applied => SqlGateVerdict.Passed,
             SqlRowLimitOutcome.AlreadyLimited => SqlGateVerdict.Skipped(SqlGateCodes.AlreadyLimited),
+            SqlRowLimitOutcome.OwnBoundCapped => SqlGateVerdict.Pass(SqlGateCodes.OwnBoundCapped),
             SqlRowLimitOutcome.NotApplicable => SqlGateVerdict.Skipped(SqlGateCodes.NotApplicable),
+            SqlRowLimitOutcome.Refused => SqlGateVerdict.Fail(
+                result.RefusalCode ?? SqlGateCodes.TooDeep,
+                result.RefusalMessage ?? SqlAst.TooDeepMessage),
             _ => SqlGateVerdict.Pass(
                 SqlGateCodes.TextualFallback,
                 "The SQL could not be parsed, so the row cap was placed by the textual heuristic; a LIMIT/TOP inside a comment or literal may have been mistaken for an existing bound.")

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Services;
 
 namespace Beacon.MCP.Services;
 
@@ -133,6 +134,7 @@ internal sealed class McpSignalBuilder
             RetryAttempted = _retryAttempted,
             RetrySucceeded = _retrySucceeded,
             CorrectedSql = _correctedSql,
+            CandidateSqlHash = GroundingContentHash.OfCandidateSql(null, _correctedSql, _generatedSql),
             ResultRowCount = _resultRowCount,
             ExecutionTimeMs = _executionTimeMs,
             IsSuccessful = _isSuccessful

@@ -2,11 +2,12 @@ import { useEffect, useMemo } from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Eye, Lock } from 'lucide-react';
 import { EmptyState } from '@/components/data/EmptyState';
-import { Button, Card, CardBody, Field, Input, PageHeader } from '@/components/beacon';
+import { Banner, Button, Card, CardBody, Field, Input, PageHeader } from '@/components/beacon';
 import { formatDateTime } from '@/lib/format';
-import { useRequireAdmin } from '@/auth/useRequireAdmin';
+import { useAccess } from '@/auth/useAuth';
+import { useRequirePermission } from '@/auth/useRequirePermission';
 import { AiProvider, type BedrockAuthMode } from '@/lib/enums';
 import {
   modelsForProvider,
@@ -19,6 +20,7 @@ import {
   settingsToForm,
   formToUpdatePayload,
   formToTestPayload,
+  keepStoredConnection,
   type FormValues,
 } from './lib/admin-settings-form';
 import {
@@ -32,10 +34,14 @@ import {
   TestConnectionRow,
 } from './provider-fields';
 
+/**
+ * Read by an Auditor or a SecurityAdmin, changed by a SecurityAdmin, except the LLM provider, endpoint, region,
+ * authentication mode and credentials: those stay an Admin's.
+ */
 export default function AdminSettingsPage() {
-  const isAdmin = useRequireAdmin();
+  const allowed = useRequirePermission('Auditor', 'SecurityAdmin');
 
-  if (isAdmin === undefined) {
+  if (allowed === undefined) {
     return (
       <div className="flex flex-col gap-4 p-7">
         <PageHeader eyebrow="System" prefix="Admin" emphasis="settings" sub={<span className="text-text-muted">Loading…</span>} />
@@ -43,7 +49,7 @@ export default function AdminSettingsPage() {
     );
   }
 
-  if (isAdmin === false) {
+  if (allowed === false) {
     return null;
   }
 
@@ -51,6 +57,9 @@ export default function AdminSettingsPage() {
 }
 
 function AdminSettingsForm() {
+  const access = useAccess();
+  const canEdit = access.hasPermission('SecurityAdmin');
+  const connectionLocked = !access.isAdmin;
   const { data, isLoading, isError, error } = useAdminSettingsQuery();
   const updateMutation = useUpdateAdminSettings();
   const testMutation = useTestLlmConnection();
@@ -81,8 +90,13 @@ function AdminSettingsForm() {
   const bedrockAuthMode = useWatch({ control, name: 'llmBedrockAuthMode' }) as BedrockAuthMode;
 
   const onSubmit = handleSubmit(async values => {
+    if (!canEdit) return;
+    const payload = formToUpdatePayload(values);
     try {
-      await updateMutation.mutateAsync(formToUpdatePayload(values));
+      // The base URL, like the LLM connection, is an Admin's to change: anyone else sends the stored one back.
+      await updateMutation.mutateAsync(
+        connectionLocked ? { ...keepStoredConnection(payload, settings), baseUrl: settings?.baseUrl ?? payload.baseUrl } : payload,
+      );
       toast.success('Admin settings saved');
     } catch {
       // createSimpleMutation already surfaced the error toast
@@ -91,8 +105,9 @@ function AdminSettingsForm() {
 
   async function handleTest() {
     testMutation.reset();
+    const payload = formToTestPayload(getValues());
     try {
-      await testMutation.mutateAsync(formToTestPayload(getValues()));
+      await testMutation.mutateAsync(connectionLocked ? keepStoredConnection(payload, settings) : payload);
     } catch {
       // createSimpleMutation already surfaced the error toast
     }
@@ -130,10 +145,27 @@ function AdminSettingsForm() {
 
       <ActiveProviderBanner settings={settings} />
 
+      {!canEdit && (
+        <Banner
+          tone="info"
+          icon={<Eye />}
+          title="Read only"
+          sub="You can read these settings; secrets show only whether they are set. Changing them needs the SecurityAdmin permission."
+        />
+      )}
+
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-        <Section title="General" sub="Base URL the LLM and integrations should use to reach this Beacon instance.">
+        <fieldset disabled={!canEdit} className="m-0 p-0 border-0 min-w-0 flex flex-col gap-4">
+        <Section
+          title="General"
+          sub={
+            connectionLocked
+              ? 'Base URL the LLM and integrations should use to reach this Beacon instance. Only an Admin changes it.'
+              : 'Base URL the LLM and integrations should use to reach this Beacon instance.'
+          }
+        >
           <Field label="Base URL" hint={errors.baseUrl?.message ? <span className="text-crit">{errors.baseUrl.message}</span> : undefined}>
-            <Input type="url" placeholder="https://beacon.example.com" {...register('baseUrl')} />
+            <Input type="url" placeholder="https://beacon.example.com" disabled={connectionLocked} {...register('baseUrl')} />
           </Field>
         </Section>
 
@@ -141,11 +173,21 @@ function AdminSettingsForm() {
           title="AI provider"
           sub="Pick the large-language-model provider. Only the fields the provider needs are shown."
         >
+          {canEdit && connectionLocked && (
+            <Banner
+              tone="info"
+              icon={<Lock />}
+              title="The LLM connection is an Admin's to change"
+              sub="Only an Admin changes the provider, endpoint, region, authentication mode or credentials. You can change the models, the other settings, and test the stored connection."
+            />
+          )}
+
           <Controller
             control={control}
             name="llmProvider"
             render={({ field }) => (
               <ProviderPicker
+                disabled={connectionLocked}
                 value={field.value as AiProvider}
                 onChange={next => {
                   field.onChange(next);
@@ -164,6 +206,7 @@ function AdminSettingsForm() {
               modelKnown={settings?.llmApiKeySet ?? false}
               control={control}
               setValue={setValue}
+              locked={connectionLocked}
             />
           )}
           {provider === AiProvider.Claude && (
@@ -173,6 +216,7 @@ function AdminSettingsForm() {
               apiKeySet={settings?.llmApiKeySet ?? false}
               control={control}
               setValue={setValue}
+              locked={connectionLocked}
             />
           )}
           {provider === AiProvider.AzureOpenAI && (
@@ -181,6 +225,7 @@ function AdminSettingsForm() {
               errors={errors}
               apiKeySet={settings?.llmApiKeySet ?? false}
               endpointSet={settings?.llmEndpointSet ?? false}
+              locked={connectionLocked}
             />
           )}
           {provider === AiProvider.Bedrock && (
@@ -193,17 +238,27 @@ function AdminSettingsForm() {
               accessKeySet={settings?.llmAwsAccessKeyIdSet ?? false}
               secretKeySet={settings?.llmAwsSecretAccessKeySet ?? false}
               sessionTokenSet={settings?.llmSessionTokenSet ?? false}
+              locked={connectionLocked}
             />
           )}
 
-          <div className="border-t border-border my-3" />
+          {canEdit && (
+            <>
+              <div className="border-t border-border my-3" />
 
-          <TestConnectionRow
-            onTest={handleTest}
-            pending={testMutation.isPending}
-            result={testMutation.data}
-            error={testMutation.error}
-          />
+              <TestConnectionRow
+                onTest={handleTest}
+                pending={testMutation.isPending}
+                result={testMutation.data}
+                error={testMutation.error}
+                hint={
+                  connectionLocked
+                    ? 'Sends a 1-token ping with the stored connection and the models on this form (without saving).'
+                    : undefined
+                }
+              />
+            </>
+          )}
         </Section>
 
         <Section title="Rate limits & budget" sub="Throttle LLM calls so a runaway query doesn't drain the budget.">
@@ -223,22 +278,26 @@ function AdminSettingsForm() {
           </div>
         </Section>
 
-        <div className="flex gap-2 justify-end">
-          <Button
-            type="button"
-            onClick={() => reset(defaults)}
-            disabled={!isDirty || isSubmitting}
-          >
-            Reset
-          </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!isDirty || isSubmitting}
-          >
-            {isSubmitting ? 'Saving…' : 'Save changes'}
-          </Button>
-        </div>
+        </fieldset>
+
+        {canEdit && (
+          <div className="flex gap-2 justify-end">
+            <Button
+              type="button"
+              onClick={() => reset(defaults)}
+              disabled={!isDirty || isSubmitting}
+            >
+              Reset
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!isDirty || isSubmitting}
+            >
+              {isSubmitting ? 'Saving…' : 'Save changes'}
+            </Button>
+          </div>
+        )}
       </form>
 
       {history.length > 0 && (

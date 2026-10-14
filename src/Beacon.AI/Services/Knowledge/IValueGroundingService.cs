@@ -30,11 +30,15 @@ public sealed record ValueGroundingTable(string Schema, string Table, IReadOnlyL
 /// probe passes <c>SqlReadOnlyAstValidator</c> before execution; results are PII-screened before
 /// rendering; neither a literal nor a probe's SQL is ever logged. Fails CLOSED — any error other than
 /// cancellation is logged (a count only) and yields "" (2026-07-13 lesson).
+///
+/// Probes read live data, so the data source must be linked to the caller's AUTHORIZED <c>projectId</c> (§1.12): for a
+/// source the project does not link, nothing is probed and the block is empty.
 /// </summary>
 public interface IValueGroundingService
 {
     Task<string> BuildValueMatchesBlockAsync(
         int dataSourceId,
+        int projectId,
         string question,
         IReadOnlyList<ValueGroundingTable> tables,
         McpSettingsData settings,

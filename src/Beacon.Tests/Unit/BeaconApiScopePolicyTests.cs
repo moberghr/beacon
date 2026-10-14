@@ -8,7 +8,7 @@ using Beacon.Api.Endpoints;
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// §1.4 — the Execute-scope policy must deny a Read-scoped API key while letting Execute/Admin
+/// §1.4 — the Execute-scope policy must deny a Read-scoped API key while letting Execute
 /// keys and interactive cookie/OIDC sessions through. Guards the assertion logic in
 /// <see cref="BeaconApiEndpoints.AddBeaconApiAuthorization"/>.
 /// </summary>
@@ -60,11 +60,12 @@ public class BeaconApiScopePolicyTests
     }
 
     [Test]
-    public async Task AdminScopedApiKey_IsAllowed()
+    public async Task ApiKeyWithOnlyARawAdminClaim_IsDenied()
     {
+        // ApiKeyAuthMiddleware turns a stored Admin scope into an Execute claim; the claim itself is not Execute.
         var result = await AuthorizeAsync(ApiKey("Admin"));
 
-        result.Succeeded.Should().BeTrue();
+        result.Succeeded.Should().BeFalse();
     }
 
     [Test]
@@ -104,11 +105,11 @@ public class BeaconApiScopePolicyTests
     }
 
     [Test]
-    public async Task AdminScopedMcpJwtCaller_IsAllowed()
+    public async Task McpJwtCallerWithOnlyARawAdminClaim_IsDenied()
     {
         var result = await AuthorizeAsync(McpJwtCaller("Admin"));
 
-        result.Succeeded.Should().BeTrue();
+        result.Succeeded.Should().BeFalse("a mapped caller's scope is Read or Execute, never Admin");
     }
 
     [Test]

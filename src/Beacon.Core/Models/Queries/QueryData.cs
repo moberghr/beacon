@@ -39,6 +39,13 @@ public class QueryData
     public int? FinalQueryDataSourceId { get; set; }
 
     /// <summary>
+    /// On a save: the query's active version the editor loaded (<c>QueryDetailsData.ActiveVersionId</c>). When given and no
+    /// longer the active version, the save is refused (409), so a stale editor never overwrites, or submits over, a
+    /// version that went live since. Optional; not set on reads.
+    /// </summary>
+    public int? BaseVersionId { get; set; }
+
+    /// <summary>
     /// Cross-data-source computed properties
     /// </summary>
     public bool IsMultiStep => Steps.Count > 1;

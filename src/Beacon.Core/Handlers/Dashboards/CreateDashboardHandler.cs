@@ -32,6 +32,7 @@ internal sealed class CreateDashboardHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record CreateDashboardCommand(
     string Name,
     string? Description,

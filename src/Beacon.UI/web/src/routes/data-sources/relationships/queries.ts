@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchJson } from '@/lib/api';
+import { toast } from 'sonner';
+import { ApiError, describeError, fetchJson } from '@/lib/api';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -61,7 +62,43 @@ export interface SchemaRelationshipEntry {
   confidence: number;
   isVerified: boolean;
   verifiedTime: string | null;
+  /**
+   * Whether the caller may verify or un-verify it: the project admin role in every live project linking the data source,
+   * the DataSourceAdmin permission, or an Admin.
+   */
+  canCurate: boolean;
 }
+
+/** Why the verify action is not offered (see `SchemaRelationshipEntry.canCurate`). */
+export const VERIFY_CURATE_REASON =
+  'Only a project admin of every project linking this data source, a DataSourceAdmin or an Admin verifies relationships.';
+
+/** What `POST …/relationships` answers: a relationship added by someone who may not curate it waits unverified. */
+export interface CreateRelationshipResult {
+  id: number;
+  isVerified: boolean;
+}
+
+/**
+ * What `PUT …/relationships/{id}` answers: whether the relationship is verified after the change — a verified one that
+ * someone who may not curate the source changes waits for a curator's verification again.
+ */
+export interface UpdateRelationshipResult {
+  isVerified: boolean;
+}
+
+export interface UpdateRelationshipPayload {
+  id: number;
+  label: string | null;
+  cardinality: SchemaRelationshipCardinalityValue;
+}
+
+/** Why deleting a verified relationship is not offered: a verified join is a curator's to remove. */
+export const DELETE_VERIFIED_CURATE_REASON =
+  'A verified relationship is removed only by a project admin of every project linking this data source, a DataSourceAdmin or an Admin.';
+
+/** What a change says when the relationship waits for a curator's verification afterwards. */
+export const PENDING_CURATOR_VERIFICATION = 'pending curator verification';
 
 export interface ProposedRelationship {
   sourceSchema: string;
@@ -137,15 +174,26 @@ export function useDiscoveryPreview(dataSourceId: number) {
   );
 }
 
+/**
+ * What `POST …/relationships/{id}/verify` sends: verifying names the label and cardinality the curator reviewed, and a
+ * relationship that holds other content by then is not verified (409: reload and review it again).
+ */
+export interface VerifyRelationshipPayload {
+  id: number;
+  isVerified: boolean;
+  reviewedLabel: string;
+  reviewedCardinality: SchemaRelationshipCardinalityValue;
+}
+
 export function useVerifyRelationship(dataSourceId: number) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<{ id: number; isVerified: boolean }, void>({
+    createSimpleMutation<VerifyRelationshipPayload, void>({
       qc,
-      mutationFn: ({ id, isVerified }) =>
+      mutationFn: ({ id, isVerified, reviewedLabel, reviewedCardinality }) =>
         fetchJson<void>(`${base(dataSourceId)}/relationships/${id}/verify`, {
           method: 'POST',
-          body: JSON.stringify({ isVerified }),
+          body: JSON.stringify({ isVerified, reviewedLabel, reviewedCardinality }),
         }),
       invalidate: [relationshipsKey(dataSourceId), healthKey(dataSourceId)],
       successMsg: (vars) =>
@@ -158,30 +206,68 @@ export function useVerifyRelationship(dataSourceId: number) {
 export function useCreateRelationship(dataSourceId: number) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<CreateRelationshipPayload, void>({
+    createSimpleMutation<CreateRelationshipPayload, CreateRelationshipResult>({
       qc,
       mutationFn: (values) =>
-        fetchJson<void>(`${base(dataSourceId)}/relationships`, {
+        fetchJson<CreateRelationshipResult>(`${base(dataSourceId)}/relationships`, {
           method: 'POST',
           body: JSON.stringify(values),
         }),
       invalidate: [relationshipsKey(dataSourceId), healthKey(dataSourceId)],
-      successMsg: 'Relationship added',
+      successMsg: (_, result) =>
+        result?.isVerified === false
+          ? 'Relationship added, pending verification by a curator'
+          : 'Relationship added',
       errorFallback: 'Add relationship failed',
     }),
   );
 }
 
-export function useDeleteRelationship(dataSourceId: number) {
+export function useUpdateRelationship(dataSourceId: number) {
   const qc = useQueryClient();
   return useMutation(
-    createSimpleMutation<number, void>({
+    createSimpleMutation<UpdateRelationshipPayload, UpdateRelationshipResult>({
+      qc,
+      mutationFn: ({ id, label, cardinality }) =>
+        fetchJson<UpdateRelationshipResult>(`${base(dataSourceId)}/relationships/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ label, cardinality }),
+        }),
+      invalidate: [relationshipsKey(dataSourceId), healthKey(dataSourceId)],
+      successMsg: (_, result) =>
+        result?.isVerified === false
+          ? `Relationship updated, ${PENDING_CURATOR_VERIFICATION}`
+          : 'Relationship updated',
+      errorFallback: 'Update relationship failed',
+    }),
+  );
+}
+
+/**
+ * What the server's 403 on removing a relationship means — it carries no reason of its own: the relationship is verified
+ * and the caller may not curate the data source.
+ */
+export const VERIFIED_DELETE_REFUSED =
+  'Removing a verified relationship needs the project admin role in every project that links the data source, or the DataSourceAdmin permission.';
+
+export function useDeleteRelationship(dataSourceId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    ...createSimpleMutation<number, void>({
       qc,
       mutationFn: (id) =>
         fetchJson<void>(`${base(dataSourceId)}/relationships/${id}`, { method: 'DELETE' }),
       invalidate: [relationshipsKey(dataSourceId), healthKey(dataSourceId)],
       successMsg: 'Relationship removed',
       errorFallback: 'Delete relationship failed',
+      errorToast: false,
     }),
-  );
+    onError: (err: unknown) => {
+      toast.error(
+        err instanceof ApiError && err.status === 403
+          ? VERIFIED_DELETE_REFUSED
+          : describeError(err, 'Delete relationship failed'),
+      );
+    },
+  });
 }

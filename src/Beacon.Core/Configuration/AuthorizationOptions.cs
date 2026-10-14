@@ -19,5 +19,6 @@ public class AuthorizationOptions
     /// Enable resource-level authorization (requires provider support).
     /// Default: false (use global read/write only)
     /// </summary>
+    [Obsolete("Never read. Project and resource access is decided by IProjectAccessEvaluator; removed in 5.0.")]
     public bool EnableResourceLevelAuthorization { get; set; } = false;
 }

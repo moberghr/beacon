@@ -4,7 +4,10 @@ import { AlertTriangle, ArrowLeftRight, Layers, RefreshCw } from 'lucide-react';
 import { Card, CardBody, Button, PageHeader, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime } from '@/lib/format';
+import { QueryVersionStatus } from '@/lib/enums';
 import {
+  QUERY_VERSION_STATUS_LABEL,
+  isRestorable,
   useQueryDetailQuery,
   useQueryVersionDetailQuery,
   useRestoreQueryVersion,
@@ -49,9 +52,10 @@ export default function QueryVersionDetailPage() {
 
   const handleRestore = async () => {
     try {
-      await restoreMutation.mutateAsync(versionIdNum);
+      const result = await restoreMutation.mutateAsync(versionIdNum);
       setRestoreConfirm(false);
-      navigate(`/queries/${queryId}`);
+      // A restore that waits for approval changed nothing live: its pending version is in the history.
+      navigate(result.submittedForApproval ? `/queries/${queryId}/versions` : `/queries/${queryId}`);
     } catch {
       // Error toast already raised by the restore mutation hook.
     }
@@ -83,7 +87,7 @@ export default function QueryVersionDetailPage() {
             <Link to={`/queries/${queryId}`}>
               <Button icon={<ArrowLeftRight />}>Current version</Button>
             </Link>
-            {!restoreConfirm ? (
+            {!isRestorable(version?.status) ? null : !restoreConfirm ? (
               <Button
                 variant="primary"
                 icon={<RefreshCw />}
@@ -118,6 +122,11 @@ export default function QueryVersionDetailPage() {
             <CardBody>
               <div className="font-semibold mb-2 flex items-center gap-2">
                 This version <Pill>v{version.versionNumber}</Pill>
+                {version.status != null && (
+                  <Pill tone={version.status === QueryVersionStatus.Active ? 'ok' : 'neutral'}>
+                    {QUERY_VERSION_STATUS_LABEL[version.status] ?? `status ${version.status}`}
+                  </Pill>
+                )}
               </div>
               <div className="text-text-muted text-xs mb-2">
                 {version.name} · {(version.steps ?? []).length} step{(version.steps ?? []).length === 1 ? '' : 's'}

@@ -83,6 +83,13 @@ public record SearchResult
 
     /// <summary>Title of a host-imported document ("imported_doc" results only).</summary>
     public string? DocumentTitle { get; init; }
+
+    /// <summary>
+    /// The type of the documentation section a "documentation" result comes from — the keyword arm's own section, the
+    /// semantic arm's chunk's source section — so a prompt built from it can tell a section that can list values discovered
+    /// in the data (<see cref="ProjectDocSectionTypes.ListingValues"/>). Null for every other result.
+    /// </summary>
+    public ProjectDocSectionType? SectionType { get; init; }
 }
 
 public record LineageInfo
@@ -114,6 +121,12 @@ public record SmartSchemaContext
     public string? HostManagedKey { get; init; }
 
     /// <summary>
+    /// The database the source's connection is configured for (its catalog on Databricks, its project on BigQuery): every
+    /// gate evaluation of the generated SQL refuses a name qualified with any other. Null allows no database qualifier.
+    /// </summary>
+    public string? ConfiguredDatabase { get; init; }
+
+    /// <summary>
     /// Schema catalog for pre-execution validation.
     /// Keys: lowercase table name AND lowercase "schema.table". Values: lowercase column names.
     /// </summary>
@@ -142,6 +155,13 @@ public record SmartSchemaContext
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlySet<string>> PrimaryKeyCatalog { get; init; } =
         new Dictionary<string, IReadOnlySet<string>>();
+
+    /// <summary>
+    /// The row-derived data a prompt built from this context can carry (<c>LlmRowDataCategories</c>): sample values when
+    /// any column of the source shows them under the guardrails that apply, value matches when value grounding found
+    /// some. Empty when the context carries none.
+    /// </summary>
+    public IReadOnlyList<string> RowDataCategories { get; init; } = [];
 }
 
 public record LearnedPatternInfo(

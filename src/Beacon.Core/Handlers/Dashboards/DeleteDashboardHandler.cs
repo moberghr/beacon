@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.DeleteDashboard;
@@ -24,7 +25,7 @@ internal sealed class DeleteDashboardHandler(
 
         if (!hasPermission)
         {
-            throw new UnauthorizedAccessException("Only dashboard owner or admin can delete this dashboard");
+            throw new BeaconForbiddenException("Only dashboard owner or admin can delete this dashboard");
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -44,4 +45,5 @@ internal sealed class DeleteDashboardHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record DeleteDashboardCommand(int DashboardId) : IRequest<Unit>;

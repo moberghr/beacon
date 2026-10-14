@@ -6,10 +6,12 @@ using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 
@@ -26,6 +28,7 @@ namespace Beacon.Tests.Unit;
 public class ValueGroundingServiceTests
 {
     private const int DataSourceId = 1;
+    private const int ProjectId = 3;
 
     // ---------- ExtractLiterals ----------
 
@@ -253,7 +256,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Contain("sales.orders.status = 'REFUNDED'");
         provider.Verify(
@@ -283,7 +286,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         // Reaching the provider at all proves the constructed SELECT passed the REAL AST read-only gate.
         block.Should().Contain("sales.orders.status = 'REFUNDED'");
@@ -316,9 +319,71 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
+    }
+
+    // A column whose values are never read to describe it — a PII name (a banking identifier included), a secret-like
+    // name or a financial amount — is neither probed nor matched against its samples; an ordinary column still is.
+    [TestCase("iban")]
+    [TestCase("customer_oib")]
+    [TestCase("account_number")]
+    [TestCase("api_key")]
+    [TestCase("session_token")]
+    [TestCase("current_balance")]
+    [TestCase("monthly_salary")]
+    public async Task BuildValueMatchesBlockAsync_ExcludedColumnName_IsNeitherProbedNorMatched(string excluded)
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "accounts", new[]
+            {
+                new ValueGroundingColumn(excluded, "varchar", false, null, "[\"Horvat\"]"),
+                new ValueGroundingColumn("branch", "varchar", false, null, null)
+            })
+        };
+        var probes = new List<string>();
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => probes.Add(sql))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [] });
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "accounts of 'Horvat'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty("the stored sample of the excluded column is never matched");
+        probes.Should().ContainSingle("only the ordinary column is probed")
+            .Which.Should().Contain("\"branch\"").And.NotContain(excluded);
+    }
+
+    // A probe hit that looks like a credential never reaches the prompt, like a PII-shaped one.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_ProbeReturnsCredentialShapedValue_ExcludedFromBlock()
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "orders", new[]
+            {
+                new ValueGroundingColumn("reference", "varchar", false, null, null)
+            })
+        };
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["reference"] = $"ACME {TestCredentials.ProviderSecretKey}" }]
+            });
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders for 'ACME'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty();
     }
 
     [Test]
@@ -347,7 +412,7 @@ public class ValueGroundingServiceTests
 
         // Two literals, neither resolvable from a sample, each needing its own column probe.
         await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded' in Germany", tables, settings, CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded' in Germany", tables, settings, CancellationToken.None);
 
         provider.Verify(
             x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
@@ -364,7 +429,7 @@ public class ValueGroundingServiceTests
         var settings = NewSettings();
         settings.EnableValueGrounding = false;
 
-        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, "orders that were 'refunded'", tables, settings, CancellationToken.None);
+        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "orders that were 'refunded'", tables, settings, CancellationToken.None);
 
         block.Should().Be("");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -377,7 +442,7 @@ public class ValueGroundingServiceTests
         var provider = new Mock<IDataSourceProvider>();
         var (service, _) = BuildService(provider, dataSourceType: DataSourceType.Api);
 
-        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
         provider.Verify(
@@ -392,7 +457,7 @@ public class ValueGroundingServiceTests
         var provider = new Mock<IDataSourceProvider>();
         var (service, factory) = BuildService(provider);
 
-        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, "how many orders exist", tables, NewSettings(), CancellationToken.None);
+        var block = await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "how many orders exist", tables, NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -409,7 +474,7 @@ public class ValueGroundingServiceTests
         var (service, _) = BuildService(provider);
 
         var act = async () => await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
 
         var block = await act.Should().NotThrowAsync();
         block.Subject.Should().Be("");
@@ -428,9 +493,71 @@ public class ValueGroundingServiceTests
         // The literal loop's own ThrowIfCancellationRequested() fires before any probe is attempted —
         // the outer catch must rethrow it rather than swallowing it as a probe-level failure (R11).
         var act = async () => await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", tables, NewSettings(), cts.Token);
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_DataSourceTheProjectDoesNotLink_ProbesNothing()
+    {
+        var tables = new[] { new ValueGroundingTable("sales", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, "[\"REFUNDED\"]") }) };
+        var provider = new Mock<IDataSourceProvider>();
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId + 1, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty("another project's caller gets no values from a data source its project does not link");
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // On MySQL a schema is a database: a probe of a table in a database other than the one the source is configured for is
+    // refused by the gate and never sent; the same table in the configured database is probed.
+    [TestCase("hr", false)]
+    [TestCase("shop", true)]
+    public async Task BuildValueMatchesBlockAsync_ATableInAnotherDatabase_IsNeverProbed(string schema, bool probed)
+    {
+        var tables = new[] { new ValueGroundingTable(schema, "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }) };
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "REFUNDED" }] });
+        var (service, _) = BuildService(provider, engine: DatabaseEngineType.MySQL, configuredDatabase: "shop");
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains($"`{schema}`.`orders`")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            probed ? Times.Once() : Times.Never());
+        if (probed)
+        {
+            block.Should().Contain("shop.orders.status = 'REFUNDED'");
+        }
+        else
+        {
+            block.Should().BeEmpty();
+        }
+    }
+
+    // A host data source exposes only what the host allows: a probe of a table it does not expose is refused by the gate.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_AHostDataSourceTableTheHostDoesNotExpose_IsNeverProbed()
+    {
+        var tables = new[] { new ValueGroundingTable("public", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }) };
+        var provider = new Mock<IDataSourceProvider>();
+        var (service, _) = BuildService(provider, hostManagedKey: "host-app");
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        block.Should().BeEmpty();
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Test]
@@ -440,7 +567,7 @@ public class ValueGroundingServiceTests
         var (service, factory) = BuildService(provider);
 
         var block = await service.BuildValueMatchesBlockAsync(
-            DataSourceId, "orders that were 'refunded'", [], NewSettings(), CancellationToken.None);
+            DataSourceId, ProjectId, "orders that were 'refunded'", [], NewSettings(), CancellationToken.None);
 
         block.Should().Be("");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);
@@ -458,7 +585,11 @@ public class ValueGroundingServiceTests
     }
 
     private static (ValueGroundingService Service, Mock<IDbContextFactory<BeaconContext>> Factory) BuildService(
-        Mock<IDataSourceProvider> provider, DataSourceType dataSourceType = DataSourceType.Database)
+        Mock<IDataSourceProvider> provider,
+        DataSourceType dataSourceType = DataSourceType.Database,
+        DatabaseEngineType engine = DatabaseEngineType.PostgreSQL,
+        string? configuredDatabase = null,
+        string? hostManagedKey = null)
     {
         var dataSource = new DataSource
         {
@@ -466,10 +597,13 @@ public class ValueGroundingServiceTests
             Name = "ds",
             DataSourceType = dataSourceType,
             EncryptedConnectionData = "encrypted",
-            DatabaseEngineType = dataSourceType == DataSourceType.Api ? null : DatabaseEngineType.PostgreSQL
+            DatabaseEngineType = dataSourceType == DataSourceType.Api ? null : engine,
+            HostManagedKey = hostManagedKey
         };
 
-        var context = new ValueGroundingTestContext(BuildDbSet(new[] { dataSource }).Object);
+        var context = new ValueGroundingTestContext(
+            BuildDbSet(new[] { dataSource }).Object,
+            BuildDbSet(new[] { new ProjectDataSource { ProjectId = ProjectId, DataSourceId = DataSourceId } }).Object);
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -484,7 +618,9 @@ public class ValueGroundingServiceTests
         var service = new ValueGroundingService(
             factory.Object,
             providerFactory.Object,
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
+            TestSqlGate.Create(hostGuard: new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources())),
+            TestConfiguredDatabases.Of(configuredDatabase),
+            new QueryGuardrailService(),
             NullLogger<ValueGroundingService>.Instance);
 
         return (service, factory);
@@ -513,10 +649,12 @@ public class ValueGroundingServiceTests
                 .Options;
 
         private readonly DbSet<DataSource> _dataSources;
+        private readonly DbSet<ProjectDataSource> _links;
 
-        public ValueGroundingTestContext(DbSet<DataSource> dataSources) : base(Options, "beacon")
+        public ValueGroundingTestContext(DbSet<DataSource> dataSources, DbSet<ProjectDataSource> links) : base(Options, "beacon")
         {
             _dataSources = dataSources;
+            _links = links;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -524,6 +662,11 @@ public class ValueGroundingServiceTests
             if (typeof(TEntity) == typeof(DataSource))
             {
                 return (DbSet<TEntity>)(object)_dataSources;
+            }
+
+            if (typeof(TEntity) == typeof(ProjectDataSource))
+            {
+                return (DbSet<TEntity>)(object)_links;
             }
 
             return base.Set<TEntity>();

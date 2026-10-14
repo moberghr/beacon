@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Loader2, X } from 'lucide-react';
-import { Pill, Card, Modal } from '@/components/beacon';
+import { AlertTriangle, ArrowRight, Loader2, ShieldAlert, UserX, X } from 'lucide-react';
+import { Banner, Pill, Card, Modal } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import { useControlTowerSubscriptionDetail } from './queries';
@@ -19,6 +19,8 @@ const STATUS_PILL: Record<NotificationStatus, { label: string; tone: 'ok' | 'war
   [NotificationStatus.Timeout]: { label: 'Timeout', tone: 'crit' },
   [NotificationStatus.BelowThreshold]: { label: 'Below threshold', tone: 'neutral' },
   [NotificationStatus.Failed]: { label: 'Failed', tone: 'crit' },
+  // Not run: the owner it runs as may not run its query.
+  [NotificationStatus.Skipped]: { label: 'Skipped', tone: 'warn' },
 };
 
 const SEVERITY_TONE: Record<string, 'ok' | 'warn' | 'crit' | 'info' | 'neutral'> = {
@@ -103,6 +105,22 @@ export function SubscriptionDetailPanel({
         </header>
 
         <div className="p-5 flex flex-col gap-4">
+          {row.notApproved && (
+            <Banner
+              tone="warn"
+              icon={<ShieldAlert />}
+              title="Not approved"
+              sub="The last run was skipped: this query's change is not approved. Save the query to submit its SQL for approval, or restore a version and approve it."
+            />
+          )}
+          {row.ownerNotAuthorized && (
+            <Banner
+              tone="warn"
+              icon={<UserX />}
+              title="Owner not authorized"
+              sub="Scheduled runs are skipped: the owner they run as may no longer run this query. An Admin can assign another owner on the subscription page."
+            />
+          )}
           <div className="flex flex-wrap gap-2">
             <Link
               to={`/subscriptions/${row.subscriptionId}`}

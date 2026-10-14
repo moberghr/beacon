@@ -29,3 +29,9 @@
 §4.9 _(removed — no Razor/Blazor UI remains after the Phase 3 cutover, so bUnit is no longer part of the stack. The UI is the React app; frontend tests use Vitest + RTL + MSW under `src/Beacon.UI/web/src`.)_
 
 §4.10 **Assertions must be meaningful.** `result.Should().NotBeNull()` alone is not a test — assert structure or values that prove the behavior under test.
+
+## Project authorization tests
+
+§4.11 **Project-authorization coverage is test-enforced — extend it, never bypass it.** `ProjectAuthorizationCoverageTests` fails when a request's `*Id`/`*Ids` property is neither in a `ProjectCheck` nor exempt with a reason; a new by-id route must deny in `ByIdRouteDenialTests` (owner- or admin-only routes go on the explicit allow-list). Every `IProjectFilteredRequest` needs a scenario in `ProjectListScopeShapeTests` whose SQL carries the scope predicate under a restricted scope. `ProjectCheckManifestTests` pins each by-id request's resource kind, id property and action: a changed check updates the manifest on purpose, never silently.
+
+§4.12 **Fast-path SQL goldens.** On the fast path (nothing restricted) each list handler must send exactly the SQL in `Unit/ProjectAuthorization/FastPathGolden/*.sql`. When a list query changes on purpose, re-record with `BEACON_RECORD_FASTPATH_GOLDEN=<golden dir>` and check the SQL diff. Translation tests that must hold on both providers use `NpgsqlTestContext` and `SqlServerTestContext`.

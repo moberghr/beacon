@@ -16,6 +16,7 @@ import {
 import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
 import { useDataSourceCount } from '@/routes/data-sources/queries';
 import { useCreateMigrationJob } from '@/routes/migration-history/queries';
+import { noteSubmittedForApproval } from '@/routes/approvals/AwaitingApproval';
 import {
   MIGRATION_JOB_DEFAULTS,
   MIGRATION_JOB_SCHEMA,
@@ -29,7 +30,9 @@ const REQ = <span className="text-crit">*</span>;
 export default function NewMigrationJobPage() {
   const navigate = useNavigate();
   const dbSourceCount = useDataSourceCount({ databaseOnly: true });
+  const targetCount = useDataSourceCount({ migrationTargets: true });
   const tooFewSources = dbSourceCount.data !== undefined && dbSourceCount.data < 2;
+  const noTargets = targetCount.data === 0;
   const createMutation = useCreateMigrationJob();
 
   const {
@@ -52,6 +55,7 @@ export default function NewMigrationJobPage() {
         return;
       }
       toast.success('Migration job created.');
+      noteSubmittedForApproval(result);
       navigate(`/migration-jobs/${result.migrationJobId}`);
     } catch {
       // useCreateMigrationJob (createSimpleMutation) already toasts the error.
@@ -87,6 +91,17 @@ export default function NewMigrationJobPage() {
         </Card>
       )}
 
+      {!tooFewSources && noTargets && (
+        <Card>
+          <CardBody>
+            <span className="text-text-muted">
+              No data source is a migration write target yet. An Admin marks one on its data source page; Beacon then
+              writes to it and never reads from it.
+            </span>
+          </CardBody>
+        </Card>
+      )}
+
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <Section icon={<Layers className="size-3.5" />} title="Basics">
           <BField label={<>Job name {REQ}</>}>
@@ -111,6 +126,7 @@ export default function NewMigrationJobPage() {
           <BField label={<>Source data source {REQ}</>}>
             <DataSourcePicker
               databaseOnly
+              migrationTargets={false}
               value={watch('dataSourceId') || null}
               onSelect={x => setValue('dataSourceId', x?.id ?? 0, { shouldValidate: true, shouldDirty: true })}
               hasError={!!errors.dataSourceId}
@@ -131,9 +147,10 @@ export default function NewMigrationJobPage() {
         </Section>
 
         <Section icon={<ArrowLeftRight className="size-3.5" />} title="Destination">
-          <BField label={<>Destination data source {REQ}</>}>
+          <BField label={<>Destination data source {REQ}</>} hint="Migration write targets only.">
             <DataSourcePicker
               databaseOnly
+              migrationTargets
               value={watch('destinationDataSourceId') || null}
               onSelect={x => setValue('destinationDataSourceId', x?.id ?? 0, { shouldValidate: true, shouldDirty: true })}
               hasError={!!errors.destinationDataSourceId}

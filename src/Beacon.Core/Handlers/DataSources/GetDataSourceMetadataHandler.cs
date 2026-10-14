@@ -1,10 +1,13 @@
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
-internal sealed class GetDataSourceMetadataHandler(IDatabaseMetadataService metadataService)
+internal sealed class GetDataSourceMetadataHandler(
+    IDatabaseMetadataService metadataService,
+    MetadataSampleView sampleView)
     : IRequestHandler<GetDataSourceMetadataQuery, DatabaseMetadataSnapshot>
 {
     public async Task<DatabaseMetadataSnapshot> Handle(GetDataSourceMetadataQuery request, CancellationToken cancellationToken)
@@ -21,8 +24,19 @@ internal sealed class GetDataSourceMetadataHandler(IDatabaseMetadataService meta
             throw new InvalidOperationException($"Data source {request.DataSourceId} metadata not available.");
         }
 
-        return snapshot;
+        // Stored sample values go to an Admin only, under the guardrails that apply now.
+        return await sampleView.ApplyAsync(snapshot, cancellationToken);
     }
 }
 
-public record GetDataSourceMetadataQuery(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>;
+/// <summary>
+/// A data source's stored catalog. Stored sample values are returned to an Admin only, screened with the guardrails that
+/// apply now; every other caller gets the columns without them.
+/// </summary>
+public record GetDataSourceMetadataQuery(int DataSourceId) : IRequest<DatabaseMetadataSnapshot>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataSource(DataSourceId), ProjectAction.Read)
+    ];
+}

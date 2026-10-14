@@ -1,4 +1,6 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Text;
+using System.Text.RegularExpressions;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 
@@ -28,12 +30,18 @@ internal static class QueryValidator
     /// Validates that the query does not contain blocked SQL keywords.
     /// </summary>
     /// <param name="sqlQuery">The SQL query to validate</param>
-    /// <exception cref="BeaconException">Thrown when blocked keywords are found</exception>
-    public static void CheckForFlaggedWords(string sqlQuery)
+    /// <param name="maxChars">Longest SQL accepted, normally the read-only validator's <c>MaxSqlChars</c>.</param>
+    /// <exception cref="BeaconException">Thrown when blocked keywords are found or the SQL is too long</exception>
+    public static void CheckForFlaggedWords(string sqlQuery, int maxChars = McpCeilingOptions.DefaultMaxSqlChars)
     {
         if (string.IsNullOrWhiteSpace(sqlQuery))
         {
             throw new BeaconException("SQL query cannot be empty.");
+        }
+
+        if (sqlQuery.Length > maxChars)
+        {
+            throw new BeaconException($"SQL is {sqlQuery.Length} characters long; the limit is {maxChars}.");
         }
 
         // Remove SQL comments to prevent comment-based bypasses
@@ -84,17 +92,72 @@ internal static class QueryValidator
     }
 
     /// <summary>
-    /// Removes SQL comments (single-line and multi-line) from the query.
+    /// Removes SQL comments (single-line and multi-line) from the query in one forward pass each, so the cost stays
+    /// linear in the SQL length whatever the comment markers.
     /// </summary>
     private static string RemoveSqlComments(string sql)
     {
-        // Remove multi-line comments /* ... */
-        sql = Regex.Replace(sql, @"/\*.*?\*/", " ", RegexOptions.Singleline);
+        return RemoveLineComments(RemoveBlockComments(sql));
+    }
 
-        // Remove single-line comments -- ...
-        sql = Regex.Replace(sql, @"--.*?$", " ", RegexOptions.Multiline);
+    // `/* ... */` up to the first `*/`, as engines that do not nest comments read it; an unclosed `/*` and everything
+    // after it stay. A MySQL executable comment (`/*! ... */`, MariaDB `/*M! ... */`) keeps its body: MySQL runs it.
+    private static string RemoveBlockComments(string sql)
+    {
+        var result = new StringBuilder(sql.Length);
+        var position = 0;
+        while (position < sql.Length)
+        {
+            var open = sql.IndexOf("/*", position, StringComparison.Ordinal);
+            var close = open < 0 ? -1 : sql.IndexOf("*/", open + 2, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                break;
+            }
 
-        return sql;
+            result.Append(sql, position, open - position).Append(' ');
+            var body = ExecutableCommentBodyStart(sql, open + 2);
+            if (body >= 0 && body <= close)
+            {
+                result.Append(sql, body, close - body).Append(' ');
+            }
+
+            position = close + 2;
+        }
+
+        return result.Append(sql, position, sql.Length - position).ToString();
+    }
+
+    // `-- ...` up to, not including, the next CR or LF: PostgreSQL and others end a line comment at either.
+    private static string RemoveLineComments(string sql)
+    {
+        var result = new StringBuilder(sql.Length);
+        var position = 0;
+        while (position < sql.Length)
+        {
+            var dash = sql.IndexOf("--", position, StringComparison.Ordinal);
+            if (dash < 0)
+            {
+                break;
+            }
+
+            result.Append(sql, position, dash - position).Append(' ');
+            var lineEnd = sql.IndexOfAny(['\r', '\n'], dash + 2);
+            position = lineEnd < 0 ? sql.Length : lineEnd;
+        }
+
+        return result.Append(sql, position, sql.Length - position).ToString();
+    }
+
+    private static int ExecutableCommentBodyStart(string sql, int afterOpener)
+    {
+        var rest = sql.AsSpan(afterOpener);
+        if (rest.StartsWith("!"))
+        {
+            return afterOpener + 1;
+        }
+
+        return rest.StartsWith("M!", StringComparison.OrdinalIgnoreCase) ? afterOpener + 2 : -1;
     }
 
     /// <summary>

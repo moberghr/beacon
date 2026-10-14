@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -12,4 +13,12 @@ internal sealed class RemoveSubscriptionRecipientHandler(ISubscriptionService su
     }
 }
 
-public record RemoveSubscriptionRecipientCommand(int SubscriptionId, int RecipientId) : IRequest;
+public record RemoveSubscriptionRecipientCommand(
+    int SubscriptionId,
+    [property: ProjectScopeExempt("recipients are project-less; detaching one needs Write on the subscription, checked")] int RecipientId) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Write)
+    ];
+}

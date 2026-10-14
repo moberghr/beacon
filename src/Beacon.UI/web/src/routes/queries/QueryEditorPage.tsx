@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  Banner,
   Card,
   CardHead,
   CardTitle,
@@ -27,6 +28,7 @@ import {
   Select,
 } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { describeError } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
 import { useDataSourceLookup, useDefaultDataSource } from '@/routes/data-sources/queries';
@@ -44,6 +46,8 @@ import {
   usePreviewQueryMutation,
   usePreviewStepMutation,
   useUpdateQueryMutation,
+  FIRST_VERSION_PENDING_MESSAGE,
+  useFirstVersionPending,
 } from './queries';
 import { StepParameterDialog } from './parts/StepParameterDialog';
 import { QueryRunPanel } from './parts/QueryRunPanel';
@@ -116,7 +120,7 @@ function stepFromWire(s: QueryStep): EditorStep {
   };
 }
 
-function toPayload(state: EditorState, queryId: number): UpdateQueryPayload {
+function toPayload(state: EditorState, queryId: number, baseVersionId: number | null = null): UpdateQueryPayload {
   const steps: UpdateQueryStepPayload[] = state.steps.map((s, idx) => ({
     stepId: s.stepId,
     stepOrder: idx + 1,
@@ -141,6 +145,7 @@ function toPayload(state: EditorState, queryId: number): UpdateQueryPayload {
     steps,
     finalQuery: state.finalQuery,
     finalQueryDataSourceId: state.finalQueryDataSourceId,
+    baseVersionId,
   };
 }
 
@@ -153,7 +158,7 @@ function toDraft(state: EditorState, queryId: number): QueryDraftInput {
 type PreviewRequest = { kind: 'query' } | { kind: 'step'; stepOrder: number; parameters?: ParameterValueInput[] };
 
 /** What the editor's result panel is previewing, so paging and sorting re-run the same draft. */
-type PreviewTarget = PreviewRequest & { draft: QueryDraftInput };
+type PreviewTarget = PreviewRequest & { draft?: QueryDraftInput };
 
 export default function QueryEditorPage() {
   const params = useParams<{ id: string }>();
@@ -161,6 +166,9 @@ export default function QueryEditorPage() {
   const validId = Number.isFinite(id) ? id : undefined;
 
   const detail = useQueryDetailQuery(validId);
+  // With the approval workflow on, a new query has nothing live until its first version is approved.
+  const nothingLive = detail.data != null && detail.data.steps.length === 0 && (detail.data.activeVersionId ?? null) == null;
+  const firstVersionPending = useFirstVersionPending(validId, nothingLive);
   const defaultDataSource = useDefaultDataSource().data ?? null;
   const update = useUpdateQueryMutation();
   const previewStep = usePreviewStepMutation(validId);
@@ -175,9 +183,17 @@ export default function QueryEditorPage() {
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [previewResult, setPreviewResult] = useState<QueryPreviewResult | null>(null);
   const [previewSort, setPreviewSort] = useState<SortState | null>(null);
+  // The server's reasons stay on the page (the toasts fade): e.g. SQL naming another database than the step's data
+  // source is configured for.
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The active version the edit was loaded on (not whatever a background refetch brings): a save sends it, and the
+  // server refuses the save once another version went live.
+  const baseVersionRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (detail.data && state == null) {
+      baseVersionRef.current = detail.data.activeVersionId ?? null;
       setState(fromDetail(detail.data));
     }
   }, [detail.data, state]);
@@ -303,9 +319,10 @@ export default function QueryEditorPage() {
   const save = async () => {
     if (validId == null) return;
     const stateAtSave = state;
-    await update.mutateAsync(toPayload(state, validId));
+    await update.mutateAsync(toPayload(state, validId, baseVersionRef.current));
     const fresh = await detail.refetch();
     if (fresh.data) {
+      baseVersionRef.current = fresh.data.activeVersionId ?? null;
       const freshState = fromDetail(fresh.data);
       setState(prev => (prev === stateAtSave ? freshState : prev));
     }
@@ -332,6 +349,7 @@ export default function QueryEditorPage() {
 
   const runPreview = async (target: PreviewTarget, page: number, sort: SortState | null) => {
     const paging = { page, sort: sortToParam(sort) };
+    setPreviewError(null);
     try {
       const result =
         target.kind === 'query'
@@ -343,14 +361,18 @@ export default function QueryEditorPage() {
             paging,
           });
       setPreviewResult(result);
-    } catch {
-      // Error toasts already raised by the mutation hooks.
+    } catch (err) {
+      // The mutation hooks toast too; the run panel keeps the reason next to the SQL.
+      setPreviewError(describeError(err, 'Query preview failed'));
     }
   };
 
+  // Only unsaved edits travel as a draft; without one the server runs the stored query, which Viewers may run too.
+  const currentDraft = () => (dirty ? toDraft(state, id) : undefined);
+
   // Runs what is in the editor without saving it; only Save persists the query (and writes a version).
   const startPreview = async (request: PreviewRequest) => {
-    const target: PreviewTarget = { ...request, draft: toDraft(state, id) };
+    const target: PreviewTarget = { ...request, draft: currentDraft() };
     setPreviewTarget(target);
     setPreviewResult(null);
     setPreviewSort(null);
@@ -360,10 +382,12 @@ export default function QueryEditorPage() {
   const previewRunning = previewQuery.isPending || previewStep.isPending;
 
   const onSave = async () => {
+    setSaveError(null);
     try {
       await save();
-    } catch {
-      // Error toast already raised by the update mutation hook.
+    } catch (err) {
+      // The banner is where the server's reason is shown (the update mutation does not toast it).
+      setSaveError(describeError(err, 'Save failed'));
     }
   };
 
@@ -420,6 +444,19 @@ export default function QueryEditorPage() {
           </div>
         </CardBody>
       </Card>
+
+      {saveError && (
+        <Banner tone="crit" icon={<AlertTriangle />} role="alert" title="The query was not saved" sub={saveError} />
+      )}
+
+      {nothingLive && firstVersionPending.data === true && (
+        <Banner
+          tone="info"
+          icon={<AlertTriangle />}
+          title={FIRST_VERSION_PENDING_MESSAGE}
+          sub="Saving a change submits it for approval and replaces the pending submission."
+        />
+      )}
 
       <Card>
         <CardHead>
@@ -585,7 +622,7 @@ export default function QueryEditorPage() {
           label={previewTarget.kind === 'query' ? 'Query preview' : `Step ${previewTarget.stepOrder} preview`}
           running={previewRunning}
           result={previewResult}
-          requestError={null}
+          requestError={previewError}
           sort={previewSort}
           onPageChange={page => void runPreview(previewTarget, page, previewSort)}
           onSortChange={column => {
@@ -595,7 +632,7 @@ export default function QueryEditorPage() {
           }}
           onRerun={() => {
             // Rerun picks up edits made since the last run; paging and sorting stay on the run they page.
-            const target: PreviewTarget = { ...previewTarget, draft: toDraft(state, id) };
+            const target: PreviewTarget = { ...previewTarget, draft: currentDraft() };
             setPreviewTarget(target);
             void runPreview(target, previewResult?.result?.page ?? 0, previewSort);
           }}

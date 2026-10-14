@@ -37,4 +37,5 @@ internal sealed class ChangeOwnPasswordHandler(
     }
 }
 
+[ProjectScopeExempt("owner-scoped: the caller's own settings")]
 public record ChangeOwnPasswordCommand(string CurrentPassword, string NewPassword) : IRequest;

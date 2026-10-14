@@ -18,6 +18,7 @@ internal sealed class HostSyncStore
     public List<DataSource> DataSources { get; } = [];
     public List<Project> Projects { get; } = [];
     public List<ProjectDataSource> ProjectDataSources { get; } = [];
+    public List<ProjectMember> ProjectMembers { get; } = [];
     public List<DatabaseMetadata> Tables { get; } = [];
     public List<ColumnMetadata> RemovedColumns { get; } = [];
     public List<IndexMetadata> RemovedIndexes { get; } = [];
@@ -42,6 +43,7 @@ internal sealed class HostSyncTestContext(HostSyncStore store) : BeaconContext(O
             nameof(DataSource) => ListSet(store.DataSources, null),
             nameof(Project) => ListSet(store.Projects, null),
             nameof(ProjectDataSource) => ListSet(store.ProjectDataSources, null),
+            nameof(ProjectMember) => ListSet(store.ProjectMembers, null),
             nameof(DatabaseMetadata) => ListSet(store.Tables, null),
             nameof(ColumnMetadata) => ListSet(new List<ColumnMetadata>(), store.RemovedColumns),
             nameof(IndexMetadata) => ListSet(new List<IndexMetadata>(), store.RemovedIndexes),

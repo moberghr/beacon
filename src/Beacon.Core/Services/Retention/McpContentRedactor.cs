@@ -99,6 +99,7 @@ public static class McpContentRedactor
         signal.GeneratedSql = null;
         signal.CorrectedSql = null;
         signal.UserCorrectedSql = null;
+        signal.CandidateSqlHash = null;
         signal.FeedbackNote = null;
         signal.SchemaValidationError = ErrorClassOf(signal.SchemaValidationError);
         signal.ExecutionError = ErrorClassOf(signal.ExecutionError);

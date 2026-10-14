@@ -2,16 +2,24 @@ using MediatR;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Authorization;
 
 
 
 namespace Beacon.Core.Handlers.AiActors;
 
-public record RequestPlanRevisionCommand : IRequest<RequestPlanRevisionResult>
+/// <summary>Asks the AI actor to revise a pending plan with feedback. Allowed for the actor's creator or an Admin.</summary>
+public record RequestPlanRevisionCommand : IRequest<RequestPlanRevisionResult>, IProjectAuthorizedRequest
 {
     public required int PlanId { get; init; }
+    [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public string? UserId { get; init; }
     public required string Feedback { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.AiActorPlan(PlanId), ProjectAction.Write)
+    ];
 }
 
 public record RequestPlanRevisionResult

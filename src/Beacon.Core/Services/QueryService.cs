@@ -3,8 +3,10 @@ using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Adapters;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -15,9 +17,11 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Services;
 
@@ -39,6 +43,11 @@ public interface IQueryService
     // ===== ENHANCED METHODS FOR CROSS-DATA-SOURCE FUNCTIONALITY =====
     Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery = null, List<ParameterValue>? parameters = null, CancellationToken cancellationToken = default);
 
+    /// <summary><see cref="ExecuteQueryAdvanced(int, string?, List{ParameterValue}?, CancellationToken)"/> within a row limit of the caller's own.</summary>
+    /// <param name="maxRows">The most rows one statement may return before the run fails, in place of
+    /// <c>Beacon:Query:MaxExecutionRows</c> (a migration's own budget, <c>Beacon:Migrations:MaxRows</c>).</param>
+    Task<QueryExecutionResult> ExecuteQueryAdvanced(int queryId, string? finalQuery, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken);
+
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
 
     Task<QueryStepResult> PreviewQueryStep(int queryId, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
@@ -52,12 +61,19 @@ public interface IQueryService
     /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
     Task<QueryPreviewResult> PreviewQueryStepPaged(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
 
-    // Step management with data source context
+    // Step management with data source context. These change one live step without a version or a review: refused
+    // (409) while the approval workflow is on, and to be removed; save the query with UpdateQuery instead.
+    [Obsolete(StepMutatorObsoleteMessage)]
     Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken);
 
+    [Obsolete(StepMutatorObsoleteMessage)]
     Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken);
 
+    [Obsolete(StepMutatorObsoleteMessage)]
     Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
+
+    private const string StepMutatorObsoleteMessage =
+        "Save the query with UpdateQuery, which versions the change and routes it through the approval workflow. Refused while the workflow is on; will be removed.";
 }
 
 public class QueryDetailsData
@@ -97,6 +113,12 @@ public class QueryDetailsData
     /// Name of the AI Actor managing this query
     /// </summary>
     public string? AiActorName { get; set; }
+
+    /// <summary>
+    /// The query's active version: an editor sends it back as <see cref="QueryData.BaseVersionId"/> when it saves, so a save
+    /// made on a version that is no longer active is refused. Null for a query never versioned.
+    /// </summary>
+    public int? ActiveVersionId { get; set; }
 
     /// <summary>
     /// Whether this query is locked from AI modifications
@@ -185,6 +207,12 @@ public class SubscriptionListData
 
 public record GetQueriesRequest : ListRequest
 {
+    /// <summary>
+    /// Where the caller may read: the list keeps the queries one of these projects holds every source of. Required, so
+    /// no caller lists every query by leaving it out; <see cref="ProjectSet.All"/> is an explicit choice.
+    /// </summary>
+    public required ProjectSet Readable { get; init; }
+
     public int? QueryId { get; init; }
 
     public int? DataSourceId { get; init; }
@@ -202,73 +230,87 @@ public record GetQueriesRequest : ListRequest
     public string? SearchTerm { get; init; }
 }
 
-internal partial class QueryService(IDbContextFactory<BeaconContext> contextFactory, HostData.IDataSourceConnectionResolver connectionResolver, IManualQueryExecutionLogger queryExecutionLogger, ILogger<QueryService> logger, ILoggerFactory loggerFactory, IQueryVersionService queryVersionService, BeaconConfiguration beaconConfiguration, IBeaconUserContext userContext, SqlReadOnlyAstValidator readOnlyAstValidator, HostData.IHostDataSourceGuard hostGuard) : IQueryService
+/// <summary>
+/// Stored and drafted queries. Every statement it runs on a data source — previews, subscription runs, the AI actor's and
+/// migrations' reads — goes through <see cref="GatedSqlRunner"/> (the shared execution gate, then the provider's read-only
+/// path), capped in the SQL at <see cref="ExecutionRowCeiling"/> rows; a final query joins the step results in Beacon's
+/// in-memory SQLite store behind the same gate. A step's SQL passes <see cref="IStepSqlSaveCheck"/> before it is stored.
+/// </summary>
+internal partial class QueryService(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IManualQueryExecutionLogger queryExecutionLogger,
+    ILogger<QueryService> logger,
+    ILoggerFactory loggerFactory,
+    IQueryVersionService queryVersionService,
+    BeaconConfiguration beaconConfiguration,
+    IBeaconUserContext userContext,
+    SqlReadOnlyAstValidator readOnlyAstValidator,
+    IBeaconActorAccessor actorAccessor,
+    IExecutionAccessCheck executionAccess,
+    ISqlExecutionGate gate,
+    GatedSqlRunner sqlRunner,
+    IStepSqlSaveCheck saveCheck,
+    IQueryGuardrailService guardrail,
+    ISharedSourceSettings sharedSourceSettings,
+    IOptions<QueryExecutionOptions> queryOptions) : IQueryService
 {
+    /// <summary>The most rows one statement may return before its run fails (<c>Beacon:Query:MaxExecutionRows</c>). Settable for tests.</summary>
+    internal int ExecutionRowCeiling { get; init; } = queryOptions.Value.MaxExecutionRows;
+
+    /// <summary>How long a final query may run on the in-memory join store (<c>Beacon:Query:StatementTimeoutSeconds</c>). Settable for tests.</summary>
+    internal int FinalQueryTimeoutSeconds { get; init; } = queryOptions.Value.StatementTimeoutSeconds;
+
+    /// <summary>
+    /// Creates a query from <paramref name="queryData"/> after the checks of a save. With the approval workflow on, its SQL
+    /// waits for approval like an edit's: the query is created with nothing live (no steps, no final query) and its content
+    /// submitted as its first version, so nothing runs until a second person approves it.
+    /// </summary>
     public async Task<BaseResponse> CreateQuery(QueryData queryData, CancellationToken cancellationToken)
     {
-        // Ensure backward compatibility - if no steps, create one from the legacy properties
-        if (!queryData.Steps.Any())
-        {
-            QueryValidator.CheckForFlaggedWords(queryData.SqlValue);
-            QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
+        await ValidateNewQueryAsync(queryData, cancellationToken);
 
-            queryData.Steps.Add(new QueryStepData
-            {
-                StepOrder = 1,
-                Name = "Step 1",
-                SqlValue = queryData.SqlValue,
-                DataSourceId = queryData.DataSourceId,
-                DataSourceName = queryData.DataSourceName ?? "",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Will be set correctly from database
-                Parameters = queryData.Parameters.Select(p => new QueryStepParameterData
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
+        if (beaconConfiguration.ApprovalWorkflow.Enabled)
+        {
+            await queryVersionService.SubmitNewQueryAsync(
+                new Query
                 {
-                    Name = p.Name,
-                    Type = p.Type,
-                    Description = p.Description,
-                    Placeholder = p.Placeholder
-                }).ToList()
-            });
-        }
+                    Name = queryData.Name,
+                    Description = queryData.Description,
+                    OwnerUserId = actor.UserId
+                },
+                queryData,
+                new QueryChangeSubmission(actor.UserId, userContext.DisplayName, "UserEdit", "New query", "New query submitted for approval"),
+                cancellationToken);
 
-        // Validate all steps
-        foreach (var step in queryData.Steps)
-        {
-            QueryValidator.CheckForFlaggedWords(step.SqlValue);
-            QueryValidator.CheckForParameters(step.SqlValue, step.Parameters.Select(p => new QueryParameterData
+            return new BaseResponse
             {
-                Name = p.Name,
-                Type = p.Type,
-                Description = p.Description ?? "",
-                Placeholder = p.Placeholder ?? ""
-            }).ToList());
+                Message = NewQuerySubmittedMessage,
+                Success = true
+            };
         }
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await StoreLiveQueryAsync(queryData, actor.UserId, cancellationToken);
 
-        // Build the full object graph (query + steps + parameters via navigation
-        // collections) so EF assigns the generated keys in a single SaveChanges.
-        var query = new Query
+        return new BaseResponse
         {
-            Name = queryData.Name,
-            Description = queryData.Description,
-            FinalQuery = queryData.FinalQuery,
-            Steps = queryData.Steps
-                .Select(x =>
-                    new QueryStep
-                    {
-                        QueryId = 0, // Fixed up from the Steps navigation on save
-                        DataSourceId = x.DataSourceId,
-                        StepOrder = x.StepOrder,
-                        Name = x.Name,
-                        Description = x.Description,
-                        SqlValue = x.SqlValue,
-                        Parameters = ParameterEntityFactory.CreateQueryStepParameters(x.Parameters, 0)
-                    })
-                .ToList()
+            Message = "Saved successfully",
+            Success = true
         };
+    }
 
-        context.Queries.Add(query);
-        await context.SaveChangesAsync(cancellationToken);
+    /// <summary>
+    /// A query a preview creates, runs once and deletes again (<see cref="QueryExecutionPreviewService"/>): stored live, after
+    /// the checks of a save, whatever the approval workflow — it is never versioned, scheduled or published, and runs only
+    /// as the preview's own interactive run.
+    /// </summary>
+    public async Task<BaseResponse> CreateTemporaryQuery(QueryData queryData, CancellationToken cancellationToken)
+    {
+        await ValidateNewQueryAsync(queryData, cancellationToken);
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        await StoreLiveQueryAsync(queryData, actor.UserId, cancellationToken);
 
         return new BaseResponse
         {
@@ -315,6 +357,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var results = await context.Queries
+            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId)
             .WhereIf(request.QueryId.HasValue, x => x.Id == request.QueryId)
             .WhereIf(request.QueryName != null, x => x.Name == request.QueryName)
             .WhereIf(request.DataSourceId.HasValue, x => x.Steps.Any(s => s.DataSourceId == request.DataSourceId))
@@ -374,6 +417,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
                     FinalQuery = x.FinalQuery,
                     AiActorId = x.AiActorId,
                     AiActorName = x.AiActor != null ? x.AiActor.Name : null,
+                    ActiveVersionId = x.ActiveVersionId,
                     IsLocked = x.IsLocked,
                     McpToolEnabled = x.McpToolEnabled,
                     McpToolName = x.McpToolName,
@@ -426,7 +470,7 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
 
         result.NotificationHistory = notificationHistory;
 
-        var runnableVersion = await SavedQueryRunnableVersion.ForQuery(context, queryId)
+        var runnableVersion = await SavedQueryRunnableVersion.ForQuery(context, queryId, SavedQueryRunnableVersion.RequiresApprovedHash(beaconConfiguration))
             .FirstOrDefaultAsync(cancellationToken);
         result.McpToolRunnableVersionNumber = runnableVersion?.VersionNumber;
         result.McpToolIssue = await SavedQueryRunnableVersion.InspectIssueAsync(context, runnableVersion, cancellationToken);
@@ -463,5 +507,150 @@ internal partial class QueryService(IDbContextFactory<BeaconContext> contextFact
         result.ExecutionTimeHistory = executionTimeHistory;
 
         return result;
+    }
+
+    // The checks a new query's steps and final query pass before anything is written; the legacy single-step form (no
+    // steps, the SQL on the query itself) becomes its one step.
+    private async Task ValidateNewQueryAsync(QueryData queryData, CancellationToken cancellationToken)
+    {
+        // Ensure backward compatibility - if no steps, create one from the legacy properties
+        if (!queryData.Steps.Any())
+        {
+            QueryValidator.CheckForFlaggedWords(queryData.SqlValue, readOnlyAstValidator.MaxSqlChars);
+            QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
+
+            queryData.Steps.Add(new QueryStepData
+            {
+                StepOrder = 1,
+                Name = "Step 1",
+                SqlValue = queryData.SqlValue,
+                DataSourceId = queryData.DataSourceId,
+                DataSourceName = queryData.DataSourceName ?? "",
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL, // Will be set correctly from database
+                Parameters = queryData.Parameters.Select(p => new QueryStepParameterData
+                {
+                    Name = p.Name,
+                    Type = p.Type,
+                    Description = p.Description,
+                    Placeholder = p.Placeholder
+                }).ToList()
+            });
+        }
+
+        // Validate all steps
+        foreach (var step in queryData.Steps)
+        {
+            QueryValidator.CheckForFlaggedWords(step.SqlValue, readOnlyAstValidator.MaxSqlChars);
+            QueryValidator.CheckForParameters(step.SqlValue, step.Parameters.Select(p => new QueryParameterData
+            {
+                Name = p.Name,
+                Type = p.Type,
+                Description = p.Description ?? "",
+                Placeholder = p.Placeholder ?? ""
+            }).ToList());
+        }
+
+        ValidateFinalQuery(queryData.FinalQuery);
+
+        await EnsureStepsPassTheGateAsync(queryData.Steps, cancellationToken);
+    }
+
+    // The query with its steps live, owned by ownerUserId.
+    private async Task StoreLiveQueryAsync(QueryData queryData, string? ownerUserId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Build the full object graph (query + steps + parameters via navigation
+        // collections) so EF assigns the generated keys in a single SaveChanges.
+        var query = new Query
+        {
+            Name = queryData.Name,
+            Description = queryData.Description,
+            FinalQuery = queryData.FinalQuery,
+            OwnerUserId = ownerUserId,
+            Steps = queryData.Steps
+                .Select(x =>
+                    new QueryStep
+                    {
+                        QueryId = 0, // Fixed up from the Steps navigation on save
+                        DataSourceId = x.DataSourceId,
+                        StepOrder = x.StepOrder,
+                        Name = x.Name,
+                        Description = x.Description,
+                        SqlValue = x.SqlValue,
+                        Parameters = ParameterEntityFactory.CreateQueryStepParameters(x.Parameters, 0)
+                    })
+                .ToList()
+        };
+
+        context.Queries.Add(query);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// A saved final query runs against the in-memory SQLite join store, so it must pass the execution gate (§1.5) in the
+    /// form that runs — after <c>@resultN</c> translation — before it is persisted. Empty means "no final query", the same
+    /// test both execution paths use. A nested block comment is refused first: SQLite ends a block comment at its first
+    /// <c>*/</c> while the gate's parser nests them, so such text can hide a second statement from the gate. SQLite's own
+    /// single-statement check needs the tables, which do not exist at save time; it runs again, with the nested-comment
+    /// check, when the query executes.
+    /// </summary>
+    private void ValidateFinalQuery(string? finalQuery)
+    {
+        if (string.IsNullOrEmpty(finalQuery))
+        {
+            return;
+        }
+
+        var translated = InMemoryDatabaseManager.TranslateResultReferences(finalQuery);
+        if (InMemoryDatabaseManager.HasNestedBlockComment(translated))
+        {
+            throw new InvalidOperationException($"Final query rejected: {InMemoryDatabaseManager.NestedBlockCommentRejection}");
+        }
+
+        var report = gate.Evaluate(JoinGateRequest(translated, null));
+        if (report.Blocked)
+        {
+            throw new InvalidOperationException($"Final query rejected: {report.BlockReason}");
+        }
+    }
+
+    // Every step's SQL passes the save check (IStepSqlSaveCheck) before anything is written.
+    private async Task EnsureStepsPassTheGateAsync(IEnumerable<QueryStepData> steps, CancellationToken cancellationToken)
+    {
+        foreach (var step in steps)
+        {
+            var placeholders = step.Parameters
+                .Select(x => x.Placeholder)
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Select(x => x!)
+                .ToList();
+            var rejection = await saveCheck.RejectionAsync(step.DataSourceId, step.SqlValue, placeholders, cancellationToken);
+            if (rejection != null)
+            {
+                throw new InvalidOperationException(rejection);
+            }
+        }
+    }
+
+    // The statement that joins step results on the in-memory SQLite store: the gate's read-only stages and the run's row
+    // cap (rowCeiling, a migration's own budget, else ExecutionRowCeiling) plus one, no cross-database rule (it reaches
+    // nothing else), PII detected in its text when a run masks.
+    private SqlGateRequest JoinGateRequest(string sql, McpSettingsData? pii, int? rowCeiling = null)
+    {
+        return new SqlGateRequest(
+            sql,
+            nameof(DatabaseEngineType.SQLite),
+            EnforceReadOnly: true,
+            DetectPii: pii?.EnablePiiDetection ?? false,
+            CustomPiiPatterns: pii is { CustomPiiPatterns.Count: > 0 } ? pii.CustomPiiPatterns : null,
+            Catalog: null,
+            BlockOnSchemaFailure: false,
+            LintContext: null,
+            EnableSemanticLint: false,
+            MaxRows: (rowCeiling ?? ExecutionRowCeiling) + 1)
+        {
+            InMemoryJoin = true
+        };
     }
 }

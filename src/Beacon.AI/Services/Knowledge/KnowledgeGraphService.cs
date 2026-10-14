@@ -1,25 +1,38 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Embeddings;
+using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 namespace Beacon.AI.Services.Knowledge;
 
 internal sealed class KnowledgeGraphService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IBeaconEmbeddingService embeddingService,
     ISchemaGraphService schemaGraphService,
     IValueGroundingService valueGroundingService,
-    ILogger<KnowledgeGraphService> logger) : IKnowledgeGraphService
+    IConfiguredDatabaseResolver configuredDatabases,
+    IQueryGuardrailService guardrail,
+    ILogger<KnowledgeGraphService> logger,
+    WithheldGroundingLog? withheldLog = null) : IKnowledgeGraphService
 {
+    // Grounding a prompt leaves out is logged once per row and interval (the singleton in the host; per instance in tests).
+    private readonly WithheldGroundingLog _withheld = withheldLog ?? new WithheldGroundingLog();
+
     // Detailed-table budget for the smart-retrieval path. Kept as a named constant because the coverage
     // block reports against it — a silently different cap and reported cap would misdescribe the context.
     private const int MaxDetailedTables = 20;
@@ -48,14 +61,19 @@ internal sealed class KnowledgeGraphService(
     // Golden eval cases are data-source-scoped (like Exemplar/metadata), so retrieval passes a dataSourceId
     // (not a projectId) to the shared nearest-neighbour helpers.
     private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
-    public async Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
+
+    public Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
+    {
+        return BuildTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
+    }
+
+    // Only through the caller's project: a data source it does not link is not found. Documentation and code references
+    // belong to a project: they come from projectId alone, never from another project that links the same data source.
+    private async Task<TableKnowledge> BuildTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        var dataSource = await context.DataSources
-            .Where(ds => ds.Id == dataSourceId)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
 
         // Get schema metadata
         var metadata = await context.DatabaseMetadata
@@ -64,19 +82,24 @@ internal sealed class KnowledgeGraphService(
             .Where(m => m.DataSourceId == dataSourceId && m.SchemaName == schemaName && m.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        // Get documentation from project documentation (DataModel section)
+        // Get documentation from the project's documentation (DataModel section)
         var docContent = await context.ProjectDocumentationSections
-            .Where(s => s.Documentation.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId)
-                && s.SectionType == ProjectDocSectionType.DataModel)
-            .OrderByDescending(s => s.Documentation.GeneratedAt)
-            .Select(s => s.Content)
+            .Where(x => x.Documentation.ProjectId == projectId)
+            .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
+            .OrderByDescending(x => x.Documentation.GeneratedAt)
+            .Select(x => x.Content)
             .FirstOrDefaultAsync(ct);
 
-        // Get code references (from GitHub scanner)
-        var codeRefs = await context.CodeReferences
-            .Where(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId))
-            .Where(r => r.TableName != null && r.TableName.ToLower() == tableName.ToLower())
+        // Get code references (from the project's repositories, GitHub scanner)
+        var codeReferences = await context.CodeReferences
+            .Where(x => x.GitHubRepository.ProjectId == projectId)
+            .Where(x => x.GitHubRepository.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.TableName != null)
+            .Where(x => x.TableName!.ToLower() == tableName.ToLower())
             .Take(50)
+            .Select(x =>
+                new CodeReferenceInfo(x.FilePath, x.LineNumber, x.ReferenceType, x.ClassName, x.MethodName, x.CodeSnippet))
             .ToListAsync(ct);
 
         // Get data quality score - property is Score, not OverallScore
@@ -148,9 +171,7 @@ internal sealed class KnowledgeGraphService(
             Relationships = relationships,
             Description = docContent != null ? ExtractTableDoc(docContent, tableName) : null,
             BusinessPurpose = metadata?.TableDescription,
-            CodeReferences = codeRefs.Select(r => new CodeReferenceInfo(
-                r.FilePath, r.LineNumber, r.ReferenceType, r.ClassName, r.MethodName, r.CodeSnippet
-            )).ToList(),
+            CodeReferences = codeReferences,
             // DataQualityScore property is Score, not OverallScore
             QualityScore = qualityScore?.Score,
             QualityTrend = qualityScore?.TrendDirection.ToString(),
@@ -159,70 +180,23 @@ internal sealed class KnowledgeGraphService(
         };
     }
 
-    public async Task<DataSourceKnowledge> GetDataSourceKnowledgeAsync(int dataSourceId, CancellationToken ct = default)
+    public Task<DataSourceKnowledge> GetDataSourceKnowledgeAsync(int dataSourceId, int projectId, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        var dataSource = await context.DataSources
-            .Where(ds => ds.Id == dataSourceId)
-            .FirstOrDefaultAsync(ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
-
-        // Aggregate server-side — materializing every metadata/quality row here made each
-        // `ask` pay for full-catalog loads per data source.
-        var schemaTableCounts = await context.DatabaseMetadata
-            .Where(x => x.DataSourceId == dataSourceId)
-            .GroupBy(x => x.SchemaName)
-            .Select(x => new { SchemaName = x.Key, TableCount = x.Count() })
-            .ToListAsync(ct);
-
-        var schemaQuality = await context.DataQualityScores
-            .Where(x => x.DataSourceId == dataSourceId)
-            .GroupBy(x => x.SchemaName)
-            .Select(x => new { SchemaName = x.Key, AverageScore = x.Average(y => (double?)y.Score), ScoreCount = x.Count() })
-            .ToListAsync(ct);
-
-        var codeRefCount = await context.CodeReferences
-            .CountAsync(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
-
-        var hasDoc = await context.ProjectDocumentations
-            .AnyAsync(d => d.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId), ct);
-
-        // DataQualityScore property is Score, not OverallScore
-        var schemas = schemaTableCounts
-            .Select(x => new SchemaOverview(
-                x.SchemaName,
-                x.TableCount,
-                schemaQuality
-                    .Where(y => y.SchemaName == x.SchemaName)
-                    .Select(y => y.AverageScore)
-                    .FirstOrDefault()
-            ))
-            .ToList();
-
-        var totalScoreCount = schemaQuality.Sum(x => x.ScoreCount);
-
-        return new DataSourceKnowledge
-        {
-            DataSourceId = dataSourceId,
-            Name = dataSource.Name,
-            DataSourceType = dataSource.DataSourceType,
-            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
-                ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
-                : dataSource.DatabaseEngineType?.ToString(),
-            TableCount = schemaTableCounts.Sum(x => x.TableCount),
-            OverallQualityScore = totalScoreCount != 0
-                ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
-                : null,
-            CodeReferenceCount = codeRefCount,
-            HasDocumentation = hasDoc,
-            Schemas = schemas
-        };
+        return DataSourceKnowledgeAsync(dataSourceId, projectId, ct);
     }
 
-    public async Task<List<SearchResult>> SearchAsync(string query, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default)
+    public async Task<List<SearchResult>> SearchAsync(string query, int projectId, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        // Only the data sources the caller's project links are searched (§1.12), on both arms: a named data source the
+        // project does not link yields nothing.
+        var projectSourceIds = ProjectSourceIds(context, projectId);
+        if (dataSourceId.HasValue && !await projectSourceIds.ContainsAsync(dataSourceId.Value, ct))
+        {
+            return [];
+        }
+
         var results = new List<SearchResult>();
         var queryLower = query.ToLower();
 
@@ -235,7 +209,8 @@ internal sealed class KnowledgeGraphService(
             terms = [queryLower];
 
         // Search tables by name or description — match ANY term.
-        var tablesQuery = context.DatabaseMetadata.AsQueryable();
+        var tablesQuery = context.DatabaseMetadata
+            .Where(m => projectSourceIds.Contains(m.DataSourceId));
         if (dataSourceId.HasValue)
             tablesQuery = tablesQuery.Where(m => m.DataSourceId == dataSourceId.Value);
 
@@ -265,7 +240,8 @@ internal sealed class KnowledgeGraphService(
         }
 
         // Search columns by name or description — match ANY term.
-        var columnsQuery = context.ColumnMetadata.AsQueryable();
+        var columnsQuery = context.ColumnMetadata
+            .Where(c => projectSourceIds.Contains(c.DatabaseMetadata.DataSourceId));
         if (dataSourceId.HasValue)
             columnsQuery = columnsQuery.Where(c => c.DatabaseMetadata.DataSourceId == dataSourceId.Value);
 
@@ -299,33 +275,6 @@ internal sealed class KnowledgeGraphService(
                 Relevance = col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase)
                     ? 0.9
                     : 0.6 + (overlap * 0.05)
-            });
-        }
-
-        // Search project documentation sections — match ANY term.
-        var docSections = await context.ProjectDocumentationSections
-            .Where(s => terms.Any(t => s.Content.ToLower().Contains(t)))
-            .Select(s => new
-            {
-                s.Id,
-                ProjectName = s.Documentation.Project.Name,
-                s.Title,
-                s.Content
-            })
-            .Take(maxResults / 2)
-            .ToListAsync(ct);
-
-        foreach (var docSection in docSections)
-        {
-            results.Add(new SearchResult
-            {
-                Type = "documentation",
-                DataSourceName = docSection.ProjectName,
-                SchemaName = string.Empty,
-                TableName = string.Empty,
-                Description = TruncateContent(docSection.Content, 200),
-                Relevance = 0.5,
-                DocIdentity = $"docsection:{docSection.Id}"
             });
         }
 
@@ -377,7 +326,7 @@ internal sealed class KnowledgeGraphService(
         catch (Exception ex)
         {
             // Fail closed onto the lexical arm — a vector-store/query hiccup must never fail a search.
-            logger.LogWarning(ex, "Dense retrieval arm failed for data source {DataSourceId}; falling back to lexical search.", dataSourceId);
+            logger.LogWarning("Dense retrieval arm failed for data source {DataSourceId}; falling back to lexical search ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return lexicalRanked.Take(maxResults).ToList();
         }
     }
@@ -634,14 +583,23 @@ internal sealed class KnowledgeGraphService(
 
     private readonly record struct EmbeddingHit(McpEmbeddingOwnerType OwnerType, int OwnerId);
 
-    public async Task<LineageInfo> GetLineageAsync(int dataSourceId, string schemaName, string tableName, CancellationToken ct = default)
+    public async Task<LineageInfo> GetLineageAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
-        // Get code references that touch this table
+        // Only through the caller's project: a data source it does not link is not found.
+        if (!await ProjectSourceIds(context, projectId).ContainsAsync(dataSourceId, ct))
+        {
+            throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        }
+
+        // Get code references that touch this table, from the project's repositories only (never another project's
+        // that links the same data source)
         var codeRefs = await context.CodeReferences
-            .Where(r => r.GitHubRepository.Project.DataSources.Any(ds => ds.DataSourceId == dataSourceId))
-            .Where(r => r.TableName != null && r.TableName.ToLower() == tableName.ToLower())
+            .Where(x => x.GitHubRepository.ProjectId == projectId)
+            .Where(x => x.GitHubRepository.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.TableName != null)
+            .Where(x => x.TableName!.ToLower() == tableName.ToLower())
             .ToListAsync(ct);
 
         var writtenBy = codeRefs
@@ -688,18 +646,18 @@ internal sealed class KnowledgeGraphService(
         };
     }
 
-    public async Task<string> GetContextForLlmAsync(int dataSourceId, string? schemaName = null, string? tableName = null, CancellationToken ct = default)
+    public async Task<string> GetContextForLlmAsync(int dataSourceId, int projectId, string? schemaName = null, string? tableName = null, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
         var sb = new StringBuilder();
 
         if (tableName != null && schemaName != null)
         {
-            var knowledge = await GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
+            // The table's columns and quality, with the caller's project's documentation only.
+            var knowledge = await BuildTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
 
             if (isApi)
             {
@@ -736,7 +694,8 @@ internal sealed class KnowledgeGraphService(
         }
         else
         {
-            var dsKnowledge = await GetDataSourceKnowledgeAsync(dataSourceId, ct);
+            // The LLM context shows neither code references nor documentation, so neither is read.
+            var dsKnowledge = await DataSourceKnowledgeAsync(dataSourceId, null, ct);
 
             if (isApi)
             {
@@ -832,6 +791,7 @@ internal sealed class KnowledgeGraphService(
 
         // Get all data source IDs for this project
         var dsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -894,7 +854,8 @@ internal sealed class KnowledgeGraphService(
                 TableName = string.Empty,
                 Description = TruncateContent(doc.Content, 200),
                 Relevance = 0.5,
-                DocIdentity = $"docsection:{doc.Id}"
+                DocIdentity = $"docsection:{doc.Id}",
+                SectionType = doc.SectionType
             });
         }
 
@@ -971,7 +932,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Semantic search arm failed for project {ProjectId}; returning keyword-only results.", projectId);
+            logger.LogWarning("Semantic search arm failed for project {ProjectId}; returning keyword-only results ({Failure}).", projectId, FailureCodes.Describe(ex));
             return keywordRanked;
         }
     }
@@ -1071,6 +1032,25 @@ internal sealed class KnowledgeGraphService(
 
         var chunksById = chunks.ToDictionary(x => x.Id);
 
+        // A chunk of generated documentation carries its section's type, which says whether its text can list values
+        // discovered in the data; an imported document's chunk has no section.
+        var sectionIds = chunks
+            .Select(x => x.SourceSectionId)
+            .Where(x => x != 0)
+            .Distinct()
+            .ToList();
+        var sectionTypes = sectionIds.Count == 0
+            ? new Dictionary<int, ProjectDocSectionType>()
+            : await context.ProjectDocumentationSections
+                .Where(x => sectionIds.Contains(x.Id))
+                .Select(x =>
+                    new
+                    {
+                        x.Id,
+                        x.SectionType
+                    })
+                .ToDictionaryAsync(x => x.Id, x => x.SectionType, ct);
+
         var results = new List<SearchResult>();
         foreach (var hit in hits)
         {
@@ -1109,7 +1089,8 @@ internal sealed class KnowledgeGraphService(
                 TableName = string.Empty,
                 Description = TruncateContent(chunk.ChunkText, 200),
                 Relevance = 0,
-                DocIdentity = $"docsection:{chunk.SourceSectionId}"
+                DocIdentity = $"docsection:{chunk.SourceSectionId}",
+                SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
             });
         }
 
@@ -1166,7 +1147,7 @@ internal sealed class KnowledgeGraphService(
             .OrderBy(x => x.Title)
             .ThenBy(x => x.Id)
             .Select(x =>
-                new DocSectionSearchRow(x.Id, x.Documentation.Project.Name, x.Title, x.Content))
+                new DocSectionSearchRow(x.Id, x.Documentation.Project.Name, x.Title, x.Content, x.SectionType))
             .Take(maxResults);
     }
 
@@ -1247,7 +1228,7 @@ internal sealed class KnowledgeGraphService(
                 sb.AppendLine($"Quality: {ds.OverallQualityScore:F0}%");
 
             // Get the full LLM context for this data source
-            var dsContext = await GetContextForLlmAsync(ds.DataSourceId, ct: ct);
+            var dsContext = await GetContextForLlmAsync(ds.DataSourceId, projectId, ct: ct);
             sb.AppendLine(dsContext);
             sb.AppendLine();
         }
@@ -1259,24 +1240,29 @@ internal sealed class KnowledgeGraphService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var dsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
 
         var results = new List<DataSourceKnowledge>();
         foreach (var dsId in dsIds)
-            results.Add(await GetDataSourceKnowledgeAsync(dsId, ct));
+            results.Add(await DataSourceKnowledgeAsync(dsId, projectId, ct));
 
         return results;
     }
 
-    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, CancellationToken ct = default)
+    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, bool liveValueProbes, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
+
+        // Grounding reads the data source under the strictest guardrails of the live projects that link it: value
+        // grounding and its probe budget, stored sample values, and the custom patterns of the grounding PII screen.
+        var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
+        var valueGroundingSettings = ValueGroundingSettings(mcpSettings, liveValueProbes);
 
         // Load all tables + columns in one query
         var allTables = await context.DatabaseMetadata
@@ -1295,11 +1281,17 @@ internal sealed class KnowledgeGraphService(
             })
             .ToListAsync(ct);
 
+        allTables = allTables
+            .Select(x => x with { Columns = WithStoredSamples(x.Columns, mcpSettings) })
+            .ToList();
+
+        // Whether a prompt built from this context, or from a table context of the same source, can carry sample values.
+        var samplesShown = allTables.Any(x => x.Columns.Any(y => y.SampleValuesJson != null));
+
         var totalColumns = allTables.Sum(t => t.Columns.Count);
         var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
         var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
-        var dialect = dataSource.DatabaseEngineType?.ToString();
-        var mcpSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+        var dialect = DataSourceSqlDialect.Of(dataSource);
 
         // Small schema fast path: send everything
         if (allTables.Count <= 40 && totalColumns <= 300)
@@ -1322,32 +1314,34 @@ internal sealed class KnowledgeGraphService(
             // Item 5: ask-time value grounding — real values found for literal-looking words in the
             // question, injected right before the golden exemplars so the model sees them alongside the
             // schema. Skipped for API sources (no SQL to probe) and gated by EnableValueGrounding.
+            var valueMatches = "";
             if (mcpSettings.EnableValueGrounding && !isApi)
             {
                 var valueGroundingTables = allTables
                     .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                     .ToList();
-                sb.Append(await BuildValueMatchesBlockAsync(dataSourceId, question, valueGroundingTables, mcpSettings, ct));
+                valueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
+                sb.Append(valueMatches);
             }
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
             // disabled, the embedder is off, or no golden case is near.
-            sb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, ct));
+            sb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct));
 
             // Inject learned patterns
             if (mcpSettings.EnableLearning)
             {
                 var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
                 var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, allTableNames, question,
-                    budgetChars: mcpSettings.LearningInjectionBudgetChars, ct: ct);
+                    maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
                 sb.Append(FormatLearnedPatternsForLlm(learnedPatterns));
             }
 
             // Tier-3 ⑪: append the business-glossary block after the learned patterns. Empty (nothing
             // injected) when the embedder is off, semantic retrieval is disabled, or no term is near —
             // behaviour-preserving relative to pre-glossary output.
-            sb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, ct));
+            sb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct));
 
             return new SmartSchemaContext
             {
@@ -1356,14 +1350,16 @@ internal sealed class KnowledgeGraphService(
                 TotalTableCount = allTables.Count,
                 DatabaseDialect = dialect,
                 HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
                 SchemaCatalog = catalog,
                 PrimaryKeyCatalog = primaryKeyCatalog,
-                JoinPaths = allPaths
+                JoinPaths = allPaths,
+                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches)
             };
         }
 
         // Smart path: search for relevant tables
-        var searchResults = await SearchAsync(question, dataSourceId, maxResults: 15, ct);
+        var searchResults = await SearchAsync(question, projectId, dataSourceId, maxResults: 15, ct);
 
         var matchedTableNames = searchResults
             .Where(r => r.Type is "table" or "column")
@@ -1410,31 +1406,33 @@ internal sealed class KnowledgeGraphService(
 
         // Item 5: ask-time value grounding, scoped to the detailed tables only (same set rendered with
         // full columns above) — same gating as the fast path.
+        var smartValueMatches = "";
         if (mcpSettings.EnableValueGrounding && !isApi)
         {
             var valueGroundingTables = allTables
                 .Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}"))
                 .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                 .ToList();
-            smartSb.Append(await BuildValueMatchesBlockAsync(dataSourceId, question, valueGroundingTables, mcpSettings, ct));
+            smartValueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
+            smartSb.Append(smartValueMatches);
         }
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
-        smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, ct));
+        smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct));
 
         // Inject learned patterns for relevant tables
         if (mcpSettings.EnableLearning)
         {
             var relevantTableNames = detailedTables.ToList();
             var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, relevantTableNames, question,
-                budgetChars: mcpSettings.LearningInjectionBudgetChars, ct: ct);
+                maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
             smartSb.Append(FormatLearnedPatternsForLlm(smartPatterns));
         }
 
         // Tier-3 ⑪: append the business-glossary block after the learned patterns (same behaviour-preserving
         // fallback as the fast path — empty string when nothing to inject).
-        smartSb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, ct));
+        smartSb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct));
 
         return new SmartSchemaContext
         {
@@ -1444,21 +1442,26 @@ internal sealed class KnowledgeGraphService(
             TotalTableCount = allTables.Count,
             DatabaseDialect = dialect,
             HostManagedKey = dataSource.HostManagedKey,
+            ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
             SchemaCatalog = catalog,
             PrimaryKeyCatalog = primaryKeyCatalog,
             Capped = expansion.Capped,
             OmittedTableCount = expansion.OmittedTableCount,
-            JoinPaths = expansion.JoinPaths
+            JoinPaths = expansion.JoinPaths,
+            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches)
         };
     }
 
-    public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, CancellationToken ct = default)
+    public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, int projectId, CancellationToken ct = default)
     {
         // Same catalog GetSmartContextForAskAsync computes (shared BuildSchemaCatalog), but loading
         // only table/column names — none of the LLM-context assembly (search, join paths, exemplars).
+        // Empty when the caller's project does not link the data source (§1.12).
         await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var projectSourceIds = ProjectSourceIds(context, projectId);
         var tables = await context.DatabaseMetadata
             .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => projectSourceIds.Contains(x.DataSourceId))
             .Select(x =>
                 new
                 {
@@ -1529,9 +1532,29 @@ internal sealed class KnowledgeGraphService(
                     {
                         x.Id,
                         x.ChunkText,
-                        x.ContextualBlurb
+                        x.ContextualBlurb,
+                        x.SourceSectionId
                     })
                 .ToListAsync(ct);
+
+            // Each chunk of generated documentation carries its section's type, which says whether its text can list
+            // values discovered in the data; an imported document's chunk has no section.
+            var sectionIds = chunks
+                .Select(x => x.SourceSectionId)
+                .Where(x => x != 0)
+                .Distinct()
+                .ToList();
+            var sectionTypes = sectionIds.Count == 0
+                ? new Dictionary<int, ProjectDocSectionType>()
+                : await context.ProjectDocumentationSections
+                    .Where(x => sectionIds.Contains(x.Id))
+                    .Select(x =>
+                        new
+                        {
+                            x.Id,
+                            x.SectionType
+                        })
+                    .ToDictionaryAsync(x => x.Id, x => x.SectionType, ct);
 
             var chunksById = chunks.ToDictionary(x => x.Id);
 
@@ -1540,7 +1563,10 @@ internal sealed class KnowledgeGraphService(
             {
                 if (chunksById.TryGetValue(hit.OwnerId, out var chunk))
                 {
-                    results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb));
+                    results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb)
+                    {
+                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
+                    });
                 }
             }
 
@@ -1552,7 +1578,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Dense doc-chunk retrieval failed for project {ProjectId}; falling back to char-truncated documentation.", projectId);
+            logger.LogWarning("Dense doc-chunk retrieval failed for project {ProjectId}; falling back to char-truncated documentation ({Failure}).", projectId, FailureCodes.Describe(ex));
             return [];
         }
     }
@@ -1566,11 +1592,11 @@ internal sealed class KnowledgeGraphService(
     /// can be unit-tested directly.
     /// </summary>
     internal async Task<string> BuildValueMatchesBlockAsync(
-        int dataSourceId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
+        int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
     {
         try
         {
-            return await valueGroundingService.BuildValueMatchesBlockAsync(dataSourceId, question, tables, settings, ct);
+            return await valueGroundingService.BuildValueMatchesBlockAsync(dataSourceId, projectId, question, tables, settings, ct);
         }
         catch (OperationCanceledException)
         {
@@ -1578,7 +1604,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Value grounding failed for data source {DataSourceId}; injecting no value-matches block.", dataSourceId);
+            logger.LogWarning("Value grounding failed for data source {DataSourceId}; injecting no value-matches block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -1607,7 +1633,16 @@ internal sealed class KnowledgeGraphService(
     /// or no active term is near. Internal so it can be unit-tested directly without standing up the full
     /// <see cref="GetSmartContextForAskAsync"/> schema path.
     /// </summary>
-    internal async Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, CancellationToken ct)
+    internal Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, CancellationToken ct)
+    {
+        return BuildGlossaryBlockAsync(projectId, question, settings, dialect: null, ct);
+    }
+
+    // A term's metric expression is SQL the model copies into its answer: it is rendered without its comments, read in the
+    // dialect of the data source being asked (<paramref name="dialect"/>; without one, an expression holding a comment marker
+    // is left out). An expression that cannot be shown that way is left out — the term keeps its definition — and logged by
+    // term id, once per interval.
+    internal async Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
     {
         if (!embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
@@ -1664,6 +1699,7 @@ internal sealed class KnowledgeGraphService(
             var termsById = terms.ToDictionary(x => x.Id);
 
             var sb = new StringBuilder();
+            var leftOut = new List<int>();
             foreach (var hit in hits)
             {
                 if (!termsById.TryGetValue(hit.OwnerId, out var term))
@@ -1676,14 +1712,32 @@ internal sealed class KnowledgeGraphService(
                     sb.AppendLine("\n## Business Glossary\n");
                 }
 
+                var metricExpression = string.IsNullOrWhiteSpace(term.MetricExpression)
+                    ? null
+                    : GroundingSqlText.WithoutComments(term.MetricExpression, dialect);
+                if (!string.IsNullOrWhiteSpace(term.MetricExpression) && string.IsNullOrEmpty(metricExpression))
+                {
+                    leftOut.Add(term.Id);
+                }
+
                 sb.Append($"- **{term.Term}**: {term.Definition}");
-                var target = FormatGlossaryTarget(term);
+                var target = FormatGlossaryTarget(term, metricExpression);
                 if (target != null)
                 {
                     sb.Append($" (→ {target})");
                 }
 
                 sb.AppendLine();
+            }
+
+            var withheldTerms = DueToLog("glossary-metric", leftOut);
+            if (withheldTerms.Count > 0)
+            {
+                logger.LogWarning(
+                    "{Count} glossary metric expression(s) of project {ProjectId} were left out of the prompt: they hold a comment that cannot be removed or characters that do not show (terms {TermIds})",
+                    withheldTerms.Count,
+                    projectId,
+                    string.Join(",", withheldTerms));
             }
 
             return sb.ToString();
@@ -1694,7 +1748,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Glossary retrieval failed for project {ProjectId}; injecting no glossary block.", projectId);
+            logger.LogWarning("Glossary retrieval failed for project {ProjectId}; injecting no glossary block ({Failure}).", projectId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -1709,9 +1763,13 @@ internal sealed class KnowledgeGraphService(
     /// cases key their EMBEDDINGS on dataSourceId, but <see cref="McpEvalCase"/> carries a ProjectId and the
     /// caller's AUTHORIZED <paramref name="projectId"/> is a hard filter on the loaded cases — a data source
     /// shared by several projects must never leak one project's gold SQL into another's ask (codex PR-11 R4
-    /// fix). Internal for unit tests.
+    /// fix). Gold SQL is rendered without its comments, read in the data source's <paramref name="dialect"/>
+    /// (<see cref="GroundingSqlText"/>), so cases stored before Beacon checked grounding SQL show none either; the question
+    /// is rendered on one line (<see cref="GroundingText.Question"/>), so it cannot leave its <c>-- Q:</c> comment line. A
+    /// case whose SQL or question cannot be shown that way is left out, and logged by id once per interval. Internal for
+    /// unit tests.
     /// </summary>
-    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, CancellationToken ct)
+    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
     {
         if (!settings.EnableGoldenExemplars || !embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
@@ -1764,6 +1822,7 @@ internal sealed class KnowledgeGraphService(
             var budget = Math.Max(0, settings.GoldenExemplarBudgetChars);
 
             var sb = new StringBuilder();
+            var leftOut = new List<int>();
             foreach (var hit in hits)
             {
                 if (!casesById.TryGetValue(hit.OwnerId, out var golden))
@@ -1771,7 +1830,15 @@ internal sealed class KnowledgeGraphService(
                     continue;
                 }
 
-                var entry = $"-- Q: {golden.Question}\n{golden.GoldSql}\n\n";
+                var goldSql = GroundingSqlText.WithoutComments(golden.GoldSql, dialect);
+                var goldQuestion = GroundingText.Question(golden.Question);
+                if (string.IsNullOrEmpty(goldSql) || goldQuestion == null)
+                {
+                    leftOut.Add(golden.Id);
+                    continue;
+                }
+
+                var entry = $"-- Q: {goldQuestion}\n{goldSql}\n\n";
 
                 // Budget guard: stop before exceeding the char budget so a large gold SQL can't blow the
                 // context. The first fitting entry is always emitted (better one verified example than none),
@@ -1789,6 +1856,16 @@ internal sealed class KnowledgeGraphService(
                 sb.Append(entry);
             }
 
+            var withheldCases = DueToLog("golden-case", leftOut);
+            if (withheldCases.Count > 0)
+            {
+                logger.LogWarning(
+                    "{Count} golden case(s) of data source {DataSourceId} were left out of the prompt: their gold SQL holds a comment that cannot be removed, or their SQL or question holds characters that do not show (cases {CaseIds})",
+                    withheldCases.Count,
+                    dataSourceId,
+                    string.Join(",", withheldCases));
+            }
+
             return sb.ToString();
         }
         catch (OperationCanceledException)
@@ -1797,16 +1874,16 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block.", dataSourceId);
+            logger.LogWarning("Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return "";
         }
     }
 
-    public async Task<string> GetTablesContextAsync(int dataSourceId, IEnumerable<string> tableNames, CancellationToken ct = default)
+    public async Task<string> GetTablesContextAsync(int dataSourceId, int projectId, IEnumerable<string> tableNames, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, ct)
-            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
+        var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
 
         var isApi = dataSource.DataSourceType == DataSourceType.Api;
         var nameList = tableNames
@@ -1836,9 +1913,67 @@ internal sealed class KnowledgeGraphService(
         var sb = new StringBuilder();
         sb.AppendLine("# Table Schemas\n");
         foreach (var t in matched)
-            SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+            SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, WithStoredSamples(t.Columns, mcpSettings), isApi);
 
         return sb.ToString();
+    }
+
+    // A caller without Query in the project gets the stored sample values only: live probes would let it read column
+    // contents it may not query (no probe budget means none run).
+    private static McpSettingsData ValueGroundingSettings(McpSettingsData settings, bool liveValueProbes)
+    {
+        if (liveValueProbes)
+        {
+            return settings;
+        }
+
+        var sampleOnly = settings.Clone();
+        sampleOnly.ValueGroundingMaxProbes = 0;
+
+        return sampleOnly;
+    }
+
+    // The row-derived data an ask context carries, for the egress log (LlmRowDataEgress).
+    private static List<string> RowDataCategoriesOf(bool samplesShown, string valueMatches)
+    {
+        var categories = new List<string>();
+        if (samplesShown)
+        {
+            categories.Add(LlmRowDataCategories.SampleValues);
+        }
+
+        if (!string.IsNullOrEmpty(valueMatches))
+        {
+            categories.Add(LlmRowDataCategories.ValueMatches);
+        }
+
+        return categories;
+    }
+
+    // Stored sample values are served only while sample-value collection is on for every live project that links the
+    // data source, and only those that pass the PII screen of those projects as it is now (StoredSampleScreen): samples
+    // stored before a stricter project linked the source, or before its patterns changed, are screened again here.
+    private List<SchemaColumn> WithStoredSamples(List<SchemaColumn> columns, McpSettingsData settings)
+    {
+        return columns
+            .Select(x => WithStoredSamples(x, settings))
+            .ToList();
+    }
+
+    private SchemaColumn WithStoredSamples(SchemaColumn column, McpSettingsData settings)
+    {
+        var stored = SchemaContextFormatter.DeserializeSampleValues(column.SampleValuesJson);
+        var shown = StoredSampleScreen.Screen(guardrail, column.ColumnName, stored, settings);
+        if (shown?.Count == stored?.Count)
+        {
+            return column;
+        }
+
+        return column with
+        {
+            SampleValuesJson = shown == null ? null : JsonSerializer.Serialize(shown),
+            SampleValuesComplete = false
+        };
     }
 
     private static string? TruncateContent(string? content, int maxLength)
@@ -1935,9 +2070,28 @@ internal sealed class KnowledgeGraphService(
         return count;
     }
 
-    public async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
+    // Example SQL is rendered in the data source's own dialect, read from dataSourceId when an example holds a comment marker.
+    public Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
         int dataSourceId, int projectId, List<string> tableNames, string? question = null,
         int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default)
+    {
+        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, DialectOfAsync, ct);
+    }
+
+    internal Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
+        int dataSourceId, int projectId, List<string> tableNames, string? question,
+        int maxPatterns, int budgetChars, string? dialect, CancellationToken ct)
+    {
+        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, (_, _, _) => Task.FromResult(dialect), ct);
+    }
+
+    // Example SQL comes back as a prompt shows it: without its comments, read in the data source's dialect
+    // (GroundingSqlText), so patterns stored before Beacon checked grounding SQL show none either; example questions come
+    // back on one line. An example SQL or question that cannot be shown that way is left out (the pattern stays), and
+    // logged by pattern id once per interval.
+    private async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
+        int dataSourceId, int projectId, List<string> tableNames, string? question,
+        int maxPatterns, int budgetChars, Func<BeaconContext, int, CancellationToken, Task<string?>> dialectOf, CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -1974,6 +2128,7 @@ internal sealed class KnowledgeGraphService(
                     Confidence = x.Confidence
                 })
             .ToListAsync(ct);
+        patterns = await AsPromptShowsAsync(context, patterns, dataSourceId, dialectOf, ct);
 
         var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
 
@@ -2003,7 +2158,7 @@ internal sealed class KnowledgeGraphService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Semantic exemplar selection failed for data source {DataSourceId}; falling back to table-overlap pattern ranking.", dataSourceId);
+                logger.LogWarning("Semantic exemplar selection failed for data source {DataSourceId}; falling back to table-overlap pattern ranking ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             }
         }
 
@@ -2139,6 +2294,73 @@ internal sealed class KnowledgeGraphService(
         return result;
     }
 
+    // The bank with each example as the prompt shows it: SQL without comments (the dialect read only when an example holds a
+    // comment marker), the question on one line. An example that cannot be shown that way is left out (the lesson keeps its
+    // content) and logged by pattern id only (§1.11), once per interval.
+    private async Task<List<PatternCandidate>> AsPromptShowsAsync(
+        BeaconContext context,
+        List<PatternCandidate> patterns,
+        int dataSourceId,
+        Func<BeaconContext, int, CancellationToken, Task<string?>> dialectOf,
+        CancellationToken ct)
+    {
+        var needsDialect = patterns.Any(x => GroundingDialects.NeedsDialect(x.ExampleSql));
+        var dialect = needsDialect ? await dialectOf(context, dataSourceId, ct) : null;
+
+        var leftOut = new List<int>();
+        var rendered = new List<PatternCandidate>(patterns.Count);
+        foreach (var pattern in patterns)
+        {
+            var exampleSql = string.IsNullOrWhiteSpace(pattern.ExampleSql) ? null : GroundingSqlText.WithoutComments(pattern.ExampleSql, dialect);
+            var exampleQuestion = GroundingText.Question(pattern.ExampleQuestion);
+            if ((!string.IsNullOrWhiteSpace(pattern.ExampleSql) && string.IsNullOrEmpty(exampleSql))
+                || (!string.IsNullOrWhiteSpace(pattern.ExampleQuestion) && exampleQuestion == null))
+            {
+                leftOut.Add(pattern.Id);
+            }
+
+            rendered.Add(pattern with
+            {
+                ExampleSql = string.IsNullOrEmpty(exampleSql) ? null : exampleSql,
+                ExampleQuestion = exampleQuestion
+            });
+        }
+
+        var withheldPatterns = DueToLog("pattern-example", leftOut);
+        if (withheldPatterns.Count > 0)
+        {
+            logger.LogWarning(
+                "{Count} learned-pattern example(s) of data source {DataSourceId} were left out of the prompt: the SQL holds a comment that cannot be removed, or the SQL or question holds characters that do not show (patterns {PatternIds})",
+                withheldPatterns.Count,
+                dataSourceId,
+                string.Join(",", withheldPatterns));
+        }
+
+        return rendered;
+    }
+
+    private static async Task<string?> DialectOfAsync(BeaconContext context, int dataSourceId, CancellationToken ct)
+    {
+        var source = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Select(x =>
+                new
+                {
+                    x.DataSourceType,
+                    x.DatabaseEngineType
+                })
+            .FirstOrDefaultAsync(ct);
+
+        return source == null ? null : DataSourceSqlDialect.Of(source.DataSourceType, source.DatabaseEngineType);
+    }
+
+    // The rows a prompt left out that are due to be logged — identifiers only (§1.11), each once per
+    // WithheldGroundingLog.Interval.
+    private IReadOnlyList<int> DueToLog(string kind, List<int> leftOut)
+    {
+        return leftOut.Count == 0 ? [] : _withheld.NotLoggedRecently(kind, leftOut);
+    }
+
     // Materialized pattern-bank row shared by the semantic and overlap ranking paths.
     private sealed record PatternCandidate
     {
@@ -2232,8 +2454,8 @@ internal sealed class KnowledgeGraphService(
     }
 
     // Renders a glossary term's target: the qualified column path (schema.table.column, only the parts that
-    // are set) and/or the raw metric expression. Null when the term carries neither.
-    private static string? FormatGlossaryTarget(GlossaryHit term)
+    // are set) and/or the metric expression as rendered (without comments). Null when the term carries neither.
+    private static string? FormatGlossaryTarget(GlossaryHit term, string? metricExpression)
     {
         var parts = new List<string>();
 
@@ -2245,9 +2467,9 @@ internal sealed class KnowledgeGraphService(
             parts.Add(string.Join(".", column));
         }
 
-        if (!string.IsNullOrWhiteSpace(term.MetricExpression))
+        if (!string.IsNullOrWhiteSpace(metricExpression))
         {
-            parts.Add($"`{term.MetricExpression}`");
+            parts.Add($"`{metricExpression}`");
         }
 
         return parts.Count == 0 ? null : string.Join("; ", parts);
@@ -2316,7 +2538,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Schema graph join-path rendering failed for data source {DataSourceId}; context sent without join paths.", dataSourceId);
+            logger.LogWarning("Schema graph join-path rendering failed for data source {DataSourceId}; context sent without join paths ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return [];
         }
     }
@@ -2351,7 +2573,7 @@ internal sealed class KnowledgeGraphService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Schema graph expansion failed for data source {DataSourceId}; falling back to foreign-key expansion.", dataSourceId);
+            logger.LogWarning("Schema graph expansion failed for data source {DataSourceId}; falling back to foreign-key expansion ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
         }
 
         return ExpandByForeignKeyHop(matchedTableNames, allTables);
@@ -2427,6 +2649,101 @@ internal sealed class KnowledgeGraphService(
 
         return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
     }
+
+    // The data sources projectId links. Grounding reads a data source only through the caller's authorized project
+    // (§1.12): a source the project does not link is never searched and is reported as not found.
+    private static IQueryable<int> ProjectSourceIds(BeaconContext context, int projectId)
+    {
+        return context.ProjectDataSources
+            .WhereReadable()
+            .Where(x => x.ProjectId == projectId)
+            .Select(x => x.DataSourceId);
+    }
+
+    private static async Task<DataSource> LinkedDataSourceAsync(
+        BeaconContext context, int dataSourceId, int projectId, CancellationToken ct)
+    {
+        var projectSourceIds = ProjectSourceIds(context, projectId);
+
+        return await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Where(x => projectSourceIds.Contains(x.Id))
+            .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+    }
+
+    // A data source's overview; code references and documentation of projectId only (none read without one). With a
+    // project, only through it: a data source it does not link is not found. Without one, the caller has already checked
+    // the link (the LLM context).
+    private async Task<DataSourceKnowledge> DataSourceKnowledgeAsync(int dataSourceId, int? projectId, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var dataSource = projectId == null
+            ? await context.DataSources
+                .Where(x => x.Id == dataSourceId)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found")
+            : await LinkedDataSourceAsync(context, dataSourceId, projectId.Value, ct);
+
+        // Aggregate server-side — materializing every metadata/quality row here made each
+        // `ask` pay for full-catalog loads per data source.
+        var schemaTableCounts = await context.DatabaseMetadata
+            .Where(x => x.DataSourceId == dataSourceId)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, TableCount = x.Count() })
+            .ToListAsync(ct);
+
+        var schemaQuality = await context.DataQualityScores
+            .Where(x => x.DataSourceId == dataSourceId)
+            .GroupBy(x => x.SchemaName)
+            .Select(x => new { SchemaName = x.Key, AverageScore = x.Average(y => (double?)y.Score), ScoreCount = x.Count() })
+            .ToListAsync(ct);
+
+        // Code references and documentation belong to a project: only the caller's project counts. Without one (the LLM
+        // context, which shows neither) they are not read.
+        var codeRefCount = projectId == null
+            ? 0
+            : await context.CodeReferences
+                .Where(x => x.GitHubRepository.ProjectId == projectId)
+                .CountAsync(ct);
+
+        var hasDoc = projectId != null
+            && await context.ProjectDocumentations
+                .Where(x => x.ProjectId == projectId)
+                .AnyAsync(ct);
+
+        // DataQualityScore property is Score, not OverallScore
+        var schemas = schemaTableCounts
+            .Select(x => new SchemaOverview(
+                x.SchemaName,
+                x.TableCount,
+                schemaQuality
+                    .Where(y => y.SchemaName == x.SchemaName)
+                    .Select(y => y.AverageScore)
+                    .FirstOrDefault()
+            ))
+            .ToList();
+
+        var totalScoreCount = schemaQuality.Sum(x => x.ScoreCount);
+
+        return new DataSourceKnowledge
+        {
+            DataSourceId = dataSourceId,
+            Name = dataSource.Name,
+            DataSourceType = dataSource.DataSourceType,
+            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
+                ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
+                : dataSource.DatabaseEngineType?.ToString(),
+            TableCount = schemaTableCounts.Sum(x => x.TableCount),
+            OverallQualityScore = totalScoreCount != 0
+                ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
+                : null,
+            CodeReferenceCount = codeRefCount,
+            HasDocumentation = hasDoc,
+            Schemas = schemas
+        };
+    }
 }
 
 // Row shapes of the SearchProjectAsync sub-queries (see the Build*Query methods above).
@@ -2434,6 +2751,6 @@ internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, s
 
 internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description);
 
-internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content);
+internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content, ProjectDocSectionType SectionType);
 
 internal sealed record ImportedDocSearchRow(int Id, string ProjectName, string Path, string Title, string? MatchingChunk);

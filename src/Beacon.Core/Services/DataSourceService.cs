@@ -5,13 +5,18 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Services;
@@ -31,8 +36,6 @@ public interface IDataSourceService
     Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
 
     Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken);
-
-    Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken);
 }
 
 internal class DataSourceService(
@@ -41,7 +44,11 @@ internal class DataSourceService(
     IDataSourceProviderFactory providerFactory,
     IManualQueryExecutionLogger queryExecutionLogger,
     IBeaconUserContext userContext,
-    ILogger<DataSourceService> logger) : IDataSourceService
+    IMemoryCache cache,
+    ISchemaGraphService schemaGraphService,
+    GatedSqlRunner sqlRunner,
+    ILogger<DataSourceService> logger,
+    ISharedSourceSettings? sharedSourceSettings = null) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
@@ -59,10 +66,18 @@ internal class DataSourceService(
             MetadataLoadTableNamesOnly = dataSourceData.MetadataLoadTableNamesOnly,
             MetadataExcludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null,
             MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null,
+            // Admin-only until a project links it: only sources that existed before project access stay open unlinked.
+            OpenWhenUnlinked = false
         };
 
         context.DataSources.Add(dataSource);
+        foreach (var projectId in dataSourceData.ProjectIds.Distinct())
+        {
+            context.ProjectDataSources.Add(new ProjectDataSource { ProjectId = projectId, DataSource = dataSource, LinkedByUserId = dataSourceData.LinkedByUserId });
+        }
+
         await context.SaveChangesAsync(cancellationToken);
+        DataSourceReadOnlyEnforcement.WarnIfNotEnforced(logger, providerFactory, dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType);
 
         // For API data sources, import endpoint metadata from OpenAPI spec
         if (dataSourceData.DataSourceType == DataSourceType.Api)
@@ -177,8 +192,14 @@ internal class DataSourceService(
             throw new BeaconException($"Unable to archive data source. The following migration jobs must be archived first: {migrationJobNames}");
         }
 
+        // The column values sampled from the source go with it, archived tables' columns included: an archived source is
+        // never read again, so nothing keeps a copy of its rows.
+        await DatabaseMetadataService.ClearStoredSampleValuesAsync(context, dataSourceId, cancellationToken);
+
         dataSource.Archive();
         await context.SaveChangesAsync(cancellationToken);
+
+        EvictMetadata(dataSourceId);
     }
 
     public async Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken)
@@ -256,6 +277,10 @@ internal class DataSourceService(
         dataSource.MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
 
         await context.SaveChangesAsync(cancellationToken);
+        DataSourceReadOnlyEnforcement.WarnIfNotEnforced(logger, providerFactory, dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType);
+
+        // The connection or the metadata options may have changed: the cached metadata described the old ones.
+        EvictMetadata(dataSource.Id);
     }
 
     public async Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken)
@@ -271,42 +296,53 @@ internal class DataSourceService(
 
         try
         {
-            // Add LIMIT/TOP clause to query if not already present (prevents fetching millions of rows)
-            var limitedQuery = query;
-            if (dataSource.DataSourceType == DataSourceType.Database && dataSource.DatabaseEngineType.HasValue)
-            {
-                limitedQuery = QueryLimitHelper.AddLimitIfMissing(
-                    query,
-                    dataSource.DatabaseEngineType.Value,
-                    Constants.Query.MaxUiDisplayRows);
-
-                if (limitedQuery != query)
-                {
-                    logger.LogInformation(
-                        "Added automatic LIMIT clause to ad-hoc query for data source {DataSourceId} (engine: {Engine})",
-                        dataSourceId, dataSource.DatabaseEngineType.Value);
-                }
-            }
-
-            // Use provider factory to execute query for any data source type
-            var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-
             logger.LogInformation("Executing ad-hoc query on data source {DataSourceId} ({DataSourceType})",
                 dataSourceId, dataSource.DataSourceType);
 
-            var result = await provider.ExecuteQueryAsync(
-                dataSource,
-                limitedQuery,  // Use limited query
-                new Dictionary<string, object?>(),
-                cancellationToken);
+            // SQL goes through the execution gate and the read-only provider path, capped one row past the display limit in
+            // the SQL itself (§1.5), so a result larger than the display is reported as cut short; a source without SQL (an
+            // API or log source) takes its own query language to its provider.
+            var limitedQuery = query;
+            ProviderQueryResult result;
+            if (DataSourceSqlDialect.Of(dataSource) != null)
+            {
+                var run = await sqlRunner.RunAsync(
+                    new GatedSqlRequest(dataSource, query, new Dictionary<string, object?>(), Constants.Query.MaxUiDisplayRows + 1),
+                    cancellationToken);
+                limitedQuery = run.Report.FinalSql;
+                result = run.TimedOut
+                    ? new ProviderQueryResult { Success = false, ErrorMessage = "The query timed out.", ExecutionTimeMs = run.ExecutionTimeMs }
+                    : new ProviderQueryResult { Success = true, Rows = run.Rows, TotalRows = run.Rows.Count, ExecutionTimeMs = run.ExecutionTimeMs };
+            }
+            else
+            {
+                var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+                result = await provider.ExecuteQueryAsync(
+                    dataSource,
+                    query,
+                    new Dictionary<string, object?>(),
+                    cancellationToken);
+
+                if (!result.Success && result.ErrorMessage != null)
+                {
+                    // The source's error can quote row values: redacted while its effective PII detection is on (a gated
+                    // SQL failure arrives redacted by the runner already).
+                    var detectPii = sharedSourceSettings == null
+                        || (await sharedSourceSettings.GetDataSourceSettingsAsync(dataSourceId, cancellationToken)).EnablePiiDetection;
+                    result.ErrorMessage = DatabaseErrorRedactor.ForCaller(result.ErrorMessage, query, detectPii, logger);
+                }
+            }
 
             if (!result.Success)
             {
-                logger.LogWarning("Ad-hoc query failed for data source {DataSourceId}: {ErrorMessage}",
-                    dataSourceId, result.ErrorMessage);
+                // The class of the error only, never its text (§1.11).
+                logger.LogWarning(
+                    "Ad-hoc query failed for data source {DataSourceId} ({ErrorClass})",
+                    dataSourceId,
+                    DatabaseErrorRedactor.ClassOnly(result.ErrorMessage ?? "", logger));
             }
 
-            // Additional in-memory safety check (should not be needed if LIMIT worked)
+            // The display limit; a row past it says the result was larger than what is shown.
             var displayRows = result.Rows.Take(Constants.Query.MaxUiDisplayRows).ToList();
             var totalRows = result.TotalRows;
 
@@ -318,7 +354,7 @@ internal class DataSourceService(
                 success: result.Success,
                 dataSourceId: dataSourceId,
                 executionContext: "DataSourceEditor",
-                errorMessage: result.ErrorMessage,
+                errorMessage: StoredError(result.ErrorMessage, limitedQuery),
                 userId: userContext.UserId,
                 cancellationToken: cancellationToken);
 
@@ -327,18 +363,24 @@ internal class DataSourceService(
                 Success = result.Success,
                 Columns = result.Success ? ExtractColumns(displayRows) : new List<string>(),
                 Rows = displayRows,
-                RowCount = totalRows,
+                RowCount = displayRows.Count,
+                Truncated = result.Rows.Count > displayRows.Count,
                 ExecutionTime = TimeSpan.FromMilliseconds(result.ExecutionTimeMs),
                 Error = result.ErrorMessage
             };
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Exception executing ad-hoc query on data source {DataSourceId}", dataSourceId);
+            // The failure's type, code, inner types and throwing method — never its message, which can quote row values
+            // (§1.11). A refusal Beacon raised itself (the execution gate) keeps its message.
+            logger.LogError(
+                "Exception executing ad-hoc query on data source {DataSourceId}: {Failure}",
+                dataSourceId,
+                FailureCodes.Describe(ex));
 
             var executionTimeMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
-            // Log failed query execution
+            // Log failed query execution: the stored history holds a database error redacted, a refusal Beacon raised as it is.
             await queryExecutionLogger.LogQueryExecutionAsync(
                 queryText: query,
                 resultCount: 0,
@@ -346,7 +388,7 @@ internal class DataSourceService(
                 success: false,
                 dataSourceId: dataSourceId,
                 executionContext: "DataSourceEditor",
-                errorMessage: ex.Message,
+                errorMessage: ex is InvalidOperationException or BeaconException ? ex.Message : StoredError(ex.Message, query),
                 userId: userContext.UserId,
                 cancellationToken: cancellationToken);
 
@@ -360,6 +402,12 @@ internal class DataSourceService(
                 RowCount = 0
             };
         }
+    }
+
+    // The ad-hoc history keeps a database error redacted whatever the PII setting: it is stored and read back later.
+    private string? StoredError(string? error, string query)
+    {
+        return error == null ? null : DatabaseErrorRedactor.ForCaller(error, query, redact: true, logger);
     }
 
     private List<string> ExtractColumns(List<Dictionary<string, object?>> rows)
@@ -446,16 +494,13 @@ internal class DataSourceService(
         return (columns, rows);
     }
 
-    public async Task<string> GetDecryptedConnectionData(int dataSourceId, CancellationToken cancellationToken)
+    // Cached metadata and the relationship graph are rebuilt on their next read; an archived source's reads are refused.
+    // A changed source may be refreshed at once: its forced-refresh cooldown starts over.
+    private void EvictMetadata(int dataSourceId)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var dataSource = await context.DataSources
-            .Where(x => x.Id == dataSourceId)
-            .SingleOrDefaultAsync(cancellationToken)
-            ?? throw new BeaconException($"Data source with ID {dataSourceId} not found");
-
-        return encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+        cache.Remove(DatabaseMetadataService.GetCacheKey(dataSourceId));
+        cache.Remove(ForcedMetadataRefreshCooldown.CacheKey(dataSourceId));
+        schemaGraphService.Invalidate(dataSourceId);
     }
 
     // Host-managed data sources belong to the host application (ExposeDbContext): their connection, engine and

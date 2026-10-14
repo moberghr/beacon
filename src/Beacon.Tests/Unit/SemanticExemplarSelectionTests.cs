@@ -14,6 +14,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -316,12 +317,15 @@ public class SemanticExemplarSelectionTests
         return new KnowledgeGraphService(
             factory.Object,
             settings.Object,
+            SettingsProviderMock.Unshared(settings.Object),
             embedder,
             Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
             Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
                 == Task.FromResult("")),
+            TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

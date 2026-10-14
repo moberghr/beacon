@@ -1,14 +1,22 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Tasks;
 
-internal sealed class GetTaskExecutionsHandler(ITaskService taskService)
+internal sealed class GetTaskExecutionsHandler(
+    ITaskService taskService,
+    IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetTaskExecutionsQuery, TaskExecutionsResult>
 {
     public async Task<TaskExecutionsResult> Handle(GetTaskExecutionsQuery request, CancellationToken cancellationToken)
     {
-        var executions = await taskService.GetTaskExecutionHistory(request.TaskId, cancellationToken);
+        // The executions are the stored runs the caller may read (StoredRunAccess).
+        var executions = await taskService.GetTaskExecutionHistory(
+            request.TaskId,
+            await StoredRunAccess.ScopeOfAsync(projectAccess, cancellationToken),
+            cancellationToken);
 
         var items = executions
             .Select(x =>
@@ -24,7 +32,13 @@ internal sealed class GetTaskExecutionsHandler(ITaskService taskService)
     }
 }
 
-public record GetTaskExecutionsQuery(int TaskId) : IRequest<TaskExecutionsResult>;
+public record GetTaskExecutionsQuery(int TaskId) : IRequest<TaskExecutionsResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Read)
+    ];
+}
 
 public record TaskExecutionsResult(int TaskId, IReadOnlyList<TaskExecutionItem> Executions);
 

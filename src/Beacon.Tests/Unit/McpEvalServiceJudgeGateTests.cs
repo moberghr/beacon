@@ -1,12 +1,15 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Eval;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -76,6 +79,28 @@ public class McpEvalServiceJudgeGateTests
         captured.Should().ContainSingle();
         captured[0].JudgeUsed.Should().BeTrue();
         captured[0].JudgeVerdict.Should().Be("EQUIVALENT");
+    }
+
+    // The judge's prompt carries (redacted) result rows: the request is logged with the result-rows category, for the user
+    // who started the run — never whom the job runs as, which is not looked up — or for the run job itself.
+    [TestCase(12, "12")]
+    [TestCase(null, "eval-run")]
+    public async Task RunAsync_TheJudgesRequest_IsLoggedForWhoStartedTheRun(int? triggeredBy, string callerId)
+    {
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = "EQUIVALENT" });
+        var log = new LogRecorder();
+        var actors = new Mock<IBeaconActorAccessor>(MockBehavior.Strict);
+        var (service, run, _) = BuildService(
+            llm, judgeEnabled: true, capturedResults: [], egress: new LlmRowDataEgress(actors.Object, log.For<LlmRowDataEgress>()));
+        run.TriggeredByUserId = triggeredBy;
+
+        await service.RunAsync(RunId, CancellationToken.None);
+
+        log.Entries.Should().ContainSingle()
+            .Which.Message.Should().Be($"An LLM request carrying result-rows read from data sources {DataSourceId} of project 1 was handed to the provider for caller {callerId}");
+        actors.Invocations.Should().BeEmpty();
     }
 
     [Test]
@@ -175,10 +200,43 @@ public class McpEvalServiceJudgeGateTests
         captured[0].GeneratedSql.Should().Be(fixedSql);
     }
 
+    [Test]
+    public async Task RunAsync_ARunWithoutAProject_IsRefused_BeforeAnyCaseRuns()
+    {
+        // Golden cases are project-scoped: a run without a project would evaluate every project's cases together.
+        var llm = new Mock<ILlmProvider>();
+        var captured = new List<McpEvalResult>();
+        var (service, run, provider) = BuildService(llm, judgeEnabled: true, capturedResults: captured);
+        run.ProjectId = null;
+
+        var act = () => service.RunAsync(RunId, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        run.Status.Should().Be("Failed");
+        run.Notes.Should().Be(McpEvalService.NoProjectNote);
+        captured.Should().BeEmpty();
+        provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        llm.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task StartRunAsync_WithoutAProject_IsRefusedBeforeARunIsCreated()
+    {
+        var llm = new Mock<ILlmProvider>();
+        var (service, _, _) = BuildService(llm, judgeEnabled: false, capturedResults: []);
+
+        var act = () => service.StartRunAsync(null, 3, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(McpEvalService.NoProjectNote);
+        llm.VerifyNoOtherCalls();
+    }
+
     private static (McpEvalService Service, McpEvalRun Run, Mock<IDataSourceProvider> Provider) BuildService(
         Mock<ILlmProvider> llm, bool judgeEnabled, List<McpEvalResult> capturedResults, string goldSql = "SELECT 1 AS n",
         Mock<ISqlGenerationService>? sqlGenOverride = null, (string Sql, string Error)? failingExecution = null,
-        bool retainQueryContent = true)
+        bool retainQueryContent = true, ILlmRowDataEgress? egress = null)
     {
         var run = new McpEvalRun { Id = RunId, ProjectId = 1, Status = "Running" };
         var evalCase = new McpEvalCase
@@ -212,11 +270,11 @@ public class McpEvalServiceJudgeGateTests
 
         var knowledge = new Mock<IKnowledgeGraphService>();
         knowledge
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
         // Only reached by the pipeline's execution-repair path (TEST-1); harmless default otherwise.
         knowledge
-            .Setup(x => x.GetTablesContextAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetTablesContextAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("");
 
         // Generation is mocked so the ONLY path that can reach ILlmProvider is the judge — unless the
@@ -293,6 +351,8 @@ public class McpEvalServiceJudgeGateTests
             knowledge.Object,
             sqlGen.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
 
         var service = new McpEvalService(
@@ -302,8 +362,10 @@ public class McpEvalServiceJudgeGateTests
             providerFactory.Object,
             guardrail.Object,
             TestSqlGate.Create(guardrail.Object),
+            TestConfiguredDatabases.None,
             settings.Object,
             llm.Object,
+            egress ?? TestRowDataEgress.Discarding(),
             NullLogger<McpEvalService>.Instance);
 
         return (service, run, provider);

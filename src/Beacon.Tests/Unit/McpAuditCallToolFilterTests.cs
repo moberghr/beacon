@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -237,7 +238,7 @@ public class McpAuditCallToolFilterTests
         using var provider = registration.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<McpServerOptions>>().Value;
 
-        options.Filters.Request.CallToolFilters.Should().ContainSingle("AddBeaconMcp registers exactly one call-tool filter");
+        options.Filters.Request.CallToolFilters.Should().HaveCount(4, "AddBeaconMcp registers the project-context filter, the scope filter, the audit filter and the undetermined-access filter");
 
         // Compose exactly as the SDK does (McpServerImpl.BuildFilterPipeline: last filter innermost).
         var pipeline = options.Handlers.CallToolHandler!;
@@ -246,8 +247,10 @@ public class McpAuditCallToolFilterTests
             pipeline = options.Filters.Request.CallToolFilters[i](pipeline);
         }
 
+        // A signed-in session: the scope filter lets it through to the handler.
+        var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Beacon.Auth"));
         var failed = Services(required: true, new McpAuditOutcome { Failed = true }, []);
-        var withheld = await pipeline(Request(failed), CancellationToken.None);
+        var withheld = await pipeline(Request(failed, session), CancellationToken.None);
 
         customRan.Should().BeTrue();
         withheld.IsError.Should().BeTrue();
@@ -255,7 +258,7 @@ public class McpAuditCallToolFilterTests
             .Which.Text.Should().Be(McpAuditCallToolFilter.WithheldMessage);
 
         var written = Services(required: true, new McpAuditOutcome { Written = true }, []);
-        var passed = await pipeline(Request(written), CancellationToken.None);
+        var passed = await pipeline(Request(written, session), CancellationToken.None);
 
         passed.Should().BeSameAs(ToolResult);
     }
@@ -273,10 +276,11 @@ public class McpAuditCallToolFilterTests
         return await handler(Request(services), CancellationToken.None);
     }
 
-    private static RequestContext<CallToolRequestParams> Request(IServiceProvider? services) =>
+    private static RequestContext<CallToolRequestParams> Request(IServiceProvider? services, ClaimsPrincipal? user = null) =>
         new(Mock.Of<McpServer>(), new JsonRpcRequest { Method = "tools/call" }, new CallToolRequestParams { Name = ToolName })
         {
-            Services = services
+            Services = services,
+            User = user
         };
 
     private static ServiceProvider Services(bool required, McpAuditOutcome outcome,

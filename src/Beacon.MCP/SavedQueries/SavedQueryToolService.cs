@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using Beacon.Core;
+using Beacon.Core.Authorization;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Services.Retention;
 using Beacon.MCP.Services;
@@ -13,9 +14,10 @@ using Beacon.MCP.Tools;
 namespace Beacon.MCP.SavedQueries;
 
 /// <summary>
-/// Lists and calls the saved-query tools for one MCP request. Visibility is the caller's authorized projects
-/// (<see cref="IProjectContext.AllowedProjectIds"/>; none → nothing, fail closed), hard-filtered in
-/// <see cref="ISavedQueryToolSource"/> (§1.12). Up to <see cref="SavedQueryToolOptions.NamedToolLimit"/> tools are
+/// Lists and calls the saved-query tools for one MCP request. Visibility is the caller's projects
+/// (<see cref="IProjectContext.AllowedProjectIds"/>; none → nothing, fail closed) where its project access
+/// (<see cref="IProjectAccessEvaluator"/>) lets it run saved SQL, hard-filtered in <see cref="ISavedQueryToolSource"/>
+/// (§1.12); the executor re-checks the project right before the SQL runs. Up to <see cref="SavedQueryToolOptions.NamedToolLimit"/> tools are
 /// listed as <c>q_&lt;name&gt;</c>; above it the caller gets <c>search_saved_queries</c> + <c>run_saved_query</c>.
 /// Every call is audited as <c>q_&lt;name&gt;</c> on success and failure (§1.7). Saved queries are pre-approved SQL, so
 /// they are audit-only: no learning signal is recorded (§9.5 keeps signals for the tools that carry caller SQL).
@@ -24,6 +26,7 @@ internal sealed class SavedQueryToolService(
     ISavedQueryToolSource source,
     ISavedQueryToolExecutor executor,
     IProjectContext projectContext,
+    IProjectAccessEvaluator projectAccess,
     McpAuditService auditService,
     ILogger<SavedQueryToolService> logger,
     BeaconConfiguration? configuration = null)
@@ -249,7 +252,17 @@ internal sealed class SavedQueryToolService(
             return [];
         }
 
-        return await source.GetToolsAsync(allowed, cancellationToken);
+        // A saved query is stored SQL: it is visible only where the caller may run stored SQL.
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        var runnable = allowed
+            .Where(x => scope.Allows(x, ProjectAction.Run))
+            .ToList();
+        if (runnable.Count == 0)
+        {
+            return [];
+        }
+
+        return await source.GetToolsAsync(runnable, cancellationToken);
     }
 
     private static SavedQueryToolDefinition? Find(IReadOnlyList<SavedQueryToolDefinition> tools, string? name)

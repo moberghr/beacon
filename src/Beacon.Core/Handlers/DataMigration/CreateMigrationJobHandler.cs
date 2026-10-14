@@ -2,16 +2,22 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class CreateMigrationJobHandler(IMigrationService migrationService)
+internal sealed class CreateMigrationJobHandler(
+    IMigrationService migrationService,
+    MigrationJobAccess access,
+    MigrationWritePolicy writePolicy)
     : IRequestHandler<CreateMigrationJobCommand, CreateMigrationJobResult>
 {
     public async Task<CreateMigrationJobResult> Handle(
         CreateMigrationJobCommand request,
         CancellationToken cancellationToken)
     {
+        writePolicy.DemandEnabled();
+
         if (string.IsNullOrWhiteSpace(request.Name))
         {
             throw new InvalidOperationException("Migration job name is required.");
@@ -42,6 +48,9 @@ internal sealed class CreateMigrationJobHandler(IMigrationService migrationServi
             throw new InvalidOperationException("Source query text is required.");
         }
 
+        await access.DemandAsync(request.DataSourceId, request.QueryText, request.DestinationDataSourceId, cancellationToken);
+        await writePolicy.DemandTargetsAsync(request.DataSourceId, request.QueryText, request.DestinationDataSourceId, cancellationToken);
+
         var serviceRequest = new CreateMigrationJobRequest
         {
             Name = request.Name,
@@ -64,10 +73,22 @@ internal sealed class CreateMigrationJobHandler(IMigrationService migrationServi
         return new CreateMigrationJobResult(
             response.MigrationJobId,
             response.Success,
-            response.ErrorMessage);
+            response.ErrorMessage)
+        {
+            AwaitingApproval = response.AwaitingApproval,
+            Message = response.AwaitingApproval ? CreateMigrationJobResult.SubmittedForApprovalMessage : null
+        };
     }
 }
 
+/// <summary>
+/// Creates a migration job. For an Admin, or a MigrationOperator who may query the source and the data source of every
+/// step in <c>QueryText</c> and write the destination, and whose destination is no more widely reachable than any of those
+/// sources (<see cref="MigrationJobAccess"/>). Only while the deployment runs migrations, into a migration write target,
+/// from sources that are not one (<see cref="MigrationWritePolicy"/>). While the change approval workflow covers migration
+/// jobs, the job is submitted for approval (the caller is the requester) and runs only once a second person approved it.
+/// </summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; the handler checks Query on the source and every step's data source and Write on the destination through project access", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record CreateMigrationJobCommand(
     string Name,
     string Description,
@@ -86,4 +107,15 @@ public record CreateMigrationJobCommand(
 public record CreateMigrationJobResult(
     int MigrationJobId,
     bool Success,
-    string? ErrorMessage);
+    string? ErrorMessage)
+{
+    /// <summary>What a create says when the job was submitted for approval.</summary>
+    public const string SubmittedForApprovalMessage =
+        "Submitted for approval: the job does not run, manually or on its schedule, until a second person approves it.";
+
+    /// <summary>The job was submitted for approval and does not run until approved.</summary>
+    public bool AwaitingApproval { get; init; }
+
+    /// <summary>What happens next, when the job waits for approval; null otherwise.</summary>
+    public string? Message { get; init; }
+}

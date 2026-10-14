@@ -41,8 +41,10 @@ public class SchemaRelationship : ArchivableBaseEntity
     public double Confidence { get; set; }
 
     /// <summary>
-    /// False only for <see cref="SchemaRelationshipOrigin.Inferred"/> edges awaiting review. Unverified
-    /// edges still participate in join paths but are rendered to the LLM under an explicit warning.
+    /// False for <see cref="SchemaRelationshipOrigin.Inferred"/> edges awaiting review, for
+    /// <see cref="SchemaRelationshipOrigin.Manual"/> edges created or changed by a caller who may not curate the data
+    /// source's grounding, and for any edge a curator marked unverified. Unverified edges still participate in join paths
+    /// but are rendered to the LLM under an explicit warning, as pending curator verification.
     /// </summary>
     public bool IsVerified { get; set; }
 

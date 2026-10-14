@@ -55,5 +55,22 @@ public class DataSource : ArchivableBaseEntity
     /// <summary>Hash of the exposed host model slice at the last sync; an unchanged hash skips the metadata rewrite.</summary>
     public string? HostModelHash { get; set; }
 
+    /// <summary>
+    /// Whether the source, while no project links it, stays reachable by every reader (as before projects bounded
+    /// access). True for sources that existed when project access was introduced; false for every source created since,
+    /// which only an Admin reaches until it is linked to a project. A path that unlinks a source's last project must
+    /// clear it first.
+    /// </summary>
+    public bool OpenWhenUnlinked { get; set; }
+
+    /// <summary>
+    /// An Admin's mark that the data source is a destination for data migrations, and nothing else
+    /// (<see cref="Services.MigrationWriteTargets"/>). Its connection may carry a login with write grants, so Beacon never
+    /// reads through it: query steps, previews, subscriptions, data quality, MCP tools, AI grounding, documentation and
+    /// metadata scans refuse it or leave it out, and only the migration writer connects with its credentials. Off for
+    /// every data source until an Admin turns it on, which the deployment must allow (<c>Beacon:Migrations:Enabled</c>).
+    /// </summary>
+    public bool AllowMigrationWrites { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

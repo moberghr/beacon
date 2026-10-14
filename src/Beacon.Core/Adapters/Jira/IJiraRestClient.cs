@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
 using System.Text;
 using Refit;
+using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Jira;
 
@@ -27,11 +29,16 @@ public interface IJiraRestClientFactory
     IJiraRestClient CreateClient(JiraCredentials credentials);
 }
 
+/// <summary>
+/// Jira clients on the notification outbound policy (<see cref="NotificationHttpClient"/>, the Jira client): no
+/// redirects, connect-time address checks with Jira's own private-network allowances, HTTP/1.1 only, a timeout and a
+/// response size cap.
+/// </summary>
 public class JiraRestClientFactory(IHttpClientFactory httpClientFactory) : IJiraRestClientFactory
 {
     public IJiraRestClient CreateClient(JiraCredentials credentials)
     {
-        var httpClient = httpClientFactory.CreateClient();
+        var httpClient = httpClientFactory.CreateClient(NotificationHttpClient.NameFor(NotificationType.Jira));
         httpClient.BaseAddress = new Uri(credentials.DomainUrl);
 
         var authValue = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{credentials.Email}:{credentials.ApiKey}"));

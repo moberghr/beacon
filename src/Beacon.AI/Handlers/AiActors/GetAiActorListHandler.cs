@@ -1,3 +1,5 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Helpers;
@@ -6,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.AI.Handlers.AiActors;
 
-internal sealed class GetAiActorListHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetAiActorListHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetAiActorListQuery, PagedList<AiActorListItem>>
 {
     private const int InstructionsPreviewLength = 100;
@@ -15,6 +17,7 @@ internal sealed class GetAiActorListHandler(IDbContextFactory<BeaconContext> con
         GetAiActorListQuery request,
         CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = context.AiActors.AsNoTracking();
@@ -24,6 +27,9 @@ internal sealed class GetAiActorListHandler(IDbContextFactory<BeaconContext> con
         {
             query = query.IgnoreQueryFilters();
         }
+
+        // Only the actors whose data source the caller may read.
+        query = query.WhereSourceAccessible(context, readable, x => x.DataSourceId);
 
         if (request.DataSourceId.HasValue)
         {

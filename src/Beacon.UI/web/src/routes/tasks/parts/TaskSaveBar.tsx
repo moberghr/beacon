@@ -1,7 +1,7 @@
 import { Bell, Check, Users } from 'lucide-react';
 import { Button, Kbd, Pill } from '@/components/beacon';
-import { useAuth } from '@/auth/useAuth';
-import { useAssignTask, useSnoozeTask, type TaskDetail } from '../queries';
+import { useAuth, useIsAdmin } from '@/auth/useAuth';
+import { canClaimTask, canWorkTask, useAssignTask, useSnoozeTask, type TaskDetail } from '../queries';
 
 interface TaskSaveBarProps {
   task: TaskDetail;
@@ -22,8 +22,10 @@ export function TaskSaveBar({
   const assign = useAssignTask(task.id);
   const snooze = useSnoozeTask(task.id);
 
-  const assignedToMe =
-    currentUser?.userId != null && task.assigneeUserId === currentUser.userId;
+  const isAdmin = useIsAdmin();
+  const assignedToMe = task.assignedToCaller;
+  const canWork = canWorkTask(task, isAdmin);
+  const canClaim = canClaimTask(task, isAdmin);
 
   const onAssignClick = () => {
     if (!currentUser?.userId) return;
@@ -54,12 +56,12 @@ export function TaskSaveBar({
             <Kbd>C</Kbd><span>comment</span>
           </span>
         )}
-        {!task.resolved && (
+        {!task.resolved && canWork && (
           <Button icon={<Bell />} onClick={onSnooze1h} disabled={snooze.isPending}>
             Snooze 1h
           </Button>
         )}
-        {!task.resolved && currentUser?.userId && (
+        {!task.resolved && currentUser?.userId && (assignedToMe || canClaim) && (
           <Button icon={<Users />} onClick={onAssignClick} disabled={assign.isPending}>
             {assignedToMe ? 'Unassign me' : 'Assign to me'}
           </Button>

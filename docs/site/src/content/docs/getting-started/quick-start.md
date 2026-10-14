@@ -36,7 +36,7 @@ In this guide, you'll:
 2. Open your browser to the root URL — the React SPA is served at `/`:
    - https://localhost:7187/ (or http://localhost:5296/)
 
-3. **First run:** Beacon shows a setup flow that creates the initial admin user — set the admin email and password. There are no default credentials.
+3. **First run:** Beacon shows a setup flow that creates the initial admin user — set the admin email and password. There are no default credentials. The setup page asks for a **setup token**: set `Beacon:UserManagement:SetupToken`, or copy the token Beacon prints to the server console (standard error) at startup while no super admin exists yet.
 
 4. On later runs, sign in at the `/login` route with the account you created.
 

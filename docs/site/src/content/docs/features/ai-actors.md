@@ -22,6 +22,11 @@ An **AI Actor** is an LLM-driven monitoring agent attached to a single data sour
 - Modify queries it doesn't own — refinements only apply to queries created by that actor
 - Modify **locked** queries — locked query IDs are excluded in the prompt and hard-checked again at execution time
 - Exceed its configured limits (`MaxQueries`, `MaxSubscriptionsPerQuery`)
+- Archive queries or subscriptions it doesn't own, or archive locked queries — ownership and lock are checked again when an action executes
+
+:::note[Interim behavior: actions are proposed, not executed]
+Every actor currently has **Requires approval** on, and in that mode the think cycle, refine, and initial setup **only record** the actions the LLM chose. Each recorded action is marked `proposed` in the execution history and nothing is created, refined, or archived. Proposed actions are recorded on the execution for review; executing them needs the approval workflow, which arrives in a later release. Until then, an actor's think cycles produce analysis and proposals but no changes to your queries or subscriptions.
+:::
 
 All LLM calls go through the configured provider (see [AI Integration](/features/ai-integration/)) and are metered — each actor tracks total tokens used and estimated cost.
 
@@ -44,6 +49,14 @@ When activated immediately, the actor runs an **initial setup**: the LLM reads t
 
 The REST endpoint is `POST /beacon/api/ai-actors` (one MediatR handler per endpoint, like the rest of the API).
 
+The actor's **creator** is the user who created it (an API key's owner, for a key), or the user an Admin made its creator. Only the creator or an Admin can pause, resume, archive, refine or run it on demand, approve, reject or ask for a revision of one of its plans, or run one of the subscriptions it manages on demand (`POST /subscriptions/{id}/execute`). An Admin or a UserAdmin can give an actor a new creator with **Change owner** on its page (`PUT /beacon/api/ai-actors/{id}/owner` with `{ "userId": <user id> }`); the user must be an existing, enabled user who may work ad hoc (Editor or above) in a project that links the actor's data source. A user who may not is refused with `409` and a message saying so, because every background think cycle would be skipped. The actor's detail names the creator by display name, or as "User {id}" without one (`hasOwner`, `ownerDisplayName`), never by user name or external id.
+
+An actor belongs to the projects that link its data source: it, its plans and its think cycles are visible only through such a project the caller may use, and refining it or running it on demand needs Query there ([Project access](/features/authorization/#project-access)). While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user) cannot create an actor (`403`). Subscriptions an actor creates are owned by the actor's creator.
+
+:::caution[Upgrading]
+The creator is now always the signed-in caller: a `createdByUserId` in the create request is ignored, and a caller without a resolvable user cannot create an actor. Pausing, resuming, archiving, refining or running an actor, approving, rejecting or requesting a revision of one of its plans, and running a subscription the actor manages on demand need its creator or an Admin; an actor created before this version without a recorded creator can only be changed or run by an Admin until an Admin sets its creator. To anyone but an Admin, an actor or plan that does not exist is refused (403) like one that is not theirs.
+:::
+
 ## Actor Statuses
 
 | Status | Meaning |
@@ -63,6 +76,8 @@ A think cycle is one autonomous reasoning pass. It is triggered:
 - **Automatically** — when a subscription owned by an `Active` actor finishes executing, a think cycle is enqueued as a background job so the subscription pipeline never blocks on LLM round-trips. Paused, draft, or failed actors are skipped.
 - **Manually** — via the actor detail page or `POST /beacon/api/ai-actors/{id}/think`.
 
+A background think cycle runs as the actor's creator, as they are now: before any LLM call or SQL, Beacon checks that the creator may still work ad hoc with the actor's data source (Query in a project that links it). When the creator may not — disabled or archived, no longer a member of a restricted project, or only a Viewer — the cycle is recorded with the phase `Skipped` and the message "Skipped: owner not authorized.", nothing else happens, and the actor keeps its status. An actor without a recorded creator runs background cycles only while its data source is openly reachable, and never with `Beacon:Authorization:RequireProjectMembership: true`. A cycle you start with **Think** runs as you.
+
 Each cycle is persisted as an execution record that moves through these phases:
 
 | Phase | What happens |
@@ -73,6 +88,7 @@ Each cycle is persisted as an execution record that moves through these phases:
 | `Notifying` | Records notification intent if the LLM flagged important findings |
 | `Completed` | Cycle finished successfully |
 | `Failed` | Cycle failed — the error is stored and the actor moves to `Failed` status |
+| `Skipped` | A background cycle whose creator may no longer work with the data source: nothing ran, and the actor keeps its status |
 
 The actions an actor can take:
 
@@ -131,7 +147,12 @@ Depending on how it was generated, a plan can represent the actor's initial setu
 
 Pending plans for an actor are listed via `GET /beacon/api/ai-actors/{id}/pending-plans`; a single plan (with its full analysis and proposed actions) via `GET /beacon/api/ai-actors/plans/{id}`. The actor detail page shows the pending plan count.
 
-The reviewer has three options:
+The reviewer, the actor's [creator](#creating-an-actor) or an Admin, has three options. With the
+[query change approval workflow](#query-change-approvals) on, **approving** takes a second person: a holder of the
+**Approver** permission (an Admin holds it) other than the actor's creator and anyone who asked for a revision of the
+plan, with write access to the actor's data source; the creator (or an Admin) still rejects or asks for a revision. A host
+that allows self-approval (`ApprovalWorkflow.AllowSelfApproval`) lets a creator who is an Approver approve their own
+actor's plans. Every decision records the reviewer as Beacon names the signed-in caller.
 
 **Approve** — `POST /beacon/api/ai-actors/plans/{id}/approve` (optional comment)
 
@@ -145,7 +166,8 @@ The plan moves to `Rejected` with the reviewer, timestamp, and reason recorded. 
 
 The actor generates a fresh plan through a new LLM call that incorporates your feedback. The revision gets an incremented version number, links back to the original plan, and enters `PendingApproval` again.
 
-Only plans in `PendingApproval` can be approved, rejected, or revised — any other status returns an error.
+Only plans in `PendingApproval` can be approved, rejected, or revised: the decision is a conditional update from that
+status, so a plan decided already (or by someone else at the same moment) answers `409`.
 
 :::caution[Review the SQL, not just the summary]
 For refinements, the plan shows current vs. proposed SQL side by side. LLM-generated SQL can be subtly wrong; validate it against your schema before approving.
@@ -153,26 +175,55 @@ For refinements, the plan shows current vs. proposed SQL side by side. LLM-gener
 
 ## Query Change Approvals
 
-Separate from actor plans, Beacon has a general **query change approval workflow** for edits to query SQL. When the approval workflow is enabled in configuration (`EnableApprovalWorkflow()` / the `ApprovalWorkflow` options on `BeaconConfiguration`), any change to a query's SQL is intercepted:
+Separate from actor plans, Beacon has a general **query change approval workflow** for changes to what a query runs.
+When the approval workflow is enabled in configuration (`EnableApprovalWorkflow()` / the `ApprovalWorkflow` options on
+`BeaconConfiguration`), any change to a query's executable content (its steps, their order, names, data sources, SQL and
+parameters, and the final query) is intercepted:
 
-1. Instead of applying the edit, Beacon creates a new query version in `PendingApproval` status — the live query keeps running unchanged.
-2. An approval request appears at **Approvals** in the React UI (`/approvals`), showing the change summary and who requested it.
-3. A reviewer opens the request (`/approvals/{id}`), compares the current active version with the proposed one, and approves or rejects with an optional comment.
-4. **Approve** archives the current active version and activates the proposed one. **Reject** leaves the active version untouched.
+1. Instead of applying the edit, Beacon creates a new query version in `PendingApproval` status holding the submitted
+   change — the live query keeps running unchanged. A requester's newer submission for the same query supersedes their
+   pending one; while someone else's change waits, a submission is refused (`409`) until a reviewer decides it.
+2. An approval request appears at **Approvals** in the React UI (`/approvals`), showing the change summary and who
+   requested it.
+3. A reviewer opens the request (`/approvals/{id}`), compares the current active version with the proposed one, and
+   approves or rejects with an optional comment. The requester cannot approve their own change.
+4. **Approve** archives the current active version and activates the proposed one, in one transaction, provided the
+   active version is still the one the change was made on. **Reject** leaves the active version untouched.
 
-The REST endpoints are `GET /beacon/api/approvals/pending`, `GET /beacon/api/approvals/{id}`, and `POST /beacon/api/approvals/{id}/approve` / `/reject`. Approve and reject require the **Admin** role.
+The REST endpoints are `GET /beacon/api/approvals/pending`, `GET /beacon/api/approvals/{id}`, and
+`POST /beacon/api/approvals/{id}/approve` / `/reject`. Approve and reject require the **Approver** permission (Admins
+hold it; see [Functional permissions](/features/authorization/#functional-permissions)). An Approver lists and reads the
+approval requests of every project; anyone else those of the projects they read. The full rules are in
+[Queries → Approval workflow](/features/queries/#approval-workflow).
 
-This workflow also protects you when an AI Actor's changes touch queries governed by versioning — every SQL change is versioned, so you can always see what changed and roll back through query versions. See [Queries](/features/queries/) for the versioning model.
+**An actor's refinements go through it too.** With the workflow on, a `REFINE_QUERY` action is validated without running
+any of it: the refined SQL passes the checks of a save (the execution gate and the source's metadata) and the source's
+own non-executing validation (`EXPLAIN` without `ANALYZE` on PostgreSQL, MySQL and Snowflake,
+`sp_describe_first_result_set` on SQL Server and Azure Synapse — a plan or a description of the result, never a row;
+SQLite has none and is left to the gate), so SQL nobody reviewed never executes. Without the workflow it is validated as
+a draft, running through the same gates as an editor's preview. Either way the stored query is never changed to try it.
+With the workflow on, the refinement is then submitted for approval with the actor's **creator** as its requester
+(change source `AiActor`), so the creator cannot approve it and it goes live only once someone else approves it; it
+never replaces another person's pending change of the query (the action fails while one waits), and an actor without a
+creator cannot submit at all. Without the workflow it is saved as a new active version attributed to the creator, with
+the step's change history. A `CREATE_QUERY` action is validated the same way before anything is stored, so a query whose
+SQL does not pass is never written; with the workflow on, the query is created with nothing live and its SQL submitted
+for approval (with the creator as requester), and a `CREATE_SUBSCRIPTION` action is refused for a query whose active
+version was not approved for exactly its content — its content hash, even outside strict mode — so the action fails for
+a query the same plan just created, and a later plan subscribes once its SQL is approved. When the changes come from an
+approved plan, the plan's reviewer and everyone who asked for a revision of it are recorded on each request as its
+contributors: none of them approves those query changes (unless the host allows self-approval), and the approval page
+withholds **Approve** from them.
 
 ## Real-Time Updates (`ApprovalUpdated`)
 
-Approval decisions are pushed in real time over the SignalR hub at `/beacon/api/hub` (wired automatically; see [Real-time](/getting-started/installation/#real-time-signalr) to opt out). When a query change approval is approved or rejected, the server sends an `ApprovalUpdated` event:
+Approval decisions are pushed in real time over the SignalR hub at `/beacon/api/hub` (wired automatically; see [Real-time](/getting-started/installation/#real-time-signalr) to opt out). When a query change approval is approved or rejected, the server sends an `ApprovalUpdated` event (status `approved` or `rejected`); when a requester's newer submission for the same query supersedes their pending request, they alone receive one with status `superseded`:
 
 ```json
 { "approvalId": 42, "status": "approved" }
 ```
 
-Delivery is targeted, not broadcast: only the **reviewer** (so their other open tabs update) and the **requester** (so they see the decision live) receive the event. In the React shell, `ApprovalUpdated` invalidates the approvals cache, so the approvals list and detail pages refresh automatically without a manual reload. Events missed during a transient disconnect are reconciled when the connection comes back.
+Delivery is targeted, not broadcast: only the **reviewer** (so their other open tabs update) and the **requester** (so they see the decision live) receive the event. Both are recorded by the user id their sign-in presents to the hub, whichever way the change was submitted (a session or the owner's API key). In the React shell, `ApprovalUpdated` invalidates the approvals cache, so the approvals list and detail pages refresh automatically without a manual reload. Events missed during a transient disconnect are reconciled when the connection comes back.
 
 ## Cost Tracking
 

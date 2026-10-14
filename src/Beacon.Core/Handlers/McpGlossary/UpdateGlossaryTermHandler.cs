@@ -1,6 +1,8 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
@@ -70,6 +72,7 @@ internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext>
 
         if (request.DataSourceId.HasValue)
         {
+            await ProjectDataSourceLinks.EnsureLinkedAsync(context, term.ProjectId, request.DataSourceId, cancellationToken);
             term.DataSourceId = request.DataSourceId.Value;
         }
 
@@ -82,6 +85,7 @@ internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext>
     }
 }
 
+[ProjectScopeExempt("admin-gated curation (the glossary); the term's data source must be linked to its project", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record UpdateGlossaryTermCommand : IRequest
 {
     public required int Id { get; init; }

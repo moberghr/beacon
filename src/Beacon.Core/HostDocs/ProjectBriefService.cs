@@ -1,9 +1,11 @@
 using System.Text;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.HostEndpoints;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Core.HostDocs;
@@ -11,7 +13,8 @@ namespace Beacon.Core.HostDocs;
 /// <summary>
 /// Builds a deterministic markdown <b>project brief</b> — the text an agent workspace drops into its
 /// <c>AGENTS.md</c>: what the project is, which data sources and tables matter, the glossary, the imported documents
-/// and how to use Beacon's tools safely. Built from stored metadata only; no LLM call.
+/// and how to use Beacon's tools safely. Built from stored metadata only; no LLM call. Saved-query tools are listed only
+/// when the caller may run stored SQL in the project, as on the MCP tool list.
 /// </summary>
 public interface IProjectBriefService
 {
@@ -49,7 +52,8 @@ internal sealed class ProjectBriefService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null,
     ISavedQueryToolSource? savedQueryToolSource = null,
-    BeaconConfiguration? configuration = null) : IProjectBriefService
+    BeaconConfiguration? configuration = null,
+    IProjectAccessEvaluator? projectAccess = null) : IProjectBriefService
 {
     public const int MaxTables = 30;
     public const int MaxGlossaryTerms = 30;
@@ -76,6 +80,7 @@ internal sealed class ProjectBriefService(
         }
 
         var dataSourceIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(x => x.ProjectId == projectId)
             .Select(x => x.DataSourceId)
             .ToListAsync(cancellationToken);
@@ -129,6 +134,7 @@ internal sealed class ProjectBriefService(
     internal static IQueryable<BriefDataSource> BuildDataSourcesQuery(BeaconContext context, int projectId)
     {
         return context.ProjectDataSources
+            .WhereReadable()
             .Where(x => x.ProjectId == projectId)
             .OrderBy(x => x.DataSource.Name)
             .ThenBy(x => x.DataSourceId)
@@ -189,7 +195,14 @@ internal sealed class ProjectBriefService(
 
     private async Task<SavedQueryToolListing?> GetSavedQueryToolsAsync(int projectId, CancellationToken cancellationToken)
     {
-        if (savedQueryToolSource == null)
+        if (savedQueryToolSource == null || projectAccess == null)
+        {
+            return null;
+        }
+
+        // A saved query is stored SQL: listed only where the caller may run stored SQL, as on the tool list itself.
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+        if (!scope.Allows(projectId, ProjectAction.Run))
         {
             return null;
         }
@@ -345,7 +358,7 @@ internal sealed class ProjectBriefService(
             var engine = dataSource.Engine?.ToString() ?? dataSource.Type.ToString();
             var access = dataSource.IsHostManaged
                 ? "host-managed, read-only (an allow-listed slice of the host application's model)"
-                : dataSource.IsReadOnly ? "read-only" : "read-only through Beacon";
+                : ReadAccess(dataSource);
 
             sb.Append("| ").Append(Cell(dataSource.Name))
                 .Append(" | ").Append(engine)
@@ -362,6 +375,21 @@ internal sealed class ProjectBriefService(
                 .Append(HostQualifiedExample(data))
                 .Append("`), name every column (no `*`) and call only standard built-in functions.\n\n");
         }
+    }
+
+    // What Beacon runs on an ordinary source: reads only. PostgreSQL and MySQL themselves refuse a write in Beacon's
+    // read-only session; on any other engine Beacon's SQL checks are the guard and the login's own grants decide what the
+    // database would allow. A migration write target is not listed: Beacon never reads it.
+    private static string ReadAccess(BriefDataSource dataSource)
+    {
+        if (dataSource.IsReadOnly)
+        {
+            return "reads only, through a read-only login";
+        }
+
+        return dataSource.Engine is DatabaseEngineType.PostgreSQL or DatabaseEngineType.MySQL
+            ? "reads only (the database refuses writes in Beacon's read-only session)"
+            : "reads only (checked by Beacon's SQL gates; the database login's grants decide what the database allows)";
     }
 
     private static string HostQualifiedExample(ProjectBriefData data)

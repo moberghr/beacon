@@ -6,8 +6,11 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { Button, Pill, Card, CardBody, Input, PageHeader } from '@/components/beacon';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
-import { useToggleUserEnabled, useUsersList, type UserEntry } from './queries';
+import { useAccess, useAuth } from '@/auth/useAuth';
+import { useRequirePermission } from '@/auth/useRequirePermission';
+import { useRolesQuery, useToggleUserEnabled, useUsersList, type UserEntry } from './queries';
 import { UserDialog } from './UserDialog';
+import { changeBlockedReason } from './userAdministration';
 
 const GRID_TEMPLATE = '0.5fr 1.2fr 1.4fr 1fr 0.8fr 1.4fr 0.7fr 1.2fr';
 
@@ -18,11 +21,33 @@ function roleLevelTone(level: number): 'crit' | 'warn' | 'info' | 'neutral' {
   return 'neutral';
 }
 
+/** For an Admin or a UserAdmin. */
 export default function UsersListPage() {
+  const allowed = useRequirePermission('UserAdmin');
+
+  if (allowed === undefined) {
+    return (
+      <div className="flex flex-col gap-3 p-7">
+        <PageHeader eyebrow="Access" prefix="User" emphasis="management" sub={<span className="text-text-muted">Loading…</span>} />
+      </div>
+    );
+  }
+
+  if (allowed === false) {
+    return null;
+  }
+
+  return <UsersList />;
+}
+
+function UsersList() {
   const [editing, setEditing] = useState<UserEntry | null | undefined>(undefined);
   const usersQuery = useUsersList();
   const [search, setSearch] = useSearchFilter(usersQuery.filters.search, value => usersQuery.setFilter('search', value));
   const toggle = useToggleUserEnabled();
+  const { isAdmin } = useAccess();
+  const { data: me } = useAuth();
+  const roles = useRolesQuery().data?.entries;
 
   const entries = usersQuery.items;
   const totalCount = usersQuery.data?.totalCount ?? 0;
@@ -66,17 +91,21 @@ export default function UsersListPage() {
     {
       key: 'status',
       header: 'Status',
-      render: u => (
-        <button
-          type="button"
-          className="cursor-pointer disabled:cursor-not-allowed border-0 bg-transparent p-0"
-          disabled={u.isSuperAdmin || toggle.isPending}
-          onClick={e => { e.stopPropagation(); handleToggle(u); }}
-          title={u.isSuperAdmin ? 'Cannot toggle a super admin' : 'Click to toggle'}
-        >
-          <Pill tone={u.isEnabled ? 'ok' : 'crit'}>{u.isEnabled ? 'Enabled' : 'Disabled'}</Pill>
-        </button>
-      ),
+      render: u => {
+        // A UserAdmin enables or disables neither themselves nor an Admin, a super admin or a functional role holder.
+        const blocked = changeBlockedReason(u, { isAdmin, userName: me?.userName }, roles ?? []);
+        return (
+          <button
+            type="button"
+            className="cursor-pointer disabled:cursor-not-allowed border-0 bg-transparent p-0"
+            disabled={u.isSuperAdmin || blocked != null || toggle.isPending}
+            onClick={e => { e.stopPropagation(); handleToggle(u); }}
+            title={u.isSuperAdmin ? 'Cannot toggle a super admin' : blocked ?? 'Click to toggle'}
+          >
+            <Pill tone={u.isEnabled ? 'ok' : 'crit'}>{u.isEnabled ? 'Enabled' : 'Disabled'}</Pill>
+          </button>
+        );
+      },
     },
     {
       key: 'lastLogin',
@@ -84,7 +113,7 @@ export default function UsersListPage() {
       header: 'Last login',
       render: u => u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-text-muted">Never</span>,
     },
-  ], [toggle.isPending]);
+  ], [toggle.isPending, isAdmin, me?.userName, roles]);
 
   return (
     <div className="flex flex-col gap-3 p-7">

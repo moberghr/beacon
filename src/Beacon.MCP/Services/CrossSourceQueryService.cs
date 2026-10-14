@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -19,8 +22,11 @@ internal sealed class CrossSourceQueryService(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
+    ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -37,14 +43,20 @@ internal sealed class CrossSourceQueryService(
         var text = "";
         var failedSources = new List<(string Name, string Reason)>();
 
-        var sourceQueries = new List<(RoutedSource Source, string Sql, string SchemaContext)>();
+        var sourceQueries = new List<(RoutedSource Source, string Sql, SmartSchemaContext Context, ILlmProvider Provider)>();
         var columnsUsed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var source in sources)
         {
-            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, ct);
+            // ask needs Query in the project, so live probes may run.
+            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, liveValueProbes: true, ct);
+
+            // Every prompt about this source carries its context: each request is logged with the row-derived data it carries.
+            var sourceProvider = rowDataEgress.Track(
+                llmProvider,
+                new LlmRowDataScope(projectId, [source.DataSourceId], smartContext.RowDataCategories));
 
             var sqlResult = await sqlGenerationService.GenerateAsync(
-                llmProvider, smartContext.FullContext, question, settings, ct);
+                sourceProvider, smartContext.FullContext, question, settings, ct);
             var sql = sqlResult.Sql;
 
             // Pre-execution schema validation with one bounded repair, mirroring the single-source flow.
@@ -53,7 +65,8 @@ internal sealed class CrossSourceQueryService(
             // execution loop below, before anything reaches a provider.
             var schemaReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
             {
-                Catalog = smartContext.SchemaCatalog
+                Catalog = smartContext.SchemaCatalog,
+                ConfiguredDatabase = smartContext.ConfiguredDatabase
             });
             var schemaVerdict = schemaReport.Verdicts.Schema;
             if (schemaVerdict.Status == SqlGateStatus.Fail)
@@ -64,12 +77,13 @@ internal sealed class CrossSourceQueryService(
 
                 var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
                 var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                    llmProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
+                    sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
 
                 var retryReport = retriedSql != null
                     ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings) with
                     {
-                        Catalog = smartContext.SchemaCatalog
+                        Catalog = smartContext.SchemaCatalog,
+                        ConfiguredDatabase = smartContext.ConfiguredDatabase
                     })
                     : null;
                 var retryValid = retryReport?.Verdicts.Schema.Status is SqlGateStatus.Pass or SqlGateStatus.Skipped;
@@ -93,7 +107,7 @@ internal sealed class CrossSourceQueryService(
                 columnsUsed.UnionWith(schemaReport.ColumnsUsed);
             }
 
-            sourceQueries.Add((source, sql, smartContext.FullContext));
+            sourceQueries.Add((source, sql, smartContext, sourceProvider));
 
             text += $"### Source: {source.DataSourceName}\n```sql\n{sql}\n```\n\n";
         }
@@ -114,10 +128,15 @@ internal sealed class CrossSourceQueryService(
 
         using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>());
         var anyExecuted = false;
+        var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
+        // Each source's PII result columns (by name or by its SQL's aliasing), masked on the JOINED rows below where
+        // the join query reads them back by name — never before the join, where the unanchored PII pattern would also
+        // hit join keys (address_id, zip_code_id) and make distinct keys collide.
+        var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < sourceQueries.Count; i++)
         {
-            var (source, sql, schemaContext) = sourceQueries[i];
+            var (source, sql, sourceContext, sourceProvider) = sourceQueries[i];
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);
             var dataSource = await context.DataSources
@@ -125,13 +144,15 @@ internal sealed class CrossSourceQueryService(
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {source.DataSourceId} not found");
 
-            var dialect = dataSource.DatabaseEngineType?.ToString();
+            var dialect = DataSourceSqlDialect.Of(dataSource);
+            var configuredDatabase = configuredDatabases.Resolve(dataSource);
 
             // Read-only gate (regex guardrail + AST, §1.5) BEFORE the provider dry-run — a write statement
             // must never reach EXPLAIN.
             var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
-                HostManagedKey = dataSource.HostManagedKey
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabase
             });
             if (readOnlyReport.Blocked)
             {
@@ -141,14 +162,15 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(llmProvider, dataSource, source, sql, schemaContext, question, settings, signal, ct);
+            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, source, sql, sourceContext, question, settings, signal, ct);
 
             // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
             var finalReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
             {
                 MaxRows = settings.MaxRowLimit,
-                HostManagedKey = dataSource.HostManagedKey
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabase
             });
             if (finalReport.Blocked)
             {
@@ -162,14 +184,21 @@ internal sealed class CrossSourceQueryService(
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
             // §1.5 backstop — per-source execution goes through the read-only path. The database-level
-            // guarantee is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // guarantee is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above.
             var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
 
             if (!result.Success)
             {
-                failedSources.Add((source.DataSourceName, result.ErrorMessage ?? "Execution failed"));
-                text += $"**Execution Error for {source.DataSourceName}:** {result.ErrorMessage}\n";
+                // The database's error can quote row values: the caller reads it redacted while PII detection is on (a host
+                // data source's error is already Beacon's generic text).
+                var error = DatabaseErrorRedactor.ForCaller(
+                    result.ErrorMessage ?? "Execution failed",
+                    limitedSql,
+                    settings.EnablePiiDetection && dataSource.HostManagedKey == null,
+                    logger);
+                failedSources.Add((source.DataSourceName, error));
+                text += $"**Execution Error for {source.DataSourceName}:** {error}\n";
                 continue;
             }
 
@@ -177,24 +206,21 @@ internal sealed class CrossSourceQueryService(
 
             if (result.Rows?.Count > 0)
             {
-                // Mask PII before rows enter the in-memory join store so the joined output returned to the
-                // MCP client is masked too (§1.6/§1.11). Recompute PII columns from the SQL that ACTUALLY
-                // executed — DryRunWithRepairAsync above may have replaced `sql`, so the pre-repair
-                // `validation.PiiColumns` can reference the wrong columns.
-                var rows = result.Rows;
+                // Before rows enter the in-memory join store, mask only the SQL-text PII matches and host-masked
+                // columns (§1.6/§1.11) — finalReport was evaluated on the SQL that ACTUALLY executed, after
+                // DryRunWithRepairAsync may have replaced `sql`. Result-column and alias masking happens on the
+                // joined rows, so it cannot corrupt a join key.
+                var rows = PiiRowMasker.Mask(guardrailService, result.Rows, finalReport.PiiColumns, detectByColumnName: false, customPatterns);
                 if (settings.EnablePiiDetection)
                 {
-                    var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
-                    {
-                        ReadOnly = false,
-                        DetectPii = true,
-                        CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-                    }).PiiColumns;
-
-                    if (piiColumns is { Count: > 0 } piiCols)
-                    {
-                        rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
-                    }
+                    joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(
+                        guardrailService,
+                        result.Rows.SelectMany(x => x.Keys),
+                        finalReport.PiiColumns,
+                        detectByColumnName: true,
+                        customPatterns,
+                        limitedSql,
+                        dialect));
                 }
 
                 var tableName = $"result{i + 1}";
@@ -249,7 +275,7 @@ internal sealed class CrossSourceQueryService(
         // The join SQL is LLM-generated from the user's question — run the same read-only gate (regex
         // guardrail + AST, §1.5) applied to each per-source query above before it touches the in-memory
         // SQLite store, so the final join is not a gap.
-        var joinReport = gate.Evaluate(SqlGateRequest.FromSettings(translatedSql, "SQLite", settings));
+        var joinReport = gate.Evaluate(SqlGateRequest.ForInMemoryJoin(translatedSql, settings));
         if (joinReport.Blocked)
         {
             text += $"**Validation Error for join query:** {joinReport.BlockReason}\n";
@@ -268,8 +294,21 @@ internal sealed class CrossSourceQueryService(
 
         if (joinResults.Count > 0)
         {
-            text += $"### Final Results ({joinResults.Count} rows, {execTimeMs:F0}ms)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(joinResults);
+            // The joined output returned to the MCP client gets the full masking: the sources' PII columns read
+            // back by name, the join SQL's text matches, PII-named result columns and the join SQL's aliases.
+            var joinedRows = PiiRowMasker.Mask(
+                guardrailService,
+                joinResults
+                    .Select(x => new Dictionary<string, object?>(x))
+                    .ToList(),
+                joinPiiColumns.Concat(joinReport.PiiColumns),
+                settings.EnablePiiDetection,
+                customPatterns,
+                translatedSql,
+                "SQLite");
+
+            text += $"### Final Results ({joinedRows.Count} rows, {execTimeMs:F0}ms)\n\n";
+            text += ToolHelper.FormatResultsAsMarkdown(joinedRows);
         }
         else
         {
@@ -298,9 +337,10 @@ internal sealed class CrossSourceQueryService(
     private async Task<string> DryRunWithRepairAsync(
         ILlmProvider llmProvider,
         Core.Data.Entities.DataSource dataSource,
+        string? configuredDatabase,
         RoutedSource source,
         string sql,
-        string schemaContext,
+        SmartSchemaContext sourceContext,
         string question,
         McpSettingsData settings,
         McpSignalBuilder signal,
@@ -329,17 +369,28 @@ internal sealed class CrossSourceQueryService(
         }
         catch (Exception ex)
         {
-            // Dry-run infrastructure failures never block the cross-source flow
-            logger.LogWarning(ex, "Dry-run validation unavailable for data source {DataSourceId}", dataSource.Id);
+            // Dry-run infrastructure failures never block the cross-source flow. The type and error code only (§1.11).
+            logger.LogWarning(
+                "Dry-run validation unavailable for data source {DataSourceId}: {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
             return sql;
         }
 
-        logger.LogInformation("Dry-run failed for {DataSourceName}, retrying. Error: {Error}", source.DataSourceName, dryRunError);
-        signal.SetDryRunFailed(dryRunError);
+        // The repair prompt and the stored signal get the error without the values it quotes — the prompt only its class and
+        // code while row data may not reach the LLM provider; the log its class only.
+        var redactedError = DatabaseErrorRedactor.Redact(dryRunError, DatabaseErrorRedactor.KnownNames(sql, sourceContext.SchemaCatalog), logger);
+        var classOnly = DatabaseErrorRedactor.ClassOnly(dryRunError, logger);
+        logger.LogInformation(
+            "Dry-run failed for data source {DataSourceId}, retrying ({ErrorClass})",
+            dataSource.Id,
+            classOnly);
+        signal.SetDryRunFailed(redactedError);
 
+        var promptError = deploymentOptions.Value.ForbidRowDataToLlm ? classOnly : redactedError;
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
         var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-            llmProvider, systemPrompt, sql, dryRunError, schemaContext, null, question, ct);
+            llmProvider, systemPrompt, sql, promptError, sourceContext.FullContext, null, question, ct);
 
         if (retriedSql == null)
         {
@@ -347,7 +398,7 @@ internal sealed class CrossSourceQueryService(
         }
 
         // The retry must clear the same read-only gate the original did before it can be adopted.
-        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, dataSource.DatabaseEngineType?.ToString(), settings)).Blocked)
+        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, DataSourceSqlDialect.Of(dataSource), settings) with { ConfiguredDatabase = configuredDatabase }).Blocked)
         {
             return sql;
         }
@@ -370,7 +421,10 @@ internal sealed class CrossSourceQueryService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Re-validation unavailable for data source {DataSourceId}", dataSource.Id);
+            logger.LogWarning(
+                "Re-validation unavailable for data source {DataSourceId}: {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
         }
 
         signal.SetRetry(retriedSql, true);

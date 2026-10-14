@@ -1,15 +1,35 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
+using Beacon.Core.Helpers;
 using Beacon.Core.Helpers.File;
+using Beacon.Core.Models;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Worker.Services;
 
+/// <summary>
+/// The work Beacon's jobs run. A subscription's scheduled run and a data contract's scheduled evaluation run as the
+/// owner they recorded (<see cref="IRunAsScope"/>), re-authorized at every run right before any SQL: a run the owner may
+/// no longer make is skipped (recorded, not failed) and delivers nothing. A run a request asks for (a subscription's test
+/// delivery) runs as the request's caller. Maintenance work runs as the system in the job host's marked scope. While the
+/// change approval workflow covers recipients, a delivery skips every recipient whose destination waits for approval
+/// (<see cref="RecipientDeliveryApproval"/>, checked on the copy the run loaded; the send itself checks it again): no
+/// notification is recorded for it, the run's comment names it, and each skip is logged. A run that would notify only
+/// recipients that wait notifies nobody: it is recorded as skipped with the remedy, and it does not become the baseline
+/// a later run's trigger compares with (no skipped run does). A data-quality alert that every recipient waits for is
+/// logged as a Warning and recorded on the evaluation.
+/// </summary>
 internal class JobService(
     IDbContextFactory<BeaconContext> contextFactory,
     IQueryService queryService,
@@ -18,6 +38,9 @@ internal class JobService(
     IAnomalyDetectionService anomalyDetectionService,
     IDataQualityEvaluationService dataQualityEvaluationService,
     ILogger<JobService> logger,
+    IRunAsScope runAs,
+    IHttpContextAccessor httpContextAccessor,
+    RecipientDeliveryApproval deliveryApproval,
     IAiActorService? aiActorService = null,
     IMcpLearningAggregationService? mcpLearningService = null,
     IEmbeddingIndexingService? embeddingIndexingService = null,
@@ -40,7 +63,36 @@ internal class JobService(
             return;
         }
 
-        var queryResult = await queryService.ExecuteQuery(subscriptionId, cancellationToken);
+        // A scheduled run acts as the subscription's owner as they are now; a run a request asks for acts as its caller.
+        var isScheduledRun = httpContextAccessor.HttpContext == null;
+        if (isScheduledRun)
+        {
+            runAs.RunAs(subscription.OwnerUserId);
+        }
+
+        QueryResult queryResult;
+        try
+        {
+            queryResult = await queryService.ExecuteQuery(subscriptionId, cancellationToken);
+        }
+        catch (ExecutionRefusedException ex) when (isScheduledRun)
+        {
+            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, NotificationFailureReasons.OwnerNotAuthorized, cancellationToken);
+
+            return;
+        }
+        catch (QueryNotReviewedException ex)
+        {
+            // With the approval workflow on, the stored SQL is not the reviewed version: nothing ran. Recorded for a run a
+            // request asks for too, which then answers 409.
+            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, NotificationFailureReasons.NotApproved, cancellationToken);
+            if (isScheduledRun)
+            {
+                return;
+            }
+
+            throw new BeaconConflictException(ex.Message);
+        }
 
         // Set subscription specific parameters
         queryResult.ShowQuery = subscription.ShowQuery;
@@ -53,8 +105,10 @@ internal class JobService(
             queryResult.TopRecords = queryResult.TopRecords.Take(subscription.MaxRows.Value).ToList();
         }
 
+        // A skipped run (nothing ran, or nobody was notified) is no baseline for the trigger.
         var lastExecutedQuery = await context.QueryExecutionHistory
             .Where(x => x.SubscriptionId == subscriptionId)
+            .Where(x => x.NotificationStatus != NotificationStatus.Skipped)
             .OrderByDescending(x => x.CreatedTime)
             .Select(x =>
                 new
@@ -78,13 +132,6 @@ internal class JobService(
                 subscriptionId,
                 queryResult.TotalRecords,
                 cancellationToken);
-
-            // Store baseline for future anomaly detection
-            await anomalyDetectionService.StoreBaselineAsync(
-                subscriptionId,
-                queryResult.TotalRecords,
-                DateTime.UtcNow,
-                cancellationToken);
         }
 
         var status = DetermineNotificationStatus(
@@ -95,14 +142,49 @@ internal class JobService(
             anomalyEvaluation,
             subscriptionId);
 
+        // Whom a delivery reaches, decided before the run's outcome: a recipient whose destination waits for approval
+        // receives nothing, and a run that would notify only such recipients notifies nobody.
+        var held = status == NotificationStatus.NotificationSent
+            ? await deliveryApproval.HeldCopiesAsync(CopiesOf(queryResult.Recipients), cancellationToken)
+            : new HashSet<int>();
+        var recipients = queryResult.Recipients
+            .Where(x => x.RecipientId is not { } id || !held.Contains(id))
+            .ToList();
+        var nobodyNotified = held.Count > 0 && recipients.Count == 0;
+        LogHeld(held, "subscription", subscriptionId);
+        if (nobodyNotified)
+        {
+            status = NotificationStatus.Skipped;
+            logger.LogWarning(
+                "Subscription {SubscriptionId} notified nobody: each of its {RecipientCount} recipients waits for approval of where it delivers",
+                subscriptionId,
+                held.Count);
+        }
+
+        // Store baseline for future anomaly detection, unless nobody could be told about this run.
+        if (hasAnomalyDetection && !nobodyNotified)
+        {
+            await anomalyDetectionService.StoreBaselineAsync(
+                subscriptionId,
+                queryResult.TotalRecords,
+                DateTime.UtcNow,
+                cancellationToken);
+        }
+
         var executedQuery = new QueryExecutionHistory
         {
             SubscriptionId = subscriptionId,
             ResultCount = queryResult.TotalRecords,
             CompiledSql = queryResult.SqlQuery,
             NotificationStatus = status,
+            Comment = nobodyNotified ? NotificationFailureReasons.AllRecipientsAwaitApproval : HeldComment(held),
             ExecutionTimeMs = queryResult.ExecutionTimeMs,
-            Results = subscription.StoreResults ? queryResult.QueryResults : null
+            Results = subscription.StoreResults ? queryResult.QueryResults : null,
+            // Which projects' readers may see this run (StoredRunAccess) is decided by what it read.
+            DataSourceIds = queryResult.DataSourceIds
+                .Distinct()
+                .Order()
+                .ToArray()
         };
 
         await context.QueryExecutionHistory.AddAsync(executedQuery, cancellationToken);
@@ -132,12 +214,30 @@ internal class JobService(
 
             // Trigger AI Actor think cycle even if no notification was sent
             await TriggerAiActorIfApplicableAsync(subscriptionId, queryResult.TotalRecords, cancellationToken);
+
+            // A delivery a request asked for that reached nobody answers why (the run is recorded).
+            if (nobodyNotified && !isScheduledRun)
+            {
+                throw new BeaconConflictException(NotificationFailureReasons.AllRecipientsAwaitApproval);
+            }
+
             return;
         }
 
-        // Create Notification records for each recipient that was notified
+        QueryResultFile? resultFile = null;
+
+        // Only create attachment if subscription has attachments enabled and a file type is specified. Built before any
+        // Notification row exists, so a failure here leaves no recipient recorded as notified.
+        if (subscription.IncludeAttachment && subscription.ResultAttachmentType.HasValue)
+        {
+            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
+        }
+
+        // One Notification row per recipient, saved just before sending because its id goes into the message (the
+        // link back to Beacon). A row whose delivery fails is removed as soon as the sends are done, before any other
+        // write, so a Notification always means the recipient was notified.
         var notifications = new List<Notification>();
-        foreach (var recipient in queryResult.Recipients)
+        foreach (var recipient in recipients)
         {
             var notification = new Notification
             {
@@ -153,55 +253,71 @@ internal class JobService(
 
         await context.SaveChangesAsync(cancellationToken);
 
-        // Record anomaly event if anomaly was detected
-        if (anomalyEvaluation?.IsAnomaly == true)
+        // Every recipient is tried; one failing does not stop the others.
+        var failures = new List<(int? RecipientId, string Reason)>();
+        var delivered = new List<Notification>();
+        for (var i = 0; i < recipients.Count; i++)
         {
-            await anomalyDetectionService.RecordAnomalyEventAsync(
-                subscriptionId,
-                anomalyEvaluation,
-                notifications.FirstOrDefault()?.Id,
-                cancellationToken);
-        }
-
-        var recipientsQueryResults = new List<RecipientQueryResult>();
-        QueryResultFile? resultFile = null;
-
-        // Only create attachment if subscription has attachments enabled and a file type is specified
-        if (subscription.IncludeAttachment && subscription.ResultAttachmentType.HasValue)
-        {
-            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
-        }
-
-        for (int i = 0; i < queryResult.Recipients.Count; i++)
-        {
-            var recipient = queryResult.Recipients[i];
-            recipientsQueryResults.Add(new RecipientQueryResult
+            var recipient = recipients[i];
+            var recipientQueryResult = new RecipientQueryResult
             {
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
                 QueryResultFile = resultFile,
                 NotificationId = notifications[i].Id,
+                RecipientId = recipient.RecipientId,
                 AnomalyEvaluation = anomalyEvaluation?.IsAnomaly == true ? anomalyEvaluation : null,
                 HeadersJson = recipient.HeadersJson,
                 BodyTemplate = recipient.BodyTemplate
-            });
-        }
+            };
 
-        try
-        {
-            foreach (var recipientQueryResult in recipientsQueryResults)
+            try
             {
                 await notificationService.SendNotification(recipientQueryResult, lastExecutedQuery?.ResultCount, cancellationToken);
+                delivered.Add(notifications[i]);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Shutting down: the recipients not reached yet were not notified either.
+                failures.AddRange(recipients
+                    .Skip(i)
+                    .Select(x => (x.RecipientId, NotificationFailureReasons.Generic)));
+                await RecordFailedDeliveriesAsync(context, executedQuery, notifications.Except(delivered), failures, CancellationToken.None);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                failures.Add((recipient.RecipientId, NotificationFailureReasons.For(ex)));
             }
         }
-        catch (Exception ex)
+
+        // The outcome is persisted before any other write, and with a token the caller's cancellation cannot stop: a
+        // failing anomaly write or a cancelled request must not leave failed recipients recorded as notified.
+        if (failures.Count > 0)
         {
-            logger.LogError(ex, "Failed to send notification for subscription {SubscriptionId}", subscriptionId);
-            executedQuery.NotificationStatus = NotificationStatus.Failed;
-            executedQuery.Comment = ex.Message;
-            await context.SaveChangesAsync(cancellationToken);
-            throw;
+            await RecordFailedDeliveriesAsync(context, executedQuery, notifications.Except(delivered), failures, CancellationToken.None);
+        }
+
+        // Record anomaly event if anomaly was detected, linked to a notification that actually went out
+        if (anomalyEvaluation?.IsAnomaly == true)
+        {
+            await anomalyDetectionService.RecordAnomalyEventAsync(
+                subscriptionId,
+                anomalyEvaluation,
+                delivered.FirstOrDefault()?.Id,
+                cancellationToken);
+        }
+
+        if (failures.Count > 0)
+        {
+            logger.LogError(
+                "Notification delivery failed for {FailedCount} of {RecipientCount} recipients of subscription {SubscriptionId}",
+                failures.Count,
+                notifications.Count,
+                subscriptionId);
+
+            throw new NotificationDeliveryException(executedQuery.Comment!);
         }
 
         // Trigger AI Actor think cycle if this subscription belongs to an actor
@@ -210,15 +326,45 @@ internal class JobService(
 
     public async Task EvaluateDataContract(int contractId, CancellationToken cancellationToken)
     {
+        // A scheduled evaluation acts as the contract's owner as they are now.
+        var isScheduledRun = httpContextAccessor.HttpContext == null;
+        if (isScheduledRun)
+        {
+            await RunAsContractOwnerAsync(contractId, cancellationToken);
+        }
+
         try
         {
             var evaluationResult = await dataQualityEvaluationService.EvaluateContractAsync(contractId, cancellationToken);
 
             await SendDataQualityNotificationsIfNeeded(contractId, evaluationResult, cancellationToken);
         }
+        catch (DataContractHasNoEnabledRulesException)
+        {
+            // Nothing to score: no history, score or alert is written, and the recurring job is not failed for it.
+            logger.LogWarning("Data contract {ContractId} has no enabled rules; its scheduled evaluation was skipped", contractId);
+        }
+        catch (DataContractRulesAwaitApprovalException ex)
+        {
+            // Nothing to score until a rule is approved: as above, nothing is written and the job is not failed for it.
+            logger.LogWarning(
+                "Data contract {ContractId} was not evaluated: each of its {AwaitingCount} enabled rules is a Custom SQL rule waiting for approval",
+                contractId,
+                ex.AwaitingRules);
+        }
+        catch (ExecutionRefusedException) when (isScheduledRun)
+        {
+            // The owner may no longer run the contract's rules: logged as skipped work and recorded on the contract, so
+            // its readers see it; nothing is scored or alerted, and the recurring job is not failed for it.
+            await RecordSkippedEvaluationAsync(contractId, cancellationToken);
+        }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to evaluate data contract {ContractId}", contractId);
+            // The type and error code only (§1.11): a rule's failure can quote its SQL or row values.
+            logger.LogError(
+                "Failed to evaluate data contract {ContractId}: {Failure}",
+                contractId,
+                FailureCodes.Describe(ex));
             throw;
         }
     }
@@ -274,13 +420,52 @@ internal class JobService(
 
         if (evaluationResult.OverallScore >= contract.FailureThresholdScore)
         {
+            if (evaluationResult.AwaitingApprovalRules > 0)
+            {
+                // A partial score: the rules waiting for approval were not evaluated, so it says nothing about them.
+                logger.LogWarning(
+                    "Contract {ContractId} scored {Score:F1}% without its {AwaitingCount} Custom SQL rules that wait for approval; no alert is sent for a partial score above the threshold",
+                    contractId,
+                    evaluationResult.OverallScore,
+                    evaluationResult.AwaitingApprovalRules);
+
+                return;
+            }
+
             logger.LogDebug("Contract {ContractId} '{ContractName}' score {Score:F1}% is above threshold {Threshold}%, no notification needed",
                 contractId, contract.Name, evaluationResult.OverallScore, contract.FailureThresholdScore);
             return;
         }
 
+        // A recipient whose destination waits for approval receives nothing; the evaluation records how many were held.
+        var held = await deliveryApproval.HeldCopiesAsync(
+            contract.Recipients
+                .Select(x => new RecipientCopy(x.Id, x.NotificationType, x.Destination, x.HeadersJson))
+                .ToList(),
+            cancellationToken);
+        var recipients = contract.Recipients
+            .Where(x => !held.Contains(x.Id))
+            .ToList();
+        LogHeld(held, "data contract", contractId);
+        if (held.Count > 0)
+        {
+            await context.DataQualityEvaluations
+                .Where(x => x.Id == evaluationResult.Id)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.HeldAlertRecipients, held.Count), cancellationToken);
+        }
+
+        if (recipients.Count == 0)
+        {
+            logger.LogWarning(
+                "The alert of data contract {ContractId} (score {Score:F1}% below its threshold) reached nobody: each of its {RecipientCount} recipients waits for approval of where it delivers",
+                contractId,
+                evaluationResult.OverallScore,
+                held.Count);
+            return;
+        }
+
         logger.LogInformation("Contract {ContractId} '{ContractName}' score {Score:F1}% is below threshold {Threshold}%, sending notifications to {RecipientCount} recipients",
-            contractId, contract.Name, evaluationResult.OverallScore, contract.FailureThresholdScore, contract.Recipients.Count);
+            contractId, contract.Name, evaluationResult.OverallScore, contract.FailureThresholdScore, recipients.Count);
 
         // Build a summary of failed rules
         var failedRules = evaluationResult.RuleResults
@@ -314,6 +499,7 @@ internal class JobService(
                 PassedRules = evaluationResult.PassedRules,
                 FailedRules = evaluationResult.FailedRules,
                 TotalRules = evaluationResult.TotalRules,
+                AwaitingApprovalRules = evaluationResult.AwaitingApprovalRules,
                 FailedRuleDetails = failedRules.Select(r => new { r.RuleName, r.Score, r.Message })
             }),
             TopRecords = failedRulesSummary,
@@ -321,13 +507,14 @@ internal class JobService(
             ShowQuery = false
         };
 
-        foreach (var recipient in contract.Recipients)
+        foreach (var recipient in recipients)
         {
             var recipientQueryResult = new RecipientQueryResult
             {
                 RecipientDestination = recipient.Destination,
                 RecipientNotificationType = recipient.NotificationType,
                 QueryResult = queryResult,
+                RecipientId = recipient.Id,
                 HeadersJson = recipient.HeadersJson,
                 BodyTemplate = recipient.BodyTemplate
             };
@@ -336,10 +523,19 @@ internal class JobService(
             {
                 await notificationService.SendNotification(recipientQueryResult, null, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to send data quality notification to recipient {RecipientId} '{RecipientName}' for contract {ContractId}",
-                    recipient.Id, recipient.Name, contractId);
+                // The reason and the exception types only: a host's notification service may put remote text in messages.
+                logger.LogError(
+                    "Data quality notification to recipient {RecipientId} for contract {ContractId} failed: {Reason} ({ExceptionTypes})",
+                    recipient.Id,
+                    contractId,
+                    NotificationFailureReasons.For(ex),
+                    NotificationHttpClient.TypeChain(ex));
             }
         }
     }
@@ -424,9 +620,131 @@ internal class JobService(
         }
         catch (Exception ex)
         {
-            // Log but don't fail the subscription execution
-            logger.LogWarning(ex, "Failed to trigger AI Actor for subscription {SubscriptionId}", subscriptionId);
+            // Log but don't fail the subscription execution: the type and error code only (§1.11).
+            logger.LogWarning(
+                "Failed to trigger AI Actor for subscription {SubscriptionId}: {Failure}",
+                subscriptionId,
+                FailureCodes.Describe(ex));
         }
+    }
+
+    private async Task RunAsContractOwnerAsync(int contractId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var contract = await context.DataContracts
+            .Where(x => x.Id == contractId)
+            .Select(x =>
+                new
+                {
+                    x.OwnerUserId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // A missing contract fails its evaluation as before; there is no owner to run as.
+        if (contract != null)
+        {
+            runAs.RunAs(contract.OwnerUserId);
+        }
+    }
+
+    // A scheduled evaluation its owner may no longer run: the contract records since when (the first skip of a series is
+    // kept), until an evaluation runs again.
+    private async Task RecordSkippedEvaluationAsync(int contractId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        await context.DataContracts
+            .Where(x => x.Id == contractId)
+            .Where(x => x.OwnerNotAuthorizedSince == null)
+            .ExecuteUpdateAsync(x => x.SetProperty(y => y.OwnerNotAuthorizedSince, DateTime.UtcNow), cancellationToken);
+    }
+
+    // A run that may not happen (a scheduled run its owner may no longer make, a run of SQL the approval workflow has not
+    // approved): recorded as skipped with a neutral reason, with the data sources it would have read so the readers of
+    // the subscription see it, and nothing else happens (no task, no baseline, no delivery, no AI actor).
+    private static async Task RecordSkippedRunAsync(
+        BeaconContext context,
+        int subscriptionId,
+        IReadOnlyList<int> dataSourceIds,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var skipped = new QueryExecutionHistory
+        {
+            SubscriptionId = subscriptionId,
+            ResultCount = 0,
+            CompiledSql = string.Empty,
+            NotificationStatus = NotificationStatus.Skipped,
+            ExecutionTimeMs = 0,
+            Comment = reason,
+            DataSourceIds = dataSourceIds
+                .Distinct()
+                .Order()
+                .ToArray()
+        };
+
+        await context.QueryExecutionHistory.AddAsync(skipped, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    // The run failed if any recipient was not notified: those recipients' Notification rows are removed, and the
+    // comment, shown to every reader of the history, names them with a generic reason each (never remote content).
+    private static async Task RecordFailedDeliveriesAsync(
+        BeaconContext context,
+        QueryExecutionHistory executedQuery,
+        IEnumerable<Notification> undelivered,
+        List<(int? RecipientId, string Reason)> failures,
+        CancellationToken cancellationToken)
+    {
+        foreach (var notification in undelivered)
+        {
+            executedQuery.Notifications.Remove(notification);
+            if (context.Entry(notification).State != EntityState.Detached)
+            {
+                context.Remove(notification);
+            }
+        }
+
+        // The recipients skipped as waiting for approval stay named, before the failures.
+        executedQuery.NotificationStatus = NotificationStatus.Failed;
+        executedQuery.Comment = string.Join(
+            " ",
+            new[] { executedQuery.Comment }
+                .Concat(failures.Select(x => $"Recipient {x.RecipientId}: {x.Reason}"))
+                .Where(x => !string.IsNullOrEmpty(x)));
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    // What a run loaded of its stored recipients, as the delivery check reads it; an address no stored recipient holds is
+    // not a governed recipient's.
+    private static List<RecipientCopy> CopiesOf(IEnumerable<Models.Recipients.RecipientData> recipients)
+    {
+        return recipients
+            .Where(x => x.RecipientId.HasValue)
+            .Select(x => new RecipientCopy(x.RecipientId!.Value, x.NotificationType, x.Destination, x.HeadersJson))
+            .ToList();
+    }
+
+    // Each recipient a delivery skipped because where it delivers waits for approval, logged by id only.
+    private void LogHeld(IEnumerable<int> held, string work, int workId)
+    {
+        foreach (var recipientId in held)
+        {
+            logger.LogWarning(
+                "Recipient {RecipientId} of {Work} {WorkId} was skipped: where it delivers waits for approval",
+                recipientId,
+                work,
+                workId);
+        }
+    }
+
+    // The run's comment naming each recipient it skipped because where it delivers waits for approval; null for none.
+    private static string? HeldComment(IReadOnlySet<int> held)
+    {
+        return held.Count == 0
+            ? null
+            : string.Join(" ", held.Order().Select(x => $"Recipient {x}: {NotificationFailureReasons.AwaitingApproval}"));
     }
 
     private NotificationStatus DetermineNotificationStatus(

@@ -1,18 +1,31 @@
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.DataMigration;
 
-internal sealed class GetMigrationJobHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetMigrationJobHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    MigrationWritePolicy writePolicy,
+    MigrationJobApprovalState approvalState)
     : IRequestHandler<GetMigrationJobQuery, MigrationJobListItem?>
 {
     public async Task<MigrationJobListItem?> Handle(GetMigrationJobQuery request, CancellationToken cancellationToken)
     {
+        writePolicy.DemandEnabled();
+
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await context.MigrationJobs
+        // A job whose data sources the caller cannot both read is not found, as in the list.
+        var job = await context.MigrationJobs
             .Where(x => x.Id == request.Id)
+            .WhereSourceAccessible(context, readable, x => x.DataSourceId)
+            .WhereSourceAccessible(context, readable, x => x.DestinationDataSourceId)
             .Select(x =>
                 new MigrationJobListItem
                 {
@@ -30,7 +43,19 @@ internal sealed class GetMigrationJobHandler(IDbContextFactory<BeaconContext> co
                     CreatedTime = x.CreatedTime,
                 })
             .FirstOrDefaultAsync(cancellationToken);
+        if (job == null)
+        {
+            return null;
+        }
+
+        var awaiting = await approvalState.AwaitingAsync(context, [job.Id], cancellationToken);
+
+        return awaiting.TryGetValue(job.Id, out var state)
+            ? job with { AwaitingApproval = true, PendingApprovalRequestId = state.PendingRequestId, LastApprovalDecision = state.LastDecision }
+            : job;
     }
 }
 
+/// <summary>One migration job, found only when the caller reads both of its data sources; only while the deployment runs migrations (409 otherwise).</summary>
+[ProjectScopeExempt("gated by the MigrationOperator permission; a job is found only when the caller reads both of its data sources", Policy = BeaconPermissions.MigrationOperatorPolicy)]
 public record GetMigrationJobQuery(int Id) : IRequest<MigrationJobListItem?>;

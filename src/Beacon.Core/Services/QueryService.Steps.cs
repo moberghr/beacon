@@ -4,6 +4,7 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -15,6 +16,7 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 
@@ -22,18 +24,27 @@ namespace Beacon.Core.Services;
 
 internal partial class QueryService
 {
+    /// <summary>Why a run whose final query ran out of time failed.</summary>
+    internal const string FinalQueryTimedOutMessage = "The final query timed out.";
+
+    /// <summary>What a save answers when, with the approval workflow on, it waits for approval.</summary>
+    internal const string SubmittedForApprovalMessage = "Changes submitted for approval";
+
+    /// <summary>What creating a query answers when, with the approval workflow on, its SQL waits for approval.</summary>
+    internal const string NewQuerySubmittedMessage = "Query created; its SQL was submitted for approval and runs once approved";
+
+    /// <summary>Why the single-step mutators are refused while the approval workflow is on.</summary>
+    internal const string StepMutatorRefusal =
+        "A query's steps are changed by saving the query, which the approval workflow reviews; changing one step directly is refused while the workflow is on.";
 
     public async Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        RefuseWhileApprovalWorkflowIsOn();
 
-        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5).
-        var dialect = await ResolveDataSourceDialect(context, stepData.DataSourceId, cancellationToken);
-        var rejection = readOnlyAstValidator.Validate(stepData.SqlValue, dialect);
-        if (rejection != null)
-        {
-            throw new InvalidOperationException(rejection);
-        }
+        // The save check: the execution gate and, where metadata exists, the source's own tables and columns (§1.5).
+        await EnsureStepsPassTheGateAsync([stepData], cancellationToken);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Stage parameters on the navigation collection so the step and its
         // parameters commit together in a single SaveChanges (§5.7).
@@ -60,15 +71,12 @@ internal partial class QueryService
 
     public async Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        RefuseWhileApprovalWorkflowIsOn();
 
-        // AST read-only gate: query-builder steps must be read-only SELECTs (§1.5).
-        var dialect = await ResolveDataSourceDialect(context, stepData.DataSourceId, cancellationToken);
-        var rejection = readOnlyAstValidator.Validate(stepData.SqlValue, dialect);
-        if (rejection != null)
-        {
-            throw new InvalidOperationException(rejection);
-        }
+        // The save check: the execution gate and, where metadata exists, the source's own tables and columns (§1.5).
+        await EnsureStepsPassTheGateAsync([stepData], cancellationToken);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var queryStep = await context.QuerySteps
             .Include(s => s.Parameters)
@@ -101,6 +109,8 @@ internal partial class QueryService
 
     public async Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken)
     {
+        RefuseWhileApprovalWorkflowIsOn();
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var queryStep = await context.QuerySteps
@@ -120,6 +130,15 @@ internal partial class QueryService
 
     // ===== PRIVATE HELPER METHODS FOR CROSS-DATA-SOURCE EXECUTION =====
 
+    // These write live steps without a version or a review: with the workflow on they would put unreviewed SQL live.
+    private void RefuseWhileApprovalWorkflowIsOn()
+    {
+        if (beaconConfiguration.ApprovalWorkflow.Enabled)
+        {
+            throw new BeaconConflictException(StepMutatorRefusal);
+        }
+    }
+
     private async Task<Query> GetQueryWithSteps(int queryId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -133,23 +152,58 @@ internal partial class QueryService
             .SingleAsync(cancellationToken);
     }
 
-    private async Task<QueryExecutionResult> ExecuteQuerySteps(Query query, string? finalQuery, List<ParameterValue>? parameters, CancellationToken cancellationToken)
+    /// <param name="pii">The settings to PII-mask by when the rows go on to recipients (a subscription run); null leaves
+    /// rows as the provider returned them (host-masked).</param>
+    /// <param name="statementTimeout">A shorter per-statement timeout than the runner's own (a subscription's), or null;
+    /// it bounds the final query on the in-memory join too.</param>
+    /// <param name="maxRows">The row ceiling of every statement in place of <see cref="ExecutionRowCeiling"/> (a
+    /// migration's own budget), or null.</param>
+    private async Task<QueryExecutionResult> ExecuteQuerySteps(
+        Query query,
+        string? finalQuery,
+        List<ParameterValue>? parameters,
+        McpSettingsData? pii,
+        TimeSpan? statementTimeout,
+        CancellationToken cancellationToken,
+        int? maxRows = null)
     {
         var stepResults = new List<QueryStepResult>();
-        using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>());
+        using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>())
+        {
+            StatementTimeoutSeconds = FinalQueryTimeout(statementTimeout)
+        };
         var totalExecutionTime = 0.0;
         var dataSourceExecutionTimes = new Dictionary<string, double>();
+        var dataSourceIdsRead = new List<int>();
+        var hasFinalQuery = !string.IsNullOrEmpty(finalQuery);
+        // Run order, as the content hash reads it: by step order, then by id for stored steps that share one.
+        var steps = query.Steps
+            .OrderBy(x => x.StepOrder)
+            .ThenBy(x => x.Id)
+            .ToList();
+        // The steps' PII result columns (the SQL's PII names and host-masked columns, and with detection on their own names
+        // and their SQL's aliasing): the final query reads them back by name, and its result columns filled from them are
+        // masked (lineage).
+        var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         logger.LogInformation("Executing query chain {QueryId}: {StepCount} steps across {DataSourceCount} data sources",
             query.Id, query.Steps.Count, query.DataSourceIds.Count);
 
         // Execute each step against its own database
-        foreach (var step in query.Steps.OrderBy(s => s.StepOrder))
+        foreach (var step in steps)
         {
-            logger.LogDebug("Executing step {StepOrder} against data source {DataSourceName} ({DatabaseEngine})",
-                step.StepOrder, step.DataSource.Name, step.DataSource.DatabaseEngineType);
+            logger.LogDebug("Executing step {StepOrder} against data source {DataSourceId} ({DatabaseEngine})",
+                step.StepOrder, step.DataSourceId, step.DataSource.DatabaseEngineType);
 
-            var stepResult = await ExecuteStep(step, parameters);
+            dataSourceIdsRead.Add(step.DataSourceId);
+
+            // Rows that feed the final query stay as read inside the in-memory join, which they never leave: masked, two
+            // distinct keys could mask alike (two e-mail addresses, an address_id) and join as equal. The final query's
+            // rows are masked by their lineage instead. Without a final query the rows are masked here, the result's also
+            // by their own column names and aliases.
+            var isResultStep = !hasFinalQuery && step == steps[^1];
+            var masking = pii == null ? null : new StepMasking(pii, isResultStep, FeedsJoin: hasFinalQuery);
+            var (stepResult, run) = await ExecuteStep(step, parameters, masking, statementTimeout, cancellationToken, maxRows);
             stepResults.Add(stepResult);
             totalExecutionTime += stepResult.ExecutionTimeMs;
 
@@ -159,6 +213,18 @@ internal partial class QueryService
 
             if (stepResult.Success)
             {
+                if (pii != null && hasFinalQuery)
+                {
+                    joinPiiColumns.UnionWith(PiiRowMasker.ResolvePiiColumns(
+                        guardrail,
+                        stepResult.AllResults.SelectMany(x => x.Keys),
+                        run.Report.PiiColumns,
+                        pii.EnablePiiDetection,
+                        CustomPatterns(pii),
+                        run.Report.FinalSql,
+                        run.Dialect));
+                }
+
                 // Add results to virtual table manager with data source context
                 var dataSourceInfo = new ProjectInfo
                 {
@@ -171,7 +237,7 @@ internal partial class QueryService
             }
             else
             {
-                logger.LogError("Step {StepOrder} failed: {ErrorMessage}", step.StepOrder, stepResult.ErrorMessage);
+                logger.LogError("Step {StepOrder} of query {QueryId} failed", step.StepOrder, query.Id);
                 break; // Stop execution on first failure
             }
         }
@@ -179,9 +245,9 @@ internal partial class QueryService
         QueryResult? finalResult = null;
         bool allStepsSucceeded = stepResults.All(s => s.Success);
 
-        if (!string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
+        if (hasFinalQuery && allStepsSucceeded)
         {
-            finalResult = await ExecuteFinalQuery(finalQuery, virtualTableManager, cancellationToken);
+            finalResult = await ExecuteFinalQuery(finalQuery!, virtualTableManager, pii, joinPiiColumns, cancellationToken, maxRows);
             totalExecutionTime += finalResult.ExecutionTimeMs;
         }
         else if (query.Steps.Count == 1 && string.IsNullOrEmpty(finalQuery) && allStepsSucceeded)
@@ -205,6 +271,10 @@ internal partial class QueryService
             IsCrossDataSource = query.IsCrossDataSource,
             IsCrossDatabase = query.IsCrossDatabase,
             DataSourcesInvolved = stepResults.Select(s => s.DataSourceName).Distinct().ToList(),
+            DataSourceIds = dataSourceIdsRead
+                .Distinct()
+                .Order()
+                .ToList(),
             DatabaseEnginesUsed = stepResults
                 .Select(s => s.DatabaseEngineType)
                 .Distinct()
@@ -235,56 +305,63 @@ internal partial class QueryService
         return executionResult;
     }
 
-    private async Task<QueryStepResult> ExecuteStep(QueryStep step, List<ParameterValue>? parameters)
+    /// <summary>How a subscription run's step is PII-screened: its SQL by <paramref name="Settings"/> always; its rows,
+    /// unless they <paramref name="FeedsJoin"/> (kept as read for the in-memory join, whose result is masked by lineage),
+    /// by the SQL's PII columns and, when <paramref name="ByResultColumns"/> (the rows delivered as the result), by
+    /// result-column names and aliases.</summary>
+    private sealed record StepMasking(McpSettingsData Settings, bool ByResultColumns, bool FeedsJoin);
+
+    /// <summary>
+    /// Runs one step through <see cref="GatedSqlRunner"/>: the gate judges the text that runs (placeholders bound — values
+    /// travel as parameters, never in the text — and flattened), caps it at the row ceiling + 1 rows in the SQL
+    /// (<paramref name="rowCeiling"/>, else <see cref="ExecutionRowCeiling"/>), and the provider runs it on its read-only
+    /// path. More rows than the ceiling fail the step instead of feeding a silently incomplete result. Also re-checks steps
+    /// persisted before the save check existed (§1.5).
+    /// </summary>
+    private async Task<(QueryStepResult Result, GatedSqlRun Run)> ExecuteStep(
+        QueryStep step,
+        List<ParameterValue>? parameters,
+        StepMasking? masking,
+        TimeSpan? statementTimeout,
+        CancellationToken cancellationToken,
+        int? rowCeiling = null)
     {
+        var ceiling = rowCeiling ?? ExecutionRowCeiling;
         if (!step.DataSource.DatabaseEngineType.HasValue)
             throw new BeaconException($"Data source {step.DataSourceId} is not a database type");
 
         var stepParameters = ExtractStepParameters(step, parameters);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
 
-        // Both gates judge the text that actually runs: bound ({placeholders} are not SQL — values travel as
-        // parameters, never in the text) and flattened the way ExecuteQueryAsync flattens it.
-        var executedSql = FlattenSql(parameterizedSql);
+        var run = await sqlRunner.RunAsync(
+            new GatedSqlRequest(step.DataSource, StoredSql.Flatten(parameterizedSql, DataSourceSqlDialect.Of(step.DataSource)), sqlParameters, ceiling + 1, masking?.Settings, statementTimeout),
+            cancellationToken);
 
-        // Defense-in-depth: reject non-read-only SQL even for steps persisted before the
-        // AddQueryStep/UpdateQueryStep gate shipped (§1.5). Runs before any DB round-trip.
-        var rejection = readOnlyAstValidator.Validate(executedSql, step.DataSource.DatabaseEngineType?.ToString());
-        if (rejection != null)
+        var errorMessage = run.TimedOut
+            ? "Step execution timed out"
+            : run.Rows.Count > ceiling
+                ? $"Step {step.StepOrder} returned more than {ceiling} rows (the {RowLimitSetting(rowCeiling)} limit); filter or aggregate it so the result fits."
+                : null;
+
+        var rows = errorMessage != null ? [] : run.Rows;
+        if (masking is { FeedsJoin: false } && rows.Count > 0)
         {
-            throw new InvalidOperationException(rejection);
+            // Mask before the rows leave the step (§1.6/§1.11): the SQL-text matches and host-masked columns always, the
+            // result-column names and aliases on the delivered result. Rows for the in-memory join stay as the provider
+            // returned them (host-masked).
+            rows = PiiRowMasker.Mask(
+                guardrail,
+                rows,
+                run.Report.PiiColumns,
+                masking.ByResultColumns && masking.Settings.EnablePiiDetection,
+                CustomPatterns(masking.Settings),
+                run.Report.FinalSql,
+                run.Dialect);
         }
 
-        // Host-managed sources (ExposeDbContext): allow-listed tables and exposed columns only, with every parameter
-        // the statement uses supplied.
-        var hostCheck = hostGuard.Check(step.DataSource, executedSql);
-        var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(sqlParameters) : hostCheck.Error;
-        if (hostError != null)
-        {
-            throw new InvalidOperationException(hostError);
-        }
-
-        // Each step executes against its own data source/database
-        var (results, executionTimeMs, timedOut) = await ExecuteQueryAsync(
-            step.DataSource.DatabaseEngineType.Value,   // Each step can be different engine type!
-            connectionResolver.GetConnectionString(step.DataSource),     // Each step connects to different database
-            parameterizedSql,
-            sqlParameters,
-            null // Use default timeout
-        );
-
-        if (hostCheck.MaskedOutputColumns.Count > 0)
-        {
-            var masked = hostGuard.Mask(
-                results
-                    .Select(x => new Dictionary<string, object?>(x))
-                    .ToList(),
-                hostCheck.MaskedOutputColumns);
-
-            results = masked
-                .Select(x => (IDictionary<string, object?>)x)
-                .ToList();
-        }
+        var results = rows
+            .Select(x => (IDictionary<string, object?>)x)
+            .ToList();
 
         var stepResult = new QueryStepResult
         {
@@ -297,36 +374,97 @@ internal partial class QueryService
             PreviewResults = results.Take(10).ToList(),
             AllResults = results,
             TotalRows = results.Count,
-            ExecutionTimeMs = executionTimeMs,
-            Success = !timedOut,
-            ErrorMessage = timedOut ? "Step execution timed out" : null
+            ExecutionTimeMs = run.ExecutionTimeMs,
+            Success = errorMessage == null,
+            ErrorMessage = errorMessage
         };
 
         // Log manual query execution for step preview
         await queryExecutionLogger.LogQueryExecutionAsync(
             queryText: parameterizedSql,
             resultCount: results.Count,
-            executionTimeMs: executionTimeMs,
-            success: !timedOut,
+            executionTimeMs: run.ExecutionTimeMs,
+            success: errorMessage == null,
             dataSourceId: step.DataSourceId,
             executionContext: "QueryStepPreview",
-            errorMessage: timedOut ? "Step execution timed out" : null,
+            errorMessage: errorMessage,
             userId: userContext.UserId,
             cancellationToken: CancellationToken.None);
 
-        return stepResult;
+        return (stepResult, run);
     }
 
-    private async Task<QueryResult> ExecuteFinalQuery(string finalQuery, VirtualTableManager virtualTableManager, CancellationToken cancellationToken)
+    /// <summary>
+    /// The final query on the in-memory SQLite store, behind the same gate (regex guardrail, read-only AST, the row cap) as
+    /// the steps. A statement that times out, and a result above the ceiling, fail the run — a timed-out statement has no
+    /// rows, and an empty result would read as a success to a subscription, a preview or a migration about to write; with
+    /// <paramref name="pii"/> the rows are masked by the lineage of the steps' PII columns (<paramref name="joinPiiColumns"/>)
+    /// — every result column the final query fills from one, by its name, an alias or an expression over it, and every
+    /// result column where its select list cannot be traced — whatever the detection setting, and with detection on also
+    /// by the final SQL's own matches, PII-named result columns and its aliases.
+    /// </summary>
+    private async Task<QueryResult> ExecuteFinalQuery(
+        string finalQuery,
+        VirtualTableManager virtualTableManager,
+        McpSettingsData? pii,
+        IReadOnlySet<string> joinPiiColumns,
+        CancellationToken cancellationToken,
+        int? rowCeiling = null)
     {
+        var ceiling = rowCeiling ?? ExecutionRowCeiling;
         logger.LogInformation("Using in-memory SQLite database for final query execution");
         var inMemoryDbLogger = loggerFactory.CreateLogger<InMemoryDatabaseManager>();
-        return await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabase(
+        var result = await virtualTableManager.ExecuteFinalQueryWithInMemoryDatabase(
             finalQuery,
-            readOnlyAstValidator,
+            x => gate.Evaluate(JoinGateRequest(x, pii, rowCeiling)),
             inMemoryDbLogger,
             cancellationToken);
+
+        if (result.TimedOut)
+        {
+            throw new BeaconException(FinalQueryTimedOutMessage);
+        }
+
+        if (result.AllRecords.Count > ceiling)
+        {
+            throw new BeaconException($"The final query returned more than {ceiling} rows (the {RowLimitSetting(rowCeiling)} limit); filter or aggregate it so the result fits.");
+        }
+
+        if (pii == null || result.AllRecords.Count == 0)
+        {
+            return result;
+        }
+
+        var report = gate.Evaluate(JoinGateRequest(InMemoryDatabaseManager.TranslateResultReferences(finalQuery), pii, rowCeiling));
+        var rows = result.AllRecords
+            .Select(x => new Dictionary<string, object?>(x))
+            .ToList();
+        var lineage = PiiRowMasker.ResolveLineage(
+            rows.SelectMany(x => x.Keys),
+            joinPiiColumns,
+            report.FinalSql,
+            nameof(DatabaseEngineType.SQLite));
+        var masked = PiiRowMasker.Mask(
+                guardrail,
+                rows,
+                report.PiiColumns.Concat(lineage),
+                pii.EnablePiiDetection,
+                CustomPatterns(pii),
+                report.FinalSql,
+                nameof(DatabaseEngineType.SQLite))
+            .Select(x => (IDictionary<string, object?>)x)
+            .ToList();
+
+        result.AllRecords = masked;
+        result.TopRecords = masked
+            .Take(result.TopRecords.Count)
+            .ToList();
+
+        return result;
     }
+
+    private static IReadOnlyList<string>? CustomPatterns(McpSettingsData settings) =>
+        settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
 
     private QueryResult ConvertStepToQueryResult(QueryStepResult stepResult, Query query)
     {
@@ -346,12 +484,6 @@ internal partial class QueryService
         };
     }
 
-    private async Task<DataSource> GetDataSource(int dataSourceId, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await context.DataSources.Where(ds => ds.Id == dataSourceId).SingleAsync(cancellationToken);
-    }
-
     private List<SubscriptionParameterData> ExtractStepParameters(QueryStep step, List<ParameterValue>? parameters)
     {
         if (parameters == null || !parameters.Any())
@@ -368,14 +500,21 @@ internal partial class QueryService
         }).ToList();
     }
 
-    private async Task<string?> ResolveDataSourceDialect(BeaconContext context, int dataSourceId, CancellationToken cancellationToken)
+    // The setting that sets a run's row limit, for an over-limit message: the general cap, or a migration's own budget
+    // (the only caller that passes its own ceiling).
+    private static string RowLimitSetting(int? rowCeiling)
     {
-        var engineType = await context.DataSources
-            .Where(x => x.Id == dataSourceId)
-            .Select(x => x.DatabaseEngineType)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return engineType?.ToString();
+        return rowCeiling == null
+            ? $"{QueryExecutionOptions.SectionName}:{nameof(QueryExecutionOptions.MaxExecutionRows)}"
+            : $"{MigrationOptions.SectionName}:{nameof(MigrationOptions.MaxRows)}";
     }
 
+    // The final query is one of the run's statements: a shorter timeout of the run's own (a subscription's) bounds it as it
+    // bounds each step — never a longer one than the deployment's.
+    private int FinalQueryTimeout(TimeSpan? statementTimeout)
+    {
+        return statementTimeout is { } requested && requested > TimeSpan.Zero && requested.TotalSeconds < FinalQueryTimeoutSeconds
+            ? (int)Math.Ceiling(requested.TotalSeconds)
+            : FinalQueryTimeoutSeconds;
+    }
 }

@@ -105,7 +105,9 @@ public class SchemaRelationshipEndpointTests
     public async Task GetSchemaRelationships_InvalidDataSourceId_ThrowsBeforeTouchingTheDatabase()
     {
         var handler = new GetSchemaRelationshipsHandler(
-            Mock.Of<Microsoft.EntityFrameworkCore.IDbContextFactory<Core.Data.BeaconContext>>());
+            Mock.Of<Microsoft.EntityFrameworkCore.IDbContextFactory<Core.Data.BeaconContext>>(),
+            Mock.Of<Core.Authorization.IProjectAccessEvaluator>(),
+            Mock.Of<Core.Authorization.IBeaconPermissionAccessor>());
 
         var act = async () => await handler.Handle(new GetSchemaRelationshipsQuery { DataSourceId = 0 }, CancellationToken.None);
 

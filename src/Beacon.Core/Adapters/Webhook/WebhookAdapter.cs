@@ -3,11 +3,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
-using Beacon.Core.Models;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Webhook;
 
-internal class WebhookAdapter(IHttpClientFactory httpClientFactory, BeaconConfiguration configuration, ILogger<WebhookAdapter> logger) : IAdapter
+internal class WebhookAdapter(
+    NotificationHttpSender sender,
+    NotificationDestinationPolicy destinationPolicy,
+    BeaconConfiguration configuration,
+    ILogger<WebhookAdapter> logger) : IAdapter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,9 +26,6 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, BeaconConfig
         int? lastNotificationResultCount,
         CancellationToken cancellationToken = default)
     {
-        var client = httpClientFactory.CreateClient();
-        var queryResult = recipientQueryResult.QueryResult;
-
         string bodyContent;
         if (!string.IsNullOrWhiteSpace(recipientQueryResult.BodyTemplate))
         {
@@ -46,34 +47,11 @@ internal class WebhookAdapter(IHttpClientFactory httpClientFactory, BeaconConfig
 
         var content = new StringContent(bodyContent, Encoding.UTF8, System.Net.Mime.MediaTypeNames.Application.Json);
 
-        if (!string.IsNullOrEmpty(recipientQueryResult.HeadersJson))
-        {
-            try
-            {
-                var headers = JsonSerializer.Deserialize<Dictionary<string, string>>(recipientQueryResult.HeadersJson);
-                if (headers != null)
-                {
-                    foreach (var (key, value) in headers)
-                    {
-                        client.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-                    }
-                }
-            }
-            catch (JsonException ex)
-            {
-                logger.LogWarning(ex, "Failed to parse custom headers JSON for webhook recipient");
-            }
-        }
+        // Checked against the header allow-list when saved and again here (NotificationService already refused a
+        // recipient whose stored headers fail it).
+        var headers = destinationPolicy.ParseHeaders(recipientQueryResult.HeadersJson);
 
-        var response = await client.PostAsync(recipientQueryResult.RecipientDestination, content, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            logger.LogError("Webhook returned error {StatusCode}: {ErrorBody}", response.StatusCode, errorBody);
-            throw new BeaconException(
-                $"Failed to send Webhook notification: {response.StatusCode}. {errorBody}");
-        }
+        await sender.PostAsync(NotificationType.Webhook, recipientQueryResult.RecipientDestination, content, headers, cancellationToken);
     }
 
     private string BuildDefaultPayload(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)

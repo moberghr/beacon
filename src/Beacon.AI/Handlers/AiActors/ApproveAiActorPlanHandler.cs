@@ -1,14 +1,22 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.Core;
+using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Handlers.AiActors;
 
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class ApproveAiActorPlanHandler(
     IAiActorServiceExtended aiActorService,
-    ILogger<ApproveAiActorPlanHandler> logger)
+    ILogger<ApproveAiActorPlanHandler> logger,
+    IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
+    IDbContextFactory<BeaconContext> contextFactory,
+    BeaconConfiguration configuration)
     : IRequestHandler<ApproveAiActorPlanCommand, ApproveAiActorPlanResult>
 {
     public async Task<ApproveAiActorPlanResult> Handle(
@@ -18,10 +26,17 @@ internal sealed class ApproveAiActorPlanHandler(
         logger.LogInformation("Approving plan {PlanId} by user {UserId}",
             request.PlanId, request.UserId);
 
+        // Approving runs the plan's actions against queries and subscriptions: the actor's creator's or an Admin's, and with
+        // the approval workflow on an Approver's other than the creator.
+        await AiActorOwnership.EnsureMayApprovePlanAsync(actorAccessor, permissionAccessor, contextFactory, configuration, request.PlanId, logger, cancellationToken);
+
+        // The reviewer the plan records is the caller as Beacon names them (Users.ExternalId), never an id the request
+        // carries: the query changes the approval submits compare it with their own approvers.
+        var reviewer = await actorAccessor.GetCurrentAsync(cancellationToken);
         var options = new ApprovePlanOptions
         {
             PlanId = request.PlanId,
-            UserId = request.UserId,
+            UserId = reviewer.UserId,
             Comment = request.Comment
         };
 

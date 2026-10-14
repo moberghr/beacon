@@ -9,6 +9,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostDocs;
+using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -58,8 +59,14 @@ internal sealed class ProjectGetDocumentationTool(
             }
         }
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
-        if (resolveError != null) return ToolHelper.Error(resolveError);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "get_documentation", project_id, out var projectId);
+        if (resolveError != null)
+        {
+            sw.Stop();
+            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
+            return ToolHelper.Error(resolveError);
+        }
 
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try
@@ -99,7 +106,14 @@ internal sealed class ProjectGetDocumentationTool(
             if (!string.IsNullOrEmpty(datasource_name))
             {
                 var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
-                if (nameError != null) return ToolHelper.Error(nameError);
+                if (nameError != null)
+                {
+                    sw.Stop();
+                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                        datasource_name, null, projectId, (int)sw.ElapsedMilliseconds, null, nameError, ct: cancellationToken);
+                    return ToolHelper.Error(nameError);
+                }
+
                 dsId = resolvedId;
             }
 
@@ -108,11 +122,23 @@ internal sealed class ProjectGetDocumentationTool(
             {
                 dsId = await FindDataSourceForTableAsync(projectId, table_name, schema_name, cancellationToken);
                 if (dsId == null)
-                    return ToolHelper.Error($"Could not find table '{table_name}' in any data source of this project.");
+                {
+                    var tableError = $"Could not find table '{table_name}' in any data source of this project.";
+                    sw.Stop();
+                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                        table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, tableError, ct: cancellationToken);
+                    return ToolHelper.Error(tableError);
+                }
             }
 
             if (dsId == null)
-                return ToolHelper.Error("Could not resolve data source.");
+            {
+                const string unresolvedError = "Could not resolve data source.";
+                sw.Stop();
+                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    datasource_name ?? table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, unresolvedError, ct: cancellationToken);
+                return ToolHelper.Error(unresolvedError);
+            }
 
             // Table- and data-source-level docs are bounded — detailed is the default there.
             var includeDetailSections = (format ?? "detailed") == "detailed";
@@ -123,11 +149,11 @@ internal sealed class ProjectGetDocumentationTool(
                 var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, cancellationToken);
                 if (string.IsNullOrEmpty(schema_name))
                     schema_name = resolvedSchema;
-                result = await GetTableDocumentationAsync(dsId.Value, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
+                result = await GetTableDocumentationAsync(dsId.Value, projectId, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
             }
             else
             {
-                result = await GetDataSourceDocumentationAsync(dsId.Value, includeDetailSections, cancellationToken);
+                result = await GetDataSourceDocumentationAsync(dsId.Value, projectId, includeDetailSections, cancellationToken);
             }
 
             sw.Stop();
@@ -150,6 +176,7 @@ internal sealed class ProjectGetDocumentationTool(
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var projectDsIds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -307,13 +334,14 @@ internal sealed class ProjectGetDocumentationTool(
             + "\n\n_Truncated (concise). Pass response_format: \"detailed\" for the full document._\n";
     }
 
-    private async Task<string> GetTableDocumentationAsync(int dataSourceId, string schemaName, string tableName, bool isApi, bool includeDetailSections, CancellationToken ct)
+    // Documentation and code references come from the resolved (pinned) project only, even on a shared data source.
+    private async Task<string> GetTableDocumentationAsync(int dataSourceId, int projectId, string schemaName, string tableName, bool isApi, bool includeDetailSections, CancellationToken ct)
     {
-        var knowledgeTask = knowledgeGraph.GetTableKnowledgeAsync(dataSourceId, schemaName, tableName, ct);
+        var knowledgeTask = knowledgeGraph.GetTableKnowledgeAsync(dataSourceId, projectId, schemaName, tableName, ct);
 
         // Concise omits the lineage section entirely, so skip the lookup as well.
         var lineageTask = includeDetailSections
-            ? knowledgeGraph.GetLineageAsync(dataSourceId, schemaName, tableName, ct)
+            ? knowledgeGraph.GetLineageAsync(dataSourceId, projectId, schemaName, tableName, ct)
             : null;
 
         var knowledge = await knowledgeTask;
@@ -471,13 +499,14 @@ internal sealed class ProjectGetDocumentationTool(
         return text;
     }
 
-    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, bool includeDetailSections, CancellationToken ct)
+    private async Task<string> GetDataSourceDocumentationAsync(int dataSourceId, int projectId, bool includeDetailSections, CancellationToken ct)
     {
-        var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, ct);
+        // Code references and documentation are counted, and the detailed context built, in the caller's project only.
+        var knowledgeTask = knowledgeGraph.GetDataSourceKnowledgeAsync(dataSourceId, projectId, ct);
 
         // Concise omits the "Detailed Context" section entirely, so skip the lookup as well.
         var llmContextTask = includeDetailSections
-            ? knowledgeGraph.GetContextForLlmAsync(dataSourceId, ct: ct)
+            ? knowledgeGraph.GetContextForLlmAsync(dataSourceId, projectId, ct: ct)
             : null;
 
         var knowledge = await knowledgeTask;

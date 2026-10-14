@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Services;
@@ -112,7 +113,7 @@ internal sealed partial class McpAuditService(
             // tool call, but log at Error so a sustained audit-sink outage is operationally visible. The outcome
             // flag lets McpAuditCallToolFilter withhold the result when the deployment requires the audit.
             outcome.Failed = true;
-            logger.LogError(ex, "Failed to log MCP audit entry for tool {Tool}", BoundedToolName(tool));
+            logger.LogError("Failed to log MCP audit entry for tool {Tool} ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
         }
 
         EmitTelemetry(entry, persisted, retainContent, tool, userId, projectId, dataSourceId, executionTimeMs,
@@ -133,7 +134,7 @@ internal sealed partial class McpAuditService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Content retention settings unavailable for project {ProjectId}; auditing structurally.", projectId);
+            logger.LogWarning("Content retention settings unavailable for project {ProjectId}; auditing structurally ({Failure}).", projectId, FailureCodes.Describe(ex));
 
             return false;
         }
@@ -226,7 +227,7 @@ internal sealed partial class McpAuditService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to emit MCP audit telemetry for tool {Tool}", BoundedToolName(tool));
+            logger.LogWarning("Failed to emit MCP audit telemetry for tool {Tool} ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
         }
     }
 

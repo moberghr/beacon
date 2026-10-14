@@ -247,7 +247,6 @@ public class SmtpEmailAdapter : IEmailAdapter
     "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
   },
   "Beacon": {
-    "EncryptionKey": "YourSecure32CharacterEncryptionKey!",
     "BaseUrl": "https://your-domain.com/beacon"
   }
 }
@@ -258,7 +257,10 @@ public class SmtpEmailAdapter : IEmailAdapter
 | Key | Required | Description |
 |-----|----------|-------------|
 | `ConnectionStrings:BeaconContext` | Yes | Database connection string |
-| `Beacon:EncryptionKey` | No | 32-character key for encrypting connection strings (has default) |
+| `Beacon:EncryptionKey` | Yes | Base64 of at least 32 random bytes (`openssl rand -base64 32`), from user-secrets, `Beacon__EncryptionKey` or a secret store; refused at startup when missing, short, a passphrase, a published value or a `${...}` placeholder |
+| `Beacon:PreviousEncryptionKeys` | No | Earlier keys, decrypt only, while stored values move to the new key (`IStoredValueReEncryptionService`) |
+| `Beacon:Mcp:CallerHashKey` | No | Secret the MCP caller subject hashes derive from; defaults to the encryption key (set it to the current key before rotating it) |
+| `Beacon:DataProtection:AllowUnencryptedKeys` | No | Acknowledges a key ring persisted without encryption outside Development (Warning instead of a startup failure) |
 | `Beacon:BaseUrl` | No | Base URL for notification "View Results" links |
 
 ---
@@ -383,12 +385,19 @@ ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 Connection strings stored in DataSource entities are encrypted using AES encryption.
 
 ```csharp
-// Encryption key from configuration
-var encryptionKey = configuration["Beacon:EncryptionKey"]
-    ?? "DefaultKey_ChangeInProduction_MustBe32CharsLong!";
+// Encryption key from configuration, checked by EncryptionKeyRequirements (no default)
+var encryptionKey = configuration["Beacon:EncryptionKey"] ?? string.Empty;
+// A list, or a single value read as one key (startup warns)
+var previousEncryptionKeys = PreviousEncryptionKeys(configuration);
 
-services.AddSingleton<IEncryptionService>(new EncryptionService(encryptionKey));
+services.AddSingleton<IEncryptionService>(x => new EncryptionService(
+    encryptionKey,
+    previousEncryptionKeys,
+    x.GetService<ILogger<EncryptionService>>()));
+services.TryAddTransient<IStoredValueReEncryptionService, StoredValueReEncryptionService>();
 ```
+
+Values only a previous key decrypts are moved to the current key by `IStoredValueReEncryptionService` (the sample host enqueues `ReEncryptStoredValuesJob` at startup while a previous key is configured).
 
 **Usage in services:**
 ```csharp
@@ -455,7 +464,6 @@ Beacon/
     "BeaconContext": "Host=localhost;Database=beacon_dev;..."
   },
   "Beacon": {
-    "EncryptionKey": "DevKey_32CharactersLongForAES256!",
     "BaseUrl": "https://localhost:7187/beacon"
   }
 }
@@ -469,10 +477,9 @@ Beacon/
     "BeaconContext": "Host=prod-server;Database=beacon;..."
   },
   "Beacon": {
-    "EncryptionKey": "${BEACON_ENCRYPTION_KEY}",
     "BaseUrl": "https://your-production-domain.com/beacon"
   }
 }
 ```
 
-Use environment variables or secrets manager for sensitive values in production.
+The encryption key is never in these files: user-secrets in Development, the `Beacon__EncryptionKey` environment variable or a secrets manager in production (.NET configuration does not expand `${...}`).

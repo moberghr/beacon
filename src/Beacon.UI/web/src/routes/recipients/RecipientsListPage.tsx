@@ -7,6 +7,7 @@ import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatNumber } from '@/lib/format';
+import { useAccess } from '@/auth/useAuth';
 import {
   NOTIFICATION_TYPE_LABEL,
   useDeleteRecipient,
@@ -14,6 +15,8 @@ import {
   type RecipientEntry,
 } from './queries';
 import { RecipientDialog } from './RecipientDialog';
+import { AwaitingApprovalPill, RejectedChangeNote } from '../approvals/AwaitingApproval';
+import { ChangeApprovalKind } from '@/lib/enums';
 
 const GRID_TEMPLATE = '0.6fr 1.4fr 1.6fr 0.9fr 1.6fr 0.6fr 60px';
 
@@ -21,6 +24,9 @@ export default function RecipientsListPage() {
   const list = useRecipientsList();
   const { data, isLoading, isError, error, refetch } = list;
   const deleteMutation = useDeleteRecipient();
+  // Only a SecurityAdmin (or an Admin) creates, edits or deletes recipients (the server enforces it); others list names
+  // and types.
+  const canManage = useAccess().hasPermission('SecurityAdmin');
 
   const [editing, setEditing] = useState<RecipientEntry | null | undefined>(undefined); // undefined = closed
   const [deleting, setDeleting] = useState<RecipientEntry | null>(null);
@@ -32,13 +38,41 @@ export default function RecipientsListPage() {
       key: 'name',
       sortKey: 'name',
       header: 'Name',
-      render: r => <span className="font-semibold text-text">{r.name}</span>,
+      render: r => (
+        <span className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-2">
+            <span className="font-semibold text-text">{r.name}</span>
+            {r.awaitingApproval && (
+              <AwaitingApprovalPill
+                kind={ChangeApprovalKind.RecipientDestination}
+                requestId={r.pendingApprovalRequestId}
+                lastDecision={r.lastApprovalDecision}
+              />
+            )}
+          </span>
+          {r.awaitingApproval && (
+            <RejectedChangeNote
+              kind={ChangeApprovalKind.RecipientDestination}
+              requestId={r.pendingApprovalRequestId}
+              lastDecision={r.lastApprovalDecision}
+            />
+          )}
+        </span>
+      ),
     },
     {
       key: 'destination',
-      sortKey: 'destination',
       header: 'Destination',
-      render: r => <span className="mono text-xs">{r.destination}</span>,
+      render: r => r.secretsUnreadable
+        ? <Pill tone="crit" title="The stored destination or headers cannot be read. Open the recipient and enter them again.">Re-enter destination</Pill>
+        : r.destination
+          ? (
+            <span className="flex flex-col gap-0.5">
+              <span className="mono text-xs">{r.destination}</span>
+              <Fingerprints recipient={r} />
+            </span>
+          )
+          : <span className="text-text-muted">—</span>,
     },
     {
       key: 'type',
@@ -62,17 +96,19 @@ export default function RecipientsListPage() {
     {
       key: 'actions',
       header: '',
-      render: r => (
-        <Button
-          variant="ghost"
-          aria-label={`Delete ${r.name}`}
-          onClick={e => { e.stopPropagation(); setDeleting(r); }}
-          title="Delete recipient"
-          icon={<X />}
-        />
-      ),
+      render: r => canManage
+        ? (
+          <Button
+            variant="ghost"
+            aria-label={`Delete ${r.name}`}
+            onClick={e => { e.stopPropagation(); setDeleting(r); }}
+            title="Delete recipient"
+            icon={<X />}
+          />
+        )
+        : null,
     },
-  ], []);
+  ], [canManage]);
 
   const onConfirmDelete = async () => {
     if (deleting == null) return;
@@ -100,9 +136,11 @@ export default function RecipientsListPage() {
             <Button onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
               Refresh
             </Button>
-            <Button variant="primary" onClick={() => setEditing(null)} icon={<Plus />}>
-              Add recipient
-            </Button>
+            {canManage && (
+              <Button variant="primary" onClick={() => setEditing(null)} icon={<Plus />}>
+                Add recipient
+              </Button>
+            )}
           </>
         }
       />
@@ -126,7 +164,7 @@ export default function RecipientsListPage() {
             <input
               type="search"
               className="w-full bg-surface text-text border border-border-strong rounded-sm px-2.5 py-1.5 text-sm placeholder:text-text-subtle focus:border-brand-500 focus:outline-none focus:shadow-ring"
-              placeholder="Search by name, destination, or description"
+              placeholder="Search by name or description"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -138,12 +176,16 @@ export default function RecipientsListPage() {
             {...list.tableProps}
             rowKey={r => r.id}
             gridTemplate={GRID_TEMPLATE}
-            onRowClick={r => setEditing(r)}
+            onRowClick={canManage ? r => setEditing(r) : undefined}
             empty={
               <EmptyState
                 icon={<Users />}
                 title={isLoading ? 'Loading recipients…' : 'No recipients yet'}
-                description={isLoading ? '' : 'Add a recipient so subscriptions have somewhere to send alerts.'}
+                description={isLoading
+                  ? ''
+                  : canManage
+                    ? 'Add a recipient so subscriptions have somewhere to send alerts.'
+                    : 'An Admin or a SecurityAdmin adds recipients; you can then attach them to subscriptions.'}
               />
             }
           />
@@ -171,5 +213,27 @@ export default function RecipientsListPage() {
         onCancel={() => setDeleting(null)}
       />
     </div>
+  );
+}
+
+/**
+ * Shown to those who change recipients: short keyed fingerprints of where the recipient delivers and of each header
+ * value, the same an Approver is shown, so the two can compare them out of band. Equal fingerprints mean equal values.
+ */
+function Fingerprints({ recipient }: { recipient: RecipientEntry }) {
+  if (!recipient.definitionFingerprint) {
+    return null;
+  }
+
+  return (
+    <span className="text-2xs text-text-muted" aria-label={`Fingerprints of ${recipient.name}`}>
+      Fingerprint <span className="mono">{recipient.definitionFingerprint}</span>
+      {(recipient.headerFingerprints ?? []).map(x => (
+        <span key={x.name}>
+          {' · '}
+          {x.name} <span className="mono">{x.fingerprint}</span>
+        </span>
+      ))}
+    </span>
   );
 }

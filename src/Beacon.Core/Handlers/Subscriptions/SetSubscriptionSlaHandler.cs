@@ -1,6 +1,7 @@
 using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -38,4 +39,10 @@ internal sealed class SetSubscriptionSlaHandler(IDbContextFactory<BeaconContext>
     }
 }
 
-public record SetSubscriptionSlaCommand(int SubscriptionId, int? SlaHours) : IRequest;
+public record SetSubscriptionSlaCommand(int SubscriptionId, int? SlaHours) : IRequest, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Subscription(SubscriptionId), ProjectAction.Write)
+    ];
+}

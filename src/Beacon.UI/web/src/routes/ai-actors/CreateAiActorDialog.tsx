@@ -62,7 +62,6 @@ export function CreateAiActorDialog({ open, onClose, initialDataSourceId }: Crea
         additionalContext: v.additionalContext.trim() || null,
         maxQueries: v.maxQueries,
         maxSubscriptionsPerQuery: null,
-        createdByUserId: null,
         defaultRecipientIds: null,
         activateImmediately: v.activateImmediately,
       });

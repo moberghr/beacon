@@ -345,6 +345,11 @@ export default function McpPlaygroundPage() {
               onChange={e => setCorrectedSql(e.target.value)}
               placeholder="Corrected SQL (optional)"
             />
+            <p className="m-0 text-xs text-text-muted">
+              Feedback is recorded for an Admin to review. A correct verdict does not become a golden example by itself:
+              an Admin promotes it from the golden candidates. Corrected SQL is kept only when it passes Beacon&apos;s SQL
+              check; the answer says when it was not kept, and why — the verdict is recorded either way.
+            </p>
           </div>
         )}
       </Card>

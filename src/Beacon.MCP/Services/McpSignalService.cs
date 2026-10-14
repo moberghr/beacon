@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 
@@ -36,7 +37,7 @@ internal sealed class McpSignalService(
         {
             // §1.7/§9.5 — signal recording is non-optional. Swallow so a transient DB issue doesn't fail
             // the tool call, but log at Error so a sustained outage of the learning loop is visible.
-            logger.LogError(ex, "Failed to record MCP query signal");
+            logger.LogError("Failed to record MCP query signal ({Failure})", FailureCodes.Describe(ex));
             return null;
         }
     }

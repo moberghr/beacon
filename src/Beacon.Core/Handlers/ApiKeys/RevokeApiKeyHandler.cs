@@ -1,16 +1,17 @@
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ApiKeys;
 
 internal sealed class RevokeApiKeyHandler(
     IApiKeyService apiKeyService,
     IDbContextFactory<BeaconContext> contextFactory,
-    IBeaconUserContext userContext,
+    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userManagementService)
     : IRequestHandler<RevokeApiKeyCommand>
 {
@@ -20,11 +21,7 @@ internal sealed class RevokeApiKeyHandler(
     {
         // A user may only revoke their own keys (§1.4) — confirm ownership before revoking
         // so one user cannot revoke another user's key by guessing its id.
-        var externalId = userContext.UserId
-            ?? throw new InvalidOperationException("Cannot revoke an API key without an authenticated user.");
-
-        var user = await userManagementService.GetUserByExternalIdAsync(externalId, cancellationToken)
-            ?? throw new InvalidOperationException($"Authenticated user '{externalId}' was not found.");
+        var user = await ApiKeyManagementCaller.ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -42,4 +39,5 @@ internal sealed class RevokeApiKeyHandler(
     }
 }
 
+[ProjectScopeExempt("owner-scoped: the caller's own key")]
 public record RevokeApiKeyCommand(int KeyId) : IRequest;

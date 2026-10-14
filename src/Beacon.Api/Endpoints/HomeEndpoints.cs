@@ -1,3 +1,5 @@
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Home;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -20,7 +22,8 @@ internal static class HomeEndpoints
 
         home.MapGet("/migration-summary", (IMediator m, CancellationToken ct) =>
                 m.Send(new GetHomeMigrationSummaryQuery(), ct))
-            .WithName("GetHomeMigrationSummary");
+            .WithName("GetHomeMigrationSummary")
+            .AdmitBeaconPermission(BeaconPermissions.MigrationOperator);
 
         home.MapGet("/task-summary", (IMediator m, CancellationToken ct) =>
                 m.Send(new GetHomeTaskSummaryQuery(), ct))

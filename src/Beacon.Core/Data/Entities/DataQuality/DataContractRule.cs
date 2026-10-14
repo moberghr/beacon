@@ -23,5 +23,14 @@ public class DataContractRule : BaseEntity
 
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// For a Custom SQL rule the change approval workflow governs: the hash of the SQL (on the contract's data source) a
+    /// second person approved (<see cref="ChangeApprovals.CustomSqlRuleDefinition"/>), and the rule is evaluated only while
+    /// it hashes to it; <see cref="ChangeApprovals.ChangeApprovalHashes.NothingApproved"/> for a rule added or changed under
+    /// the workflow and not approved yet. Null for every other rule, and for a Custom SQL rule the workflow does not govern
+    /// (stored before Beacon reviewed them, or last saved with the workflow off), which runs as before.
+    /// </summary>
+    public string? ApprovedSqlHash { get; set; }
+
     public DataContract DataContract { get; set; } = null!;
 }

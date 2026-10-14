@@ -2,6 +2,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Users;
 
@@ -43,6 +44,7 @@ internal sealed class GetUsersHandler(IDbContextFactory<BeaconContext> contextFa
 }
 
 /// <summary>Alphabetical by user name unless <c>sort</c> says otherwise; <c>search</c> matches name, e-mail and display name.</summary>
+[ProjectScopeExempt("user management, gated by the UserAdmin permission; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record GetUsersQuery : ListRequest, IRequest<PagedList<UserEntry>>
 {
     public string? Search { get; init; }

@@ -20,6 +20,20 @@ public static class Constants
         /// Results shown in data source details, query editors, and notification pages.
         /// </summary>
         public const int MaxUiDisplayRows = 100;
+
+        /// <summary>
+        /// The default of <c>Beacon:Query:MaxExecutionRows</c> (<see cref="Configuration.QueryExecutionOptions"/>): the most
+        /// rows one statement may return when Beacon runs a query for one of its own features (a subscription, a preview, an
+        /// AI actor's check; a migration read has its own <c>Beacon:Migrations:MaxRows</c>). The cap is placed in the SQL itself and the read stops one row past it, and
+        /// a statement whose result is larger fails instead of being cut short.
+        /// </summary>
+        public const int MaxExecutionRows = 100_000;
+
+        /// <summary>
+        /// The default of <c>Beacon:Query:StatementTimeoutSeconds</c> (<see cref="Configuration.QueryExecutionOptions"/>): how
+        /// long one such statement may run before it is cancelled.
+        /// </summary>
+        public const int StatementTimeoutSeconds = 120;
     }
 
     /// <summary>

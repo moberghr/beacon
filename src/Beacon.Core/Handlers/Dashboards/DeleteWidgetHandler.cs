@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.DeleteWidget;
@@ -36,7 +37,7 @@ internal sealed class DeleteWidgetHandler(
 
         if (!hasPermission)
         {
-            throw new UnauthorizedAccessException("Insufficient permissions to delete widgets from this dashboard");
+            throw new BeaconForbiddenException("Insufficient permissions to delete widgets from this dashboard");
         }
 
         context.DashboardWidgets.Remove(widget);
@@ -46,4 +47,5 @@ internal sealed class DeleteWidgetHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record DeleteWidgetCommand(int WidgetId) : IRequest<Unit>;

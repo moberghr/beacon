@@ -1,20 +1,26 @@
 using System.Data.Common;
 using System.Text.RegularExpressions;
 using Dapper;
-using Npgsql;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Providers;
 
 namespace Beacon.Connector.PostgreSql;
 
+/// <summary>
+/// Reads the catalog of a PostgreSQL database: every table outside the system schemas and outside the per-session temporary
+/// schemas (<c>pg_temp_N</c>, <c>pg_toast_temp_N</c>), whose tables belong to whichever session is connected while the
+/// catalog is read and are not part of the database's lasting schema.
+/// </summary>
 public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
 {
     public DatabaseEngineType SupportedEngineType => DatabaseEngineType.PostgreSQL;
 
     public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
     {
-        await using var connection = new NpgsqlConnection(connectionString);
+        // Through the connection registry, which this connector registers with Npgsql (a test registers a recording one).
+        await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.PostgreSQL, connectionString);
         await connection.OpenAsync(cancellationToken);
 
         const string tablesQuery = @"
@@ -45,6 +51,7 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
             LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
             WHERE c.relkind IN ('r', 'p')
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND n.nspname !~ '^pg_(toast_)?temp_'
                 AND a.attnum > 0
                 AND NOT a.attisdropped";
 
@@ -68,6 +75,7 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
             JOIN pg_attribute fa ON fa.attrelid = fc.oid AND fa.attnum = ANY(con.confkey)
             WHERE con.contype = 'f'
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND n.nspname !~ '^pg_(toast_)?temp_'
                 AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)";
 
         var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
@@ -89,7 +97,8 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                 indexname AS index_name,
                 indexdef
             FROM pg_indexes
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')";
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                AND schemaname !~ '^pg_(toast_)?temp_'";
 
         var indexesData = await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
 

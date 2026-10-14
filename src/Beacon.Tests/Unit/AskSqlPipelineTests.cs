@@ -1,10 +1,12 @@
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -46,7 +48,7 @@ public class AskSqlPipelineTests
         _settings = new McpSettingsData();
 
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -346,7 +348,7 @@ public class AskSqlPipelineTests
     public async Task RunAsync_HostManagedSource_EveryGateEvaluationAppliesTheHostPolicy()
     {
         _knowledgeGraph
-            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
             {
                 FullContext = "schema-context",
@@ -371,12 +373,42 @@ public class AskSqlPipelineTests
             "SQL the host policy rejects never runs");
     }
 
-    private AskSqlPipeline CreatePipeline(Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null)
+    // The grounding context names the source's dialect; every gate evaluation of the run parses in it.
+    [TestCase("MSSQL")]
+    [TestCase("bigquery")]
+    [TestCase("databricks")]
+    public async Task RunAsync_EveryGateEvaluation_UsesTheGroundingContextsDialect(string dialect)
+    {
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context",
+                DatabaseDialect = dialect,
+                TotalTableCount = 1
+            });
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult("SELECT id FROM orders", ["orders"]));
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        var gate = new RecordingSqlGate(TestSqlGate.Create(_guardrail.Object));
+
+        await CreatePipeline(gate: gate).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        gate.Dialects.Should().NotBeEmpty().And.OnlyContain(x => x == dialect);
+    }
+
+    private AskSqlPipeline CreatePipeline(Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null, ISqlExecutionGate? gate = null)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
-            TestSqlGate.Create(_guardrail.Object, hostGuard),
+            gate ?? TestSqlGate.Create(_guardrail.Object, hostGuard),
+            TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions()),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

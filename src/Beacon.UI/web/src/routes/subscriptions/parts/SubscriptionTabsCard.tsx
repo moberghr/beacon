@@ -58,7 +58,7 @@ export function SubscriptionTabsCard({
         <AnomalyTab subscription={subscription} />
       )}
       {tab === 'executions' && (
-        <ExecutionsTab subscriptionId={subscription.id} />
+        <ExecutionsTab subscriptionId={subscription.id} recipients={subscription.recipients} />
       )}
     </Card>
   );
