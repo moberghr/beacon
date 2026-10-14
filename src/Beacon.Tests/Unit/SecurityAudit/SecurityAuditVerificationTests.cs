@@ -1,3 +1,4 @@
+using System.Collections;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -25,10 +26,11 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// first failing ids it lists; a verification counts only the events of its window, read in id-ordered batches to the last
 /// (on both providers); a verification that checks nothing is no success; one runs at a time; reads and verifications are
 /// recorded before anything is returned and fail when they cannot be, an identical one by the same actor within a minute
-/// recorded once. The scheduled verification continues from its last intact checkpoint, reports failures at Error and
-/// writes a checkpoint each run; the retention purge verifies what it is about to delete and refuses while any of it fails;
-/// the sample host's jobs run both, a refused purge failing its job. The startup note names the integrity key by id and
-/// source.
+/// recorded once. The scheduled verification continues from its last intact checkpoint, checks every newer event by id
+/// (never selecting by time), waits for a missing id and passes it as never committed after the grace, reports failures at
+/// Error and writes a checkpoint each run; the retention purge verifies what it is about to delete, refuses while any of
+/// it fails, and deletes only the events it verified, by id and HMAC; the sample host's jobs run both, a refused purge
+/// failing its job. The startup note names the integrity key by id and source.
 /// </summary>
 [TestFixture]
 public class SecurityAuditVerificationTests
@@ -277,17 +279,60 @@ public class SecurityAuditVerificationTests
     }
 
     [Test]
-    public async Task ThePurge_DeletesTheExpiredEvents_WithItsEvent_InOneUnitOfWork()
+    public async Task ThePurge_DeletesExactlyTheExpiredEventsItVerified_WithItsEvent_InOneUnitOfWork()
     {
-        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddDays(-500)), Sealed(2, Now.UtcDateTime.AddDays(-1)) };
+        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddDays(-500)), Sealed(2, Now.UtcDateTime.AddDays(-450)), Sealed(3, Now.UtcDateTime.AddDays(-1)) };
         var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
 
-        var deleted = await Retention(Factory(rows), audit, new LogRecorder()).PurgeExpiredAsync(CancellationToken.None);
+        var deleted = await Retention(Factory(rows), audit, logs).PurgeExpiredAsync(CancellationToken.None);
+
+        deleted.Should().Be(2);
+        rows.Select(x => x.Id).Should().Equal(3);
+        audit.Ways.Should().Equal("saved");
+        var purged = audit.Single();
+        purged.ActorKind.Should().Be(SecurityAuditActorKinds.System);
+        purged.DetailsJson.Should().Contain("\"deletedCount\":2").And.Contain("\"verifiedCount\":2").And.Contain("\"leftCount\":0");
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.Purged.Id).Which.Level.Should().Be(LogLevel.Information);
+    }
+
+    // A writer between the purge's verification and its delete (read committed lets one in): a verified event rewritten
+    // with another HMAC is not the event that was verified, and stays for the next purge to verify.
+    [Test]
+    public async Task AnEventRewrittenAfterThePurgeVerifiedIt_IsNotDeleted_AndIsLeftForTheNextPurge()
+    {
+        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddDays(-500)), Sealed(2, Now.UtcDateTime.AddDays(-450)), Sealed(3, Now.UtcDateTime.AddDays(-1)) };
+        var recent = rows[2];
+        var rewritten = Sealed(2, Now.UtcDateTime.AddDays(-450));
+        rewritten.Hmac = new string('b', 64);
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
+
+        var deleted = await Retention(FactoryWithWriter(rows, () => rows[1] = rewritten), audit, logs).PurgeExpiredAsync(CancellationToken.None);
 
         deleted.Should().Be(1);
-        rows.Select(x => x.Id).Should().Equal(2);
-        audit.Ways.Should().Equal("saved");
-        audit.Single().ActorKind.Should().Be(SecurityAuditActorKinds.System);
+        rows.Should().Equal([rewritten, recent], "only the events still as they were verified are deleted");
+        audit.Single().DetailsJson.Should().Contain("\"deletedCount\":1").And.Contain("\"verifiedCount\":2").And.Contain("\"leftCount\":1");
+        var purged = logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.Purged.Id).Subject;
+        purged.Level.Should().Be(LogLevel.Warning);
+        purged.Message.Should().Contain("deleted 1 of the 2 events it verified").And.Contain("1 expired events are left");
+    }
+
+    // A writer that backdates an event after the purge verified the expired ones: the purge deletes by id and HMAC, never
+    // by date, so the backdated event (which no longer verifies) stays.
+    [Test]
+    public async Task AnEventBackdatedAfterThePurgeVerified_IsNotDeleted_AndIsLeftForTheNextPurge()
+    {
+        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddDays(-500)), Sealed(2, Now.UtcDateTime.AddDays(-450)), Sealed(3, Now.UtcDateTime.AddDays(-1)) };
+        var backdated = Sealed(3, Now.UtcDateTime.AddDays(-1));
+        backdated.CreatedTime = Now.UtcDateTime.AddDays(-450);
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+
+        var deleted = await Retention(FactoryWithWriter(rows, () => rows[2] = backdated), audit, new LogRecorder()).PurgeExpiredAsync(CancellationToken.None);
+
+        deleted.Should().Be(2);
+        rows.Should().Equal([backdated], "the backdated event was never verified intact");
+        audit.Single().DetailsJson.Should().Contain("\"deletedCount\":2").And.Contain("\"verifiedCount\":2").And.Contain("\"leftCount\":1");
     }
 
     [Test]
@@ -308,28 +353,127 @@ public class SecurityAuditVerificationTests
     }
 
     [Test]
-    public async Task TheScheduledVerification_ChecksTheSettledEvents_ReportsFailuresAtError_AndWritesACheckpoint()
+    public async Task TheScheduledVerification_ChecksEveryNewEvent_ReportsFailuresAtError_AndWritesACheckpoint()
     {
         var changed = Sealed(2, Now.UtcDateTime.AddHours(-3));
         changed.ResourceId = "8";
-        var unsettled = Sealed(4, Now.UtcDateTime.AddMinutes(-1));
-        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddHours(-4)), changed, Sealed(3, Now.UtcDateTime.AddHours(-2)), unsettled };
+        var justWritten = Sealed(4, Now.UtcDateTime.AddMinutes(-1));
+        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddHours(-4)), changed, Sealed(3, Now.UtcDateTime.AddHours(-2)), justWritten };
         var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
         var logs = new LogRecorder();
 
         var checkpoint = await Verification(rows, audit, logs).VerifyNewEventsAsync(CancellationToken.None);
 
-        checkpoint.Should().BeEquivalentTo(new SecurityAuditCheckpoint(0, 3, rows[2].Hmac, 3, 1, 0, 0, [2]), "an event younger than the settle time waits for the next run");
+        checkpoint.Should().BeEquivalentTo(new SecurityAuditCheckpoint(0, 4, rows[3].Hmac, 4, 1, 0, 0, [2]), "an event is checked by id, however recent its time");
         var failure = logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.VerificationFailed.Id).Subject;
         failure.Level.Should().Be(LogLevel.Error);
         failure.Message.Should().Contain("first ids 2");
         logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.Checkpoint.Id)
-            .Which.Message.Should().Contain("MaxEventId=3").And.Contain($"LastHmac={rows[2].Hmac}").And.Contain("Checked=3");
+            .Which.Message.Should().Contain("MaxEventId=4").And.Contain($"LastHmac={rows[3].Hmac}").And.Contain("Checked=4").And.Contain("NeverCommitted=0");
         var verified = audit.Single();
         verified.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.AuditVerified, Outcome = SecurityAuditOutcomes.Failure, ActorKind = SecurityAuditActorKinds.System },
             x => x.ExcludingMissingMembers());
-        verified.DetailsJson.Should().Contain("\"maxEventId\":3").And.Contain("\"failedEventIds\":[2]");
+        verified.DetailsJson.Should().Contain("\"maxEventId\":4").And.Contain("\"failedEventIds\":[2]");
+    }
+
+    // A changed time is a changed event: the scan selects by id, never by time, so an event whose time was moved into the
+    // future is checked and found changed; one that verifies but is dated where no genuine event can be is out of range.
+    [Test]
+    public async Task TheScheduledVerification_ReportsAnEventWhoseTimeWasMovedIntoTheFuture_AsModified_NeverPassingItUnchecked()
+    {
+        var movedAhead = Sealed(2, Now.UtcDateTime.AddHours(-3));
+        movedAhead.CreatedTime = Now.UtcDateTime.AddDays(30);
+        var rows = new List<SecurityAuditEvent>
+        {
+            Sealed(1, Now.UtcDateTime.AddHours(-4)),
+            movedAhead,
+            Sealed(3, Now.UtcDateTime.AddDays(30)),
+            Sealed(4, Now.UtcDateTime.AddHours(-2))
+        };
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+
+        var checkpoint = await Verification(rows, audit, new LogRecorder()).VerifyNewEventsAsync(CancellationToken.None);
+
+        checkpoint.Should().BeEquivalentTo(new SecurityAuditCheckpoint(0, 4, rows[3].Hmac, 3, 1, 0, 1, [2, 3]));
+        audit.Single().DetailsJson.Should().Contain("\"modifiedCount\":1").And.Contain("\"outOfRangeCount\":1");
+    }
+
+    // An id with no event below a stored one may belong to a transaction that has not committed yet: the checkpoint stays
+    // below it, and the next run checks the event once it is there.
+    [Test]
+    public async Task AnEventCommittedAfterAHigherOne_IsCheckedByTheNextRun()
+    {
+        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddMinutes(-20)), Sealed(3, Now.UtcDateTime.AddMinutes(-10)) };
+        var logs = new LogRecorder();
+
+        var first = await Verification(rows, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), logs).VerifyNewEventsAsync(CancellationToken.None);
+        var late = Sealed(2, Now.UtcDateTime.AddMinutes(-15));
+        late.ResourceId = "8";
+        rows.Insert(1, late);
+        rows.Add(Checkpoint(4, first.MaxEventId, Now.UtcDateTime.AddMinutes(-5)));
+        var second = await Verification(rows, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), logs).VerifyNewEventsAsync(CancellationToken.None);
+
+        first.Should().BeEquivalentTo(new { MaxEventId = 1, CheckedCount = 2, WaitingForEventId = (int?)2, NeverCommittedCount = 0 }, "event 3 is checked, but the checkpoint waits for id 2");
+        second.Should().BeEquivalentTo(new { FromEventId = 1, MaxEventId = 4, ModifiedCount = 1, FailedEventIds = new[] { 2 }, WaitingForEventId = (int?)null }, "the late event is checked, and found changed");
+    }
+
+    [TestCase(30, false, TestName = "AMissingId_IsWaitedFor_WhileTheEventsAboveItAreRecent")]
+    [TestCase(90, true, TestName = "AMissingId_IsPassedAsNeverCommitted_OnceTheIntactEventAboveItIsOlderThanTheGrace")]
+    public async Task AMissingId_IsWaitedFor_ThenPassedAsNeverCommitted(int minutesOld, bool passed)
+    {
+        var changedAbove = Sealed(4, Now.UtcDateTime.AddHours(-3));
+        changedAbove.ResourceId = "8";
+        var rows = new List<SecurityAuditEvent> { Sealed(1, Now.UtcDateTime.AddHours(-3)), changedAbove, Sealed(5, Now.UtcDateTime.AddMinutes(-minutesOld)) };
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
+
+        var checkpoint = await Verification(rows, audit, logs).VerifyNewEventsAsync(CancellationToken.None);
+
+        // Ids 2 and 3 were handed out before event 5, the nearest intact event above them: event 4 is changed, so the old
+        // time it shows is not taken as its own.
+        checkpoint.Should().BeEquivalentTo(passed
+            ? new { MaxEventId = 5, NeverCommittedCount = 2, FirstNeverCommittedId = (int?)2, LastNeverCommittedId = (int?)3, WaitingForEventId = (int?)null }
+            : new { MaxEventId = 1, NeverCommittedCount = 0, FirstNeverCommittedId = (int?)null, LastNeverCommittedId = (int?)null, WaitingForEventId = (int?)2 });
+        checkpoint.FailedEventIds.Should().Equal([4], "the events above a missing id are checked either way");
+        var details = audit.Single().DetailsJson;
+        if (passed)
+        {
+            details.Should().Contain("\"neverCommittedCount\":2").And.Contain("\"firstNeverCommittedId\":2").And.Contain("\"lastNeverCommittedId\":3");
+            logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.Checkpoint.Id)
+                .Which.Message.Should().Contain("NeverCommitted=2").And.Contain("FirstNeverCommittedId=2").And.Contain("LastNeverCommittedId=3");
+        }
+        else
+        {
+            details.Should().Contain("\"maxEventId\":1").And.Contain("\"waitingForEventId\":2");
+        }
+    }
+
+    [TestCase(false, "FROM beacon.security_audit_events", "s.id > @", "ORDER BY s.id", "LIMIT ")]
+    [TestCase(true, "FROM [beacon].[SecurityAuditEvents]", "[s].[Id] > @", "ORDER BY [s].[Id]", "TOP(")]
+    public async Task TheScheduledVerification_ScansById_NeverByTime_Translates(bool sqlServer, params string[] expected)
+    {
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows().ThenNoRows();
+
+        await new SecurityAuditVerificationService(
+                capture.Factory(),
+                SecurityAuditTestKit.Integrity,
+                new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest),
+                new SecurityAuditReadGate(TimeProvider.System),
+                Options.Create(new SecurityAuditOptions()),
+                new FakeTimeProvider(Now),
+                NullLoggerFactory.Instance)
+            .VerifyNewEventsAsync(CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2, "the checkpoints, then the first batch of the scan");
+        var scan = capture.Commands[1];
+        foreach (var fragment in expected)
+        {
+            scan.Should().Contain(fragment);
+        }
+
+        scan[scan.IndexOf("WHERE", StringComparison.Ordinal)..].Should().NotContainAny(["created_time", "CreatedTime"], "an event is never selected by the time it carries");
+        capture.CommandParameters[1].Values.OfType<DateTime>().Should().BeEmpty();
     }
 
     [Test]
@@ -468,6 +612,21 @@ public class SecurityAuditVerificationTests
         return factory.Object;
     }
 
+    // The rows, with a writer that acts once, right after the purge's third read has returned: the first read of its
+    // deleting pass, after the verifying pass read the expired rows and found no more. Each read, and each bulk delete's
+    // match, reads every row once.
+    private static IDbContextFactory<BeaconContext> FactoryWithWriter(List<SecurityAuditEvent> rows, Action write)
+    {
+        var saved = new List<object>();
+        var reads = new WrittenAfterRead(rows, 3, write);
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(new Dictionary<Type, object> { [typeof(SecurityAuditEvent)] = RecordingBeaconContext.MemorySet(rows, saved, reads) }, saved));
+
+        return factory.Object;
+    }
+
     private static VerifySecurityAuditHandler VerifyHandler(List<SecurityAuditEvent> rows, ISecurityAuditRecorder audit, int? retentionDays = null, SecurityAuditReadGate? gate = null)
     {
         return VerifyHandler(Factory(rows), audit, gate, retentionDays);
@@ -508,5 +667,27 @@ public class SecurityAuditVerificationTests
             Options.Create(new SecurityAuditOptions()),
             new FakeTimeProvider(Now),
             LoggerFactory.Create(x => x.AddProvider(logs)));
+    }
+
+    // The stored rows as they are when read; once the read numbered afterRead has gone through every row, the writer acts.
+    private sealed class WrittenAfterRead(List<SecurityAuditEvent> rows, int afterRead, Action write) : IEnumerable<SecurityAuditEvent>
+    {
+        private int _reads;
+
+        public IEnumerator<SecurityAuditEvent> GetEnumerator()
+        {
+            var stored = rows.ToList();
+            foreach (var row in stored)
+            {
+                yield return row;
+            }
+
+            if (++_reads == afterRead)
+            {
+                write();
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

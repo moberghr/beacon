@@ -168,8 +168,9 @@ row counts, or `refused` before it started, with the reason: `not_approved`, `wr
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was
-checked; the scheduled verification's also with the highest event id it checked), `audit.purged` (every retention purge,
-with the number of events deleted; `refused`, deleting nothing, when an event it would delete fails verification) and
+checked; the scheduled verification's also with its checkpoint id and the ids it passed as never committed),
+`audit.purged` (every retention purge, with the number of events it verified, deleted and left for the next purge;
+`refused`, deleting nothing, when an event it would delete fails verification) and
 `audit.mcp_audit_read` (every read of the [MCP audit](/features/mcp-observability-and-audit/#reading-the-audit)
 export, with the filters' shape and the page).
 
@@ -264,15 +265,23 @@ check — see the checkpoints below.
 `ISecurityAuditVerificationService.VerifyNewEventsAsync` verifies the events written since its last run, so a changed or
 forged event is found within the schedule's period without anyone asking:
 
-- It continues after the highest event id its last intact checkpoint names (a `system` `audit.verified` event; one that
-  does not verify itself is passed over and logged), checks each newer event once it is five minutes old (so a
-  transaction that has not committed yet is not passed over), and checks at most 50,000 per run; a backlog is worked off
-  over the following runs.
+- It continues after the event id its last intact checkpoint names (a `system` `audit.verified` event; one that does not
+  verify itself is passed over and logged) and checks every newer event, in id order, at most 50,000 per run; a backlog
+  is worked off over the following runs. Events are selected by id alone, never by their time: the time is one of the
+  fields the signature covers, so an event whose time was changed fails as *modified*, and one that verifies but is
+  dated where no genuine event can be is counted as out of range.
+- **The checkpoint advances only as far as every lower id has been checked.** An id with no event below a stored one
+  (an insert whose transaction has not committed yet) is waited for: the checkpoint stays below it, and the events above
+  it, already checked, are checked again by the next run, which also checks the late event once it is there. Once the
+  nearest intact event above the missing id is an hour old, the id is taken as **never committed** (an insert that rolled
+  back still consumes its id) and passed; the checkpoint records how many ids it passed this way and the first and last
+  of them, and the id still waited for, if any.
 - Events that fail are logged at Error (`Beacon.Audit` 9108, with the counts and the first failing ids) and counted on
   `beacon.security_audit.verification_failures` (tagged with the action, `audit.verified`). Alert on that counter.
-- Every run writes a **checkpoint** to the log stream (9109: the first and highest event id it covered, how many it
-  checked and how many failed, and the signature and key id of the highest event). Kept in your SIEM, the checkpoints
-  anchor the trail outside the database: an event deleted later leaves a gap below a checkpoint that once covered it.
+- Every run writes a **checkpoint** to the log stream (9109: the event id it started after and its checkpoint id, how
+  many it checked and how many failed, the signature and key id of the checkpoint event, and the ids passed as never
+  committed). Kept in your SIEM, the checkpoints anchor the trail outside the database: an event deleted later leaves a
+  gap below a checkpoint that once covered it, and an id passed as never committed is named there.
 - A run that checked events records them as a `system` `audit.verified` event, which is the next run's starting point.
 
 The sample host schedules it hourly as the Warp recurring job `security-audit-verify` (`15 * * * *`,
@@ -333,9 +342,14 @@ while `RetentionDays` is unset:
   the counts and the first failing ids, counts them on `beacon.security_audit.verification_failures` (action
   `audit.purged`), records a `refused` `audit.purged` event with the failing ids, and throws, so its scheduled job fails
   visibly. Investigate the events it names before purging — tampered evidence is never deleted unseen.
-- **Deleted with its record.** Otherwise the expired events are deleted in one statement and the `audit.purged` event
-  (by the `system` actor, with the number deleted and the retention) commits with the deletion, in one transaction;
-  `Beacon.Audit` 9106 follows.
+- **Only what it verified is deleted.** Otherwise the purge reads the expired events again, batch by batch, verifies
+  each, and deletes the ones that verify, each by its id together with the signature it verified — never by date. An
+  event changed after it was verified (its signature replaced), one that fails now, and one that became expired while the
+  purge ran (an event whose time was moved back) are not deleted: they are left for the next purge, which verifies them
+  before it deletes anything.
+- **Deleted with its record.** The `audit.purged` event (by the `system` actor, with the number of events it verified,
+  deleted and left, and the retention) commits with the deletion, in one transaction; `Beacon.Audit` 9106 follows, at
+  Warning when it deleted fewer events than it verified or left expired events behind.
 - **A purge that does not run** (the database is unreachable, say) is logged at Error (9110, the failure's type and code
   only), counted on `beacon.security_audit.write_failures` (action `audit.purged`) and rethrown.
 - **At startup**, a host with a retention set logs that the purge deletes nothing until the host schedules it.
@@ -362,10 +376,10 @@ to keep a copy Beacon's database cannot change.
 |---|---|---|---|---|
 | 9104 | `SecurityAuditRecorded` | Information | An event was committed. | `Action`, `Outcome`, `EventGuid`, `AuditId`, `Persisted` (`True`), `ActorKind`, `ActorUserId`, `ApiKeyId`, `CallerHash`, `ProjectId`, `ResourceType`, `ResourceId`, `Details`, `TraceId` |
 | 9105 | `SecurityAuditRead` | Information | The trail was read or verified. | The window, which filters were used, the counts |
-| 9106 | `SecurityAuditPurged` | Information | The retention purge deleted events. | Deleted count, cutoff, retention days |
+| 9106 | `SecurityAuditPurged` | Information (Warning when it left expired events behind) | The retention purge ran. | Deleted and verified counts, cutoff, retention days, expired events left |
 | 9107 | `SecurityAuditWriteFailed` | Error | An event written on its own could not be stored. | The fields of 9104 with `Persisted=False` and no `AuditId`, and `Failure` (the failure's type and code) |
 | 9108 | `SecurityAuditVerificationFailed` | Error | The scheduled verification or the retention purge found stored events that fail verification (or a checkpoint that does). | The counts by verdict, the first failing ids |
-| 9109 | `SecurityAuditCheckpoint` | Information | Each run of the scheduled verification. | `FromEventId`, `MaxEventId`, `Checked`, `Failed`, `LastHmac`, `KeyId` |
+| 9109 | `SecurityAuditCheckpoint` | Information | Each run of the scheduled verification. | `FromEventId`, `MaxEventId`, `Checked`, `Failed`, `LastHmac`, `KeyId`, `NeverCommitted`, `FirstNeverCommittedId`, `LastNeverCommittedId`, `WaitingForEventId` |
 | 9110 | `SecurityAuditPurgeFailed` | Error | The retention purge did not run. | The cutoff, the failure's type and code |
 
 Match a log-stream copy to its row by `EventGuid`. The copy holds the same identifiers, codes and digests as the row,

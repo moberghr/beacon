@@ -19,7 +19,8 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// The Auditor's reads of the security audit trail and its retention: the paged read filters by time window (at most 93
 /// days), category, action, actor, resource and project on both providers and is itself recorded with the filters' shape
 /// only; verification reports changed, forged and unknown-key events and is recorded; the retention purge does nothing
-/// while no retention is set, and otherwise deletes the expired events in one statement and records that it did.
+/// while no retention is set, and otherwise deletes only the expired events it verified, by id and HMAC (never by date),
+/// and records that it did with what it left.
 /// </summary>
 [TestFixture]
 public class SecurityAuditReadTests
@@ -251,26 +252,68 @@ public class SecurityAuditReadTests
         audit.Events.Should().BeEmpty();
     }
 
-    [TestCase(false, "DELETE FROM beacon.security_audit_events AS s", "s.created_time < @")]
-    [TestCase(true, "DELETE FROM [s]", "[s].[CreatedTime] < @")]
-    public async Task WithARetention_ThePurgeDeletesTheExpiredEventsInOneStatement_AndRecordsIt(bool sqlServer, string delete, string predicate)
+    // Nothing expired: nothing is verified, so nothing is deleted; the purge never deletes by date. What is still expired
+    // after it ran is counted, for its event.
+    [TestCase(false, "SELECT count(*)::int", "s.created_time < @")]
+    [TestCase(true, "SELECT COUNT(*)", "[s].[CreatedTime] < @")]
+    public async Task WithARetention_ThePurgeNeverDeletesByDate_AndCountsWhatItLeaves_AndRecordsIt(bool sqlServer, string count, string predicate)
     {
-        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows().ThenRowsAffected(3);
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows().ThenNoRows().ThenScalar(0);
         var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
         var logs = new LogRecorder();
 
         var deleted = await Retention(capture.Factory(), audit, retentionDays: 400, logs).PurgeExpiredAsync(CancellationToken.None);
 
-        deleted.Should().Be(3);
-        capture.Commands.Should().HaveCount(2, "the expired events are verified first, then deleted in one statement");
-        capture.Commands[1].Should().Contain(delete).And.Contain(predicate);
-        capture.CommandParameters[1].Values.OfType<DateTime>().Should().ContainSingle()
+        deleted.Should().Be(0);
+        capture.Commands.Should().HaveCount(3, "the verifying pass, the deleting pass, then the count of what is left");
+        capture.Commands.Should().NotContain(x => x.Contains("DELETE"), "nothing was verified, so nothing is deleted");
+        capture.Commands[2].Should().Contain(count).And.Contain(predicate);
+        capture.CommandParameters[2].Values.OfType<DateTime>().Should().ContainSingle()
             .Which.Should().Be(new DateTime(2026, 10, 14, 4, 0, 0, DateTimeKind.Utc).AddDays(-400));
         var purged = audit.Single();
         purged.Action.Should().Be(SecurityAuditActions.AuditPurged);
         purged.ActorKind.Should().Be(SecurityAuditActorKinds.System);
-        purged.DetailsJson.Should().Contain("\"deletedCount\":3").And.Contain("\"retentionDays\":400");
+        purged.DetailsJson.Should().Contain("\"deletedCount\":0").And.Contain("\"verifiedCount\":0").And.Contain("\"leftCount\":0").And.Contain("\"retentionDays\":400");
         logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.Purged.Id);
+    }
+
+    // The delete of a verified batch: every row by its id and the HMAC it was verified with, compared together, within the
+    // batch's id range; no date in it.
+    [TestCase(false, "DELETE FROM beacon.security_audit_events AS s", "s.id >= @", "s.id <= @", "s.id::text || ':'", "|| s.hmac", "= ANY (@")]
+    [TestCase(true, "DELETE FROM [s]", "[s].[Id] >= @", "[s].[Id] <= @", "CONVERT(varchar(11), [s].[Id])", "+ [s].[Hmac]", " IN (")]
+    public async Task ThePurge_DeletesAVerifiedBatch_ByIdAndHmacTogether_NeverByDate_Translates(bool sqlServer, params string[] expected)
+    {
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenRowsAffected(2);
+        await using var context = await capture.Factory().CreateDbContextAsync();
+        var verified = new List<SecurityAuditEvent> { Sealed(5, SecurityAuditTestKit.Integrity), Sealed(9, SecurityAuditTestKit.Integrity) };
+
+        var deleted = await SecurityAuditRetentionService.Verified(context.SecurityAuditEvents, verified).ExecuteDeleteAsync();
+
+        deleted.Should().Be(2);
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        foreach (var fragment in expected)
+        {
+            sql.Should().Contain(fragment);
+        }
+
+        sql.Should().NotContainAny(["created_time", "CreatedTime"], "an expired event is deleted only as it was verified, never by its date");
+        var values = ParameterValues(capture.CommandParameters[0]);
+        values.Should().Contain([$"5:{verified[0].Hmac}", $"9:{verified[1].Hmac}", "5", "9"]);
+    }
+
+    // SQL Server sends a collection as one parameter per item: a full batch stays within its 2,100 parameters.
+    [Test]
+    public async Task ThePurge_DeletesAFullVerifiedBatch_WithinSqlServersParameterLimit()
+    {
+        var capture = SqlCapture.OnSqlServer().ThenRowsAffected(SecurityAuditRetentionService.BatchSize);
+        await using var context = await capture.Factory().CreateDbContextAsync();
+        var verified = Enumerable.Range(1, SecurityAuditRetentionService.BatchSize)
+            .Select(x => Sealed(x, SecurityAuditTestKit.Integrity))
+            .ToList();
+
+        await SecurityAuditRetentionService.Verified(context.SecurityAuditEvents, verified).ExecuteDeleteAsync();
+
+        capture.CommandParameters.Should().ContainSingle().Which.Count.Should().BeLessThan(2100);
     }
 
     private static Core.Authorization.BeaconActor Auditor()
@@ -315,6 +358,27 @@ public class SecurityAuditReadTests
             SecurityAuditTestKit.Integrity,
             new FakeTimeProvider(new DateTimeOffset(2026, 10, 14, 4, 0, 0, TimeSpan.Zero)),
             LoggerFactory.Create(x => x.AddProvider(logs ?? new LogRecorder())));
+    }
+
+    // Every parameter value as text, a collection parameter's items one by one.
+    private static List<string> ParameterValues(IReadOnlyDictionary<string, object?> parameters)
+    {
+        var values = new List<string>();
+        foreach (var value in parameters.Values)
+        {
+            if (value is System.Collections.IEnumerable items and not string)
+            {
+                values.AddRange(items
+                    .Cast<object?>()
+                    .Select(x => Convert.ToString(x, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty));
+
+                continue;
+            }
+
+            values.Add(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+        }
+
+        return values;
     }
 
     private static SecurityAuditEvent Sealed(int id, SecurityAuditIntegrity integrity)

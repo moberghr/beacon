@@ -6,7 +6,8 @@ namespace Beacon.Core.SecurityAudit;
 /// How a stored security audit event is judged, shared by the Auditor's verification, the scheduled verification and the
 /// retention purge: its time must lie in the range a genuine event can have (no later than now plus a clock skew, no
 /// earlier than the retention, or the longest retention accepted, plus the time a daily purge may lag), and its HMAC must
-/// match under a key this deployment holds.
+/// match under a key this deployment holds. The scheduled verification, which scans by id, checks the HMAC first
+/// (<see cref="SealFirstVerdictOf"/>).
 /// </summary>
 internal static class SecurityAuditVerification
 {
@@ -38,6 +39,23 @@ internal static class SecurityAuditVerification
             SecurityAuditVerdict.Intact => SecurityAuditVerdicts.Intact,
             SecurityAuditVerdict.UnknownKey => SecurityAuditVerdicts.UnknownKey,
             _ => SecurityAuditVerdicts.Modified
+        };
+    }
+
+    /// <summary>
+    /// The verdict on <paramref name="auditEvent"/> with its HMAC checked first, for a scan by id: the time is one of the
+    /// fields the HMAC covers, so an event that does not verify is changed (or under an unknown key) whatever time it
+    /// carries, and only one that verifies is judged by its time (out of range when dated where no genuine event can be).
+    /// </summary>
+    public static string SealFirstVerdictOf(SecurityAuditEvent auditEvent, (DateTime Earliest, DateTime Latest) range, SecurityAuditIntegrity integrity)
+    {
+        return integrity.Verify(auditEvent) switch
+        {
+            SecurityAuditVerdict.UnknownKey => SecurityAuditVerdicts.UnknownKey,
+            SecurityAuditVerdict.Modified => SecurityAuditVerdicts.Modified,
+            _ => auditEvent.CreatedTime < range.Earliest || auditEvent.CreatedTime > range.Latest
+                ? SecurityAuditVerdicts.OutOfRange
+                : SecurityAuditVerdicts.Intact
         };
     }
 }

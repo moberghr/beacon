@@ -57,11 +57,13 @@ internal sealed class RecordingBeaconContext(
     /// <summary>
     /// An async-capable set over <paramref name="rows"/>; <c>Add</c> records into <paramref name="saved"/>.
     /// <c>ExecuteUpdateAsync</c> writes onto the matching rows, and <c>ExecuteDeleteAsync</c> and <c>Remove</c> take them
-    /// out of <paramref name="rows"/>, as the database would. <c>FindAsync</c> finds a row by its <c>Id</c>.
+    /// out of <paramref name="rows"/>, as the database would. <c>FindAsync</c> finds a row by its <c>Id</c>. With
+    /// <paramref name="reads"/>, queries (and the rows a bulk write matches) read through it instead: a view over
+    /// <paramref name="rows"/> for a test that acts between two reads.
     /// </summary>
-    public static DbSet<T> MemorySet<T>(List<T> rows, List<object> saved) where T : class
+    public static DbSet<T> MemorySet<T>(List<T> rows, List<object> saved, IEnumerable<T>? reads = null) where T : class
     {
-        var data = rows.AsQueryable();
+        var data = (reads ?? rows).AsQueryable();
         var set = new Mock<DbSet<T>>();
         set.As<IAsyncEnumerable<T>>()
             .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))

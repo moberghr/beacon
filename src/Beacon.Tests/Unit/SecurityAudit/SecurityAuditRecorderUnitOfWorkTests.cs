@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -21,8 +22,9 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// <summary>
 /// The recorder's units of work: a change and the events built from it commit together or not at all, on the caller's
 /// transaction or on one the recorder opens through the execution strategy; an attempt the strategy retries saves no event
-/// twice and never commits a change without its event; the caller is resolved before the change takes its locks; and an
-/// event written on its own that cannot be written reaches the log stream with its fields, within a bounded time.
+/// twice and never commits a change without its event; a settled caller is resolved before the change takes its locks, and
+/// an entry that names its actor never resolves the caller of a request not authenticated yet; and an event written on its
+/// own that cannot be written reaches the log stream with its fields, within a bounded time.
 /// </summary>
 [TestFixture]
 public class SecurityAuditRecorderUnitOfWorkTests
@@ -126,8 +128,9 @@ public class SecurityAuditRecorderUnitOfWorkTests
         context.ChangeTracker.Entries<SecurityAuditEvent>().Should().BeEmpty("the failed attempt's event is not left to a later save");
     }
 
-    [Test]
-    public async Task TheCaller_IsResolvedBeforeTheChangeRuns()
+    [TestCase(false, TestName = "TheCaller_IsResolvedBeforeTheChangeRuns_InWorkWithoutARequest")]
+    [TestCase(true, TestName = "TheCaller_IsResolvedBeforeTheChangeRuns_InAnAuthenticatedRequest")]
+    public async Task TheCaller_IsResolvedBeforeTheChangeRuns(bool authenticatedRequest)
     {
         var timeline = new List<string>();
         var actors = new Mock<IBeaconActorAccessor>();
@@ -143,7 +146,7 @@ public class SecurityAuditRecorderUnitOfWorkTests
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
             LoggerFactory.Create(_ => { }),
-            new HttpContextAccessor());
+            authenticatedRequest ? Request(authenticated: true) : new HttpContextAccessor());
 
         await recorder.SaveWithEventsAsync(
             context,
@@ -158,6 +161,98 @@ public class SecurityAuditRecorderUnitOfWorkTests
 
         timeline.Should().Equal(["caller", "change"], "nothing is read on another connection while the change holds its locks");
         context.CommittedEvents().Should().ContainSingle().Which.ActorUserId.Should().Be(3);
+    }
+
+    // A request that signs in, runs first-run setup or provisions its caller on its first call is not authenticated yet:
+    // an entry that names its actor never resolves the request's caller, which would fix the scope's caller as anonymous
+    // before authentication sets it (and the provisioned caller would then be refused its projects).
+    [Test]
+    public async Task AnEntryThatNamesItsActor_NeverResolvesTheRequestsCaller_WhileTheRequestIsNotAuthenticated()
+    {
+        var actors = new Mock<IBeaconActorAccessor>(MockBehavior.Strict);
+        await using var context = new RetryingContext(failingSave: 0);
+        var own = new RetryingContext(failingSave: 0);
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(own);
+        var logs = new LogRecorder();
+        var recorder = new Recorder(
+            factory.Object,
+            actors.Object,
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            LoggerFactory.Create(x => x.AddProvider(logs)),
+            Request(authenticated: false));
+
+        await recorder.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.PasswordChanged).On(SecurityAuditResources.User, 7).By(SecurityAuditActor.OfUser(7)),
+            CancellationToken.None);
+        await recorder.SaveWithEventsAsync(
+            context,
+            () => [new SecurityAuditEntry(SecurityAuditActions.UserProvisioned).On(SecurityAuditResources.User, 17).By(SecurityAuditActor.System)],
+            CancellationToken.None);
+        await recorder.SaveWithEventsAsync(
+            context,
+            () => Task.FromResult(1),
+            _ => [new SecurityAuditEntry(SecurityAuditActions.SuperAdminCreated).On(SecurityAuditResources.User, 1).By(SecurityAuditActor.Anonymous)],
+            CancellationToken.None);
+        await recorder.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.SetupTokenRefused).Ending(SecurityAuditOutcomes.Refused).By(SecurityAuditActor.Anonymous),
+            CancellationToken.None);
+
+        actors.Verify(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()), Times.Never);
+        context.CommittedEvents().Select(x => x.ActorKind).Should().Equal(
+            SecurityAuditActorKinds.User,
+            SecurityAuditActorKinds.System,
+            SecurityAuditActorKinds.Anonymous);
+        logs.Entries.Should().NotContain(x => x.EventId.Id == SecurityAuditLogEvents.WriteFailed.Id, "the event written on its own was stored");
+    }
+
+    // An entry without an actor in a request that is not authenticated yet is by that request's caller, resolved only for
+    // it: anonymous, which the accessor answers without reading anything while the change holds its locks.
+    [Test]
+    public async Task WhileTheRequestIsNotAuthenticated_TheCallerIsResolvedOnlyForAnEntryWithoutAnActor()
+    {
+        var timeline = new List<string>();
+        var actors = new Mock<IBeaconActorAccessor>();
+        actors
+            .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => timeline.Add("caller"))
+            .ReturnsAsync(BeaconActor.Nobody);
+        await using var context = new RetryingContext(failingSave: 0);
+        var recorder = new Recorder(
+            Mock.Of<IDbContextFactory<BeaconContext>>(),
+            actors.Object,
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            LoggerFactory.Create(_ => { }),
+            Request(authenticated: false));
+
+        await recorder.SaveWithEventsAsync(
+            context,
+            () =>
+            {
+                timeline.Add("change");
+
+                return Task.FromResult(1);
+            },
+            _ =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.UserProvisioned).On(SecurityAuditResources.User, 17).By(SecurityAuditActor.System),
+                new SecurityAuditEntry(SecurityAuditActions.SignedOut).On(SecurityAuditResources.User, 17),
+                new SecurityAuditEntry(SecurityAuditActions.SignedOut).On(SecurityAuditResources.User, 18)
+            ],
+            CancellationToken.None);
+
+        timeline.Should().Equal(["change", "caller"], "resolved once, and only for the entries that name no actor");
+        context.CommittedEvents().Select(x => x.ActorKind).Should().Equal(
+            SecurityAuditActorKinds.System,
+            SecurityAuditActorKinds.Anonymous,
+            SecurityAuditActorKinds.Anonymous);
     }
 
     [Test]
@@ -263,6 +358,18 @@ public class SecurityAuditRecorderUnitOfWorkTests
         var act = audit.AssertStagedEventsSaved;
 
         act.Should().Throw<Exception>().WithMessage("*identity.user_enabled*identity.user_archived*");
+    }
+
+    // A request in progress: signed in (a principal authentication set), or not authenticated yet.
+    private static IHttpContextAccessor Request(bool authenticated)
+    {
+        var httpContext = new DefaultHttpContext();
+        if (authenticated)
+        {
+            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Test"));
+        }
+
+        return new HttpContextAccessor { HttpContext = httpContext };
     }
 
     private static Recorder RecorderOver(IDbContextFactory<BeaconContext> factory, LogRecorder? logs = null)

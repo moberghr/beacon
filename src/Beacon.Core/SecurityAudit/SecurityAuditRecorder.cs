@@ -17,8 +17,10 @@ namespace Beacon.Core.SecurityAudit;
 /// project access evaluator classifies it: a Beacon user (session, API key owner, provisioned MCP caller) by its
 /// <c>Users.Id</c>, an API key also by its id, an MCP caller without a user by its subject hash, a session without a stored
 /// user by a keyed hash of the id it presents, background work as the system. Never a name, an e-mail address or an
-/// external id. While a change holds its locks nothing is read on another connection: the caller is resolved before the
-/// change runs, and the people an event names are read through the change's own context.
+/// external id. An entry that names its actor never resolves the request's caller, so a request that has not authenticated
+/// yet (a sign-in, first-run setup, a caller provisioned on its first request) does not fix its caller as anonymous for the
+/// rest of the scope. While a change holds its locks nothing is read on another connection: a settled caller is resolved
+/// before the change runs, and the people an event names are read through the change's own context.
 /// </summary>
 internal sealed class SecurityAuditRecorder(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -155,13 +157,17 @@ internal sealed class SecurityAuditRecorder(
     }
 
     /// <summary>
-    /// Runs the change and saves the events built from it in one transaction. The caller is resolved first, before any
-    /// transaction holds a lock. Inside the caller's transaction this runs once: the caller's execution strategy owns any
-    /// retry. Otherwise it opens the transaction through the context's execution strategy, and a retried attempt starts
-    /// over: a replayable change (a bulk update or delete, a delegate that reads what it changes) runs again on a cleared
-    /// tracker, so no event of the failed attempt is saved twice; the tracked changes of the save overload are replayed
-    /// only when the failed attempt never saved them, because a save that succeeded accepted them (their generated keys
-    /// with them) and a retry would lose or duplicate them, so that retry fails with nothing committed.
+    /// Runs the change and saves the events built from it in one transaction. Once the request's caller is settled (the
+    /// request has authenticated, or the work has no request) it is resolved first, before any transaction holds a lock.
+    /// While the request has not authenticated (a sign-in, first-run setup, a caller provisioned on its first request) it
+    /// is resolved only for an event that names no actor: resolving it then would fix the scope's caller as anonymous
+    /// before authentication sets it, and an unauthenticated request's caller is answered without reading anything. Inside
+    /// the caller's transaction this runs once: the caller's execution strategy owns any retry. Otherwise it opens the
+    /// transaction through the context's execution strategy, and a retried attempt starts over: a replayable change (a
+    /// bulk update or delete, a delegate that reads what it changes) runs again on a cleared tracker, so no event of the
+    /// failed attempt is saved twice; the tracked changes of the save overload are replayed only when the failed attempt
+    /// never saved them, because a save that succeeded accepted them (their generated keys with them) and a retry would
+    /// lose or duplicate them, so that retry fails with nothing committed.
     /// </summary>
     private async Task<T> SaveAsync<T>(
         BeaconContext context,
@@ -170,10 +176,12 @@ internal sealed class SecurityAuditRecorder(
         bool replayable,
         CancellationToken cancellationToken)
     {
-        var caller = await CallerAsync(cancellationToken);
+        var resolved = CallerIsSettled() ? await CallerAsync(cancellationToken) : null;
+        async Task<SecurityAuditActor> Caller() => resolved ??= await CallerAsync(cancellationToken);
+
         if (context.Database.CurrentTransaction != null)
         {
-            return await ChangeThenEventsAsync(context, change, events, caller, new Attempt(), cancellationToken);
+            return await ChangeThenEventsAsync(context, change, events, Caller, new Attempt(), cancellationToken);
         }
 
         var strategy = context.Database.CreateExecutionStrategy();
@@ -189,7 +197,7 @@ internal sealed class SecurityAuditRecorder(
             var attempt = new Attempt();
             previous = attempt;
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-            var result = await ChangeThenEventsAsync(context, change, events, caller, attempt, cancellationToken);
+            var result = await ChangeThenEventsAsync(context, change, events, Caller, attempt, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             return result;
@@ -221,7 +229,7 @@ internal sealed class SecurityAuditRecorder(
         BeaconContext context,
         Func<Task<T>> change,
         Func<T, IEnumerable<SecurityAuditEntry>> events,
-        SecurityAuditActor caller,
+        Func<Task<SecurityAuditActor>> caller,
         Attempt attempt,
         CancellationToken cancellationToken)
     {
@@ -237,7 +245,7 @@ internal sealed class SecurityAuditRecorder(
         var named = await NamedUserIdsAsync(context, entries, cancellationToken);
         foreach (var entry in entries)
         {
-            var auditEvent = Build(entry, entry.Actor ?? caller, named);
+            var auditEvent = Build(entry, entry.Actor ?? await caller(), named);
             context.SecurityAuditEvents.Add(auditEvent);
             attempt.Staged.Add(auditEvent);
         }
@@ -250,6 +258,12 @@ internal sealed class SecurityAuditRecorder(
     private async Task<SecurityAuditActor> CallerAsync(CancellationToken cancellationToken)
     {
         return ActorOf(await actorAccessor.GetCurrentAsync(cancellationToken), httpContextAccessor?.HttpContext?.User, callerHasher);
+    }
+
+    // Whether the request's caller can no longer change: no request (the scope decides), or a request that has authenticated.
+    private bool CallerIsSettled()
+    {
+        return httpContextAccessor?.HttpContext is not { } httpContext || httpContext.User.Identity?.IsAuthenticated == true;
     }
 
     private SecurityAuditEvent Build(SecurityAuditEntry entry, SecurityAuditActor actor, IReadOnlyDictionary<string, int> named)
