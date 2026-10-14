@@ -232,7 +232,7 @@ public class ChangeApprovalOutcomeTests
             TestConfiguredDatabases.None,
             Admin(),
             TestChangeApprovals.On(),
-            TestChangeApprovals.CustomSql(TestChangeApprovals.On(), Admin()));
+            TestChangeApprovals.CustomSql(TestChangeApprovals.On(), Admin()), new RecordingSecurityAudit());
 
     private static UpdateDataContractHandler ContractUpdateHandler(ChangeApprovalStore store, BeaconConfiguration configuration) =>
         new(
@@ -243,6 +243,7 @@ public class ChangeApprovalOutcomeTests
             TestConfiguredDatabases.None,
             Admin(),
             TestChangeApprovals.CustomSql(configuration, Admin()),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
     private static UpdateRecipientHandler RecipientUpdateHandler(ChangeApprovalStore store, BeaconConfiguration configuration, IApprovalNotifier notifier) =>
@@ -253,6 +254,7 @@ public class ChangeApprovalOutcomeTests
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
             TestChangeApprovals.Recipients(store.Protector, configuration, TestChangeApprovals.Caller(Ada), notifier),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateRecipientHandler>.Instance);
 
     private static ChangeApprovalService Approvals(ChangeApprovalStore store) => Approvals(store.Factory(), store.Protector);
@@ -267,6 +269,7 @@ public class ChangeApprovalOutcomeTests
             protector,
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();

@@ -17,13 +17,13 @@
 §5.5 **Entity base classes:**
 - `BaseEntity` — `Id` (int), `CreatedTime` (default `DateTime.UtcNow`).
 - `ArchivableBaseEntity : BaseEntity` — adds `ArchivedTime` (soft delete).
-- `AuditableBaseEntity : BaseEntity` — adds `CreatedByUserId`, `ModifiedTime`, etc.
+- `IAttributedEntity` (an interface, not a base class) — `CreatedByUserId`, `ModifiedByUserId` (`Users.ExternalId` values, like an owner id) and `ModifiedTime`; implemented by `Query`, `Subscription`, `Recipient`, `DataContract` and `MigrationJob`. Set the creator where the entity is built and call `entity.RecordChangeBy(actor, timeProvider)` on every change, always from the request's `BeaconActor` (`IBeaconActorAccessor`), never from a request body; a bulk `ExecuteUpdate` sets `ModifiedByUserId` and `ModifiedTime` itself. Null for rows from before attribution was recorded.
 
 ## Queries
 
 §5.6 **`.Select(new ...)` over `.Include()`.** Project only the fields the caller needs. EF Core auto-joins for projection — you do NOT need `.Include()` next to a `.Select(new ...)` call. Adding it is dead code and hurts performance.
 
-§5.7 **One `SaveChangesAsync()` per handler.** Services called by handlers must NOT call `SaveChanges` themselves — the handler owns the unit of work.
+§5.7 **One `SaveChangesAsync()` per handler.** Services called by handlers must NOT call `SaveChanges` themselves — the handler owns the unit of work. The one sanctioned exception is `ISecurityAuditRecorder.SaveWithEventsAsync`: it saves the handler's change, then the security audit events built from what that save produced (generated ids, the rows a bulk update touched), as two saves in one transaction — the caller's when one is open, else one it opens through the context's execution strategy — so the change and its events commit or roll back together. Use it only when an event needs the save's result; an event that needs nothing from it is staged with `StageAsync` before the handler's single save. Do not call `SaveChangesAsync` again after it, and do not wrap other saves into it.
 
 §5.8 **Pass `CancellationToken` to every async EF call.** `ToListAsync(cancellationToken)`, `FirstOrDefaultAsync(cancellationToken)`, `SaveChangesAsync(cancellationToken)`.
 

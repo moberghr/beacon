@@ -210,26 +210,28 @@ internal sealed class SqlCapture
         return [new NoConnection(), new StandInTransactions(this)];
     }
 
-    public IDbContextFactory<BeaconContext> Factory()
+    /// <summary>Contexts on this capture; <paramref name="interceptors"/> are added after its own (a save interceptor under test).</summary>
+    public IDbContextFactory<BeaconContext> Factory(params IInterceptor[] interceptors)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => CreateContext());
+            .ReturnsAsync(() => CreateContext(interceptors));
         factory
             .Setup(x => x.CreateDbContext())
-            .Returns(() => CreateContext());
+            .Returns(() => CreateContext(interceptors));
 
         return factory.Object;
     }
 
-    private BeaconContext CreateContext()
+    private BeaconContext CreateContext(IInterceptor[] interceptors)
     {
+        IInterceptor[] all = [new NoConnection(), new CapturingCommands(this), new StandInTransactions(this), .. interceptors];
         if (_sqlServer)
         {
             var sqlServerOptions = new DbContextOptionsBuilder<SqlServerTestContext>()
                 .UseSqlServer("Server=localhost;Database=never_opened;TrustServerCertificate=True")
-                .AddInterceptors(new NoConnection(), new CapturingCommands(this), new StandInTransactions(this))
+                .AddInterceptors(all)
                 .Options;
 
             return new SqlServerTestContext(sqlServerOptions);
@@ -238,7 +240,7 @@ internal sealed class SqlCapture
         var options = new DbContextOptionsBuilder<NpgsqlTestContext>()
             .UseNpgsql("Host=localhost;Database=never_opened")
             .UseSnakeCaseNamingConvention()
-            .AddInterceptors(new NoConnection(), new CapturingCommands(this), new StandInTransactions(this))
+            .AddInterceptors(all)
             .Options;
 
         return new NpgsqlTestContext(options);

@@ -769,7 +769,7 @@ public class ApiKeyLifecycleTests
     public async Task TheCallersLookup_ReadsTheirLastSignInAndCreation_Translates(bool sqlServer, string lastSignIn, string created)
     {
         var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows();
-        var users = new UserManagementService(capture.Factory(), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now));
+        var users = new UserManagementService(capture.Factory(), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now), new RecordingSecurityAudit());
 
         await users.GetUserByExternalIdAsync("ext-1", CancellationToken.None);
 
@@ -842,7 +842,7 @@ public class ApiKeyLifecycleTests
         var hasher = new Mock<IPasswordHasher>();
         hasher.Setup(x => x.HashPassword(It.IsAny<string>())).Returns(("new-hash", "new-salt"));
         hasher.Setup(x => x.VerifyPassword("current", It.IsAny<string>(), It.IsAny<string>())).Returns(true);
-        var users = new UserManagementService(BuildFactory(store), hasher.Object, Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now));
+        var users = new UserManagementService(BuildFactory(store), hasher.Object, Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now), new RecordingSecurityAudit());
         var stamps = new List<string?>();
 
         (await users.ToggleUserEnabledAsync(2, CancellationToken.None)).Success.Should().BeTrue();
@@ -987,13 +987,15 @@ public class ApiKeyLifecycleTests
     }
 
     private static UserManagementService BuildUsers(FakeStore store) =>
-        new(BuildFactory(store), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now));
+        new(BuildFactory(store), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), new FakeTimeProvider(Now), new RecordingSecurityAudit());
 
     private static ApiKeyService BuildApiKeys(FakeStore store, ApiKeyOptions? options = null, LogRecorder? logs = null) =>
         new(
             BuildFactory(store),
             Options.Create(options ?? new ApiKeyOptions()),
             new FakeTimeProvider(Now),
+            new RecordingSecurityAudit(),
+            TestProjectAccess.Actors(),
             logs?.For<ApiKeyService>() ?? NullLogger<ApiKeyService>.Instance);
 
     private static AdminRevokeApiKeyHandler AdminRevoke(FakeStore store) =>

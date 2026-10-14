@@ -297,7 +297,7 @@ public class MigrationJobApprovalTests
             Mock.Of<IBeaconUserContext>(),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = true }),
-            TestChangeApprovals.Submitter(configuration, caller ?? TestChangeApprovals.Caller(Ada)));
+            TestChangeApprovals.Submitter(configuration, caller ?? TestChangeApprovals.Caller(Ada)), TestProjectAccess.Actors(), new RecordingSecurityAudit(), TimeProvider.System);
 
     private static ChangeApprovalService Approvals(ChangeApprovalStore store) =>
         new(
@@ -307,5 +307,6 @@ public class MigrationJobApprovalTests
             store.Protector,
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
 }

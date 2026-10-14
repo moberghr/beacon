@@ -58,7 +58,7 @@ internal sealed class DocsStore
 /// Remove/RemoveRange delete, and SaveChanges assigns ids and fixes up the chunk → document foreign key the way EF
 /// would. The global soft-delete filter is NOT applied in memory; tests filter archived rows explicitly.
 /// </summary>
-internal sealed class DocsTestContext(DocsStore store) : BeaconContext(Options, "beacon")
+internal sealed class DocsTestContext(DocsStore store) : BeaconContext(Options, "beacon"), IObservableSaves
 {
     private static readonly DbContextOptions<DocsTestContext> Options =
         new DbContextOptionsBuilder<DocsTestContext>()
@@ -71,8 +71,11 @@ internal sealed class DocsTestContext(DocsStore store) : BeaconContext(Options, 
         return ListSet(store.ListFor<TEntity>());
     }
 
+    public event Action? Saving;
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        Saving?.Invoke();
         store.SaveCount++;
 
         if (store.FailNextSave != null)

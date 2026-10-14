@@ -365,12 +365,29 @@ export function useMcpSettings() {
   });
 }
 
-/** The settings the deployment pins (Beacon:Mcp locks), as server field names (e.g. 'EnforceReadOnly'). */
+/** An active deployment lock (`Beacon:Mcp`) and the setting it pins, both as the server names them. */
+export interface McpDeploymentLock {
+  /** e.g. `RetainQueryContent`. */
+  fieldName: string;
+  /** e.g. `ForceNoContentRetention`, or `Audit:RequireContent`. */
+  lockName: string;
+}
+
+export interface McpDeploymentLocks {
+  /** The settings the deployment pins, as server field names (e.g. 'EnforceReadOnly'). */
+  lockedFields: string[];
+  /** Each active lock and the setting it pins. */
+  locks: McpDeploymentLock[];
+}
+
+/** The settings the deployment pins (Beacon:Mcp locks) and the locks that pin them. */
 export function useMcpDeploymentLocks() {
   return useQuery({
     queryKey: MCP_DEPLOYMENT_LOCKS_KEY,
-    queryFn: async () =>
-      unwrap<{ lockedFields: string[] }>(await beaconApi().getMcpDeploymentLocks()).lockedFields,
+    queryFn: async (): Promise<McpDeploymentLocks> => {
+      const result = unwrap<{ lockedFields: string[]; locks?: McpDeploymentLock[] }>(await beaconApi().getMcpDeploymentLocks());
+      return { lockedFields: result.lockedFields, locks: result.locks ?? [] };
+    },
   });
 }
 

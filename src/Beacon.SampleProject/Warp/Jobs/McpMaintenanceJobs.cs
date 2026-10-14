@@ -1,3 +1,4 @@
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Worker;
 using Warp.Core.Handlers;
@@ -50,4 +51,26 @@ public sealed class PurgeExpiredMcpAuditLogsJobHandler(IMcpAuditRetentionService
 {
     public Task HandleAsync(PurgeExpiredMcpAuditLogsJob message, CancellationToken cancellationToken)
         => retentionService.PurgeExpiredAsync(cancellationToken);
+}
+
+// Security audit retention purge (Beacon:Audit:RetentionDays, at least a year); a no-op while unset (events kept forever).
+// The purge records itself in the trail.
+public sealed class PurgeExpiredSecurityAuditEventsJob : IJob;
+
+public sealed class PurgeExpiredSecurityAuditEventsJobHandler(ISecurityAuditRetentionService retentionService)
+    : IJobHandler<PurgeExpiredSecurityAuditEventsJob>
+{
+    public Task HandleAsync(PurgeExpiredSecurityAuditEventsJob message, CancellationToken cancellationToken)
+        => retentionService.PurgeExpiredAsync(cancellationToken);
+}
+
+// Security audit verification: hourly, the events written since the last run are checked against their HMACs; failures
+// are logged at Error (9108), each run writes a checkpoint to the log stream (9109) and records what it checked.
+public sealed class VerifySecurityAuditEventsJob : IJob;
+
+public sealed class VerifySecurityAuditEventsJobHandler(ISecurityAuditVerificationService verificationService)
+    : IJobHandler<VerifySecurityAuditEventsJob>
+{
+    public Task HandleAsync(VerifySecurityAuditEventsJob message, CancellationToken cancellationToken)
+        => verificationService.VerifyNewEventsAsync(cancellationToken);
 }

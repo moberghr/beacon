@@ -23,6 +23,7 @@ namespace Beacon.Tests.Unit;
 public class GetMcpAuditLogsHandlerTests
 {
     private const string CallerHash = "c0ffee00c0ffee00c0ffee00c0ffee00";
+    private const string ContentHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private static readonly DateTime From = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -124,6 +125,22 @@ public class GetMcpAuditLogsHandlerTests
         read.Message.Should().NotContain(CallerHash);
     }
 
+    [Test]
+    public async Task EachRow_CarriesItsContentHashAndItsStatementsInTheOrderTheyRan()
+    {
+        var result = await HandleOverDoublesAsync(Query(From, From.AddDays(30), page: 1, pageSize: 100), []);
+
+        var ask = result.Items.Single(x => x.Id == 4);
+        ask.ContentHash.Should().Be(ContentHash);
+        ask.Statements.Select(x => x.Purpose).Should().Equal("probe", "initial", "repair");
+        ask.Statements.Select(x => x.SqlHash).Should().Equal("hash-41", "hash-42", "hash-43");
+        ask.Statements[1].Should().BeEquivalentTo(
+            new McpAuditStatementItem(42, "initial", 9, null, 120, "SqlError", "hash-42", null),
+            "a statement whose text was not retained comes back with its hash, data source, time and error class only");
+        ask.Statements[2].Should().BeEquivalentTo(new McpAuditStatementItem(43, "repair", 9, 3, 80, null, "hash-43", "SELECT 1"));
+        result.Items.Where(x => x.Id != 4).Should().OnlyContain(x => x.Statements.Count == 0);
+    }
+
     [TestCase(DateTimeKind.Unspecified)]
     [TestCase(DateTimeKind.Local)]
     public void ToUtc_NormalisesNonUtcKinds(DateTimeKind kind)
@@ -159,7 +176,7 @@ public class GetMcpAuditLogsHandlerTests
     private static Task<GetMcpAuditLogsResult> HandleAsync(DateTime from, DateTime to, int page, int pageSize)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
-        var handler = new GetMcpAuditLogsHandler(factory.Object, NullLoggerFactory.Instance);
+        var handler = new GetMcpAuditLogsHandler(factory.Object, NullLoggerFactory.Instance, SecurityAuditTestKit.Reads(factory.Object, new RecordingSecurityAudit()));
 
         return handler.Handle(Query(from, to, page, pageSize), CancellationToken.None);
     }
@@ -171,7 +188,7 @@ public class GetMcpAuditLogsHandlerTests
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new AuditLogContext());
-        var handler = new GetMcpAuditLogsHandler(factory.Object, new LoggerFactory([new StateLoggerProvider(logs)]));
+        var handler = new GetMcpAuditLogsHandler(factory.Object, new LoggerFactory([new StateLoggerProvider(logs)]), SecurityAuditTestKit.Reads(factory.Object, new RecordingSecurityAudit()));
 
         return await handler.Handle(request, CancellationToken.None);
     }
@@ -203,7 +220,7 @@ public class GetMcpAuditLogsHandlerTests
             Row(1, new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc), CallerHash),
             Row(2, new DateTime(2026, 1, 4, 0, 0, 0, DateTimeKind.Utc), CallerHash),
             Row(3, new DateTime(2026, 1, 4, 0, 0, 0, DateTimeKind.Utc), CallerHash),
-            Row(4, new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc), CallerHash),
+            Ask(4, new DateTime(2026, 1, 5, 0, 0, 0, DateTimeKind.Utc)),
             Row(5, new DateTime(2026, 1, 6, 0, 0, 0, DateTimeKind.Utc), CallerHash),
             Row(6, new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc), "another-caller")
         ];
@@ -215,6 +232,38 @@ public class GetMcpAuditLogsHandlerTests
                 CreatedTime = createdTime,
                 Tool = "project_query",
                 CallerHash = callerHash
+            };
+
+        // An ask that probed a value, ran its first statement into an error and a repair that returned three rows; the
+        // statements are seeded out of order to prove the export orders them by the order they ran.
+        private static McpAuditLog Ask(int id, DateTime createdTime) =>
+            new()
+            {
+                Id = id,
+                CreatedTime = createdTime,
+                Tool = "ask",
+                CallerHash = CallerHash,
+                ContentHash = ContentHash,
+                Statements =
+                [
+                    Statement(43, "repair", rowCount: 3, durationMs: 80, errorClass: null, sql: "SELECT 1"),
+                    Statement(41, "probe", rowCount: 1, durationMs: 5, errorClass: null, sql: null),
+                    Statement(42, "initial", rowCount: null, durationMs: 120, errorClass: "SqlError", sql: null)
+                ]
+            };
+
+        private static McpAuditStatement Statement(int id, string purpose, int? rowCount, int durationMs, string? errorClass, string? sql) =>
+            new()
+            {
+                Id = id,
+                McpAuditLogId = 4,
+                DataSourceId = 9,
+                Purpose = purpose,
+                RowCount = rowCount,
+                DurationMs = durationMs,
+                ErrorClass = errorClass,
+                SqlHash = $"hash-{id}",
+                Sql = sql
             };
 
         private static DbSet<T> BuildSet<T>(List<T> data) where T : class

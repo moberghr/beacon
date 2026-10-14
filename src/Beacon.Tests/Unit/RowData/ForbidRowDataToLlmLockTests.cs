@@ -89,6 +89,7 @@ public class ForbidRowDataToLlmLockTests
             Options.Create(Lock),
             TestPermissions.Admin,
             TestProjectAccess.Actors(),
+            new RecordingSecurityAudit(),
             NullLogger<UpdateMcpSettingsHandler>.Instance);
 
         var act = () => handler.Handle(new UpdateMcpSettingsCommand(data), CancellationToken.None);
@@ -109,6 +110,7 @@ public class ForbidRowDataToLlmLockTests
             Options.Create(Lock),
             TestPermissions.Admin,
             TestProjectAccess.Actors(),
+            new RecordingSecurityAudit(),
             NullLogger<UpdateMcpProjectSettingsHandler>.Instance);
 
         var act = () => handler.Handle(

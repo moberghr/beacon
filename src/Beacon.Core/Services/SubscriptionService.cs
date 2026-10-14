@@ -14,6 +14,7 @@ using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Validators;
 using Beacon.Core.Worker;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -42,15 +43,18 @@ internal class SubscriptionService(
     IAnomalyDetectionService anomalyDetectionService,
     IBeaconActorAccessor actorAccessor,
     BeaconConfiguration configuration,
-    IOptions<QueryExecutionOptions> queryOptions)
+    IOptions<QueryExecutionOptions> queryOptions,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider)
     : ISubscriptionService
 {
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
 
-        // The owner its runs act as: the caller, never a value from the request.
-        var ownerUserId = ScheduledWorkOwner.Require(await actorAccessor.GetCurrentAsync(cancellationToken), configuration);
+        // The owner its runs act as, and its creator: the caller, never a value from the request.
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var ownerUserId = ScheduledWorkOwner.Require(actor, configuration);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -95,13 +99,25 @@ internal class SubscriptionService(
             CreateTasks = subscriptionData.CreateTasks,
             NotificationTrigger = subscriptionData.NotificationTrigger,
             OwnerUserId = ownerUserId,
+            CreatedByUserId = actor.UserId,
             Recipients = recipients,
             Parameters = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters)
         };
 
         context.Subscriptions.Add(subscription);
 
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.SubscriptionCreated)
+                    .On(SecurityAuditResources.Subscription, subscription.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("queryId", subscription.QueryId)
+                        .Add("recipientIds", recipients.Select(x => x.Id))
+                        .Add("createTasks", subscription.CreateTasks))
+            ],
+            cancellationToken);
 
         // Save anomaly configuration if provided
         if (subscriptionData.AnomalyConfig != null)
@@ -155,6 +171,11 @@ internal class SubscriptionService(
             }
         }
 
+        subscription.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.SubscriptionReactivated).On(SecurityAuditResources.Subscription, subscriptionId),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         await ScheduleOrArchiveAsync(context, subscription, subscription.Query.Name);
@@ -178,6 +199,11 @@ internal class SubscriptionService(
             param.Archive();
         }
 
+        subscription.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.SubscriptionArchived).On(SecurityAuditResources.Subscription, subscriptionId),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         // Persist the archive BEFORE unscheduling. BeaconContext and WarpDbContext can't share a transaction,
@@ -317,6 +343,16 @@ internal class SubscriptionService(
         }
 
         var newParams = ParameterEntityFactory.CreateSubscriptionParameters(subscriptionData.Parameters, subscription.Id);
+        subscription.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.SubscriptionUpdated)
+                .On(SecurityAuditResources.Subscription, subscription.Id)
+                .With(new SecurityAuditDetails()
+                    .Add("scheduleChanged", shouldUpdateSchedule)
+                    .Add("addedRecipientIds", addedRecipients.Select(x => x.Id))
+                    .Add("removedRecipientIds", removedRecipients.Select(x => x.Id))),
+            cancellationToken);
         context.SubscriptionParameters.AddRange(newParams);
 
         await context.SaveChangesAsync(cancellationToken);
@@ -421,7 +457,19 @@ internal class SubscriptionService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Subscription {subscriptionId} not found.");
 
+        if (subscription.Recipients.All(x => x.Id != recipientId))
+        {
+            return;
+        }
+
         subscription.Recipients = subscription.Recipients.Where(x => x.Id != recipientId).ToList();
+        subscription.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.SubscriptionRecipientRemoved)
+                .On(SecurityAuditResources.Subscription, subscriptionId)
+                .With(new SecurityAuditDetails().Add("recipientId", recipientId)),
+            cancellationToken);
 
         await context.SaveChangesAsync(cancellationToken);
     }
@@ -441,8 +489,19 @@ internal class SubscriptionService(
         var recipients = await context.Recipients
             .Where(x => recipientIds.Contains(x.Id))
             .ToListAsync(cancellationToken);
+        if (recipients.Count == 0)
+        {
+            return;
+        }
 
         subscription.Recipients.AddRange(recipients);
+        subscription.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.SubscriptionRecipientsAdded)
+                .On(SecurityAuditResources.Subscription, subscriptionId)
+                .With(new SecurityAuditDetails().Add("recipientIds", recipients.Select(x => x.Id))),
+            cancellationToken);
 
         await context.SaveChangesAsync(cancellationToken);
     }

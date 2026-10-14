@@ -11,6 +11,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
 
@@ -34,6 +35,25 @@ public class SetQueryMcpToolHandlerTests
         result.RunnableVersionNumber.Should().Be(1);
         result.Issue.Should().BeNull();
         data.Store.SaveCount.Should().Be(1);
+    }
+
+    [Test]
+    public async Task ExposingOrWithdrawingATool_IsRecorded_AndAttributedToTheCaller()
+    {
+        var data = Seed();
+        var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 14, 9, 0, 0, TimeSpan.Zero));
+
+        await Handler(data, audit: audit, timeProvider: time).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", "Monthly loan book.", null), CancellationToken.None);
+
+        var exposed = audit.Single("Monthly loan book");
+        exposed.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.QueryMcpToolChanged, ResourceType = SecurityAuditResources.Query, ResourceId = "1", ActorUserId = (int?)3 },
+            x => x.ExcludingMissingMembers());
+        exposed.DetailsJson.Should().Be("{\"enabled\":true,\"wasEnabled\":false,\"tool\":\"q_loan_book\",\"versionNumber\":1}");
+        query.ModifiedByUserId.Should().Be("ext-ada");
+        query.ModifiedTime.Should().Be(time.GetUtcNow().UtcDateTime);
     }
 
     [TestCase("ab")]
@@ -210,7 +230,7 @@ public class SetQueryMcpToolHandlerTests
         var query = data.Query(1, null, [Step(1, 10, "SELECT {n}", Parameter("n", ParameterType.Number))], enabled: false);
         var authorizer = TestProjectAccess.Authorizer(ProjectAccessScope.None, new MissingResolver(), new SqlCapture().Factory());
 
-        var act = () => new SetQueryMcpToolHandler(data.Store.Factory().Object, authorizer, TestProjectAccess.Actors(), new BeaconConfiguration(), NullLogger<SetQueryMcpToolHandler>.Instance)
+        var act = () => new SetQueryMcpToolHandler(data.Store.Factory().Object, authorizer, TestProjectAccess.Actors(), new BeaconConfiguration(), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<SetQueryMcpToolHandler>.Instance)
             .Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconNotFoundException>();
@@ -358,12 +378,19 @@ public class SetQueryMcpToolHandlerTests
     }
 
     // The caller is "ext-ada", a stored user, unless actors says otherwise.
-    private static SetQueryMcpToolHandler Handler(SavedQueryTestData data, BeaconConfiguration? configuration = null, IBeaconActorAccessor? actors = null) =>
+    private static SetQueryMcpToolHandler Handler(
+        SavedQueryTestData data,
+        BeaconConfiguration? configuration = null,
+        IBeaconActorAccessor? actors = null,
+        ISecurityAuditRecorder? audit = null,
+        TimeProvider? timeProvider = null) =>
         new(
             data.Store.Factory().Object,
             TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted),
             actors ?? TestProjectAccess.Actors(),
             configuration ?? new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            audit ?? new RecordingSecurityAudit(),
+            timeProvider ?? TimeProvider.System,
             NullLogger<SetQueryMcpToolHandler>.Instance);
 
     // Resolves every resource into a project the caller does not read.

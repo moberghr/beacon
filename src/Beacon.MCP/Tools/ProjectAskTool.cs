@@ -129,6 +129,12 @@ internal sealed class ProjectAskTool(
             string? generatedSql = null;
             string? correctedSql = null;
 
+            // The audit row names the data source and the final result of a single-source answer; a cross-source answer's
+            // sources and row counts are on its statements.
+            int? auditedDataSourceId = null;
+            int? auditedRowCount = null;
+            IReadOnlyList<string>? auditedTables = null;
+
             // Generate and execute SQL
             if (routing.Sources.Count == 1)
             {
@@ -143,6 +149,9 @@ internal sealed class ProjectAskTool(
                 resultPayload = outcome.ResultPayload;
                 generatedSql = outcome.GeneratedSql;
                 correctedSql = outcome.CorrectedSql;
+                auditedDataSourceId = source.DataSourceId;
+                auditedRowCount = outcome.RowCount;
+                auditedTables = outcome.Tables;
             }
             else
             {
@@ -163,7 +172,7 @@ internal sealed class ProjectAskTool(
             sw.Stop();
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, askSucceeded);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
-                question, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
+                question, auditedDataSourceId, projectId, (int)sw.ElapsedMilliseconds, auditedRowCount, null, auditedTables, ct: cancellationToken);
             var signalId = await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
             if (signalId is { } id)
             {
@@ -218,7 +227,7 @@ internal sealed class ProjectAskTool(
         if (outcome.ValidationError != null)
         {
             signal.SetExecutionFailed(outcome.ValidationError);
-            return new AskToolOutcome(outcome.Text, false, null, outcome.GeneratedSql, null);
+            return new AskToolOutcome(outcome.Text, false, null, outcome.GeneratedSql, null, null, outcome.TablesUsed);
         }
 
         foreach (var repair in outcome.Repairs)
@@ -256,7 +265,14 @@ internal sealed class ProjectAskTool(
             }
         }
 
-        return new AskToolOutcome(outcome.Text, outcome.Succeeded, outcome.Execution?.Structured, outcome.GeneratedSql, outcome.CorrectedSql);
+        return new AskToolOutcome(
+            outcome.Text,
+            outcome.Succeeded,
+            outcome.Execution?.Structured,
+            outcome.GeneratedSql,
+            outcome.CorrectedSql,
+            outcome.Execution?.RowCount,
+            outcome.TablesUsed);
     }
 
     // §9.5 — audit + signal must be recorded on every outcome, including pre-generation failures
@@ -315,7 +331,8 @@ internal sealed class ProjectAskTool(
 // Return value of ProjectAskTool.GenerateAndExecuteSqlAsync. ResultPayload is the structured
 // { columns, rows, row_count, truncated } node from the execution that produced the answer (null when
 // execution was skipped, failed, or returned no rows); GeneratedSql is the SQL shown under
-// "### Generated SQL"; CorrectedSql is the repair the flow adopted, when any. The 2-arity Deconstruct
+// "### Generated SQL"; CorrectedSql is the repair the flow adopted, when any; RowCount and Tables are what the audit row
+// records of the final result (null when nothing executed). The 2-arity Deconstruct
 // preserves the original (Text, Succeeded) tuple shape for existing call sites and tests. Named
 // AskToolOutcome (not AskSqlOutcome) to avoid clashing with Beacon.AI.Services.Mcp.AskSqlOutcome.
 internal sealed record AskToolOutcome(
@@ -323,7 +340,9 @@ internal sealed record AskToolOutcome(
     bool Succeeded,
     JsonNode? ResultPayload = null,
     string? GeneratedSql = null,
-    string? CorrectedSql = null)
+    string? CorrectedSql = null,
+    int? RowCount = null,
+    IReadOnlyList<string>? Tables = null)
 {
     public void Deconstruct(out string text, out bool succeeded)
     {

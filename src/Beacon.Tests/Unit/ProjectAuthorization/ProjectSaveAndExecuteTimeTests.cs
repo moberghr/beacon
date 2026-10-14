@@ -156,6 +156,7 @@ public class ProjectSaveAndExecuteTimeTests
             capture.Factory(),
             TestProjectAccess.Evaluator(Member),
             TestProjectAccess.Actors(),
+            TimeProvider.System,
             NullLogger<DeleteQueryFolderHandler>.Instance);
 
         var act = () => handler.Handle(new DeleteQueryFolderCommand(3, true), CancellationToken.None);
@@ -168,7 +169,7 @@ public class ProjectSaveAndExecuteTimeTests
     public async Task ARelationshipOfAnotherDataSource_IsNotFound()
     {
         var capture = new SqlCapture().ThenNoRows();
-        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(Member), TestPermissions.None, TestProjectAccess.Actors());
+        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(Member), TestPermissions.None, TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
         var act = () => handler.Handle(new UpdateSchemaRelationshipCommand { DataSourceId = 4, Id = 70, Label = "l" }, CancellationToken.None);
 

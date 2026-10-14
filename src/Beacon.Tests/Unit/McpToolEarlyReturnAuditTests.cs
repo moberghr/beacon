@@ -17,6 +17,7 @@ using Beacon.Core.HostDocs;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -163,7 +164,7 @@ public class McpToolEarlyReturnAuditTests
         var audit = new McpAuditService(
             factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(),
-            Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         var projectContext = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [AllowedProjectId] };
 

@@ -12,6 +12,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataSources;
 
@@ -22,6 +23,7 @@ internal sealed class SetDataSourceMigrationWritesHandler(
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
     TimeProvider timeProvider,
+    ISecurityAuditRecorder securityAudit,
     ILogger<SetDataSourceMigrationWritesHandler> logger)
     : IRequestHandler<SetDataSourceMigrationWritesCommand>
 {
@@ -103,6 +105,15 @@ internal sealed class SetDataSourceMigrationWritesHandler(
             ChangedAt = timeProvider.GetUtcNow().UtcDateTime,
             ChangedByUserId = actor.LogId
         });
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.MigrationWritesChanged)
+                .On(SecurityAuditResources.DataSource, request.DataSourceId)
+                .With(new SecurityAuditDetails()
+                    .Add("allowMigrationWritesBefore", before)
+                    .Add("allowMigrationWritesAfter", request.AllowMigrationWrites)
+                    .Add("forced", request.Force)),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         // A write target has no catalog in Beacon, and an unmarked one is scanned afresh: the cached metadata and the

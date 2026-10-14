@@ -10,10 +10,14 @@ using Beacon.Core.Models.Tasks;
 using Beacon.Core.Notifications;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
-public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogger<TaskService> logger) : ITaskService
+public class TaskService(
+    IDbContextFactory<BeaconContext> contextFactory,
+    ILogger<TaskService> logger,
+    ISecurityAuditRecorder securityAudit) : ITaskService
 {
     /// <summary>
     /// The fixed note of a task resolved by a run that returned no rows. Such a resolution records no resolver: nobody
@@ -33,16 +37,16 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         if (existingTask != null)
         {
             logger.LogDebug("Updating existing task {TaskId} for subscription {SubscriptionId}", existingTask.Id, subscriptionId);
-            UpdateTaskWithResultCount(existingTask, resultCount);
+            await UpdateTaskWithResultCountAsync(context, existingTask, resultCount, cancellationToken);
             await LinkNotificationToTaskAsync(context, notificationId, existingTask.Id, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
             return existingTask.Id;
         }
 
-        // Create new task
+        // Create new task (resolved at once by a run that returned no rows)
         var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: true);
         context.QueryTasks.Add(task);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(context, () => task.Resolved ? [AutoResolved(task)] : [], cancellationToken);
         logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
 
         await LinkNotificationToTaskAsync(context, notificationId, task.Id, cancellationToken);
@@ -62,7 +66,7 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
 
         if (existingTask != null)
         {
-            UpdateTaskWithResultCount(existingTask, resultCount);
+            await UpdateTaskWithResultCountAsync(context, existingTask, resultCount, cancellationToken);
 
             await context.SaveChangesAsync(cancellationToken);
             return existingTask.Id;
@@ -96,9 +100,10 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
     }
 
     /// <summary>
-    /// Updates a task with the latest result count and applies auto-resolution if result count is 0.
+    /// Updates a task with the latest result count and applies auto-resolution if result count is 0: Beacon resolves it, so
+    /// the security audit records the system as the resolver, in the save that resolves it.
     /// </summary>
-    private static void UpdateTaskWithResultCount(QueryTask task, int resultCount)
+    private async Task UpdateTaskWithResultCountAsync(BeaconContext context, QueryTask task, int resultCount, CancellationToken cancellationToken)
     {
         task.LatestResultCount = resultCount;
         task.LastNotificationAt = DateTime.UtcNow;
@@ -109,7 +114,17 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
             task.ResolvedAt = DateTime.UtcNow;
             task.ResolutionNotes = AutoResolveMessage;
             task.ResolvedByUserId = null;
+            await securityAudit.StageAsync(context, AutoResolved(task), cancellationToken);
         }
+    }
+
+    // A task Beacon resolved because a run returned no rows: the system resolved it, nobody else.
+    private static SecurityAuditEntry AutoResolved(QueryTask task)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.TaskAutoResolved)
+            .On(SecurityAuditResources.Task, task.Id)
+            .With(new SecurityAuditDetails().Add("subscriptionId", task.SubscriptionId))
+            .By(SecurityAuditActor.System);
     }
 
     /// <summary>
@@ -160,18 +175,22 @@ public class TaskService(IDbContextFactory<BeaconContext> contextFactory, ILogge
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // A resolution is never overwritten: who resolved the task, when and why stays as recorded. The task is written
-        // only while it is still open.
+        // only while it is still open, with its security audit event in the same transaction.
         var resolvedAt = DateTime.UtcNow;
-        var updated = await context.QueryTasks
-            .Where(x => x.Id == taskId)
-            .Where(x => !x.Resolved)
-            .ExecuteUpdateAsync(
-                x => x
-                    .SetProperty(y => y.Resolved, true)
-                    .SetProperty(y => y.ResolvedAt, resolvedAt)
-                    .SetProperty(y => y.ResolutionNotes, resolutionNotes)
-                    .SetProperty(y => y.ResolvedByUserId, userId),
-                cancellationToken);
+        var updated = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.QueryTasks
+                .Where(x => x.Id == taskId)
+                .Where(x => !x.Resolved)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.Resolved, true)
+                        .SetProperty(y => y.ResolvedAt, resolvedAt)
+                        .SetProperty(y => y.ResolutionNotes, resolutionNotes)
+                        .SetProperty(y => y.ResolvedByUserId, userId),
+                    cancellationToken),
+            written => written == 0 ? [] : [new SecurityAuditEntry(SecurityAuditActions.TaskResolved).On(SecurityAuditResources.Task, taskId)],
+            cancellationToken);
 
         if (updated > 0)
         {

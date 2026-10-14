@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Settings;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -18,18 +19,21 @@ public class AppSettingsService : IAppSettingsService
     private readonly IEncryptionService _encryption;
     private readonly BeaconConfiguration _config;
     private readonly ILlmConfigurationUpdater? _llmUpdater;
+    private readonly ISecurityAuditRecorder _securityAudit;
 
     public AppSettingsService(
         IDbContextFactory<BeaconContext> contextFactory,
         IMemoryCache cache,
         IEncryptionService encryption,
         BeaconConfiguration config,
+        ISecurityAuditRecorder securityAudit,
         ILlmConfigurationUpdater? llmUpdater = null)
     {
         _contextFactory = contextFactory;
         _cache = cache;
         _encryption = encryption;
         _config = config;
+        _securityAudit = securityAudit;
         _llmUpdater = llmUpdater;
     }
 
@@ -177,7 +181,11 @@ public class AppSettingsService : IAppSettingsService
             context.AppSettingHistory.AddRange(historyEntries);
         }
 
-        await context.SaveChangesAsync(ct);
+        // One security audit event per save that changed something, naming the keys and their history rows.
+        await _securityAudit.SaveWithEventsAsync(
+            context,
+            () => SettingsAuditEntries.Changed(SecurityAuditActions.AdminSettingsChanged, null, historyEntries),
+            ct);
 
         // Invalidate cache
         _cache.Remove(CacheKey);

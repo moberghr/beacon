@@ -334,6 +334,7 @@ public class StoredValueReEncryptionServiceTests
             new RecipientSecretProtector(_encryption),
             hasher,
             TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
     }
 

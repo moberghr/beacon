@@ -6,6 +6,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects.Members;
 
@@ -16,6 +17,7 @@ internal sealed class RemoveProjectMemberHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     IOptions<RoleMappingOptions> roleMapping,
+    ISecurityAuditRecorder securityAudit,
     ILogger<RemoveProjectMemberHandler> logger)
     : IRequestHandler<RemoveProjectMemberCommand>
 {
@@ -40,11 +42,23 @@ internal sealed class RemoveProjectMemberHandler(
         // The last-ProjectAdmin condition and the removal run in one serializable transaction.
         var removed = await ProjectMembershipRules.InSerializableTransactionAsync(
             context,
-            () => context.ProjectMembers
-                .Where(x => x.ProjectId == request.ProjectId)
-                .Where(x => x.UserId == request.UserId)
-                .WhereChangeKeepsAProjectAdmin(context, request.ProjectId, request.UserId, mayLeaveNoAdmin: scope.IsUnrestricted)
-                .ExecuteDeleteAsync(cancellationToken),
+            () => securityAudit.SaveWithEventsAsync(
+                context,
+                () => context.ProjectMembers
+                    .Where(x => x.ProjectId == request.ProjectId)
+                    .Where(x => x.UserId == request.UserId)
+                    .WhereChangeKeepsAProjectAdmin(context, request.ProjectId, request.UserId, mayLeaveNoAdmin: scope.IsUnrestricted)
+                    .ExecuteDeleteAsync(cancellationToken),
+                rows => rows > 0
+                    ?
+                    [
+                        new SecurityAuditEntry(SecurityAuditActions.MemberRemoved)
+                            .On(SecurityAuditResources.Project, request.ProjectId)
+                            .InProject(request.ProjectId)
+                            .With(new SecurityAuditDetails().Add("memberUserId", request.UserId))
+                    ]
+                    : [],
+                cancellationToken),
             cancellationToken);
 
         if (removed == 0)

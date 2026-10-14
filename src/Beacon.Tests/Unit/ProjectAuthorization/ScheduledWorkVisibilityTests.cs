@@ -99,7 +99,7 @@ public class ScheduledWorkVisibilityTests
     public async Task ASubscriptionsLastRunSkipped_Translates()
     {
         var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration(), TestQueryServices.QueryOptions);
+        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration(), TestQueryServices.QueryOptions, new RecordingSecurityAudit(), TimeProvider.System);
 
         var act = () => service.GetSubscriptionDetails(5, CancellationToken.None);
 
@@ -138,7 +138,7 @@ public class ScheduledWorkVisibilityTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance).GetTaskDetails(3, null, CancellationToken.None);
+        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(3, null, CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().MatchRegex(@"a\d*\.created_by_user_id IS NOT NULL AS c\d+", "only whether the actor has a creator is read");

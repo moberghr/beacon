@@ -8,6 +8,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -35,6 +36,7 @@ internal sealed class PromoteSignalToGoldenHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IGroundingSqlCheck groundingSqlCheck,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<PromoteSignalToGoldenHandler> logger)
     : IRequestHandler<PromoteSignalToGoldenCommand, PromoteSignalToGoldenResult>
 {
@@ -153,7 +155,18 @@ internal sealed class PromoteSignalToGoldenHandler(
                 PromotedByUserId = actor.BeaconUserId
             };
             context.McpEvalCases.Add(evalCase);
-            await context.SaveChangesAsync(cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () =>
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.GoldenCasePromoted)
+                        .On(SecurityAuditResources.EvalCase, evalCase.Id)
+                        .InProject(projectId)
+                        .With(new SecurityAuditDetails()
+                            .Add("signalId", signal.Id)
+                            .Add("dataSourceId", dataSourceId))
+                ],
+                cancellationToken);
 
             await context.McpQuerySignals
                 .Where(x => x.Id == request.SignalId)

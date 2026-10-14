@@ -6,6 +6,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -22,6 +23,7 @@ namespace Beacon.Core.Handlers.McpEval;
 internal sealed class RecheckGroundingHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IGroundingSqlCheck groundingSqlCheck,
+    ISecurityAuditRecorder securityAudit,
     ILogger<RecheckGroundingHandler> logger)
     : IRequestHandler<RecheckGroundingQuery, RecheckGroundingResult>
 {
@@ -132,6 +134,18 @@ internal sealed class RecheckGroundingHandler(
             patterns.Count,
             string.Join(",", Ids(refused, GroundingRecheckKind.GoldenCase)),
             string.Join(",", Ids(refused, GroundingRecheckKind.LearnedPattern)));
+
+        // The recheck reads every active golden case and approved pattern of the project, their SQL included: on record, by
+        // counts.
+        await securityAudit.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.GroundingRechecked)
+                .On(SecurityAuditResources.Project, request.ProjectId)
+                .InProject(request.ProjectId)
+                .With(new SecurityAuditDetails()
+                    .Add("goldenCasesChecked", cases.Count)
+                    .Add("patternsChecked", patterns.Count)
+                    .Add("refusedCount", refused.Count)),
+            cancellationToken);
 
         return new RecheckGroundingResult
         {

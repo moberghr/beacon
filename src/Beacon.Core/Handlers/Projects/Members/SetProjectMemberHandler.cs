@@ -8,6 +8,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects.Members;
 
@@ -19,6 +20,7 @@ internal sealed class SetProjectMemberHandler(
     IBeaconPermissionAccessor permissionAccessor,
     IOptions<RoleMappingOptions> roleMapping,
     TimeProvider timeProvider,
+    ISecurityAuditRecorder securityAudit,
     ILogger<SetProjectMemberHandler> logger)
     : IRequestHandler<SetProjectMemberCommand, SetProjectMemberResult>
 {
@@ -60,7 +62,7 @@ internal sealed class SetProjectMemberHandler(
             .AnyAsync(cancellationToken);
 
         // Upsert as an insert first; a concurrent insert of the same member makes it an update.
-        if (!hasRow && await TryAddAsync(context, request, actor, cancellationToken))
+        if (!hasRow && await TryAddAsync(context, request, actor, securityAudit, cancellationToken))
         {
             logger.LogInformation(
                 ProjectAccessEvents.MemberAdded,
@@ -76,19 +78,23 @@ internal sealed class SetProjectMemberHandler(
         // The last-ProjectAdmin condition and the role change run in one serializable transaction.
         var updated = await ProjectMembershipRules.InSerializableTransactionAsync(
             context,
-            () => context.ProjectMembers
-                .Where(x => x.ProjectId == request.ProjectId)
-                .Where(x => x.UserId == request.UserId)
-                .WhereChangeKeepsAProjectAdmin(
-                    context,
-                    request.ProjectId,
-                    request.UserId,
-                    mayLeaveNoAdmin: request.Role == ProjectRole.ProjectAdmin || scope.IsUnrestricted)
-                .ExecuteUpdateAsync(
-                    x => x
-                        .SetProperty(y => y.Role, request.Role)
-                        .SetProperty(y => y.ModifiedTime, timeProvider.GetUtcNow().UtcDateTime),
-                    cancellationToken),
+            () => securityAudit.SaveWithEventsAsync(
+                context,
+                () => context.ProjectMembers
+                    .Where(x => x.ProjectId == request.ProjectId)
+                    .Where(x => x.UserId == request.UserId)
+                    .WhereChangeKeepsAProjectAdmin(
+                        context,
+                        request.ProjectId,
+                        request.UserId,
+                        mayLeaveNoAdmin: request.Role == ProjectRole.ProjectAdmin || scope.IsUnrestricted)
+                    .ExecuteUpdateAsync(
+                        x => x
+                            .SetProperty(y => y.Role, request.Role)
+                            .SetProperty(y => y.ModifiedTime, timeProvider.GetUtcNow().UtcDateTime),
+                        cancellationToken),
+                rows => rows > 0 ? [MemberEvent(SecurityAuditActions.MemberRoleChanged, request)] : [],
+                cancellationToken),
             cancellationToken);
 
         if (updated == 0)
@@ -111,8 +117,10 @@ internal sealed class SetProjectMemberHandler(
         BeaconContext context,
         SetProjectMemberCommand request,
         BeaconActor actor,
+        ISecurityAuditRecorder securityAudit,
         CancellationToken cancellationToken)
     {
+        await securityAudit.StageAsync(context, MemberEvent(SecurityAuditActions.MemberAdded, request), cancellationToken);
         context.ProjectMembers.Add(new ProjectMember
         {
             ProjectId = request.ProjectId,
@@ -129,8 +137,21 @@ internal sealed class SetProjectMemberHandler(
         }
         catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
         {
+            // Neither the member nor its event was written: the role change that follows must not save them again.
+            context.ChangeTracker.Clear();
+
             return false;
         }
+    }
+
+    private static SecurityAuditEntry MemberEvent(string action, SetProjectMemberCommand request)
+    {
+        return new SecurityAuditEntry(action)
+            .On(SecurityAuditResources.Project, request.ProjectId)
+            .InProject(request.ProjectId)
+            .With(new SecurityAuditDetails()
+                .Add("memberUserId", request.UserId)
+                .Add("role", request.Role));
     }
 
     // Nothing changed: the row is a ProjectAdmin's and no other effective ProjectAdmin is left, or the row went away

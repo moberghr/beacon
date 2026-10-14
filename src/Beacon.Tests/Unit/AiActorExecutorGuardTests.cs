@@ -232,6 +232,7 @@ public class AiActorExecutorGuardTests
             Mock.Of<IQueryProposalCheck>(MockBehavior.Strict),
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
+            new RecordingSecurityAudit(),
             Mock.Of<ILogger<AiActorService>>());
     }
 

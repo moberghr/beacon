@@ -15,6 +15,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Beacon.Tests.Common;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Common;
 
@@ -127,7 +129,7 @@ internal static class TestQueryServices
             new StepSqlSaveCheck(contextFactory, executionGate, databases),
             new QueryGuardrailService(),
             sharedSourceSettings ?? DefaultSettings(),
-            QueryOptions)
+            QueryOptions, TimeProvider.System)
         {
             ExecutionRowCeiling = executionRowCeiling ?? Constants.Query.MaxExecutionRows,
             FinalQueryTimeoutSeconds = finalQueryTimeoutSeconds ?? Constants.Query.StatementTimeoutSeconds
@@ -144,15 +146,19 @@ internal static class TestQueryServices
         IBeaconUserContext? userContext = null,
         BeaconConfiguration? configuration = null,
         IStepSqlSaveCheck? saveCheck = null,
-        IApprovalNotifier? notifier = null)
+        IApprovalNotifier? notifier = null,
+        ISecurityAuditRecorder? audit = null,
+        TimeProvider? timeProvider = null)
     {
         return new QueryVersionService(
             contextFactory,
             userContext ?? Mock.Of<IBeaconUserContext>(),
             configuration ?? new BeaconConfiguration(),
             saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<QueryVersionService>.Instance,
-            notifier);
+            notifier,
+            timeProvider);
     }
 
     /// <summary>
@@ -164,7 +170,8 @@ internal static class TestQueryServices
         IBeaconActorAccessor? actors = null,
         BeaconConfiguration? configuration = null,
         IStepSqlSaveCheck? saveCheck = null,
-        IQueryVersionService? versions = null)
+        IQueryVersionService? versions = null,
+        ISecurityAuditRecorder? audit = null)
     {
         return new QueryApprovalService(
             contextFactory,
@@ -173,6 +180,7 @@ internal static class TestQueryServices
             Mock.Of<IBeaconUserContext>(),
             saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
             configuration ?? new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<QueryApprovalService>.Instance);
     }
 

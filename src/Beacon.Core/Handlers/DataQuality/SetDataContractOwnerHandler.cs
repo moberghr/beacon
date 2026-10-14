@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataQuality.SetDataContractOwner;
 
@@ -13,10 +14,15 @@ internal sealed class SetDataContractOwnerHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     ProjectRequestAuthorizer authorizer,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<SetDataContractOwnerHandler> logger) : IRequestHandler<SetDataContractOwnerCommand>
 {
     public const string OwnerMayNotRunMessage =
         "The new owner cannot evaluate this data contract: they need access to run saved SQL in a project that holds its data source.";
+
+    /// <summary>The data contract was changed (its owner, or archived) between the read of its owner and the change: nothing was written.</summary>
+    public const string OwnerChangedMessage = "The data contract changed while its owner was being set (its owner was changed by someone else, or it was archived); nothing was changed. Reload it and try again.";
 
     public async Task Handle(SetDataContractOwnerCommand request, CancellationToken cancellationToken)
     {
@@ -35,12 +41,18 @@ internal sealed class SetDataContractOwnerHandler(
         var ownerUserId = await AssignableUsers.ExternalIdOfActiveUserAsync(context, request.UserId, cancellationToken)
             ?? throw new InvalidOperationException("A data contract can only be owned by an existing, enabled user.");
 
-        var exists = await context.DataContracts
+        var current = await context.DataContracts
             .Where(x => x.Id == request.DataContractId)
-            .AnyAsync(cancellationToken);
-        if (!exists)
+            .Select(x =>
+                new
+                {
+                    x.OwnerUserId
+                })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new BeaconNotFoundException($"Data contract {request.DataContractId} not found");
+        if (current.OwnerUserId == ownerUserId)
         {
-            throw new BeaconNotFoundException($"Data contract {request.DataContractId} not found");
+            return;
         }
 
         // Scheduled evaluations run as the owner: an owner who may not run the contract's rules would only have every
@@ -51,9 +63,28 @@ internal sealed class SetDataContractOwnerHandler(
             OwnerMayNotRunMessage,
             cancellationToken);
 
-        await context.DataContracts
-            .Where(x => x.Id == request.DataContractId)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.OwnerUserId, ownerUserId), cancellationToken);
+        var modifiedTime = timeProvider.GetUtcNow().UtcDateTime;
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.DataContracts
+                .Where(x => x.Id == request.DataContractId)
+                .Where(x => x.OwnerUserId == current.OwnerUserId)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.OwnerUserId, ownerUserId)
+                        .SetProperty(y => y.ModifiedByUserId, actor.UserId)
+                        .SetProperty(y => y.ModifiedTime, modifiedTime),
+                    cancellationToken),
+            written => written == 0
+                ? throw new BeaconConflictException(OwnerChangedMessage)
+                :
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.OwnerChanged)
+                        .On(SecurityAuditResources.DataContract, request.DataContractId)
+                        .With(new SecurityAuditDetails().Add("ownerUserId", request.UserId))
+                        .Naming("previousOwnerUserId", current.OwnerUserId)
+                ],
+            cancellationToken);
     }
 }
 

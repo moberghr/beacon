@@ -3,11 +3,17 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects;
 
+/// <summary>
+/// Replaces a documentation section's content (grounding for the project's prompts). The edit is recorded in the security
+/// audit, by section and project and with the content's length (never the content), in the same save.
+/// </summary>
 internal sealed class UpdateDocumentationSectionHandler(
-    IDbContextFactory<BeaconContext> contextFactory)
+    IDbContextFactory<BeaconContext> contextFactory,
+    ISecurityAuditRecorder securityAudit)
     : IRequestHandler<UpdateDocumentationSectionCommand>
 {
     public async Task Handle(
@@ -27,6 +33,19 @@ internal sealed class UpdateDocumentationSectionHandler(
 
         section.Content = DocumentationContentParser.SanitizeMermaidDiagrams(request.Content);
 
+        var projectId = await context.ProjectDocumentations
+            .Where(x => x.Id == section.ProjectDocumentationId)
+            .Select(x => (int?)x.ProjectId)
+            .FirstOrDefaultAsync(cancellationToken);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.DocumentationSectionEdited)
+                .On(SecurityAuditResources.DocumentationSection, section.Id)
+                .InProject(projectId)
+                .With(new SecurityAuditDetails()
+                    .Add("documentationId", section.ProjectDocumentationId)
+                    .Add("contentLength", section.Content.Length)),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 }

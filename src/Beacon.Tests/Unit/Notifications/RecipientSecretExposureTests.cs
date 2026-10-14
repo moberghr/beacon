@@ -162,7 +162,7 @@ public class RecipientSecretExposureTests
     {
         var store = new RecipientStore();
         var protector = NotificationTestKit.Protector();
-        var handler = new CreateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()));
+        var handler = new CreateRecipientHandler(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()), TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
         await handler.Handle(
             new CreateRecipientCommand("hook", null, "https://hooks.example.com/in/" + JiraToken, (int)NotificationType.Webhook, WebhookHeaders, null),

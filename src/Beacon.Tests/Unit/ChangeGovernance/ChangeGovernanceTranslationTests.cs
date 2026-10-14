@@ -61,6 +61,7 @@ public class ChangeGovernanceTranslationTests
             capture.Commands[0].Should().Contain("[beacon].[QueryApprovalRequests]").And.Contain("[q0].[ContentHash]").And.Contain("[q].[ContributorUserIds]");
             capture.Commands[3].Should().Contain("UPDATE [q]").And.Contain("[q].[ApprovedContentHash] = @").And.Contain("FROM [beacon].[QueryApprovalRequests]").And.EndWith("AND [q].[Status] = 1");
             capture.Commands[4].Should().Contain("[q].[ActiveVersionId] = @p,").And.Contain("FROM [beacon].[Queries]").And.Contain("AND [q].[ActiveVersionId] = @request_ActiveVersionId");
+            capture.Commands[4].Should().Contain("[q].[ModifiedByUserId] = @").And.Contain("[q].[ModifiedTime] = @", "the reviewer who made the change live is the query's last modifier");
             capture.Commands[6].Should().Contain("[q].[Status] = 1 OR [q].[Id] = @request_QueryVersionId");
             return;
         }
@@ -68,6 +69,7 @@ public class ChangeGovernanceTranslationTests
         capture.Commands[0].Should().Contain("FROM beacon.query_approval_requests").And.Contain("q0.content_hash").And.Contain("q.contributor_user_ids");
         capture.Commands[3].Should().StartWith("UPDATE beacon.query_approval_requests").And.Contain("approved_content_hash = @").And.EndWith("AND q.status = 1");
         capture.Commands[4].Should().StartWith("UPDATE beacon.queries").And.Contain("SET active_version_id = @p,").And.EndWith("AND q.active_version_id = @request_ActiveVersionId");
+        capture.Commands[4].Should().Contain("modified_by_user_id = @").And.Contain("modified_time = @", "the reviewer who made the change live is the query's last modifier");
         capture.Commands[6].Should().Contain("q.status = 1 OR q.id = @request_QueryVersionId");
     }
 
@@ -418,6 +420,7 @@ public class ChangeGovernanceTranslationTests
             Mock.Of<IQueryProposalCheck>(MockBehavior.Strict),
             Mock.Of<IQueryVersionService>(MockBehavior.Strict),
             new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
+            new RecordingSecurityAudit(),
             NullLogger<AiActorService>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();

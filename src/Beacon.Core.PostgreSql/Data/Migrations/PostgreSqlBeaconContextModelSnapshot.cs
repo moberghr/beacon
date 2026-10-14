@@ -1707,6 +1707,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("changed_on");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -1742,6 +1747,15 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("Mode")
                         .HasColumnType("integer")
                         .HasColumnName("mode");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1803,6 +1817,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -1829,6 +1848,15 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("is_enabled");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -2309,6 +2337,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("caller_kind");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -2389,6 +2422,73 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_mcp_audit_logs_user_id");
 
                     b.ToTable("mcp_audit_logs", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditStatement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ErrorClass")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("error_class");
+
+                    b.Property<int>("McpAuditLogId")
+                        .HasColumnType("integer")
+                        .HasColumnName("mcp_audit_log_id");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("purpose");
+
+                    b.Property<int?>("RowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("row_count");
+
+                    b.Property<string>("Sql")
+                        .HasColumnType("text")
+                        .HasColumnName("sql");
+
+                    b.Property<string>("SqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sql_hash");
+
+                    b.Property<string>("TablesJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("tables_json");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_audit_statements");
+
+                    b.HasIndex("McpAuditLogId")
+                        .HasDatabaseName("ix_mcp_audit_statements_mcp_audit_log_id");
+
+                    b.ToTable("mcp_audit_statements", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
@@ -4433,6 +4533,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -4475,6 +4580,15 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("mcp_tool_name");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -5150,6 +5264,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("body_template");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -5167,6 +5286,15 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("headers_json");
 
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -5180,6 +5308,115 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasName("pk_recipients");
 
                     b.ToTable("recipients", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.SecurityAuditEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("actor_kind");
+
+                    b.Property<int?>("ActorUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<int?>("ApiKeyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<string>("CallerHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("caller_hash");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("category");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("DetailsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("details_json");
+
+                    b.Property<Guid>("EventGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_guid");
+
+                    b.Property<string>("Hmac")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hmac");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("key_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("outcome");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("ResourceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("resource_id");
+
+                    b.Property<string>("ResourceType")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("resource_type");
+
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("trace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_security_audit_events");
+
+                    b.HasIndex("ActorUserId", "CreatedTime")
+                        .HasDatabaseName("ix_security_audit_events_actor_user_id_created_time");
+
+                    b.HasIndex("CreatedTime")
+                        .HasDatabaseName("ix_security_audit_events_created_time");
+
+                    b.HasIndex("EventGuid")
+                        .IsUnique()
+                        .HasDatabaseName("ix_security_audit_events_event_guid");
+
+                    b.HasIndex("ResourceType", "ResourceId")
+                        .HasDatabaseName("ix_security_audit_events_resource_type_resource_id");
+
+                    b.ToTable("security_audit_events", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>
@@ -5203,6 +5440,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("create_tasks");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -5223,6 +5465,15 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("MinimumRowCount")
                         .HasColumnType("integer")
                         .HasColumnName("minimum_row_count");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
 
                     b.Property<int>("NotificationTrigger")
                         .HasColumnType("integer")
@@ -5766,6 +6017,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditStatement", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.McpAuditLog", "AuditLog")
+                        .WithMany("Statements")
+                        .HasForeignKey("McpAuditLogId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_mcp_audit_statements_mcp_audit_logs_mcp_audit_log_id");
+
+                    b.Navigation("AuditLog");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.Projects.ProjectImportedDocument", "ImportedDocument")
@@ -6305,6 +6568,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataSource", b =>
                 {
                     b.Navigation("QuerySteps");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
+                {
+                    b.Navigation("Statements");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", b =>

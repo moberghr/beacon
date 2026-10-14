@@ -16,6 +16,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Npgsql;
 using NUnit.Framework;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.Grounding;
 
@@ -295,12 +296,73 @@ public class GoldenCurationTests
     {
         var store = new Store();
         store.Signals.Add(Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders"));
-        var handler = new PromoteSignalToGoldenHandler(store.Factory, TestGroundingSqlChecks.Real(), NoBeaconUser(), NullLogger<PromoteSignalToGoldenHandler>.Instance);
+        var handler = new PromoteSignalToGoldenHandler(store.Factory, TestGroundingSqlChecks.Real(), NoBeaconUser(), new RecordingSecurityAudit(), NullLogger<PromoteSignalToGoldenHandler>.Instance);
 
         var act = () => handler.Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(PromoteSignalToGoldenHandler.UnidentifiedCuratorMessage);
         store.ContextsCreated.Should().Be(0);
+    }
+
+    // --- security audit -----------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task APromotion_IsRecorded_InItsTransaction_NeverTheQuestionOrSql()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(AdminUserId, "ext-11"));
+        var store = new Store();
+        store.Signals.Add(Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id, total FROM orders"));
+        store.OnSave = () => store.Saved.OfType<McpEvalCase>().Single().Id = 40;
+
+        await PromoteHandler(store, audit: audit).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id, total FROM orders"), "checked"), CancellationToken.None);
+
+        var promoted = audit.Single("total FROM orders", "checked");
+        promoted.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.GoldenCasePromoted, ActorUserId = (int?)AdminUserId, ResourceType = SecurityAuditResources.EvalCase, ResourceId = "40", ProjectId = (int?)ProjectId },
+            x => x.ExcludingMissingMembers());
+        promoted.DetailsJson.Should().Be($"{{\"signalId\":1,\"dataSourceId\":{DataSourceId}}}");
+        audit.Ways.Should().Equal("saved");
+        store.Capture.Timeline.Should().Equal(SqlCapture.TransactionBegun, SqlCapture.TransactionCommitted);
+    }
+
+    [Test]
+    public async Task AnEdit_RecordsWhichPartsChanged_NeverTheirText()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(AdminUserId, "ext-11"));
+        var store = new Store();
+        store.Cases.Add(Case(5, promotedBy: 4));
+
+        await EditHandler(store, audit).Handle(new UpdateGoldenCaseCommand { Id = 5, GoldSql = "SELECT status FROM orders", IsActive = false }, CancellationToken.None);
+
+        var edited = audit.Single("status FROM orders", "How many orders");
+        edited.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.GoldenCaseEdited, ResourceId = "5", ProjectId = (int?)ProjectId },
+            x => x.ExcludingMissingMembers());
+        edited.DetailsJson.Should().Be("{\"questionChanged\":false,\"goldSqlChanged\":true,\"notesChanged\":false,\"isActiveBefore\":true,\"isActiveAfter\":false}");
+        audit.Ways.Should().Equal("staged");
+    }
+
+    [Test]
+    public async Task APatternDecision_RecordsTheStatusBeforeAndAfter_AndAConflictRecordsNothing()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(AdminUserId, "ext-11"));
+        var pattern = Pattern("SELECT id FROM orders");
+        var store = new Store(pattern);
+
+        var stale = () => StatusHandler(store, TestGroundingSqlChecks.Real(), audit)
+            .Handle(new UpdatePatternStatusCommand { PatternId = pattern.Id, NewStatus = McpPatternStatus.Approved, ReviewedContentHash = new string('0', 64) }, CancellationToken.None);
+        await stale.Should().ThrowAsync<BeaconConflictException>();
+        audit.Events.Should().BeEmpty();
+
+        await StatusHandler(store, TestGroundingSqlChecks.Real(), audit)
+            .Handle(new UpdatePatternStatusCommand { PatternId = pattern.Id, NewStatus = McpPatternStatus.Approved, ReviewedContentHash = HashOf(pattern) }, CancellationToken.None);
+
+        var decided = audit.Single("FROM orders", "Common query pattern");
+        decided.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.PatternStatusChanged, ResourceType = SecurityAuditResources.LearnedPattern, ResourceId = "21", ProjectId = (int?)ProjectId },
+            x => x.ExcludingMissingMembers());
+        decided.DetailsJson.Should().Be($"{{\"dataSourceId\":{DataSourceId},\"statusBefore\":\"NeedsEvidence\",\"statusAfter\":\"Approved\"}}");
+        audit.Ways.Should().Equal("saved");
     }
 
     [Test]
@@ -364,7 +426,7 @@ public class GoldenCurationTests
         var store = new Store();
         var golden = Case(5, promotedBy: 4);
         store.Cases.Add(golden);
-        var handler = new UpdateGoldenCaseHandler(store.Factory, TestGroundingSqlChecks.Real(), NoBeaconUser(), NullLogger<UpdateGoldenCaseHandler>.Instance);
+        var handler = new UpdateGoldenCaseHandler(store.Factory, TestGroundingSqlChecks.Real(), NoBeaconUser(), new RecordingSecurityAudit(), NullLogger<UpdateGoldenCaseHandler>.Instance);
 
         var act = () => handler.Handle(new UpdateGoldenCaseCommand { Id = 5, IsActive = false }, CancellationToken.None);
 
@@ -381,7 +443,7 @@ public class GoldenCurationTests
         store.Cases.Add(golden);
         var check = TestGroundingSqlChecks.Refusing();
 
-        await new UpdateGoldenCaseHandler(store.Factory, check.Object, TestProjectAccess.Actors(beaconUserId: AdminUserId), NullLogger<UpdateGoldenCaseHandler>.Instance)
+        await new UpdateGoldenCaseHandler(store.Factory, check.Object, TestProjectAccess.Actors(beaconUserId: AdminUserId), new RecordingSecurityAudit(), NullLogger<UpdateGoldenCaseHandler>.Instance)
             .Handle(new UpdateGoldenCaseCommand { Id = 5, IsActive = false }, CancellationToken.None);
 
         golden.IsActive.Should().BeFalse();
@@ -693,7 +755,7 @@ public class GoldenCurationTests
     {
         var pattern = Pattern("SELECT id FROM orders");
         var store = new Store(pattern);
-        var handler = new UpdatePatternStatusHandler(store.Factory, TestGroundingSqlChecks.PassThrough().Object, NoBeaconUser(), NullLogger<UpdatePatternStatusHandler>.Instance);
+        var handler = new UpdatePatternStatusHandler(store.Factory, TestGroundingSqlChecks.PassThrough().Object, NoBeaconUser(), new RecordingSecurityAudit(), NullLogger<UpdatePatternStatusHandler>.Instance);
 
         var act = () => handler.Handle(
             new UpdatePatternStatusCommand { PatternId = pattern.Id, NewStatus = McpPatternStatus.Rejected, ReviewedContentHash = HashOf(pattern) },
@@ -890,23 +952,24 @@ public class GoldenCurationTests
         return accessor.Object;
     }
 
-    private static UpdatePatternStatusHandler StatusHandler(Store store, IGroundingSqlCheck check)
+    private static UpdatePatternStatusHandler StatusHandler(Store store, IGroundingSqlCheck check, ISecurityAuditRecorder? audit = null)
     {
-        return new UpdatePatternStatusHandler(store.Factory, check, TestProjectAccess.Actors(beaconUserId: AdminUserId), NullLogger<UpdatePatternStatusHandler>.Instance);
+        return new UpdatePatternStatusHandler(store.Factory, check, TestProjectAccess.Actors(beaconUserId: AdminUserId), audit ?? new RecordingSecurityAudit(), NullLogger<UpdatePatternStatusHandler>.Instance);
     }
 
-    private static PromoteSignalToGoldenHandler PromoteHandler(Store store, IGroundingSqlCheck? check = null)
+    private static PromoteSignalToGoldenHandler PromoteHandler(Store store, IGroundingSqlCheck? check = null, ISecurityAuditRecorder? audit = null)
     {
         return new PromoteSignalToGoldenHandler(
             store.Factory,
             check ?? TestGroundingSqlChecks.Real(),
             TestProjectAccess.Actors(beaconUserId: AdminUserId),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<PromoteSignalToGoldenHandler>.Instance);
     }
 
-    private static UpdateGoldenCaseHandler EditHandler(Store store)
+    private static UpdateGoldenCaseHandler EditHandler(Store store, ISecurityAuditRecorder? audit = null)
     {
-        return new UpdateGoldenCaseHandler(store.Factory, TestGroundingSqlChecks.Real(), TestProjectAccess.Actors(beaconUserId: AdminUserId), NullLogger<UpdateGoldenCaseHandler>.Instance);
+        return new UpdateGoldenCaseHandler(store.Factory, TestGroundingSqlChecks.Real(), TestProjectAccess.Actors(beaconUserId: AdminUserId), audit ?? new RecordingSecurityAudit(), NullLogger<UpdateGoldenCaseHandler>.Instance);
     }
 
     private static McpQuerySignal Signal(int id, McpUserVerdict verdict, string? generatedSql)

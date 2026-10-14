@@ -374,6 +374,14 @@ using (var warpStartupScope = app.Services.CreateScope())
     // hosts (e.g. Netgiro) schedule this themselves.
     await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *");
 
+    // Security audit: purge events older than Beacon:Audit:RetentionDays daily (no-op while unset: kept forever).
+    // Consumer hosts schedule this themselves.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *");
+
+    // Security audit: verify the events written since the last run against their integrity hashes, hourly.
+    // Consumer hosts schedule this themselves.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new VerifySecurityAuditEventsJob(), "security-audit-verify", "15 * * * *");
+
     // MCP Embeddings: re-index metadata + exemplars for hybrid retrieval / semantic few-shot every 12 hours
     await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");
 

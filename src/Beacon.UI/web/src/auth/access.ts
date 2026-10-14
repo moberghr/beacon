@@ -81,6 +81,7 @@ export const PERMISSION_PAGES: PermissionPage[] = [
   { path: '/api-keys', label: 'API keys', permissions: ['Auditor', 'UserAdmin'] },
   { path: '/mcp-settings', label: 'MCP settings', permissions: ['Auditor', 'SecurityAdmin'] },
   { path: '/admin-settings', label: 'Admin settings', permissions: ['Auditor', 'SecurityAdmin'] },
+  { path: '/security-audit', label: 'Security audit', permissions: ['Auditor'] },
   { path: '/data-sources', label: 'Data sources', permissions: ['DataSourceAdmin'], exact: true },
   { path: '/migration-jobs', label: 'Data migration', permissions: ['MigrationOperator'], migrations: true },
   { path: '/migration-history', label: 'Migration history', permissions: ['MigrationOperator'], migrations: true },

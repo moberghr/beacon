@@ -37,7 +37,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddDbContextFactory<SqlServerBeaconContext>((sp, options) =>
             options.UseSqlServer(connectionString,
                     b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
-                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>())
+                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>())
                 .UseBeaconSchema(schema)
                 .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>()
                 .ReplaceService<IModelCacheKeyFactory, BeaconSchemaModelCacheKeyFactory>());

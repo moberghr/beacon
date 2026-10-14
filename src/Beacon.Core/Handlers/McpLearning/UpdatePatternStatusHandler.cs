@@ -6,6 +6,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Authorization;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
@@ -27,6 +28,7 @@ internal sealed class UpdatePatternStatusHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IGroundingSqlCheck groundingSqlCheck,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<UpdatePatternStatusHandler> logger)
     : IRequestHandler<UpdatePatternStatusCommand>
 {
@@ -61,7 +63,9 @@ internal sealed class UpdatePatternStatusHandler(
             .Select(x =>
                 new
                 {
+                    x.ProjectId,
                     x.DataSourceId,
+                    x.Status,
                     x.PatternContent,
                     x.ExampleQuestion,
                     x.ExampleSql,
@@ -103,17 +107,32 @@ internal sealed class UpdatePatternStatusHandler(
 
         var decidedContent = GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, exampleSql);
         var reviewedAt = DateTime.UtcNow;
-        var written = await context.McpLearnedPatterns
-            .Where(x => x.Id == request.PatternId)
-            .Where(x => x.ContentHash == content)
-            .ExecuteUpdateAsync(
-                x => x
-                    .SetProperty(y => y.Status, request.NewStatus)
-                    .SetProperty(y => y.ExampleSql, exampleSql)
-                    .SetProperty(y => y.ContentHash, decidedContent)
-                    .SetProperty(y => y.ReviewedByUserId, reviewer.BeaconUserId)
-                    .SetProperty(y => y.ReviewedAt, reviewedAt),
-                cancellationToken);
+        var written = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.McpLearnedPatterns
+                .Where(x => x.Id == request.PatternId)
+                .Where(x => x.ContentHash == content)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.Status, request.NewStatus)
+                        .SetProperty(y => y.ExampleSql, exampleSql)
+                        .SetProperty(y => y.ContentHash, decidedContent)
+                        .SetProperty(y => y.ReviewedByUserId, reviewer.BeaconUserId)
+                        .SetProperty(y => y.ReviewedAt, reviewedAt),
+                    cancellationToken),
+            changed => changed == 0
+                ? []
+                :
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.PatternStatusChanged)
+                        .On(SecurityAuditResources.LearnedPattern, request.PatternId)
+                        .InProject(pattern.ProjectId)
+                        .With(new SecurityAuditDetails()
+                            .Add("dataSourceId", pattern.DataSourceId)
+                            .Add("statusBefore", pattern.Status)
+                            .Add("statusAfter", request.NewStatus))
+                ],
+            cancellationToken);
         if (written == 0)
         {
             throw new BeaconConflictException(ChangedSinceReviewedMessage);

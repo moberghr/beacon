@@ -10,6 +10,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.Grounding;
 
@@ -32,7 +33,7 @@ public class DocumentationCurationEffectTests
     {
         var store = new Store();
 
-        await new UpdateDocumentationSectionHandler(store.Factory)
+        await new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit())
             .Handle(new UpdateDocumentationSectionCommand(6, "Orders are placed by customers."), CancellationToken.None);
 
         store.Sections.Single(x => x.Id == 6).Content.Should().Be("Orders are placed by customers.");
@@ -40,11 +41,29 @@ public class DocumentationCurationEffectTests
     }
 
     [Test]
+    public async Task EditingASection_IsRecorded_BySectionAndProject_NeverItsContent()
+    {
+        var store = new Store();
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(CuratorUserId, "ext-curator"));
+        const string content = "Orders are placed by customers.";
+
+        await new UpdateDocumentationSectionHandler(store.Factory, audit)
+            .Handle(new UpdateDocumentationSectionCommand(6, content), CancellationToken.None);
+
+        var edited = audit.Single("Orders are placed");
+        edited.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.DocumentationSectionEdited, ResourceType = SecurityAuditResources.DocumentationSection, ResourceId = "6", ProjectId = (int?)ProjectId },
+            x => x.ExcludingMissingMembers());
+        edited.DetailsJson.Should().Be($"{{\"documentationId\":5,\"contentLength\":{content.Length}}}");
+        audit.Ways.Should().Equal("staged");
+    }
+
+    [Test]
     public async Task EditingAMissingSection_IsRefused()
     {
         var store = new Store();
 
-        var act = () => new UpdateDocumentationSectionHandler(store.Factory)
+        var act = () => new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit())
             .Handle(new UpdateDocumentationSectionCommand(99, "content"), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Documentation section not found.");
@@ -106,12 +125,38 @@ public class DocumentationCurationEffectTests
         var patch = store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Where the order is in fulfilment."));
         var before = DateTime.UtcNow;
 
-        await new RejectDocumentationPatchHandler(store.Factory)
+        await new RejectDocumentationPatchHandler(store.Factory, new RecordingSecurityAudit())
             .Handle(new RejectDocumentationPatchCommand { PatchId = 31, RejectedByUserId = CuratorUserId }, CancellationToken.None);
 
         patch.Should().BeEquivalentTo(new { Status = McpDocPatchStatus.Rejected, AppliedByUserId = (int?)CuratorUserId }, x => x.ExcludingMissingMembers());
         patch.AppliedAt.Should().BeOnOrAfter(before);
         store.Status.Description.Should().Be("The order's state.");
+    }
+
+    [Test]
+    public async Task ApplyingAndRejectingPatches_AreRecorded_NeverTheirText_AndARefusedDecisionIsNot()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(CuratorUserId, "ext-curator"));
+        var store = new Store();
+        store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Where the order is in fulfilment."));
+        store.Add(Patch(32, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Shipping state."));
+
+        await Apply(store, 31, audit);
+        var again = () => Apply(store, 31, audit);
+        await again.Should().ThrowAsync<InvalidOperationException>();
+        await new RejectDocumentationPatchHandler(store.Factory, audit)
+            .Handle(new RejectDocumentationPatchCommand { PatchId = 32, RejectedByUserId = CuratorUserId }, CancellationToken.None);
+
+        audit.Events.Select(x => (x.Action, x.ResourceId)).Should().Equal(
+            (SecurityAuditActions.DocumentationPatchApplied, "31"),
+            (SecurityAuditActions.DocumentationPatchRejected, "32"));
+        foreach (var auditEvent in audit.Events)
+        {
+            SecurityAuditTestKit.AssertNoPii(auditEvent, "fulfilment", "Shipping state", "public.orders.status");
+            auditEvent.DetailsJson.Should().StartWith("{\"targetType\":\"ColumnDescription\",\"dataSourceId\":");
+        }
+
+        audit.Ways.Should().Equal("staged", "staged");
     }
 
     // A decision is made once: a decided patch is neither applied nor rejected again, and keeps who decided it.
@@ -128,7 +173,7 @@ public class DocumentationCurationEffectTests
 
         Func<Task> act = apply
             ? () => Apply(store, 31)
-            : () => new RejectDocumentationPatchHandler(store.Factory).Handle(new RejectDocumentationPatchCommand { PatchId = 31, RejectedByUserId = CuratorUserId }, CancellationToken.None);
+            : () => new RejectDocumentationPatchHandler(store.Factory, new RecordingSecurityAudit()).Handle(new RejectDocumentationPatchCommand { PatchId = 31, RejectedByUserId = CuratorUserId }, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage($"Patch 31 is already {status}");
         patch.Should().BeEquivalentTo(new { Status = status, AppliedByUserId = (int?)5 }, x => x.ExcludingMissingMembers());
@@ -143,14 +188,14 @@ public class DocumentationCurationEffectTests
 
         Func<Task> act = apply
             ? () => Apply(store, 99)
-            : () => new RejectDocumentationPatchHandler(store.Factory).Handle(new RejectDocumentationPatchCommand { PatchId = 99 }, CancellationToken.None);
+            : () => new RejectDocumentationPatchHandler(store.Factory, new RecordingSecurityAudit()).Handle(new RejectDocumentationPatchCommand { PatchId = 99 }, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Patch 99 not found");
     }
 
-    private static Task Apply(Store store, int patchId)
+    private static Task Apply(Store store, int patchId, ISecurityAuditRecorder? audit = null)
     {
-        return new ApplyDocumentationPatchHandler(store.Factory)
+        return new ApplyDocumentationPatchHandler(store.Factory, audit ?? new RecordingSecurityAudit())
             .Handle(new ApplyDocumentationPatchCommand { PatchId = patchId, AppliedByUserId = CuratorUserId }, CancellationToken.None);
     }
 

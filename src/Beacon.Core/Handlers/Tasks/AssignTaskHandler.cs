@@ -3,6 +3,7 @@ using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Tasks;
 
@@ -10,6 +11,7 @@ internal sealed class AssignTaskHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
     BeaconConfiguration configuration,
+    ISecurityAuditRecorder securityAudit,
     ILogger<AssignTaskHandler> logger)
     : IRequestHandler<AssignTaskCommand>
 {
@@ -43,11 +45,26 @@ internal sealed class AssignTaskHandler(
             throw new InvalidOperationException("A task can only be assigned to an existing, enabled user.");
         }
 
-        // Written only while the task still has the assignee the check above saw.
-        var updated = await context.QueryTasks
-            .Where(x => x.Id == request.TaskId)
-            .Where(x => x.AssigneeUserId == currentAssigneeUserId)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.AssigneeUserId, assigneeUserId), cancellationToken);
+        // Written only while the task still has the assignee the check above saw, with its security audit event: a claim
+        // when the caller takes it, a reassignment otherwise (people named by Users.Id).
+        var claimed = assigneeUserId != null && actor.Is(assigneeUserId);
+        var updated = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.QueryTasks
+                .Where(x => x.Id == request.TaskId)
+                .Where(x => x.AssigneeUserId == currentAssigneeUserId)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.AssigneeUserId, assigneeUserId), cancellationToken),
+            written => written == 0
+                ? []
+                :
+                [
+                    new SecurityAuditEntry(claimed ? SecurityAuditActions.TaskClaimed : SecurityAuditActions.TaskReassigned)
+                        .On(SecurityAuditResources.Task, request.TaskId)
+                        .With(new SecurityAuditDetails().Add("unassigned", assigneeUserId == null))
+                        .Naming("previousAssigneeUserId", currentAssigneeUserId)
+                        .Naming("assigneeUserId", assigneeUserId)
+                ],
+            cancellationToken);
 
         if (updated == 0)
         {

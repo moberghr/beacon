@@ -24,7 +24,7 @@ public class UpdateMcpSettingsHandlerTests
         // invoked on the rejection path — a throwing factory proves the validation short-circuits first.
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var provider = new Mock<IMcpSettingsProvider>(MockBehavior.Strict);
-        return new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options ?? new McpDeploymentOptions()), TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance);
+        return new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options ?? new McpDeploymentOptions()), TestPermissions.Admin, TestProjectAccess.Actors(), new RecordingSecurityAudit(), NullLogger<UpdateMcpSettingsHandler>.Instance);
     }
 
     [TestCase("(unclosed")]
@@ -282,7 +282,7 @@ public class UpdateMcpSettingsHandlerTests
 
         var provider = SettingsProviderMock.Create();
 
-        return (new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpSettingsHandler>.Instance), () => saves);
+        return (new UpdateMcpSettingsHandler(factory.Object, provider.Object, Options.Create(options), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), new RecordingSecurityAudit(), NullLogger<UpdateMcpSettingsHandler>.Instance), () => saves);
     }
 
     /// <summary>The single McpSettings row over async-queryable doubles; no DB (§4.7).</summary>

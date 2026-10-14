@@ -378,6 +378,7 @@ Switch **Retain query content** off for a project and Beacon keeps the **structu
 | Row counts, timings, success flags, verdicts | Routing rationale and feedback notes |
 | An **error class** (see below) | Free-text database error messages |
 | The audit row itself — always | The audit row's raw parameters |
+| Keyed hashes of the parameters and of each statement run | The text of each statement the call ran |
 
 An audit row is still written for **every** tool call, success or failure. The lock changes what the row contains, never whether it exists.
 
@@ -398,6 +399,8 @@ An audit row is still written for **every** tool call, success or failure. The l
 **Enforcement.** Every write path applies the rule, and an EF Core `SaveChangesInterceptor` backs them up: content is stripped on the way to the database even if a future code path forgets, and it fails closed — if the settings can't be read, the row is treated as locked. All of this is logged with identifiers only.
 
 Retention is **not retro-active**: rows written before you turned the lock on keep their content until they age out of the retention window. A row that is *updated* after the lock is on is cleaned up by the interceptor.
+
+While content is retained, the audit keeps the SQL of **every statement** a call ran — an `ask`'s first execution, repairs, self-consistency candidates, value-grounding probes and dry runs — beside the question (see [The statements a call ran](/features/mcp-observability-and-audit/#the-statements-a-call-ran)). A deployment that must keep this evidence pins retention on with `Beacon:Mcp:Audit:RequireContent` (see [Keeping audit content](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock)).
 
 ## SQL Accuracy Stack
 
@@ -478,7 +481,7 @@ Some settings must be non-negotiable no matter what an administrator clicks. The
 }
 ```
 
-- A **lock** (`ForceReadOnly` and `ForcePiiDetection`, both on by default; `ForceNoContentRetention` and `ForbidRowDataToLlm`, off by default) pins the effective value for the global settings and every project. `ForbidRowDataToLlm` pins three settings off: sample-value collection, value grounding and the eval judge (see [What reaches the LLM provider](#what-reaches-the-llm-provider)). Nobody can change a locked setting at runtime — an Admin included; only the host's configuration lifts the lock. The global page shows a locked switch disabled with a note, the project scope hides locked fields and names them in a banner, `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`), and an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
+- A **lock** (`ForceReadOnly` and `ForcePiiDetection`, both on by default; `ForceNoContentRetention`, `ForbidRowDataToLlm` and `Audit:RequireContent`, off by default) pins the effective value for the global settings and every project. `Audit:RequireContent` pins content retention on, the opposite of `ForceNoContentRetention` (the host does not start with both on). `ForbidRowDataToLlm` pins three settings off: sample-value collection, value grounding and the eval judge (see [What reaches the LLM provider](#what-reaches-the-llm-provider)). Nobody can change a locked setting at runtime — an Admin included; only the host's configuration lifts the lock. The global page shows a locked switch disabled with a note, the project scope hides locked fields and names them in a banner, `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`, and each lock with the setting it pins in `locks`), and an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
 - With `ForceReadOnly` on, the SQL execution gate also judges every statement read-only whatever the settings a caller hands it — the `ask`, `query` and `dry_run` tools and the in-memory join of a cross-source query alike. Only a deployment that sets `ForceReadOnly: false` lets an Admin turn read-only enforcement off (globally or per project), and only there does the setting reach the gate. The host logs a warning at startup for each of these two locks that is off.
 - A **ceiling** clamps a numeric value downward only — it can lower what an administrator configured, never raise it. Clamped fields are flagged in the UI.
 - `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section, read-only enforcement and PII detection are locked on, content retention and row data to the LLM are not locked, there are no deployment-set ceilings, and these two length caps hold.

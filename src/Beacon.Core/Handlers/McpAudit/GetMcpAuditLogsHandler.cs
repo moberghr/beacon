@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Telemetry;
 using Beacon.Core.Authorization;
 
@@ -11,11 +12,16 @@ namespace Beacon.Core.Handlers.McpAudit;
 /// <summary>
 /// Paged admin read of <c>McpAuditLog</c>. Rows are returned exactly as stored — retention redaction has
 /// already been applied at write time (§9.5), so this handler never re-reads or reconstructs content. Reading
-/// the audit is itself audited: one <c>Beacon.Audit</c> event (9103) per call, carrying the actor and the
-/// filter shape only — presence of each optional filter, plus ids and dates, never a filter's free-text value
-/// (the admin-supplied Tool filter included, §1.11).
+/// the audit is itself audited: recorded first in the security audit trail
+/// (<see cref="SecurityAuditActions.McpAuditRead"/>; the read fails when the event cannot be written, and an identical
+/// read by the same actor within a minute is recorded once), and one <c>Beacon.Audit</c> event (9103) per call, both
+/// carrying the filter shape only — presence of each optional filter, plus ids and dates, never a filter's free-text
+/// value (the admin-supplied Tool filter included, §1.11).
 /// </summary>
-internal sealed class GetMcpAuditLogsHandler(IDbContextFactory<BeaconContext> contextFactory, ILoggerFactory loggerFactory)
+internal sealed class GetMcpAuditLogsHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    ILoggerFactory loggerFactory,
+    SecurityAuditReads reads)
     : IRequestHandler<GetMcpAuditLogsQuery, GetMcpAuditLogsResult>
 {
     internal const int MaxRangeDays = 93;
@@ -31,6 +37,20 @@ internal sealed class GetMcpAuditLogsHandler(IDbContextFactory<BeaconContext> co
         // stored CreatedTime is UTC, so normalise first and validate the normalised range.
         var request = query with { From = ToUtc(query.From), To = ToUtc(query.To) };
         Validate(request);
+
+        await reads.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.McpAuditRead)
+                .On(SecurityAuditResources.McpAudit, null)
+                .InProject(request.ProjectId)
+                .With(new SecurityAuditDetails()
+                    .Add("from", request.From)
+                    .Add("to", request.To)
+                    .Add("hasToolFilter", !string.IsNullOrEmpty(request.Tool))
+                    .Add("hasCallerHashFilter", !string.IsNullOrEmpty(request.CallerHash))
+                    .Add("userId", request.UserId)
+                    .Add("page", request.Page)
+                    .Add("pageSize", request.PageSize)),
+            cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var filtered = Filtered(context.McpAuditLogs, request);
@@ -79,7 +99,10 @@ internal sealed class GetMcpAuditLogsHandler(IDbContextFactory<BeaconContext> co
             .ThenByDescending(x => x.Id);
     }
 
-    /// <summary>No <c>.Include()</c> alongside this projection (§0.5) — every column the caller sees is selected here.</summary>
+    /// <summary>
+    /// No <c>.Include()</c> alongside this projection (§0.5) — every column the caller sees is selected here, the call's
+    /// statements included (in the order they ran; a statement's text is null unless its project retained query content).
+    /// </summary>
     internal static IQueryable<McpAuditLogItem> Project(IQueryable<McpAuditLog> source) =>
         source.Select(x =>
             new McpAuditLogItem(
@@ -100,7 +123,21 @@ internal sealed class GetMcpAuditLogsHandler(IDbContextFactory<BeaconContext> co
                 x.SpanId,
                 x.McpSessionId,
                 x.UpstreamRequestId,
-                x.ApiKeyId));
+                x.ApiKeyId,
+                x.ContentHash,
+                x.Statements
+                    .OrderBy(y => y.Id)
+                    .Select(y =>
+                        new McpAuditStatementItem(
+                            y.Id,
+                            y.Purpose,
+                            y.DataSourceId,
+                            y.RowCount,
+                            y.DurationMs,
+                            y.ErrorClass,
+                            y.SqlHash,
+                            y.Sql))
+                    .ToList()));
 
     /// <summary>Unspecified is taken as UTC (the storage kind); Local is converted.</summary>
     internal static DateTime ToUtc(DateTime value) =>
@@ -196,4 +233,22 @@ public record McpAuditLogItem(
     string? SpanId,
     string? McpSessionId,
     string? UpstreamRequestId,
-    int? ApiKeyId);
+    int? ApiKeyId,
+    string? ContentHash,
+    IReadOnlyList<McpAuditStatementItem> Statements);
+
+/// <summary>
+/// One statement an audited call ran on a data source. <paramref name="Purpose"/> is <c>initial</c>, <c>repair</c>,
+/// <c>candidate</c>, <c>probe</c>, <c>dry_run</c>, <c>source_step</c> or <c>query</c>; <paramref name="ErrorClass"/> is null
+/// when the statement succeeded; <paramref name="SqlHash"/> is the keyed hash of the text, always present;
+/// <paramref name="Sql"/> is the text, present only while the call's project retained query content.
+/// </summary>
+public record McpAuditStatementItem(
+    int Id,
+    string Purpose,
+    int? DataSourceId,
+    int? RowCount,
+    int? DurationMs,
+    string? ErrorClass,
+    string? SqlHash,
+    string? Sql);

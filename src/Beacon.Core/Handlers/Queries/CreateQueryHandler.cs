@@ -25,7 +25,8 @@ internal sealed class CreateQueryHandler(IDbContextFactory<BeaconContext> contex
         {
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
-            OwnerUserId = actor.UserId
+            OwnerUserId = actor.UserId,
+            CreatedByUserId = actor.UserId
         };
 
         context.Queries.Add(query);

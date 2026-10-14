@@ -5,9 +5,11 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services.Security;
 
@@ -15,6 +17,8 @@ internal sealed class ApiKeyService(
     IDbContextFactory<BeaconContext> contextFactory,
     IOptions<ApiKeyOptions> options,
     TimeProvider timeProvider,
+    ISecurityAuditRecorder securityAudit,
+    IBeaconActorAccessor actorAccessor,
     ILogger<ApiKeyService> logger) : IApiKeyService
 {
     private const string KeyPrefix = "sk-sem_";
@@ -60,8 +64,22 @@ internal sealed class ApiKeyService(
             OwnerGeneration = ownerGeneration
         };
 
+        // Scopes, projects and expiry: what the key may do, never key material (§1.3).
         context.ApiKeyCredentials.Add(credential);
-        await context.SaveChangesAsync(ct);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.ApiKeyCreated)
+                    .On(SecurityAuditResources.ApiKey, credential.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("ownerUserId", userId)
+                        .Add("readScope", grantedScopes.Contains(BeaconScopes.Read))
+                        .Add("executeScope", grantedScopes.Contains(BeaconScopes.Execute))
+                        .Add("allowedProjectIds", allowedProjectIds)
+                        .Add("expiresAt", expiry))
+            ],
+            ct);
 
         logger.LogInformation("Generated API key {ApiKeyId} for user {UserId}", credential.Id, userId);
         return (credential, plainTextKey);
@@ -160,6 +178,16 @@ internal sealed class ApiKeyService(
 
         key.IsRevoked = true;
         key.RevokedAt = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Revoking a key of another user is an administrator's revocation.
+        var actor = await actorAccessor.GetCurrentAsync(ct);
+        var revokedByOwner = actor.BeaconUserId != null && actor.BeaconUserId == key.UserId;
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(revokedByOwner ? SecurityAuditActions.ApiKeyRevoked : SecurityAuditActions.ApiKeyRevokedByAdministrator)
+                .On(SecurityAuditResources.ApiKey, key.Id)
+                .With(new SecurityAuditDetails().Add("ownerUserId", key.UserId)),
+            ct);
         await context.SaveChangesAsync(ct);
 
         logger.LogInformation("Revoked API key {KeyId}", keyId);

@@ -331,27 +331,38 @@ internal sealed class RecipientSecretEditor(NotificationDestinationPolicy destin
     /// </summary>
     public bool ChangesDelivery(NotificationType type, string? destination, string? headersJson, StoredRecipientSecrets stored)
     {
+        return DeliveryChangeOf(type, destination, headersJson, stored).Changed;
+    }
+
+    /// <summary>
+    /// What a submission changes of where a stored recipient delivers (<see cref="ChangesDelivery"/>), as an audit records
+    /// it: whether the destination changed, and whether a secret did — a destination other than an e-mail address carries
+    /// its credentials (a webhook or channel URL), and header values are secrets. A changed type, or a stored value that
+    /// cannot be read, changes both.
+    /// </summary>
+    public RecipientDeliveryChange DeliveryChangeOf(NotificationType type, string? destination, string? headersJson, StoredRecipientSecrets stored)
+    {
         if (stored.Type != type)
         {
-            return true;
+            return new RecipientDeliveryChange(true, true);
         }
 
         var storedDestination = protector.TryUnprotect(stored.Destination);
         var storedHeadersJson = protector.TryUnprotect(stored.HeadersJson);
         if (storedDestination == null || (!string.IsNullOrEmpty(stored.HeadersJson) && storedHeadersJson == null))
         {
-            return true;
+            return new RecipientDeliveryChange(true, true);
         }
 
         var resolvedDestination = RecipientSecrets.ResolveDestination(type, destination, stored.Type, storedDestination, storedUnreadable: false);
         if (!string.Equals(resolvedDestination, storedDestination, StringComparison.Ordinal))
         {
-            return true;
+            return new RecipientDeliveryChange(true, type != NotificationType.Email);
         }
 
         var resolvedHeaders = RecipientSecrets.ResolveHeaders(type, headersJson, storedHeadersJson, storedUnreadable: false, sameDestination: true);
 
-        return !RecipientSecrets.SameHeaders(resolvedHeaders, storedHeadersJson);
+        return new RecipientDeliveryChange(false, !RecipientSecrets.SameHeaders(resolvedHeaders, storedHeadersJson));
     }
 
     /// <summary>What an admin sees of a stored recipient: masked destination and headers, and whether any stored value cannot be decrypted.</summary>
@@ -366,6 +377,12 @@ internal sealed class RecipientSecretEditor(NotificationDestinationPolicy destin
             RecipientSecrets.MaskHeaders(headers),
             unreadable);
     }
+}
+
+/// <summary>What a submission changes of where a recipient delivers: its destination, a secret (credentials in it, header values).</summary>
+internal sealed record RecipientDeliveryChange(bool DestinationChanged, bool SecretChanged)
+{
+    public bool Changed => DestinationChanged || SecretChanged;
 }
 
 /// <summary>A recipient's stored (encrypted, or legacy plaintext) secrets and type.</summary>

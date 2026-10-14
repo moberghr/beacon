@@ -20,6 +20,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using ActorEntity = Beacon.Core.Data.Entities.AiActor;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.ChangeGovernance;
 
@@ -43,10 +44,12 @@ public class AiActorRefinementTests
     private Mock<IQueryProposalCheck> _proposals = null!;
     private Mock<IQueryVersionService> _versions = null!;
     private QueryDraft? _validated;
+    private RecordingSecurityAudit _audit = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(12, "ext-ben"));
         _queries = new Mock<IQueryService>(MockBehavior.Strict);
         _proposals = new Mock<IQueryProposalCheck>(MockBehavior.Strict);
         _versions = new Mock<IQueryVersionService>();
@@ -337,6 +340,11 @@ public class AiActorRefinementTests
         result.Success.Should().BeTrue();
         result.QueriesRefined.Should().Be(1);
         store.Plans.Single(x => x.Id == 31).Should().BeEquivalentTo(new { Status = AiActorPlanStatus.Executed, ReviewedByUserId = "ext-ben" }, x => x.ExcludingMissingMembers());
+        var approved = _audit.Single("ext-ben", "ext-cid", Creator, "SELECT 2");
+        approved.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.AiPlanApproved, ActorUserId = (int?)12, ResourceType = SecurityAuditResources.AiActorPlan, ResourceId = "31", DetailsJson = "{\"outcome\":\"Executing\"}" },
+            x => x.ExcludingMissingMembers());
+        _audit.Ways.Should().Equal("saved");
         _versions.Verify(
             x => x.SubmitForApprovalAsync(
                 GovernanceStore.QueryId,
@@ -361,6 +369,7 @@ public class AiActorRefinementTests
         await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(AiActorService.PlanNotPendingMessage);
         store.Plans.Single().Should().BeEquivalentTo(new { Status = status, ReviewedByUserId = "ext-cid" }, x => x.ExcludingMissingMembers());
         _versions.VerifyNoOtherCalls();
+        _audit.Events.Should().BeEmpty("no decision was made");
     }
 
     // Asking for a revision records who asked, on the plan the revision's chain names.
@@ -374,6 +383,36 @@ public class AiActorRefinementTests
 
         await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(AiActorService.PlanNotPendingMessage);
         store.Plans.Single().Status.Should().Be(AiActorPlanStatus.Rejected);
+        _audit.Events.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task RejectingAPendingPlan_RecordsTheDecision_NeverItsReason()
+    {
+        var store = OwnedQuery();
+        store.Plans.Add(new AiActorPlan { Id = 31, AiActorId = ActorId, Status = AiActorPlanStatus.PendingApproval, Analysis = "a", ActionsJson = "[]" });
+
+        await Service(store, WorkflowOn()).RejectPlanAsync(new RejectPlanOptions { PlanId = 31, UserId = "ext-ben", Reason = "too broad for ops@corp.example" }, CancellationToken.None);
+
+        store.Plans.Single().Status.Should().Be(AiActorPlanStatus.Rejected);
+        _audit.Single("too broad", "ext-ben").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.AiPlanRejected, ResourceId = "31", DetailsJson = "{\"outcome\":\"Rejected\"}" },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task RequestingARevision_RecordsTheRequest_BeforeTheRevisedPlanIsGenerated()
+    {
+        var store = OwnedQuery();
+        store.Plans.Add(new AiActorPlan { Id = 31, AiActorId = ActorId, Status = AiActorPlanStatus.PendingApproval, Analysis = "a", ActionsJson = "[]", UserInstruction = "watch" });
+
+        // The store serves no AI actor, so generating the revised plan fails after the decision committed.
+        var act = () => Service(store, WorkflowOn()).RequestPlanRevisionAsync(new RequestRevisionOptions { PlanId = 31, UserId = "ext-ben", Feedback = "narrower" }, CancellationToken.None);
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        store.Plans.Single().Status.Should().Be(AiActorPlanStatus.RevisionRequested);
+        _audit.Of(SecurityAuditActions.AiPlanRevisionRequested).Should().ContainSingle()
+            .Which.DetailsJson.Should().Be("{\"outcome\":\"RevisionRequested\"}");
     }
 
     // Without the workflow the draft runs as an editor's preview does.
@@ -489,5 +528,6 @@ public class AiActorRefinementTests
             proposals ?? _proposals.Object,
             versions ?? _versions.Object,
             configuration,
+            _audit,
             NullLogger<AiActorService>.Instance);
 }

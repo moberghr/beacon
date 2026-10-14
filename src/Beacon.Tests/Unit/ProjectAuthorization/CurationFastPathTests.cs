@@ -170,6 +170,7 @@ public class CurationFastPathTests
             TestProjectAccess.RealEvaluator(caller, store.Factory),
             TestPermissions.None,
             TestProjectAccess.Actors(),
+            new RecordingSecurityAudit(),
             NullLogger<DeleteSchemaRelationshipHandler>.Instance);
     }
 

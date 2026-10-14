@@ -54,6 +54,13 @@ public sealed class McpAuditOptions
 
     /// <summary>Upstream correlation header recorded as <c>UpstreamRequestId</c>. <c>null</c>/empty = read none.</summary>
     public string? RequestIdHeader { get; set; } = DefaultRequestIdHeader;
+
+    /// <summary>
+    /// Pins <c>RetainQueryContent = true</c> everywhere, so no Admin can switch audit content off at runtime: the MCP audit
+    /// keeps the question and SQL of every call (and the statements it ran) until its retention purges them. Off by
+    /// default; contradicts <c>Beacon:Mcp:ForceNoContentRetention</c>, and the host fails to start with both on.
+    /// </summary>
+    public bool RequireContent { get; set; }
 }
 
 /// <summary>
@@ -111,6 +118,13 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         if (!string.IsNullOrEmpty(audit.RequestIdHeader) && !IsHeaderToken(audit.RequestIdHeader))
         {
             failures.Add($"{McpDeploymentOptions.SectionName}:Audit:{nameof(McpAuditOptions.RequestIdHeader)} must be a valid HTTP header name.");
+        }
+
+        // The two locks pin RetainQueryContent in opposite directions: no stored value could satisfy both.
+        if (audit.RequireContent && options.ForceNoContentRetention)
+        {
+            failures.Add(
+                $"{McpDeploymentOptions.SectionName}:Audit:{nameof(McpAuditOptions.RequireContent)} and {McpDeploymentOptions.SectionName}:{nameof(McpDeploymentOptions.ForceNoContentRetention)} cannot both be on: one pins query content retention on, the other off.");
         }
 
         return failures.Count > 0

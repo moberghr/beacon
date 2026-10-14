@@ -75,7 +75,7 @@ describe('pagesOpenedBy', () => {
   // What each permission's routes admit on the server without a Viewer or Editor role.
   const expected: Record<BeaconPermission, string[]> = {
     Approver: ['/approvals'],
-    Auditor: ['/api-keys', '/mcp-settings', '/admin-settings'],
+    Auditor: ['/api-keys', '/mcp-settings', '/admin-settings', '/security-audit'],
     SecurityAdmin: ['/mcp-settings', '/admin-settings'],
     UserAdmin: ['/users', '/api-keys'],
     DataSourceAdmin: ['/data-sources'],
@@ -89,6 +89,14 @@ describe('pagesOpenedBy', () => {
     );
 
     expect(pagesOpenedBy(access).map(x => x.path)).toEqual(expected[permission]);
+  });
+
+  it('opens the security audit to an Auditor, and to no other permission', () => {
+    for (const permission of BEACON_PERMISSIONS) {
+      const access = accessOf({ canRead: false, canWrite: false, isAdmin: false, permissions: [permission] }, false);
+
+      expect(opensWithoutProjectData(access, '/security-audit')).toBe(permission === 'Auditor');
+    }
   });
 
   it('opens every user\'s API keys to an Auditor and a UserAdmin, and to no other permission', () => {

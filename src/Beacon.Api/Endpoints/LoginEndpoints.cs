@@ -69,6 +69,7 @@ public static partial class LoginEndpoints
                 }
             }
 
+            await SignInAudit.SignedOutAsync(context);
             await authProvider.SignOutAsync();
             await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             // Reissue the antiforgery cookie for the now-anonymous user so a
@@ -124,6 +125,7 @@ public static partial class LoginEndpoints
 
             if (result.PasswordChangeRequired)
             {
+                await SignInAudit.PasswordChangeRequiredAsync(context, result);
                 var changePayload = new LoginResponse { Success = false, PasswordChangeRequired = true, Error = result.ErrorMessage };
                 var status = string.IsNullOrEmpty(request.NewPassword)
                     ? StatusCodes.Status401Unauthorized
@@ -134,6 +136,7 @@ public static partial class LoginEndpoints
 
             if (!result.Success || result.User == null)
             {
+                await SignInAudit.PasswordFailedAsync(context, result, request.Username);
                 var failurePayload = new LoginResponse { Success = false, Error = result.ErrorMessage ?? "Invalid credentials." };
                 return Results.Json(failurePayload, statusCode: StatusCodes.Status401Unauthorized);
             }
@@ -148,6 +151,7 @@ public static partial class LoginEndpoints
                     Logger(context)?.LogInformation(
                         ProjectAccessEvents.PasswordSignInRefused,
                         "Password sign-in refused: local login is off and the account is not a break-glass account");
+                    await SignInAudit.PasswordRefusedAsync(context, result);
 
                     return Results.Json(new LoginResponse { Success = false, Error = InvalidCredentials }, statusCode: StatusCodes.Status401Unauthorized);
                 }
@@ -174,11 +178,13 @@ public static partial class LoginEndpoints
             await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
 
             // The user was disabled or archived, or their security stamp changed, between the password check and the
-            // sign-in: the cookie carries no session.
+            // sign-in: the cookie carries no session (the session events recorded why).
             if (BeaconSessionEvents.WasSignInRefused(context))
             {
                 return Results.Json(new LoginResponse { Success = false, Error = InvalidCredentials }, statusCode: StatusCodes.Status401Unauthorized);
             }
+
+            await SignInAudit.SignedInAsync(context, result, breakGlass: !localLogin.Enabled);
 
             // Antiforgery tokens are bound to claims; the cookie issued
             // pre-login was minted for the anonymous user and won't validate

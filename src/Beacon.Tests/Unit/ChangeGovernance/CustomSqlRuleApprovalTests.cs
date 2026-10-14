@@ -364,7 +364,7 @@ public class CustomSqlRuleApprovalTests
             TestConfiguredDatabases.None,
             Admin(),
             configuration,
-            TestChangeApprovals.CustomSql(configuration, Admin()));
+            TestChangeApprovals.CustomSql(configuration, Admin()), new RecordingSecurityAudit());
 
     private static UpdateDataContractHandler UpdateHandler(ChangeApprovalStore store, BeaconConfiguration configuration) =>
         new(
@@ -375,6 +375,7 @@ public class CustomSqlRuleApprovalTests
             TestConfiguredDatabases.None,
             Admin(),
             TestChangeApprovals.CustomSql(configuration, Admin()),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
     private static GetDataContractDetailHandler DetailHandler(ChangeApprovalStore store) => new(store.Factory(), TestChangeApprovals.On());
@@ -387,5 +388,6 @@ public class CustomSqlRuleApprovalTests
             store.Protector,
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
 }

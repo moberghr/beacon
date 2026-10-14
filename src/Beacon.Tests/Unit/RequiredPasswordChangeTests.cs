@@ -24,6 +24,8 @@ using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit;
 
@@ -314,6 +316,7 @@ public class RequiredPasswordChangeTests
     private static async Task<WebApplication> StartAsync(Mock<IUserManagementService> users)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         builder.WebHost.UseTestServer();
         builder.Services
             .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -362,6 +365,6 @@ public class RequiredPasswordChangeTests
         configuration.UserManagement.MinimumPasswordLength = minimumLength;
         configuration.UserManagement.RequirePasswordComplexity = complexity;
 
-        return new UserManagementService(factory.Object, hasher.Object, Mock.Of<IRoleService>(), configuration, TimeProvider.System, null, expectation);
+        return new UserManagementService(factory.Object, hasher.Object, Mock.Of<IRoleService>(), configuration, TimeProvider.System, new RecordingSecurityAudit(), null, expectation);
     }
 }

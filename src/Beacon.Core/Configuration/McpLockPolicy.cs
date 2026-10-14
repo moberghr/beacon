@@ -30,6 +30,9 @@ internal sealed record McpLockRule(
 /// </summary>
 internal static class McpLockPolicy
 {
+    /// <summary>The name <c>Beacon:Mcp:Audit:RequireContent</c> goes by in refusals, the locks list and startup warnings.</summary>
+    internal const string RequireContentLockName = "Audit:" + nameof(McpAuditOptions.RequireContent);
+
     private static readonly McpLockRule[] All =
     [
         new(
@@ -60,6 +63,18 @@ internal static class McpLockPolicy
             Contradicts: x => x.RetainQueryContent,
             HasOverride: x => x.RetainQueryContent != null,
             OverrideContradicts: x => x.RetainQueryContent == true,
+            KeepStored: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent,
+            KeepStoredOverride: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent),
+
+        // The audit's content can't be switched off unseen: pinned on, the opposite of the lock above (both on fails startup).
+        new(
+            FieldName: nameof(McpSettingsData.RetainQueryContent),
+            LockName: RequireContentLockName,
+            IsActive: x => x.Audit?.RequireContent == true,
+            Pin: x => x.RetainQueryContent = true,
+            Contradicts: x => !x.RetainQueryContent,
+            HasOverride: x => x.RetainQueryContent != null,
+            OverrideContradicts: x => x.RetainQueryContent == false,
             KeepStored: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent,
             KeepStoredOverride: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent),
 

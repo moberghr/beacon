@@ -6,6 +6,7 @@ using Beacon.Core.Services.Metadata;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Metadata;
 
@@ -20,6 +21,7 @@ internal sealed class VerifySchemaRelationshipHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     ISchemaGraphService schemaGraphService,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<VerifySchemaRelationshipHandler> logger)
     : IRequestHandler<VerifySchemaRelationshipCommand>
 {
@@ -63,27 +65,38 @@ internal sealed class VerifySchemaRelationshipHandler(
         }
 
         var verifiedTime = DateTime.UtcNow;
-        var written = request.IsVerified
-            ? await context.SchemaRelationships
-                .Where(x => x.Id == request.Id)
-                .Where(x => x.DataSourceId == request.DataSourceId)
-                .Where(x => x.Label == relationship.Label)
-                .Where(x => x.Cardinality == relationship.Cardinality)
-                .ExecuteUpdateAsync(
-                    x => x
-                        .SetProperty(y => y.IsVerified, true)
-                        .SetProperty(y => y.VerifiedByUserId, actor.BeaconUserId)
-                        .SetProperty(y => y.VerifiedTime, verifiedTime),
-                    cancellationToken)
-            : await context.SchemaRelationships
-                .Where(x => x.Id == request.Id)
-                .Where(x => x.DataSourceId == request.DataSourceId)
-                .ExecuteUpdateAsync(
-                    x => x
-                        .SetProperty(y => y.IsVerified, false)
-                        .SetProperty(y => y.VerifiedByUserId, (int?)null)
-                        .SetProperty(y => y.VerifiedTime, (DateTime?)null),
-                    cancellationToken);
+        var written = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => request.IsVerified
+                ? context.SchemaRelationships
+                    .Where(x => x.Id == request.Id)
+                    .Where(x => x.DataSourceId == request.DataSourceId)
+                    .Where(x => x.Label == relationship.Label)
+                    .Where(x => x.Cardinality == relationship.Cardinality)
+                    .ExecuteUpdateAsync(
+                        x => x
+                            .SetProperty(y => y.IsVerified, true)
+                            .SetProperty(y => y.VerifiedByUserId, actor.BeaconUserId)
+                            .SetProperty(y => y.VerifiedTime, verifiedTime),
+                        cancellationToken)
+                : context.SchemaRelationships
+                    .Where(x => x.Id == request.Id)
+                    .Where(x => x.DataSourceId == request.DataSourceId)
+                    .ExecuteUpdateAsync(
+                        x => x
+                            .SetProperty(y => y.IsVerified, false)
+                            .SetProperty(y => y.VerifiedByUserId, (int?)null)
+                            .SetProperty(y => y.VerifiedTime, (DateTime?)null),
+                        cancellationToken),
+            changed => changed == 0
+                ? []
+                :
+                [
+                    new SecurityAuditEntry(request.IsVerified ? SecurityAuditActions.RelationshipVerified : SecurityAuditActions.RelationshipUnverified)
+                        .On(SecurityAuditResources.SchemaRelationship, request.Id)
+                        .With(new SecurityAuditDetails().Add("dataSourceId", request.DataSourceId))
+                ],
+            cancellationToken);
         if (written == 0)
         {
             throw new BeaconConflictException(UpdateSchemaRelationshipHandler.ChangedSinceLoadedMessage);

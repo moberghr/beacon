@@ -10,6 +10,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -21,6 +22,7 @@ internal sealed class CreateProjectHandler(
     IProjectAccessEvaluator projectAccess,
     IProjectMembershipSource membershipSource,
     IOptions<ProjectAuthorizationOptions> options,
+    ISecurityAuditRecorder securityAudit,
     ILogger<CreateProjectHandler> logger)
     : IRequestHandler<CreateProjectCommand, CreateProjectResult>
 {
@@ -128,7 +130,21 @@ internal sealed class CreateProjectHandler(
         };
 
         context.Projects.Add(project);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.ProjectCreated)
+                    .On(SecurityAuditResources.Project, project.Id)
+                    .InProject(project.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("requiresMembership", project.RequiresMembership)
+                        .Add("creatorIsMember", creatorIsMember)
+                        .Add("dataSourceIds", dataSourceIds)
+                        .Add("repositoryCount", project.Repositories.Count)
+                        .Add("repositoryTokenSet", encryptedToken != null && project.Repositories.Count > 0))
+            ],
+            cancellationToken);
         if (transaction != null)
         {
             await transaction.CommitAsync(cancellationToken);

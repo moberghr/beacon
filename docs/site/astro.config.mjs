@@ -127,6 +127,7 @@ export default defineConfig({
             { label: 'User Management', link: '/features/user-management/' },
             { label: 'Authorization', link: '/features/authorization/' },
             { label: 'API Keys', link: '/features/api-keys/' },
+            { label: 'Security Audit Trail', link: '/features/security-audit/' },
             { label: 'Admin Settings', link: '/features/admin-settings/' },
           ],
         },

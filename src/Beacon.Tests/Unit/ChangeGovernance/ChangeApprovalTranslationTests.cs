@@ -441,6 +441,7 @@ public class ChangeApprovalTranslationTests
             Protector,
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();

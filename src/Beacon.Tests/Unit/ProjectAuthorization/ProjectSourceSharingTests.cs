@@ -10,6 +10,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Handlers.Projects.Members;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -40,8 +41,9 @@ public class ProjectSourceSharingTests
         var links = new List<ProjectDataSource> { Link(ProjectId, source) };
         var transactions = new SqlCapture();
         var logs = new LogRecorder();
+        var audit = new RecordingSecurityAudit(new BeaconActor("ext-ada", true) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true });
 
-        var result = await Unlink(Factory(links: links, offline: transactions), TestProjectAccess.Unrestricted, logs)
+        var result = await Unlink(Factory(links: links, offline: transactions), TestProjectAccess.Unrestricted, logs, audit)
             .Handle(new UnlinkProjectDataSourceCommand(ProjectId, 10), CancellationToken.None);
 
         result.Should().Be(new UnlinkProjectDataSourceResult(ProjectId, 10, true));
@@ -51,6 +53,10 @@ public class ProjectSourceSharingTests
         transactions.Commits.Should().Be(1);
         logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("Data source unlinked", StringComparison.Ordinal))
             .Which.Message.Should().Contain("project 1").And.Contain("data source 10").And.Contain("left unlinked True").And.Contain("user 3");
+        audit.Single("ext-ada").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.DataSourceUnlinked, ActorUserId = (int?)3, ProjectId = (int?)ProjectId, DetailsJson = "{\"dataSourceId\":10,\"leftUnlinked\":true}" },
+            x => x.ExcludingMissingMembers());
+        audit.Ways.Should().Equal("staged");
     }
 
     [Test]
@@ -172,6 +178,7 @@ public class ProjectSourceSharingTests
         var configuration = new BeaconConfiguration();
         configuration.EnableUserManagement();
         var factory = Factory(projects: projects, links: projects.SelectMany(x => x.DataSources).ToList());
+        var audit = new RecordingSecurityAudit(new BeaconActor("ext-root", true) { Kind = BeaconPrincipalKind.User, BeaconUserId = 1, IsActiveUser = true });
 
         var result = await new SetProjectAccessModeHandler(
                 factory,
@@ -180,10 +187,14 @@ public class ProjectSourceSharingTests
                 TestProjectAccess.Actors(),
                 TestPermissions.None,
                 Options.Create(new ProjectAuthorizationOptions()),
+                audit,
                 NullLogger<SetProjectAccessModeHandler>.Instance)
             .Handle(new SetProjectAccessModeCommand(ProjectId, true), CancellationToken.None);
 
         target.RequiresMembership.Should().BeTrue();
+        audit.Single("Bea Auditor", "Finance").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.AccessModeChanged, ActorUserId = (int?)1, ProjectId = (int?)ProjectId, DetailsJson = "{\"requiresMembershipBefore\":false,\"requiresMembershipAfter\":true}" },
+            x => x.ExcludingMissingMembers());
         result.SharedSourceProjects.Should().ContainSingle().Which.Should().BeEquivalentTo(new SharedSourceProjectEntry(2, "Audit", false, [10], ["Bea Auditor"]));
     }
 
@@ -197,12 +208,13 @@ public class ProjectSourceSharingTests
             .ThenScalar(false);
     }
 
-    private static UnlinkProjectDataSourceHandler Unlink(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, LogRecorder? logs = null)
+    private static UnlinkProjectDataSourceHandler Unlink(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, LogRecorder? logs = null, RecordingSecurityAudit? audit = null)
     {
         return new UnlinkProjectDataSourceHandler(
             factory,
             TestProjectAccess.Evaluator(scope),
             TestProjectAccess.Actors(),
+            audit ?? new RecordingSecurityAudit(),
             logs?.For<UnlinkProjectDataSourceHandler>() ?? NullLogger<UnlinkProjectDataSourceHandler>.Instance);
     }
 

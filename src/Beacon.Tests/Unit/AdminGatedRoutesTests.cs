@@ -46,11 +46,14 @@ public class AdminGatedRoutesTests
         ["POST /beacon/api/approvals/changes/{id:int}/reject"] = BeaconPermissions.ApproverPolicy,
 
         ["GET /beacon/api/mcp/audit"] = BeaconPermissions.AuditorPolicy,
+        ["GET /beacon/api/security-audit/"] = BeaconPermissions.AuditorPolicy,
+        ["POST /beacon/api/security-audit/verify"] = BeaconPermissions.AuditorPolicy,
         ["GET /beacon/api/mcp/settings"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/mcp/settings/locks"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/mcp/projects/{projectId:int}/settings"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/admin-settings/"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/api-keys/admin/"] = BeaconPermissions.AuditorOrUserAdminPolicy,
+        ["GET /beacon/api/users/{id:int}/owned-resources"] = BeaconPermissions.AuditorOrUserAdminPolicy,
 
         ["PUT /beacon/api/mcp/settings"] = BeaconPermissions.SecurityAdminPolicy,
         ["PUT /beacon/api/mcp/projects/{projectId:int}/settings"] = BeaconPermissions.SecurityAdminPolicy,
@@ -384,6 +387,7 @@ public class AdminGatedRoutesTests
             TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
             Mock.Of<IProjectMembershipSource>(x => x.IsAvailable == false),
             Options.Create(new ProjectAuthorizationOptions()),
+            new RecordingSecurityAudit(),
             (logs ?? new LogRecorder()).For<CreateProjectHandler>());
     }
 
