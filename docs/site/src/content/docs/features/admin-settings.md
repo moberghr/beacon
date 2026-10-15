@@ -1,6 +1,6 @@
 ---
 title: Admin Settings
-description: The Admin settings page — the base URL and the LLM provider, changed at runtime and swapped without a restart, who may read or change each setting, and the settings change history.
+description: "The Admin settings page: the base URL and the LLM provider, changed at runtime and swapped without a restart, who may read or change each setting, and the settings change history."
 ---
 
 **Admin settings** (`/beacon/admin-settings`) holds the base URL Beacon puts in outgoing links and the LLM provider connection. A save applies to the running process at once, without a restart. Every change is recorded in a change history that also covers MCP settings and migration-write-target changes.
@@ -114,7 +114,7 @@ On the global settings a locked switch is shown **disabled** with a lock and a n
 
 ## See also
 
-- [AI integration](/features/ai-integration/) — the features that use the LLM connection
-- [MCP server](/features/mcp-server/) — MCP settings and guardrails
-- [Authorization](/features/authorization/#functional-permissions) — Auditor and SecurityAdmin
-- [Configuration](/getting-started/configuration/) — `Beacon:LLM` and the startup values
+- [AI integration](/features/ai-integration/): the features that use the LLM connection
+- [MCP server](/features/mcp-server/): MCP settings and guardrails
+- [Authorization](/features/authorization/#functional-permissions): Auditor and SecurityAdmin
+- [Configuration](/getting-started/configuration/): `Beacon:LLM` and the startup values

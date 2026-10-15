@@ -125,8 +125,8 @@ and `ApproveAndActivateAlertAsync`; each generation records its token usage in `
 ## What reaches the provider
 
 A prompt carries the question, schema (table and column names, types, descriptions, join paths) and your curated
-knowledge (documentation, glossary, verified examples, learned patterns). Row data — sample values, value matches,
-discovered column values, eval-judge rows, database errors — is off by default or screened, and every prompt that
+knowledge (documentation, glossary, verified examples, learned patterns). Row data (sample values, value matches,
+discovered column values, eval-judge rows, database errors) is off by default or screened, and every prompt that
 carries it is logged as event `7123` (`RowDataSentToLlm`, category `Beacon.AI.Services.LlmProviders.LlmRowDataEgress`)
 with identifiers only. The full table, and the lock `Beacon:Mcp:ForbidRowDataToLlm` that keeps all row data from the
 provider, are in [What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
@@ -179,9 +179,9 @@ provider.
 
 ## Related features
 
-- [Integrate → AI](/integrate/ai/) — host configuration of the provider
-- [Admin Settings](/features/admin-settings/) — the runtime provider configuration
-- [Knowledge Base & Grounding](/features/knowledge-base/) — how documentation, join paths and glossary terms ground SQL generation
-- [MCP Server](/features/mcp-server/) — the tools that use the provider
-- [AI Actors](/features/ai-actors/) — LLM-driven monitoring agents
-- [Anomaly Detection](/features/anomaly-detection/) — statistical detection, without an LLM
+- [Integrate → AI](/integrate/ai/): host configuration of the provider
+- [Admin Settings](/features/admin-settings/): the runtime provider configuration
+- [Knowledge Base & Grounding](/features/knowledge-base/): how documentation, join paths and glossary terms ground SQL generation
+- [MCP Server](/features/mcp-server/): the tools that use the provider
+- [AI Actors](/features/ai-actors/): LLM-driven monitoring agents
+- [Anomaly Detection](/features/anomaly-detection/): statistical detection, without an LLM

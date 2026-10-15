@@ -37,7 +37,7 @@ const mdHref = `${base}/${route.id.replace(/\/$/, '') || 'index'}.md`;
 				await navigator.clipboard.writeText(await response.text());
 				if (label) label.textContent = 'Copied';
 			} catch {
-				if (label) label.textContent = 'Copy failed — use View .md';
+				if (label) label.textContent = 'Copy failed. Use View .md';
 			}
 			setTimeout(() => {
 				if (label) label.textContent = 'Copy as Markdown';

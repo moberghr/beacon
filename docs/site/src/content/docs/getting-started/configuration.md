@@ -9,7 +9,7 @@ This is the reference for everything you can configure in Beacon. It applies whe
 
 Beacon has two kinds of settings:
 
-1. **Configuration keys**, read from `IConfiguration` — `appsettings*.json`, environment variables, user secrets or a secrets provider. Everything under [Core and database](#core-and-database) through [Telemetry](#telemetry) below.
+1. **Configuration keys**, read from `IConfiguration`: `appsettings*.json`, environment variables, user secrets or a secrets provider. Everything under [Core and database](#core-and-database) through [Telemetry](#telemetry) below.
 2. **Code-only options**, set in the `AddBeaconServices(configuration, options => …)` lambda. They are not read from configuration. See [Code-only options](#code-only-options).
 
 Rules that apply throughout:
@@ -121,7 +121,7 @@ Set in the `AddBeaconServices` lambda. None of these are read from configuration
 
 | Option | Default | What it does |
 |---|---|---|
-| `AddBeaconScheduler<T>()` | none — **required** | Your `IBeaconScheduler`; startup fails without one (see [Scheduling](#scheduling)) |
+| `AddBeaconScheduler<T>()` | none, **required** | Your `IBeaconScheduler`; startup fails without one (see [Scheduling](#scheduling)) |
 | `AddEmailAdapter<T>()` | none | Your `IEmailAdapter`; Beacon ships no email implementation (see [Email adapter](#email-adapter)) |
 | `BaseUrl` | `null` | The address put in notification links: `{BaseUrl}/notifications/{id}`. Include the `/beacon` path (`https://beacon.example.com/beacon`). Not read from configuration by Beacon; the sample host reads `Beacon:BaseUrl` into it. Admin settings can replace it at runtime (see [Base URL](#base-url-configuration)) |
 | `UseAI` | `false` | Turns on the AI features; with `false` they are registered as stand-ins that report AI as unavailable |
@@ -157,8 +157,8 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, and startup logs a Warning. Set it behind any proxy |
 | `Beacon:ForwardedHeaders:Enabled` | bool | `false` | Sample host: apply `X-Forwarded-For` and `X-Forwarded-Proto` from known proxies |
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
-| `AllowedHosts` | string | — | Standard ASP.NET Core host filtering |
-| `Logging:*` | — | — | Standard logging. For JSON console logs with trace ids: `Logging:Console:FormatterName=json`, `Logging:Console:FormatterOptions:IncludeScopes=true` |
+| `AllowedHosts` | string | None | Standard ASP.NET Core host filtering |
+| `Logging:*` | n/a | n/a | Standard logging. For JSON console logs with trace ids: `Logging:Console:FormatterName=json`, `Logging:Console:FormatterOptions:IncludeScopes=true` |
 
 ### Schema configuration
 
@@ -314,7 +314,7 @@ Bound by `builder.Services.AddBeaconOidcAuthentication(builder.Configuration)` f
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `Enabled` | bool | `false` | Turns SSO on |
-| `Authority`, `ClientId`, `ClientSecret` | string | — | All three required when enabled. Authorization code flow with PKCE. Supply `ClientSecret` as `Beacon__Authentication__Oidc__ClientSecret` or from a secrets provider |
+| `Authority`, `ClientId`, `ClientSecret` | string | Required | All three required when enabled. Authorization code flow with PKCE. Supply `ClientSecret` as `Beacon__Authentication__Oidc__ClientSecret` or from a secrets provider |
 | `CallbackPath` | string | `/signin-oidc` | The redirect callback |
 | `Scopes` | string[] | `openid`, `profile`, `email` | Requested scopes (replaces the list) |
 | `AllowedTenants` | string[] | empty | Entra tenant ids (`tid`) that may sign in. Startup fails when empty, unless `AllowAnyTenant` |
@@ -326,7 +326,7 @@ Bound by `builder.Services.AddBeaconOidcAuthentication(builder.Configuration)` f
 | `EnableFrontChannelLogout` | bool | `false` | Serve `/signout-oidc`, an anonymous `GET` that ends the session |
 | `RequireMfa` | bool | `false` | Refuse an interactive SSO sign-in whose ID token shows no MFA (`amr` contains `mfa`, or `acr` in `AcceptedAcrValues`). Covers the interactive SSO sign-in only |
 | `AcceptedAcrValues` | string[] | empty | `acr` values that count as MFA |
-| `McpJwksEndpoint` | string (URL) | — | Sample host: with SSO enabled, turns on bearer JWT with issuer = `Authority`, audience = `ClientId` and this JWKS URL. Not read by the Beacon libraries |
+| `McpJwksEndpoint` | string (URL) | None | Sample host: with SSO enabled, turns on bearer JWT with issuer = `Authority`, audience = `ClientId` and this JWKS URL. Not read by the Beacon libraries |
 
 Admission runs before anything is provisioned: tenant, then guest, then required role or group. See [User management → Single sign-on admission](/features/user-management/#single-sign-on-admission).
 
@@ -346,11 +346,11 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 
 | Option | Default | What it does |
 |---|---|---|
-| `ExternalLoginEndpoint` | — | The login API the login form posts to (`JwtExternalApiAuthenticationProvider`) |
+| `ExternalLoginEndpoint` | None | The login API the login form posts to (`JwtExternalApiAuthenticationProvider`) |
 | `EnableBearerAuthentication` | `false` | Accept `Authorization: Bearer <jwt>` on the REST API |
-| `AccessTokenClaim` | — | For a non-Entra issuer without `typ: at+jwt`: a claim only its access tokens carry. A claim ID tokens carry stops startup |
-| `Validation.SigningKey` / `JwksEndpoint` | — | One is required |
-| `Validation.ValidIssuer(s)`, `ValidAudience(s)` | — | At least one of each is required |
+| `AccessTokenClaim` | None | For a non-Entra issuer without `typ: at+jwt`: a claim only its access tokens carry. A claim ID tokens carry stops startup |
+| `Validation.SigningKey` / `JwksEndpoint` | None | One is required |
+| `Validation.ValidIssuer(s)`, `ValidAudience(s)` | None | At least one of each is required |
 | `Validation.ClockSkew` | 5 minutes | At most 5 minutes |
 | `Validation.ValidateLifetime`, `ValidateIssuer`, `ValidateAudience` | `true` | Must stay `true` |
 | `ClaimsMapping.*` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims hold the user id, user name, e-mail, roles and display name |
@@ -372,8 +372,8 @@ Validated at startup. Without the section, no JWT caller is admitted on `/beacon
 | `Users:Scope` | `Read` \| `Execute` | `Execute` | Scope of user callers |
 | `Users:AutoProvision` | bool | `true` | Find or create a Beacon user keyed on `oid` |
 | `Users:DefaultRoleName` | string | `Viewer` | Role for provisioned users; not Admin or a functional role |
-| `Systems[i]:Name` | string | — | Required, unique |
-| `Systems[i]:ClientId` or `ObjectId` | string | — | Exactly one: an app-only token's client, or a service user's `oid` |
+| `Systems[i]:Name` | string | Required | Required, unique |
+| `Systems[i]:ClientId` or `ObjectId` | string | Required | Exactly one: an app-only token's client, or a service user's `oid` |
 | `Systems[i]:ProjectIds`, `Scope`, `HostClaims[]` | | `Execute` | The system caller's projects, scope and host-endpoint claims |
 
 See [Entra ID callers](/features/mcp-entra-callers/).
@@ -441,7 +441,7 @@ Scopes are `Read` and `Execute`; a key stored with the retired `Admin` scope is 
 
 ## Query execution row cap
 
-Bound from `Beacon:Query`, validated at startup. These apply to every statement Beacon runs for its own features — previews, subscription runs, AI actor checks, ad-hoc queries.
+Bound from `Beacon:Query`, validated at startup. These apply to every statement Beacon runs for its own features: previews, subscription runs, AI actor checks, ad-hoc queries.
 
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
@@ -499,11 +499,11 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 |---|---|---|---|
 | `Provider` | `OpenAI` \| `Claude` \| `AzureOpenAI` \| `Bedrock` | `OpenAI` | The provider (`Claude` is Anthropic) |
 | `ApiKey` | string | `""` | The provider key. Bedrock: empty uses the default AWS credential chain; `accessKey:secretKey` gives explicit credentials |
-| `Endpoint` | string | — | Required for `AzureOpenAI` |
-| `Region` | string | — | Required for `Bedrock` |
-| `SessionToken` | string | — | Bedrock temporary credentials |
+| `Endpoint` | string | None | Required for `AzureOpenAI` |
+| `Region` | string | None | Required for `Bedrock` |
+| `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
-| `FastModel` | string | — | Used for short, high-volume calls. Unset: OpenAI and Claude use a built-in fast model; Azure and Bedrock use `Model` |
+| `FastModel` | string | None | Used for short, high-volume calls. Unset: OpenAI and Claude use a built-in fast model; Azure and Bedrock use `Model` |
 | `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts |
 | `Limits:TokensPerMinute`, `RequestsPerMinute`, `MonthlyBudget` | int, int, decimal | `80000`, `1000`, `100.00` | Recorded and shown in settings |
 
@@ -530,8 +530,8 @@ At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [A
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `Enabled` | bool | `false` | Run a local ONNX embedding model in-process for semantic retrieval |
-| `ModelPath` | string | — | The ONNX model file (384 dimensions, for example bge-small-en-v1.5) |
-| `TokenizerPath` | string | — | The WordPiece vocabulary file |
+| `ModelPath` | string | None | The ONNX model file (384 dimensions, for example bge-small-en-v1.5) |
+| `TokenizerPath` | string | None | The WordPiece vocabulary file |
 
 The service is available only when `Enabled` is `true` and both files exist; otherwise retrieval falls back to lexical matching. On PostgreSQL the vectors live in a pgvector column, so the `vector` extension must be available to Beacon's migrations; on SQL Server they are compared in memory. The sample host re-indexes every 12 hours (`mcp-embedding-reindex`, `mcp-docchunk-reindex`).
 
@@ -576,7 +576,7 @@ A missing required key fails the send, not the startup. These keys belong to the
 
 ## Deployment locks
 
-Settings that bind Admins too and that nothing at runtime can change — only host configuration:
+Settings that bind Admins too and that nothing at runtime can change; only host configuration sets them:
 
 | Key | Default | Pins |
 |---|---|---|
@@ -654,7 +654,7 @@ Read by `IEmbedTokenService`, a host-facing service that mints and validates HS2
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
-| `SigningKey` | string | — | Required; at least 32 bytes (UTF-8). Supply as a secret |
+| `SigningKey` | string | Required | Required; at least 32 bytes (UTF-8). Supply as a secret |
 | `Issuer` | string | `beacon` | Must not be blank |
 | `DefaultTtlSeconds` | int | `300` | Greater than 0, at most `MaxTtlSeconds` |
 | `MaxTtlSeconds` | int | `900` | Greater than 0 |
@@ -742,6 +742,6 @@ Supply `Beacon__EncryptionKey`, `Beacon__Authentication__Oidc__ClientSecret`, `B
 
 ## Next steps
 
-- [Host wiring](/integrate/host-setup/) — registration and middleware in context
+- [Host wiring](/integrate/host-setup/): registration and middleware in context
 - [Production checklist](/integrate/production/)
 - [Security model](/features/security-model/)

@@ -1,9 +1,9 @@
 ---
 title: Authorization
-description: How Beacon decides access — projects as the boundary, global and project roles, project actions, functional permissions with a route matrix, separation of duties, identity-provider role mapping, 404 versus 403, scheduled work and shared data sources.
+description: "How Beacon decides access: projects as the boundary, global and project roles, project actions, functional permissions with a route matrix, separation of duties, identity-provider role mapping, 404 versus 403, scheduled work and shared data sources."
 ---
 
-Beacon authorizes in two layers. A caller's **global role** (read, write) comes from a pluggable `IBeaconAuthorizationProvider`. Its **project access** — which projects, and through them which data sources, it may use, and which action it may take there — comes from one evaluator, `IProjectAccessEvaluator`. On top of both, the Admin role's duties are split into six **functional permissions** that grant no project data.
+Beacon authorizes in two layers. A caller's **global role** (read, write) comes from a pluggable `IBeaconAuthorizationProvider`. Its **project access** (which projects, and through them which data sources, it may use, and which action it may take there) comes from one evaluator, `IProjectAccessEvaluator`. On top of both, the Admin role's duties are split into six **functional permissions** that grant no project data.
 
 This page is the reference for those rules. For accounts, sign-in and sessions see [User management](/features/user-management/); for how the controls fit together see [Security model](/features/security-model/).
 
@@ -20,11 +20,11 @@ Authorization, user management and the login form are all **off by default** (`o
 
 The building blocks:
 
-- `IBeaconUserContext` — the current caller (`UserId`, `UserName`, `DisplayName`, `Email`, `IsAuthenticated`, `HasClaim`).
-- `IBeaconAuthorizationProvider` — the caller's global read and write permission.
-- `IProjectAccessEvaluator` — the caller's project access per action.
-- `IBeaconPermissionAccessor` — the functional permissions the caller holds now.
-- `IBeaconAuthenticationProvider` — how a login-form sign-in is checked (the sample host uses `DatabaseAuthenticationProvider`).
+- `IBeaconUserContext`: the current caller (`UserId`, `UserName`, `DisplayName`, `Email`, `IsAuthenticated`, `HasClaim`).
+- `IBeaconAuthorizationProvider`: the caller's global read and write permission.
+- `IProjectAccessEvaluator`: the caller's project access per action.
+- `IBeaconPermissionAccessor`: the functional permissions the caller holds now.
+- `IBeaconAuthenticationProvider`: how a login-form sign-in is checked (the sample host uses `DatabaseAuthenticationProvider`).
 
 ## Enabling authorization
 
@@ -91,10 +91,10 @@ Projects are the authorization boundary. A caller reaches a project's queries, s
 
 ### Open and restricted projects
 
-- **Open**: everyone with a Beacon role uses the project at their global role — a Viewer reads and runs saved SQL, an Editor also writes and works ad hoc.
+- **Open**: everyone with a Beacon role uses the project at their global role. A Viewer reads and runs saved SQL; an Editor also writes and works ad hoc.
 - **Restricted** (`requiresMembership`): only the project's members and Admins use it; to anyone else it does not exist (`404`).
-- **New projects are created restricted.** When the creator is an active Beacon user and Beacon manages project membership, the project starts restricted with the creator as its project admin (an Admin who creates a project becomes its project admin too). A creator without an active Beacon user, or any creator while the host manages membership or membership is unavailable, gets an open project — nobody could be a member of a restricted one — and Beacon logs `ProjectCreatedOpen` (7112). The `POST /beacon/api/projects` answer carries `requiresMembership`.
-- **Restricting and opening.** An Admin or a UserAdmin restricts a project with the **Access** card on the project page (`PUT /beacon/api/projects/{id}/access` with `{ "requiresMembership": true }`). Opening a restricted project is an Admin's alone (`403` for anyone else). Restricting answers `409` while project membership is unavailable. Add members — a project admin first — before restricting. The card lists the project's data sources that another open project also links (they stay reachable through it) and every other project that shares a data source with it.
+- **New projects are created restricted.** When the creator is an active Beacon user and Beacon manages project membership, the project starts restricted with the creator as its project admin (an Admin who creates a project becomes its project admin too). A creator without an active Beacon user, or any creator while the host manages membership or membership is unavailable, gets an open project (nobody could be a member of a restricted one), and Beacon logs `ProjectCreatedOpen` (7112). The `POST /beacon/api/projects` answer carries `requiresMembership`.
+- **Restricting and opening.** An Admin or a UserAdmin restricts a project with the **Access** card on the project page (`PUT /beacon/api/projects/{id}/access` with `{ "requiresMembership": true }`). Opening a restricted project is an Admin's alone (`403` for anyone else). Restricting answers `409` while project membership is unavailable. Add members (a project admin first) before restricting. The card lists the project's data sources that another open project also links (they stay reachable through it) and every other project that shares a data source with it.
 - **`Beacon:Authorization:RequireProjectMembership: true`** restricts every project, whatever its own setting, and makes data sources no project links Admin-only. It needs project memberships (Beacon user management or a host [membership source](#host-seams)); the host fails at startup otherwise.
 - **Archived projects** grant nothing. No route archives a project.
 
@@ -104,39 +104,39 @@ A member holds one role per project. A global Viewer is a Viewer in every projec
 
 | Action | Viewer | Editor (restricted) | Editor (open) | Project admin | Admin |
 |---|---|---|---|---|---|
-| **Read** — resources, SQL, metadata, stored results, documentation | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Run** — execute saved SQL, evaluate data contracts | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Query** — ad-hoc and draft SQL, LLM work (playground, AI actors) | – | ✓ | ✓ | ✓ | ✓ |
-| **Write** — create and change resources | – | ✓ | ✓ | ✓ | ✓ |
-| **Manage** — delete, archive, take over a lock, force a metadata refresh | – | as recorded owner | ✓ | ✓ | ✓ |
-| **ManageMembers** — manage members, link data sources | – | – | – | ✓ | ✓ |
-| **Curate** — review learned patterns, edit or regenerate documentation, apply or reject documentation patches, verify relationships and delete verified ones | – | – | – | ✓ | ✓ |
+| **Read**: resources, SQL, metadata, stored results, documentation | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Run**: execute saved SQL, evaluate data contracts | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Query**: ad-hoc and draft SQL, LLM work (playground, AI actors) | – | ✓ | ✓ | ✓ | ✓ |
+| **Write**: create and change resources | – | ✓ | ✓ | ✓ | ✓ |
+| **Manage**: delete, archive, take over a lock, force a metadata refresh | – | as recorded owner | ✓ | ✓ | ✓ |
+| **ManageMembers**: manage members, link data sources | – | – | – | ✓ | ✓ |
+| **Curate**: review learned patterns, edit or regenerate documentation, apply or reject documentation patches, verify relationships and delete verified ones | – | – | – | ✓ | ✓ |
 | Restrict the project | – | – | – | – | ✓ (also UserAdmin) |
 | Open a restricted project | – | – | – | – | ✓ |
 
 The recorded owner is a data contract's or subscription's owner, an AI actor's creator and a query's lock holder. Owner rules on tasks, contracts and AI actors apply on top: both the project action and the owner rule must pass. A UserAdmin also manages the members of every project and restricts any project without being its member; a DataSourceAdmin links data sources no open project holds (see [Functional permissions](#functional-permissions)).
 
-**ManageMembers and Curate are membership-only.** An open project never grants them, and they are never granted to an API key (Read or Execute scope), an MCP caller (user or system) or the owner of scheduled work. Curation that records who decided — reviewing a learned pattern, verifying a relationship — also needs a signed-in Beacon user (`403` otherwise). A data source's shared grounding (relationships, documentation patches to descriptions) needs Curate in **every** live project linking the source, or the DataSourceAdmin permission; a relationship someone without Curate creates or relabels is stored unverified until a curator verifies it. Golden examples and the glossary stay Admin-only. See [Knowledge base → Who curates grounding](/features/knowledge-base/#who-curates-grounding).
+**ManageMembers and Curate are membership-only.** An open project never grants them, and they are never granted to an API key (Read or Execute scope), an MCP caller (user or system) or the owner of scheduled work. Curation that records who decided (reviewing a learned pattern, verifying a relationship) also needs a signed-in Beacon user (`403` otherwise). A data source's shared grounding (relationships, documentation patches to descriptions) needs Curate in **every** live project linking the source, or the DataSourceAdmin permission; a relationship someone without Curate creates or relabels is stored unverified until a curator verifies it. Golden examples and the glossary stay Admin-only. See [Knowledge base → Who curates grounding](/features/knowledge-base/#who-curates-grounding).
 
 ### Data sources follow their projects
 
 - A data source is reachable only through a project the caller may use. A resource that reads several data sources is reachable only through **one** project that links all of them. Resources addressed by their data sources alone (an ad-hoc preview, a metadata read, a data contract) have no home project: any such project serves.
 - **Unlinked data sources.** A data source no project links is reachable as before only if it existed before project access was introduced (`OpenWhenUnlinked`). A new data source is Admin-only until it is linked: link it when you create it (the **Projects** field of the **New data source** dialog, `projectIds` on `POST /beacon/api/data-sources`). Removing a source's last link makes it Admin-only again.
-- **Shared data sources.** A source linked to an open project is reachable through that project by everyone with a role, even when a restricted project links it too. Writes to a source's shared state — relationships, description edits, a forced metadata refresh — need Write in **every** live project that links it (or DataSourceAdmin, or Admin), because that state grounds every project using the source.
+- **Shared data sources.** A source linked to an open project is reachable through that project by everyone with a role, even when a restricted project links it too. Writes to a source's shared state (relationships, description edits, a forced metadata refresh) need Write in **every** live project that links it (or DataSourceAdmin, or Admin), because that state grounds every project using the source.
 - **Linking.** A project admin (or an Admin) links data sources into the project with **Link data sources** (`POST /beacon/api/projects/{id}/data-sources`). Anyone but an Admin may link only sources already linked to a live open project; a host's data source links only into the project the host declares for it, for Admins too. An unreadable source answers `404`, a readable one that may not be linked `403`, and nothing is linked partially.
 - **Queries without steps** read no data source, so no project holds them: their creator (the query's owner) and Admins reach them.
 - **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the database login can read. Give each data source a login that sees only what the projects linking it should see. Views, synonyms and functions in the source's own database read with that login's grants.
 
 ### Database names in SQL
 
-SQL that Beacon runs against a data source may name objects of that source's own database only. A name qualified with a database — `database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL and SQLite, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery — must carry the database, catalog or project the data source's connection is configured for; anything else is refused before the SQL runs. Unqualified and schema-qualified names are always allowed. The check applies whether or not read-only enforcement is on.
+SQL that Beacon runs against a data source may name objects of that source's own database only. A name qualified with a database (`database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL and SQLite, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery) must carry the database, catalog or project the data source's connection is configured for; anything else is refused before the SQL runs. Unqualified and schema-qualified names are always allowed. The check applies whether or not read-only enforcement is on.
 
 - **The configured database** comes from the connection string (SQL Server and Synapse `Initial Catalog`/`Database`, PostgreSQL `Database`, MySQL `Database`, Snowflake `db`; SQLite is `main`) or the connector settings (Databricks `Catalog`, BigQuery `ProjectId`). A data source without one accepts no database qualifier at all: set it in the connection, or write `schema.table`. When the settings cannot be read, no qualifier is accepted either.
 - **Comparison** follows the engine: PostgreSQL folds unquoted names to lower case and Snowflake to upper case; MySQL compares exactly; SQL Server, SQLite, Databricks and BigQuery ignore case.
 - **System databases are other databases** (MySQL `information_schema`, SQL Server `master`, Snowflake `SNOWFLAKE`, Databricks `system`). Schema-level catalogs inside the source's own database (`information_schema.tables` on PostgreSQL, `sys.tables` on SQL Server) stay allowed. On BigQuery write `project.dataset.INFORMATION_SCHEMA.TABLES`.
 - **Also refused**, with read-only enforcement on or off: names with more parts than the full form (SQL Server linked-server names); names resolved only at run time (`IDENTIFIER(...)`, Snowflake `TABLE('...')`, `GET_DDL`, `OBJECT_DEFINITION`); functions and procedures that reach other servers, files or storage (`dblink…`, `OPENROWSET`, `OPENQUERY`, `EXTERNAL_QUERY`, `read_files`, PostgreSQL `COPY … PROGRAM` and server-file `COPY`, Databricks network and stream functions and file paths); database, role and user switches (`USE`, `SET ROLE`, `EXECUTE AS`, `set_config`, SQLite `ATTACH`); SQL run from a string, variable or session (`EXEC @sql`, `sp_executesql`, `EXECUTE IMMEDIATE`, `PREPARE`/`EXECUTE`, PostgreSQL `DO` and string-bodied functions); and SQL Beacon cannot parse.
 - **Objects in the source's own database** (views, synonyms, foreign tables, procedures) are allowed by name and read with the login's grants. Grant the login only what the data source should expose.
-- **Where:** every statement Beacon runs on a data source passes the same execution gate — the MCP tools, saving a query or step (also by an AI actor), previews, subscription and test-delivery runs, AI actor checks, data-migration reads, Custom SQL rules, semantic search, documentation enum discovery and value-grounding probes. The in-memory join of a multi-step query reaches no database and is not checked. `IDataSourceProvider.Execute*` called directly by a host, and the metadata extractors (fixed catalog SQL), are not checked.
+- **Where:** every statement Beacon runs on a data source passes the same execution gate: the MCP tools, saving a query or step (also by an AI actor), previews, subscription and test-delivery runs, AI actor checks, data-migration reads, Custom SQL rules, semantic search, documentation enum discovery and value-grounding probes. The in-memory join of a multi-step query reaches no database and is not checked. `IDataSourceProvider.Execute*` called directly by a host, and the metadata extractors (fixed catalog SQL), are not checked.
 
 See [Security model](/features/security-model/) for the full execution gate.
 
@@ -169,9 +169,9 @@ See [API keys](/features/api-keys/#project-restrictions), [MCP server](/features
 ### How it is enforced: 404 versus 403
 
 - **Every request declares its check.** A request that addresses a resource by id implements `IProjectAuthorizedRequest` and names the resource and action; a MediatR pipeline behaviour resolves the resource's project (or data sources) and refuses before the handler runs. A list request implements `IProjectFilteredRequest` and filters in SQL, so totals and pages never count what the caller cannot see. A request with nothing project-scoped is marked `[ProjectScopeExempt("reason")]`. Tests fail when a request's id property is neither checked nor exempt.
-- **404 or 403.** A resource that is missing, or that the caller may not read, answers `404` — the caller cannot tell the two apart. A resource the caller may read but whose action is not granted answers `403`. Refusals throw `BeaconNotFoundException` and `BeaconForbiddenException`; on `/beacon/api` they become RFC 7807 problem responses without the message, in every host. `BeaconConflictException` and `BeaconRateLimitedException` map to `409` and `429`. Any other exception, including `UnauthorizedAccessException`, is left to the host.
+- **404 or 403.** A resource that is missing, or that the caller may not read, answers `404`. The caller cannot tell the two apart. A resource the caller may read but whose action is not granted answers `403`. Refusals throw `BeaconNotFoundException` and `BeaconForbiddenException`; on `/beacon/api` they become RFC 7807 problem responses without the message, in every host. `BeaconConflictException` and `BeaconRateLimitedException` map to `409` and `429`. Any other exception, including `UnauthorizedAccessException`, is left to the host.
 - **In-process requests are checked too.** The behaviour runs on every `IMediator.Send` made while an HTTP request is served, so a host endpoint that sends Beacon requests is checked against that request's caller.
-- **Logged.** A `403` logs `AccessRefused` (7108), a hidden resource `AccessHidden` (7109), with ids, the reason, the principal kind and the caller's user id — never names or values.
+- **Logged.** A `403` logs `AccessRefused` (7108), a hidden resource `AccessHidden` (7109), with ids, the reason, the principal kind and the caller's user id. The events never carry names or values.
 - **The UI** hides what a caller may not do (the **Members** tab, **Link data sources**, the **Access** card) and shows a resource it may not read as not found.
 - **MCP.** Tool calls over `/beacon/mcp` and in the playground take the caller's projects from the evaluator on every call: Read for the catalog tools, Query for `ask`, `query`, `dry_run` and `feedback`. Access that cannot be determined answers a retry message and fails `tools/list`, never a shorter list.
 
@@ -195,11 +195,11 @@ When the host manages membership, the membership routes answer `409` ("Project m
 
 ### Unlinking data sources
 
-An Admin removes a data source's link to a project with `DELETE /beacon/api/projects/{id}/data-sources/{dataSourceId}`, or from the **Access** card of a project that shares the source. Members lose the source through that project at once; other projects that link it keep it. When the removed link was the last, the source becomes Admin-only — a data source never becomes unlinked and open. A host's data source cannot be unlinked (`409`). Each unlink is logged as `DataSourceUnlinked` (7110).
+An Admin removes a data source's link to a project with `DELETE /beacon/api/projects/{id}/data-sources/{dataSourceId}`, or from the **Access** card of a project that shares the source. Members lose the source through that project at once; other projects that link it keep it. When the removed link was the last, the source becomes Admin-only. A data source never becomes unlinked and open. A host's data source cannot be unlinked (`409`). Each unlink is logged as `DataSourceUnlinked` (7110).
 
 ### Scheduled work runs as its owner
 
-A subscription's scheduled run, a data contract's scheduled evaluation and an AI actor's background think cycle run as the owner they recorded — the subscription's or contract's owner, the actor's creator — and are re-authorized at **every** run, right before any SQL or LLM call:
+A subscription's scheduled run, a data contract's scheduled evaluation and an AI actor's background think cycle run as the owner they recorded (the subscription's or contract's owner, the actor's creator) and are re-authorized at **every** run, right before any SQL or LLM call:
 
 | Work | The owner needs | When refused |
 |---|---|---|
@@ -207,7 +207,7 @@ A subscription's scheduled run, a data contract's scheduled evaluation and an AI
 | Data contract evaluation | Run in a project that links the contract's data source | nothing is evaluated or alerted; the contract records when skipping started and is flagged until an evaluation runs again |
 | AI actor background cycle | Query in a project that links the actor's data source | the cycle is recorded with phase **Skipped** |
 
-A refused run is not a failure and is never run as the system; it is logged as `ScheduledWorkSkipped` (7111). Work without an owner runs only while every data source it reads is openly reachable, and never with `RequireProjectMembership`. On a host without Beacon user management, work whose owner has no Beacon user runs in the system scope and Beacon logs a warning naming the owner; turn on Beacon user management to have each run checked against its owner. Work a request asks for — running a subscription (`POST /beacon/api/subscriptions/{id}/execute`), **Evaluate now** on a contract, a think cycle (`POST /beacon/api/ai-actors/{id}/think`) — runs as the request's caller and answers `403` when the caller may not.
+A refused run is not a failure and is never run as the system; it is logged as `ScheduledWorkSkipped` (7111). Work without an owner runs only while every data source it reads is openly reachable, and never with `RequireProjectMembership`. On a host without Beacon user management, work whose owner has no Beacon user runs in the system scope and Beacon logs a warning naming the owner; turn on Beacon user management to have each run checked against its owner. Work a request asks for runs as the request's caller and answers `403` when the caller may not. This covers running a subscription (`POST /beacon/api/subscriptions/{id}/execute`), **Evaluate now** on a contract, and a think cycle (`POST /beacon/api/ai-actors/{id}/think`).
 
 An **Admin or a UserAdmin** changes the owner with `PUT /beacon/api/subscriptions/{id}/owner`, `PUT /beacon/api/data-quality/contracts/{id}/owner` or `PUT /beacon/api/ai-actors/{id}/owner` (`{ "userId": 12 }`); a UserAdmin never makes themselves the owner. The new owner must be an enabled user who may do the work (Run for a subscription or contract, Query for an AI actor), or the change answers `409`.
 
@@ -217,7 +217,7 @@ The Admin role's duties are split into six functional permissions. An Admin hold
 
 | Permission | The duty |
 |---|---|
-| **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations) — never their own; reads every project's approval requests. See [Approvals](/features/approvals/) |
+| **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own; reads every project's approval requests. See [Approvals](/features/approvals/) |
 | **Auditor** | Reads the MCP audit, the MCP and project settings, the admin settings (secrets masked) and every user's API keys |
 | **SecurityAdmin** | Changes the MCP settings and the admin settings except the LLM connection and base URL; manages recipients; publishes saved queries as MCP tools; sets repository access tokens |
 | **UserAdmin** | Manages users (external users only) and their roles and sessions, revokes any user's API keys, changes the owner of scheduled work, manages the members of any project, restricts projects |
@@ -261,7 +261,7 @@ The complete route list is on [Routes & endpoints](/reference/routes/).
 - **Functional roles grant no project data.** A functional role is a level-0 role with neither read nor write permission, so a user holding only functional roles reads no project, data source or resource and gets `403` elsewhere. Give such a user a Viewer or Editor role as well to let them use projects. Two duty-specific exceptions: an Approver reads every project's approval requests with their SQL; an Auditor reads every project's MCP audit rows.
 - **Permissions are read live.** Each route carries the policy `BeaconApi.{Permission}`, which admits the Admin role or the permission's role among the session's claims; the permission filter then admits the caller only if they hold the permission **now** (`IBeaconPermissionAccessor`). A user whose role was removed gets `403` although their session still carries the claim. The `BeaconApi.` policy-name prefix is reserved for Beacon.
 - **API keys hold none.** A key carries no role and no functional permission, whatever its owner holds. A key refused on such a route is told: *"API keys cannot use administrative routes; sign in as a user with the X permission."*
-- **A UserAdmin cannot raise anyone, itself included.** A UserAdmin who is not an Admin never assigns or removes the Admin role or a functional role, never changes their own account, roles or project membership, and never touches a **protected user** — an Admin, a super admin, or a holder of any level-0 system role (other UserAdmins included). A UserAdmin cannot create an **internal** (password) user nor change a user's user name or e-mail address (`403`), so it cannot make an account it can sign in to. No route sets another user's password. A UserAdmin restricts projects but does not open one, and never makes themselves an owner of scheduled work.
+- **A UserAdmin cannot raise anyone, itself included.** A UserAdmin who is not an Admin never assigns or removes the Admin role or a functional role, never changes their own account, roles or project membership, and never touches a **protected user**: an Admin, a super admin, or a holder of any level-0 system role (other UserAdmins included). A UserAdmin cannot create an **internal** (password) user nor change a user's user name or e-mail address (`403`), so it cannot make an account it can sign in to. No route sets another user's password. A UserAdmin restricts projects but does not open one, and never makes themselves an owner of scheduled work.
 - **What a UserAdmin can do, and how to watch it.** A UserAdmin creates external users, gives them Viewer or Editor, and adds unprotected users to any project. The identity provider and its [admission rules](/features/user-management/#single-sign-on-admission) bound what an external user reaches. To review these changes, alert on events **7114** (`UserCreated`), **7101** (`MemberAdded`) and **7113** (`UserRolesChanged`) whose actor holds UserAdmin.
 - **A MigrationOperator has no bypass.** Creating, running and deleting a job need Query on the declared source and on every step's data source and Write on the destination, and the destination may not be more widely reachable than its sources. See [Data migration](/features/data-migration/).
 - **A DataSourceAdmin links without gaining access.** Linking gives no membership of other projects; the DataSourceAdmin still needs the project admin role in the target project. A source it cannot read is linked only by someone who can (in practice an Admin).
@@ -297,7 +297,7 @@ The realtime hub (`/beacon/api/hub`) admits a signed-in caller with read permiss
 
 ## MCP safety locks
 
-Read-only enforcement and PII detection are MCP settings, globally and per project, but by default the deployment pins both on: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` default to `true`. Two more locks are off by default: `ForceNoContentRetention` (questions, SQL and free-text errors never persisted) and `ForbidRowDataToLlm` (no value read from a data source reaches the LLM provider). While a lock is on, nobody can change the setting it pins — an Admin included (`409`, `/errors/setting-locked`); `GET /beacon/api/mcp/settings/locks` lists the pinned settings, and the MCP settings page shows them disabled. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Only host configuration lifts a lock; see [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks).
+Read-only enforcement and PII detection are MCP settings, globally and per project, but by default the deployment pins both on: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` default to `true`. Two more locks are off by default: `ForceNoContentRetention` (questions, SQL and free-text errors never persisted) and `ForbidRowDataToLlm` (no value read from a data source reaches the LLM provider). While a lock is on, nobody can change the setting it pins, an Admin included (`409`, `/errors/setting-locked`); `GET /beacon/api/mcp/settings/locks` lists the pinned settings, and the MCP settings page shows them disabled. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Only host configuration lifts a lock; see [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks).
 
 ## Host seams
 
@@ -350,7 +350,7 @@ Bound from `Beacon:Authorization` and validated at startup: `RequireProjectMembe
 
 ## Audit and security events
 
-Beacon keeps two audit tables — `McpAuditLog` (every MCP tool call, read by Auditors) and `AppSettingHistory` (admin settings, MCP settings and migration-write-target changes) — and writes security-relevant actions as structured log events 7101–7123 with identifiers only. The log events are not stored by Beacon: route them through your log pipeline. See [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
+Beacon keeps two audit tables, `McpAuditLog` (every MCP tool call, read by Auditors) and `AppSettingHistory` (admin settings, MCP settings and migration-write-target changes), and writes security-relevant actions as structured log events 7101–7123 with identifiers only. The log events are not stored by Beacon: route them through your log pipeline. See [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
 
 ## Troubleshooting
 
@@ -358,7 +358,7 @@ Beacon keeps two audit tables — `McpAuditLog` (every MCP tool call, read by Au
 |---|---|
 | Everyone can do everything | `options.Authorization.Enabled = true`, or user management on; `app.UseAuthorization()` in the pipeline |
 | `403` on every request | the provider returns `true` for authenticated users; the claims transformation runs and adds `ClaimTypes.Role` |
-| A user sees "not found" for a project that exists | the project is restricted and the user is not a member — `404` is the answer for anything the caller may not read |
+| A user sees "not found" for a project that exists | the project is restricted and the user is not a member; `404` is the answer for anything the caller may not read |
 | A user with a functional role sees no projects | functional roles grant no project data; add a Viewer or Editor role |
 | An Admin is refused after a role change | permissions and the Admin bypass follow the stored roles now, not the session's claims |
 | Scheduled runs show "Skipped: owner not authorized." | the owner lost access; restore it or have an Admin or UserAdmin assign another owner |
@@ -384,7 +384,7 @@ Projects became the authorization boundary on the REST API, the UI, the MCP play
 
 - **Schema.** Apply the `AddProjectAuthorization` and `AddContractOwnerNotAuthorized` migrations (both providers) as you apply the others; Beacon does not migrate its schema at startup. Existing projects stay open and existing data sources stay reachable (`open_when_unlinked = true`).
 - **New behaviour without configuration.** New projects are restricted with the creator as project admin; new data sources are Admin-only until linked; sessions without a stored user reach nothing while user management is on; a refusal answers `404`/`403` through Beacon's own exception mapping.
-- **API keys.** A key's project list applies on every REST route, not only MCP; new keys must name at least one project. Keys **without** a list now reach their owner's projects on MCP (before: none) — re-issue them with a list.
+- **API keys.** A key's project list applies on every REST route, not only MCP; new keys must name at least one project. Keys **without** a list now reach their owner's projects on MCP (before: none). Re-issue them with a list.
 - **MCP.** `ask`, `query`, `dry_run` and `feedback` need Query (Editor) in the project; mapped Entra user callers need membership of restricted projects.
 - **Scheduled work runs as its owner** and is skipped when the owner may no longer do it. Assign owners (`PUT …/owner`, Admin or UserAdmin) to ownerless subscriptions, contracts and actors before restricting projects.
 - **Background jobs on a host's own job runner** must mark each job scope with `ISystemWorkScope.MarkAsSystemWork()`.
@@ -428,8 +428,8 @@ Feedback no longer creates golden examples (an Admin promotes candidates), curat
 
 ## See also
 
-- [User management](/features/user-management/) — accounts, sign-in, sessions, functional roles on the Users page
-- [API keys](/features/api-keys/) — scopes, project lists, expiry
-- [Approvals](/features/approvals/) — the four-eyes workflow
-- [Security model](/features/security-model/) — the controls end to end
-- [Configuration](/getting-started/configuration/) — every key
+- [User management](/features/user-management/): accounts, sign-in, sessions, functional roles on the Users page
+- [API keys](/features/api-keys/): scopes, project lists, expiry
+- [Approvals](/features/approvals/): the four-eyes workflow
+- [Security model](/features/security-model/): the controls end to end
+- [Configuration](/getting-started/configuration/): every key

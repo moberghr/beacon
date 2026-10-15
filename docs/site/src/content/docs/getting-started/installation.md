@@ -1,6 +1,6 @@
 ---
 title: Run the sample host
-description: Reference for Beacon.SampleProject, the sample host in the repository — what it wires, the configuration it reads, ports, Warp jobs, the UI build, running outside Development and publishing a release.
+description: "Reference for Beacon.SampleProject, the sample host in the repository: what it wires, the configuration it reads, ports, Warp jobs, the UI build, running outside Development and publishing a release."
 ---
 
 `src/Beacon.SampleProject` is the composition root in the Beacon repository: an ASP.NET Core application that wires every Beacon package together. It is how you evaluate Beacon and how contributors run it. The [Quick start](/getting-started/quick-start/) takes you from a clone to a first alert; this page is the reference for everything else the sample does.

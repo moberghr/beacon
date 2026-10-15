@@ -1,6 +1,6 @@
 ---
 title: Sign-in & identity
-description: Every way a person or program proves who it is to Beacon — first-run setup, local passwords and break-glass accounts, OIDC/Entra SSO with MFA, bearer JWTs, API keys, sessions and your own sign-in.
+description: "Every way a person or program proves who it is to Beacon: first-run setup, local passwords and break-glass accounts, OIDC/Entra SSO with MFA, bearer JWTs, API keys, sessions and your own sign-in."
 ---
 
 Beacon recognises five kinds of caller. You can combine them.
@@ -18,14 +18,14 @@ Beacon recognises five kinds of caller. You can combine them.
 `options.EnableUserManagement()` keeps users and roles in Beacon's database. While no administrator exists:
 
 1. Every browser request is redirected to `/beacon/setup`.
-2. The setup page asks for a **setup token**: `Beacon:UserManagement:SetupToken` when set (at least 32 characters), otherwise a random token Beacon prints **once to the process console (stderr)** at startup — never to the logger.
+2. The setup page asks for a **setup token**: `Beacon:UserManagement:SetupToken` when set (at least 32 characters), otherwise a random token Beacon prints **once to the process console (stderr)** at startup, never to the logger.
 3. Whoever presents the token creates the first super admin. `POST /beacon/api/setup/superadmin` is anonymous but throttled per IP; once an administrator exists, setup is closed for good.
 
 :::caution
 With several replicas, each one generates its own console token. Set `Beacon:UserManagement:SetupToken` from your secret store for multi-instance deployments, and remove it once setup is done.
 :::
 
-Until the first administrator exists, SSO and MCP sign-ins cannot provision other users, and every request except setup — `/beacon/api/health` included — is redirected to `/beacon/setup`.
+Until the first administrator exists, SSO and MCP sign-ins cannot provision other users, and every request except setup (`/beacon/api/health` included) is redirected to `/beacon/setup`.
 
 ### Headless first run (scripts and CI)
 
@@ -72,7 +72,7 @@ The full request shapes are in the OpenAPI document (`/openapi/v1.json`), once s
 
 Passwords are hashed with PBKDF2-SHA256 (100,000 iterations, 32-byte salt). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
 
-Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`). Behind a proxy that only works if your host runs `UseForwardedHeaders` with the proxy listed — see [Production checklist](/integrate/production/#reverse-proxy).
+Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`). Behind a proxy that only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy).
 
 ### Turning password sign-in off (break-glass)
 
@@ -124,20 +124,20 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 | Key | Default | What it does |
 |---|---|---|
 | `Enabled` | `false` | Master switch. When on, startup validates the section. |
-| `Authority`, `ClientId`, `ClientSecret` | — | Required when enabled. Code flow with PKCE; tokens are not saved in the cookie. Keep the secret in a secret store. |
+| `Authority`, `ClientId`, `ClientSecret` | Required | Required when enabled. Code flow with PKCE; tokens are not saved in the cookie. Keep the secret in a secret store. |
 | `CallbackPath` | `/signin-oidc` | Redirect URI path to register with the identity provider. |
 | `Scopes` | `openid profile email` | Requested scopes (replaces the list). |
-| `AllowedTenants` | — | Entra `tid` values that may sign in. **Required** unless `AllowAnyTenant`. |
+| `AllowedTenants` | None | Entra `tid` values that may sign in. **Required** unless `AllowAnyTenant`. |
 | `AllowAnyTenant` | `false` | Skip the tenant check (identity providers without `tid`). Warns at startup with an Entra authority. |
 | `BlockGuests` | `true` | Refuse Entra B2B guests (`acct=1`, or `idp` naming another provider). |
-| `RequiredGroups` / `RequiredRoles` | — | When either is set, the user needs at least one listed group object id or app role. |
+| `RequiredGroups` / `RequiredRoles` | None | When either is set, the user needs at least one listed group object id or app role. |
 | `DefaultRoleName` | none | Role given to a user created at first SSO sign-in. Unset: new users get **no** role until someone grants one. Cannot be `Admin` or a functional role. |
 | `RequireMfa` | `false` | Refuse sign-ins whose ID token has no `amr` containing `mfa` and no `acr` listed in `AcceptedAcrValues`. |
-| `AcceptedAcrValues` | — | `acr` values that count as MFA. |
+| `AcceptedAcrValues` | None | `acr` values that count as MFA. |
 | `EnableFrontChannelLogout` | `false` | Serve `/signout-oidc` for identity-provider-initiated logout. |
 | `DisplayName` | `SSO` | Label of the SSO button. |
 
-Admission runs **before** any user lookup: tenant → guest block → required group or role. MFA covers the interactive SSO sign-in only — it does not apply to bearer tokens, API keys, MCP callers or break-glass passwords.
+Admission runs **before** any user lookup: tenant → guest block → required group or role. MFA covers the interactive SSO sign-in only. It does not apply to bearer tokens, API keys, MCP callers or break-glass passwords.
 
 Entra app roles can also grant Beacon's [functional permissions](/integrate/access-control/#3-functional-permissions) at sign-in (`Beacon:Authorization:IdpRoles`).
 
@@ -160,14 +160,14 @@ app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMi
 | Option | Default | Notes |
 |---|---|---|
 | `EnableBearerAuthentication` | `false` | Turns the middleware on. |
-| `Validation.JwksEndpoint` or `Validation.SigningKey` | — | One is required. |
-| `Validation.ValidIssuer(s)`, `ValidAudience(s)` | — | At least one of each; issuer, audience and lifetime validation must stay on. |
+| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. |
+| `Validation.ValidIssuer(s)`, `ValidAudience(s)` | Required | At least one of each; issuer, audience and lifetime validation must stay on. |
 | `Validation.ClockSkew` | 5 min | At most 5 minutes. |
-| `AccessTokenClaim` | — | For non-Entra providers: a claim that proves the token is an access token (ID-token claims such as `sub` or `nonce` are refused). |
+| `AccessTokenClaim` | None | For non-Entra providers: a claim that proves the token is an access token (ID-token claims such as `sub` or `nonce` are refused). |
 | `ClaimsMapping` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims carry the user id, user name, email, roles and display name. |
-| `ExternalLoginEndpoint` | — | Let the login form validate credentials against your own token endpoint. |
+| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint. |
 
-A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user — so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`) — see [MCP & AI clients](/integrate/mcp/#option-b--entra-id-callers).
+A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user, so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`). See [MCP & AI clients](/integrate/mcp/#option-b-entra-id-callers).
 
 ## API keys
 
@@ -176,8 +176,8 @@ Users create API keys under **API keys** (`/beacon/api-keys`). A key:
 - is `sk-sem_` followed by about 43 random base64 characters, shown **once**, stored as a SHA-256 hash;
 - has the **Read** or **Execute** scope (Read: reads only; Execute: everything the owner may do, including running SQL and MCP);
 - names **at least one project** the owner can read, and reaches only those;
-- expires — 90 days by default, at most `Beacon:ApiKeys:MaxLifetimeDays` (365);
-- acts as its owner, capped by the lower of its scope and the owner's current role — never with the Admin bypass, never with a functional permission;
+- expires: 90 days by default, at most `Beacon:ApiKeys:MaxLifetimeDays` (365);
+- acts as its owner, capped by the lower of its scope and the owner's current role, never with the Admin bypass and never with a functional permission;
 - stops working when its owner is disabled or archived.
 
 Send it as `Authorization: Bearer sk-sem_…`. Details: [API keys](/features/api-keys/).
@@ -208,7 +208,7 @@ builder.Services.AddBeaconApiServices(x =>
 Without Beacon's user store:
 
 - project membership comes from an `IProjectMembershipSource` you register, or projects stay open;
-- only the `Admin` role claim grants functional permissions, unless `Beacon:Authorization:Roles:HonourHostRoleClaims` is `true` — then a role claim named like a permission's role grants it.
+- only the `Admin` role claim grants functional permissions, unless `Beacon:Authorization:Roles:HonourHostRoleClaims` is `true`, in which case a role claim named like a permission's role grants it.
 
 ## Choosing a combination
 

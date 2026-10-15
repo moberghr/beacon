@@ -1,6 +1,6 @@
 ---
 title: Security model
-description: How Beacon protects your data end to end — identity and sessions, projects as the access boundary, functional permissions, four-eyes approvals, the single SQL execution gate, masking and LLM egress, secrets at rest, outbound notifications, the write path, deployment locks, audit and security events.
+description: "How Beacon protects your data end to end: identity and sessions, projects as the access boundary, functional permissions, four-eyes approvals, the single SQL execution gate, masking and LLM egress, secrets at rest, outbound notifications, the write path, deployment locks, audit and security events."
 ---
 
 Beacon sits between people, AI assistants and production databases. Its security model assumes that any of them can make mistakes, and that an administrator's convenience should not quietly weaken a guarantee. This page is the map; each section links to the detail.
@@ -30,7 +30,7 @@ flowchart TB
 - **Sign-in paths:** Beacon's login form (PBKDF2-SHA256 passwords, 10 attempts per minute per IP), OIDC/SSO with tenant allow-list, guest blocking, required groups or app roles and optional MFA, bearer access tokens, API keys, or your own host's sign-in. → [Sign-in & identity](/integrate/authentication/)
 - **First run** needs a setup token; until an administrator exists nobody else can be provisioned.
 - **Break-glass:** with password sign-in off, at most three named accounts may still use a password; each use is logged as a warning (7119).
-- **MFA** (`RequireMfa`) covers the interactive SSO sign-in. Bearer tokens, API keys, MCP callers and break-glass passwords are not MFA-protected — protect them with short lifetimes, project lists and alerting.
+- **MFA** (`RequireMfa`) covers the interactive SSO sign-in. Bearer tokens, API keys, MCP callers and break-glass passwords are not MFA-protected. Protect them with short lifetimes, project lists and alerting.
 
 ## 2. Sessions
 
@@ -41,19 +41,19 @@ flowchart TB
 
 ## 3. Projects are the access boundary
 
-One component — the project access evaluator — decides every access, for the UI, the API, MCP and scheduled work alike:
+One component, the project access evaluator, decides every access, for the UI, the API, MCP and scheduled work alike:
 
 - **Restricted** projects are visible only to members and Admins; everyone else gets **404**. New projects start restricted.
 - A **data source follows its projects**; anything that reads several data sources needs one project that links them all.
-- **API keys** are confined to the projects they name and capped by the lower of their scope and their owner's role — never the Admin bypass.
-- **Scheduled work runs as its recorded owner**, re-checked right before every SQL statement or LLM call. If the owner may no longer do it, the run is recorded as skipped — never run as the system.
+- **API keys** are confined to the projects they name and capped by the lower of their scope and their owner's role, and never the Admin bypass.
+- **Scheduled work runs as its recorded owner**, re-checked right before every SQL statement or LLM call. If the owner may no longer do it, the run is recorded as skipped and is never run as the system.
 - **Grounding is project-scoped:** glossary terms, verified examples, learned patterns and evaluation cases of one project never reach another project's prompts, even when the projects share a data source.
 
 Every MediatR request declares how it is authorized, and tests fail when a new request does not. → [Authorization](/features/authorization/)
 
 ## 4. Separated duties
 
-The Admin role's duties are split into six **functional permissions** — Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin, MigrationOperator — each grantable without any project data. Optional separation of duties refuses risky combinations (for example Approver + SecurityAdmin). A UserAdmin can never grant Admin or a functional role. API keys never hold a functional permission. → [Access control](/integrate/access-control/#3-functional-permissions)
+The Admin role's duties are split into six **functional permissions** (Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin, MigrationOperator), each grantable without any project data. Optional separation of duties refuses risky combinations (for example Approver + SecurityAdmin). A UserAdmin can never grant Admin or a functional role. API keys never hold a functional permission. → [Access control](/integrate/access-control/#3-functional-permissions)
 
 ## 5. Four-eyes approvals
 
@@ -61,7 +61,7 @@ With the approval workflow on (opt-in), changes that decide what SQL runs or whe
 
 ## 6. The SQL execution gate
 
-Every SQL statement Beacon runs — MCP tools, previews, scheduled checks, saved-query tools, data-quality rules, AI features, value probes, migration reads, the final query of a cross-source join — passes **one gate** before it reaches a database:
+Every SQL statement Beacon runs (MCP tools, previews, scheduled checks, saved-query tools, data-quality rules, AI features, value probes, migration reads and the final query of a cross-source join) passes **one gate** before it reaches a database:
 
 | # | Stage | What it does |
 |---|---|---|
@@ -69,8 +69,8 @@ Every SQL statement Beacon runs — MCP tools, previews, scheduled checks, saved
 | 2 | Length | SQL longer than the ceiling (100,000 characters by default) is refused. |
 | 3 | Characters | Control characters other than tab/LF/CR and Unicode non-characters are refused. |
 | 4 | Guardrail | Write and DDL patterns are refused, judged after the dialect's own tokenizer strips comments. |
-| 5 | AST validator | The SQL is parsed in the data source's dialect; anything but a read is refused. An unknown dialect is refused, never guessed. |
-| 6 | Cross-database rule | Names qualified with another database, catalog or project; remote servers, files and storage; `USE`, `SET ROLE`, `EXECUTE AS`; SQL built from strings or variables — all refused. Always on, even with read-only off. |
+| 5 | AST validator | The SQL is parsed in the data source's dialect; anything but a read is refused. An unknown dialect is refused. |
+| 6 | Cross-database rule | Names qualified with another database, catalog or project; remote servers, files and storage; `USE`, `SET ROLE`, `EXECUTE AS`; SQL built from strings or variables are all refused. Always on, even with read-only off. |
 | 7 | Host policy | For a host-exposed DbContext: only allow-listed tables and columns. |
 | 8 | Row cap | The cap is written into the SQL, overriding any bound the statement sets itself. Scheduled runs, previews and Beacon's own reads **fail** above the cap; MCP `query` and `ask` return the capped rows and say the result was truncated. Nothing is cut silently. |
 
@@ -85,14 +85,14 @@ Then the statement runs on the data source's provider:
 | BigQuery | The connector's own parser check and a dry run whose statement type must be `SELECT` |
 | Databricks | The connector's own parser check and configured catalog |
 
-The gate is the primary control and database-level read-only is defence in depth — so **every data source needs a read-only login**, on every engine. Data sources whose engine cannot refuse writes carry a badge, and Beacon warns at startup. Every statement has a timeout — `Beacon:Query:StatementTimeoutSeconds` (120 s by default) for scheduled runs, previews and Beacon's own reads, a fixed 30 seconds for MCP `query` and `ask` — and honours the caller's cancellation.
+The gate is the primary control and database-level read-only is defence in depth, so **every data source needs a read-only login**, on every engine. Data sources whose engine cannot refuse writes carry a badge, and Beacon warns at startup. Every statement has a timeout: `Beacon:Query:StatementTimeoutSeconds` (120 s by default) for scheduled runs, previews and Beacon's own reads, and a fixed 30 seconds for MCP `query` and `ask`. Every statement also honours the caller's cancellation.
 
 ## 7. Masking and what leaves Beacon
 
-- **PII masking** (on by default, pinned by `Beacon:Mcp:ForcePiiDetection`) masks columns detected as PII — and their aliases, renames and wildcard expansions — in results that reach MCP clients, recipients and attachments. When Beacon cannot prove where a PII column went, it masks every column (fail closed). Host DbContext sources mask by output position.
+- **PII masking** (on by default, pinned by `Beacon:Mcp:ForcePiiDetection`) masks columns detected as PII (and their aliases, renames and wildcard expansions) in results that reach MCP clients, recipients and attachments. When Beacon cannot prove where a PII column went, it masks every column (fail closed). Host DbContext sources mask by output position.
 - **Database errors are redacted:** errors that can carry values (constraint violations, conversion failures) are reduced to their class; others keep their message with quoted values replaced.
-- **LLM providers receive schema, not rows**, unless a project turns on sample-value collection, value grounding or the eval judge (all off by default; `Beacon:Mcp:ForbidRowDataToLlm` pins them off). Every request that carries row-derived data is logged as event 7123 with the categories sent — never the values.
-- **Content retention:** a project (or the deployment, with `ForceNoContentRetention`) can keep MCP audit rows structural only — tool, tables, counts, timings, error class — with no question, SQL or error text stored.
+- **LLM providers receive schema, not rows**, unless a project turns on sample-value collection, value grounding or the eval judge (all off by default; `Beacon:Mcp:ForbidRowDataToLlm` pins them off). Every request that carries row-derived data is logged as event 7123 with the categories sent, never the values.
+- **Content retention:** a project (or the deployment, with `ForceNoContentRetention`) can keep MCP audit rows structural only (tool, tables, counts, timings, error class), with no question, SQL or error text stored.
 
 ## 8. Secrets at rest
 
@@ -111,7 +111,7 @@ Beacon only writes to your data through **data migration**, which is off unless 
 
 ## 11. Deployment locks
 
-Some settings are pinned by host configuration and bind Admins too — the UI shows them disabled and the API answers 409:
+Some settings are pinned by host configuration and bind Admins too. The UI shows them disabled and the API answers 409:
 
 | Key | Default |
 |---|---|
@@ -129,9 +129,9 @@ Every MCP setting change is recorded in the settings history with who changed it
 
 | Record | Where | Who reads it |
 |---|---|---|
-| **MCP audit log** — one row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id | `McpAuditLog` table; optional fail-closed mode (`Beacon:Mcp:Audit:Required`); retention via `RetentionDays` | Auditors, through `GET /beacon/api/mcp/audit` (itself audited) |
-| **Settings history** — admin settings, MCP settings, migration write-target changes, with old and new value (secrets as `***`) | `AppSettingHistory` table | Auditors and SecurityAdmins |
-| **Security events** — structured log events with ids only, no personal data | Your log pipeline (Beacon does not store them) | Your SIEM |
+| **MCP audit log**: one row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id | `McpAuditLog` table; optional fail-closed mode (`Beacon:Mcp:Audit:Required`); retention via `RetentionDays` | Auditors, through `GET /beacon/api/mcp/audit` (itself audited) |
+| **Settings history**: admin settings, MCP settings, migration write-target changes, with old and new value (secrets as `***`) | `AppSettingHistory` table | Auditors and SecurityAdmins |
+| **Security events**: structured log events with ids only, no personal data | Your log pipeline (Beacon does not store them) | Your SIEM |
 
 | Event | Id | Event | Id |
 |---|---|---|---|

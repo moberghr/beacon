@@ -1,7 +1,7 @@
 ---
 // Beacon landing page. Moberg house brand (blue #430cda, Helvetica Neue Light H1, numbered
-// sections, dark footer), light-first. The hero trace and the gate diagram tell the product's
-// story: every AI query is checked, bounded, masked and audited before and after it runs.
+// sections, dark footer), light-first. The hero trace and the gate diagram show how every AI
+// query is checked, bounded, masked and audited.
 import { Image } from 'astro:assets';
 import beaconLogo from '../../assets/beacon-logo.svg';
 import homeDark from '../../assets/screenshots/home-dark.png';
@@ -33,73 +33,73 @@ const TRACE = [
 const JOBS = [
 	{
 		num: '01', name: 'Watch', tag: 'scheduled SQL',
-		desc: 'Cron-scheduled, multi-step SQL checks catch broken business rules, data-quality drift and unhealthy databases — across engines, joined in memory.',
+		desc: 'Scheduled, multi-step SQL checks detect broken business rules, data-quality issues and unhealthy databases. Steps can span engines and are joined in memory.',
 		code: "SELECT count(*) FROM orders\nWHERE status = 'pending'\n  AND created < now() - '1 day';",
 	},
 	{
 		num: '02', name: 'Alert', tag: 'multi-channel',
-		desc: 'Results go to Email (with CSV/Excel), Teams, Slack, Jira or webhooks — destinations on an allow-list, tasks opened and resolved for you.',
+		desc: 'Results are delivered by email with CSV or Excel attachments, Microsoft Teams, Slack, Jira or webhook. Destinations are restricted by policy, and tasks are opened and resolved automatically.',
 		code: 'rows > 0  →  Teams + Email(csv)\n          →  open task\nrows = 0  →  resolve task',
 	},
 	{
 		num: '03', name: 'Serve AI', tag: 'governed MCP',
-		desc: 'Claude, Cursor, VS Code or any MCP client asks questions in plain language. Beacon grounds the SQL, gates it, runs it read-only, masks it and logs it.',
+		desc: 'Claude, Cursor, VS Code and other MCP clients ask questions in natural language. Beacon grounds and validates the SQL, runs it read-only, masks sensitive values and records the call.',
 		code: 'ask("Which orders have been\n     pending for over a day?")',
 	},
 	{
 		num: '04', name: 'Move', tag: 'audited ETL',
-		desc: 'Insert, Upsert and Truncate-Load jobs move data between engines — off by default, only into targets an Admin marked, reviewed by a second person.',
+		desc: 'Insert, Upsert and Truncate-Load jobs move data between engines. The feature is disabled by default, writes only to targets an Admin has designated, and can require a second approval.',
 		code: 'orders (PostgreSQL)\n  → warehouse.orders (Upsert)',
 	},
 ];
 
 // ── 02 · The gate ───────────────────────────────────────────────────────
 const GATE = [
-	{ n: '1', name: 'Deployment locks', note: 'Read-only and PII detection pinned on in config — binding even on Admins.' },
-	{ n: '2', name: 'Length & characters', note: 'Oversized SQL, control characters and Unicode non-characters refused first.' },
-	{ n: '3', name: 'Guardrail', note: 'Write and DDL patterns, judged with comments stripped by the dialect’s own tokenizer.' },
-	{ n: '4', name: 'AST validator', note: 'Parsed in the data source’s dialect. Unknown dialect? Refused, never guessed.' },
-	{ n: '5', name: 'Cross-database rule', note: 'Other databases, remote servers, files, USE / SET ROLE and dynamic SQL refused.' },
-	{ n: '6', name: 'Row cap', note: 'The cap is written into the SQL. Above it a run fails or says it was truncated — never a silent cut.' },
-	{ n: '7', name: 'Read-only execution', note: 'A READ ONLY transaction on PostgreSQL and MySQL; one statement per batch.' },
-	{ n: '8', name: 'Mask & audit', note: 'PII masked fail-closed; every call — refusals included — written to the audit log.' },
+	{ n: '1', name: 'Deployment locks', note: 'Read-only execution and PII detection are enforced by host configuration and apply to Admins as well.' },
+	{ n: '2', name: 'Length & characters', note: 'Oversized SQL, control characters and Unicode non-characters are rejected first.' },
+	{ n: '3', name: 'Guardrail', note: 'Write and DDL patterns are rejected after comments are removed by the dialect’s tokenizer.' },
+	{ n: '4', name: 'AST validator', note: 'Statements are parsed in the data source’s dialect. An unknown dialect is rejected.' },
+	{ n: '5', name: 'Cross-database rule', note: 'References to other databases, remote servers and files, USE and SET ROLE, and dynamic SQL are rejected.' },
+	{ n: '6', name: 'Row cap', note: 'A row limit is written into the SQL. Larger results fail or are reported as truncated.' },
+	{ n: '7', name: 'Read-only execution', note: 'PostgreSQL and MySQL run each statement in a READ ONLY transaction, one statement per batch.' },
+	{ n: '8', name: 'Mask & audit', note: 'PII is masked fail-closed, and every call, including refusals, is written to the audit log.' },
 ];
 
 const GOVERNANCE = [
 	{
 		icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/>',
-		title: 'Projects are the boundary',
-		desc: 'Data sources follow the projects that link them. New projects start restricted with their creator as project admin; outsiders get a 404, not a hint.',
+		title: 'Projects define access',
+		desc: 'Data sources are available through the projects that link them. New projects are restricted, with the creator as project admin. Users outside a project receive a 404 response.',
 		link: '/features/authorization/',
 	},
 	{
 		icon: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.3 2.5-5.5 5.5-5.5s5.5 2.2 5.5 5.5"/><path d="M16 6.5h5M16 10.5h5M17.5 14.5h3.5"/>',
-		title: 'Duties, not just roles',
-		desc: 'Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin and MigrationOperator split the Admin role — none of them grants project data.',
+		title: 'Separation of duties',
+		desc: 'Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin and MigrationOperator divide the Admin role. None of these permissions grants access to project data.',
 		link: '/features/authorization/',
 	},
 	{
 		icon: '<path d="M9 11l2.5 2.5L16 9"/><circle cx="12" cy="12" r="9"/>',
 		title: 'Four-eyes approvals',
-		desc: 'Switch the workflow on and query changes, migration jobs, Custom SQL rules and new notification destinations go live only after a second person approves exactly what they reviewed.',
+		desc: 'When enabled, changes to queries, migration jobs, Custom SQL rules and notification destinations take effect only after a second person approves the exact content.',
 		link: '/features/approvals/',
 	},
 	{
 		icon: '<rect x="4" y="10.5" width="16" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
-		title: 'Secrets stay secret',
-		desc: 'Connection strings sealed with AES-256-GCM, API keys stored as SHA-256 hashes and shown once, Data Protection keys encrypted at rest outside Development.',
+		title: 'Protected secrets',
+		desc: 'Connection strings are encrypted with AES-256-GCM, API keys are stored as SHA-256 hashes and shown once, and Data Protection keys are encrypted at rest outside Development.',
 		link: '/features/security-model/',
 	},
 	{
 		icon: '<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/><path d="M20.2 18.2L22 20"/>',
-		title: 'An audit trail you can export',
-		desc: 'Every MCP call is recorded with caller, project, rows and timing — optionally fail-closed — and exported by Auditors. Row data sent to an LLM is logged by category.',
+		title: 'Exportable audit trail',
+		desc: 'Every MCP call is recorded with caller, project, row count and duration, optionally fail-closed. Auditors can export the log, and row data sent to an LLM is logged by category.',
 		link: '/features/mcp-observability-and-audit/',
 	},
 	{
 		icon: '<path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4z"/><path d="M9.5 12h5"/>',
-		title: 'Sessions that end',
-		desc: 'Server-side revalidation every few minutes, a 12-hour absolute lifetime, security stamps that end every session on a role change, and optional MFA for SSO.',
+		title: 'Managed sessions',
+		desc: 'Sessions are revalidated on the server, expire after 12 hours and end immediately when a user’s roles change. SSO sign-in can require MFA.',
 		link: '/integrate/authentication/',
 	},
 ];
@@ -122,31 +122,18 @@ const CLAUDE_SESSION = `<span class="k-dim">~/src/acme-portal</span> <span class
 <span class="k-purple">●</span> Write(Jobs/BeaconScheduler.cs)  <span class="k-dim">IBeaconScheduler on Warp</span>
 <span class="k-purple">●</span> Bash(dotnet user-secrets set Beacon:EncryptionKey …)
 
-<span class="k-yellow">?</span> Decision: sign-in — keep your OIDC provider, or enable
+<span class="k-yellow">?</span> Decision required: keep the existing OIDC provider, or enable
   Beacon's local login with a break-glass account?`;
 
 // ── 04 · Product tour ───────────────────────────────────────────────────
 const TOUR = [
-	{ id: 'home', label: 'Home', caption: 'Home — what needs your attention across projects, at a glance.', themed: true },
-	{ id: 'tower', label: 'Control Tower', image: controlTower, caption: 'Control Tower — live health of every scheduled check, with owner and approval state.' },
-	{ id: 'query', label: 'Query editor', image: queryEditor, caption: 'Query editor — Monaco SQL, a live database explorer, typed {name} parameters and multi-step chaining.' },
-	{ id: 'approve', label: 'Approvals', image: approvalReview, caption: 'Approvals — a second person reviews exactly what changes before it goes live.' },
-	{ id: 'projects', label: 'Projects', image: projects, caption: 'Projects — the access boundary: members, linked data sources, restricted by default.' },
-	{ id: 'play', label: 'MCP playground', image: playground, caption: 'MCP playground — run the tools in the browser before you point a client at them.' },
-	{ id: 'learn', label: 'Learning loop', image: learning, caption: 'Learning — review mined patterns and documentation patches; nothing is promoted without proof.' },
-];
-
-// ── 05 · Engines ────────────────────────────────────────────────────────
-const ENGINES = [
-	{ name: 'PostgreSQL', ro: 'READ ONLY transaction', tone: 'ok' },
-	{ name: 'MySQL', ro: 'READ ONLY transaction', tone: 'ok' },
-	{ name: 'SQL Server', ro: 'Gate + rolled-back transaction', tone: 'gate' },
-	{ name: 'Azure Synapse', ro: 'Gate + read-only login', tone: 'gate' },
-	{ name: 'Snowflake', ro: 'Gate + read-only login', tone: 'gate' },
-	{ name: 'BigQuery', ro: 'Gate + dry run must be SELECT', tone: 'gate' },
-	{ name: 'Databricks', ro: 'Gate + read-only login', tone: 'gate' },
-	{ name: 'CloudWatch', ro: 'Logs Insights queries', tone: 'gate' },
-	{ name: 'REST API', ro: 'JSON requests, no SQL', tone: 'gate' },
+	{ id: 'home', label: 'Home', caption: 'Home: an overview of activity and open issues across projects.', themed: true },
+	{ id: 'tower', label: 'Control Tower', image: controlTower, caption: 'Control Tower: the health of every scheduled check, including owner and approval state.' },
+	{ id: 'query', label: 'Query editor', image: queryEditor, caption: 'Query editor: SQL editing with a database explorer, typed {name} parameters and multi-step queries.' },
+	{ id: 'approve', label: 'Approvals', image: approvalReview, caption: 'Approvals: a second person reviews each change before it takes effect.' },
+	{ id: 'projects', label: 'Projects', image: projects, caption: 'Projects: members and linked data sources, restricted by default.' },
+	{ id: 'play', label: 'MCP playground', image: playground, caption: 'MCP playground: run the MCP tools in the browser before connecting a client.' },
+	{ id: 'learn', label: 'Learning loop', image: learning, caption: 'Learning: review learned patterns and documentation patches before they are promoted.' },
 ];
 
 const MARQUEE = [
@@ -168,19 +155,19 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</svg>
 		<div class="wrap heroGrid">
 			<div class="heroLeft">
-				<div class="eyebrow"><span class="eyebrowDot"></span>Beacon · Serious engineering, infinite possibilities</div>
-				<h1 class="heroTitle">Watch your databases.<br />Let AI in — <em>safely</em>.</h1>
+				<div class="eyebrow"><span class="eyebrowDot"></span>Beacon by Moberg</div>
+				<h1 class="heroTitle">Monitor your databases.<br />Give AI <em>governed</em> access.</h1>
 				<p class="heroSub">
-					Beacon monitors your databases with scheduled SQL, alerts the right people, and gives
-					AI assistants a governed MCP server where every query is project-scoped, read-only,
-					masked and audited. Run it on its own, or embed it in your ASP.NET Core app.
+					Beacon runs scheduled SQL checks, notifies the right people and provides AI assistants
+					with an MCP server in which every query is project-scoped, read-only, masked and audited.
+					It runs as a standalone application or inside your ASP.NET Core host.
 				</p>
 				<div class="heroActions">
 					<a class="btnPrimary" href={href('/integrate/')}>
 						Integrate Beacon
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
 					</a>
-					<a class="btnSecondary" href={href('/getting-started/quick-start/')}>Run it locally</a>
+					<a class="btnSecondary" href={href('/getting-started/quick-start/')}>Run locally</a>
 					<a class="btnGhost" href={repo}>
 						<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.75 5.48.75 11.75c0 5 3.24 9.24 7.73 10.74.57.1.78-.25.78-.55v-1.93c-3.14.68-3.81-1.51-3.81-1.51-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.51-.29-5.15-1.25-5.15-5.57 0-1.23.44-2.23 1.16-3.02-.12-.29-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.45 3.1-1.15 3.1-1.15.61 1.55.23 2.69.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.16 5.56.4.35.76 1.04.76 2.1v3.11c0 .3.2.66.79.55 4.49-1.5 7.73-5.74 7.73-10.74C23.25 5.48 18.27.5 12 .5Z" /></svg>
 						GitHub
@@ -223,11 +210,11 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	<section class="section">
 		<div class="wrap">
 			<div class="secHead"><span class="secNum">01</span>What Beacon does</div>
-			<h2 class="h2">One operations layer between your databases, your team and your AI.</h2>
+			<h2 class="h2">An operations layer for your data, your team and your AI assistants.</h2>
 			<p class="lede">
-				Point Beacon at PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure
-				Synapse, CloudWatch or a REST API. It watches the data, tells people when something is
-				wrong, answers questions from AI assistants, and — when you switch it on — moves data.
+				Beacon connects to PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks, Azure
+				Synapse, CloudWatch and REST APIs. It monitors data, notifies people when a check fails,
+				answers questions from AI assistants and, when enabled, moves data between systems.
 			</p>
 			<div class="grid4">
 				{JOBS.map((j) => (
@@ -243,14 +230,14 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</div>
 	</section>
 
-	<!-- ── 02 · Governed by default ────────────────────────────────────── -->
+	<!-- ── 02 · Security and governance ────────────────────────────────────── -->
 	<section class="section sectionAlt">
 		<div class="wrap">
-			<div class="secHead"><span class="secNum">02</span>Governed by default</div>
-			<h2 class="h2">Every query passes the same gate. No path around it.</h2>
+			<div class="secHead"><span class="secNum">02</span>Security and governance</div>
+			<h2 class="h2">Every query passes through the same execution gate.</h2>
 			<p class="lede">
-				MCP tools, scheduled checks, previews, AI features and saved-query tools all run SQL
-				through one execution gate. It refuses what it cannot prove safe — and says why.
+				MCP tools, scheduled checks, previews, AI features and saved-query tools all execute SQL
+				through a single gate, which rejects any statement it cannot verify and reports the reason.
 			</p>
 			<ol class="gate">
 				{GATE.map((g) => (
@@ -262,8 +249,8 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 				))}
 			</ol>
 			<p class="gateFoot">
-				Database-level read-only is enforced on PostgreSQL and MySQL; on the other engines Beacon relies on the
-				gate plus a read-only login, and shows a badge on the data source so nobody has to guess.
+				Database-level read-only enforcement is available on PostgreSQL and MySQL. On other engines, Beacon
+				relies on the gate and a read-only login, and marks the data source accordingly.
 				&nbsp;<a href={href('/features/security-model/')}>Read the security model →</a>
 			</p>
 			<div class="grid3 govGrid">
@@ -286,11 +273,11 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 			<div class="secHead"><span class="secNum">03</span>Integrate with Claude</div>
 			<div class="claudeGrid">
 				<div>
-					<h2 class="h2">Point your coding agent at the docs. It does the wiring.</h2>
+					<h2 class="h2">Let your coding agent perform the integration.</h2>
 					<p class="lede">
-						The integration guide is written for people <em>and</em> for agents: an ordered checklist,
-						every option with its default, and the decisions only you should make. It is published as
-						one Markdown file, so Claude Code reads it in a single fetch.
+						The integration guide is written for developers and coding agents alike. It provides an
+						ordered checklist, every option with its default, and the decisions that require your input.
+						It is also published as a single Markdown file that Claude Code can read in one request.
 					</p>
 					<div class="promptBox">
 						<div class="promptHead">
@@ -306,7 +293,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 					</div>
 				</div>
 				<div class="terminal">
-					<div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">zsh — claude</span></div>
+					<div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">terminal</span></div>
 					<pre class="terminalPre" set:html={CLAUDE_SESSION} />
 				</div>
 			</div>
@@ -317,10 +304,10 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	<section class="section sectionAlt">
 		<div class="wrap">
 			<div class="secHead"><span class="secNum">04</span>The product</div>
-			<h2 class="h2">A real UI for the people who own the data.</h2>
+			<h2 class="h2">A complete interface for data owners.</h2>
 			<p class="lede">
-				A React interface in light and dark: projects and their members, data sources, the query
-				editor, subscriptions, approvals, the Control Tower and the MCP playground.
+				A web application with light and dark themes for projects and members, data sources, the
+				query editor, subscriptions, approvals, the Control Tower and the MCP playground.
 			</p>
 			<div class="tour" data-tour>
 				<div class="tourTabs" role="tablist" aria-label="Product screenshots">
@@ -348,45 +335,24 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</div>
 	</section>
 
-	<!-- ── 05 · Engines ────────────────────────────────────────────────── -->
+	<!-- ── 05 · Get started ────────────────────────────────────────────── -->
 	<section class="section">
 		<div class="wrap">
-			<div class="secHead"><span class="secNum">05</span>Connectors</div>
-			<h2 class="h2">Nine engines. Honest about what each one enforces.</h2>
-			<p class="lede">
-				Every engine gets the full gate. Where the database itself can refuse a write, Beacon asks it to.
-				Wherever it cannot, the data source says so — and every source should use a read-only login anyway.
-			</p>
-			<div class="engines">
-				{ENGINES.map((e) => (
-					<div class="engine">
-						<span class="engineName">{e.name}</span>
-						<span class={`engineRo ${e.tone}`}>{e.ro}</span>
-					</div>
-				))}
-			</div>
-			<p class="gateFoot"><a href={href('/features/data-sources/')}>Data sources and connectors →</a></p>
-		</div>
-	</section>
-
-	<!-- ── 06 · Get started ────────────────────────────────────────────── -->
-	<section class="section sectionAlt">
-		<div class="wrap">
-			<div class="secHead"><span class="secNum">06</span>Get started</div>
-			<h2 class="h2">Two ways in.</h2>
+			<div class="secHead"><span class="secNum">05</span>Get started</div>
+			<h2 class="h2">Two ways to start.</h2>
 			<div class="paths">
 				<a class="path" href={href('/getting-started/quick-start/')}>
 					<span class="pathKicker">A · Run the sample host</span>
-					<h3>Clone, set two secrets, run.</h3>
-					<p>The fastest way to see Beacon with your own databases: a reference host with every connector, Warp background jobs and the full UI.</p>
+					<h3>Clone, configure two secrets and run.</h3>
+					<p>The quickest way to evaluate Beacon with your own databases. The reference host includes every connector, Warp background jobs and the full interface.</p>
 					<pre><span class="k-dim">$</span> git clone https://github.com/moberghr/beacon
 <span class="k-dim">$</span> dotnet run --project src/Beacon.SampleProject</pre>
 					<span class="pathCta">Quick start →</span>
 				</a>
 				<a class="path" href={href('/integrate/')}>
-					<span class="pathKicker">B · Embed in your app</span>
-					<h3>Your host, your sign-in, your jobs.</h3>
-					<p>Add the NuGet packages, wire Beacon into <code>Program.cs</code>, and keep your own identity provider, scheduler and deployment.</p>
+					<span class="pathKicker">B · Embed in your application</span>
+					<h3>Use your own host, sign-in and job runner.</h3>
+					<p>Add the NuGet packages, register Beacon in <code>Program.cs</code>, and keep your existing identity provider, scheduler and deployment.</p>
 					<pre><span class="k-dim">$</span> dotnet add package Moberg.Beacon.Core.PostgreSql
 <span class="k-dim">$</span> dotnet add package Moberg.Beacon.UI</pre>
 					<span class="pathCta">Integration guide →</span>
@@ -396,13 +362,13 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	</section>
 
 	<!-- ── Callout ─────────────────────────────────────────────────────── -->
-	<section class="section">
+	<section class="section sectionAlt">
 		<div class="wrap">
 			<div class="callout">
-				<h2>Give your team — and your AI — safe hands on your data.</h2>
+				<h2>Governed data access for your team and your AI assistants.</h2>
 				<p>
-					Beacon is dual-licensed: free under the GNU AGPL v3.0, or a commercial licence without
-					copyleft obligations. Moberg partners use it free under a licence exception.
+					Beacon is dual-licensed under the GNU AGPL v3.0 or a commercial licence without copyleft
+					obligations. Moberg partners use it under a licence exception.
 				</p>
 				<div class="calloutActions">
 					<a class="calloutBtnPrimary" href={href('/integrate/')}>Integrate Beacon</a>
@@ -417,7 +383,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		<div class="wrap footerInner">
 			<div class="footerBrand">
 				<img src={beaconLogo.src} alt="Beacon" height="26" />
-				<p>Database monitoring, alerting and data movement for .NET — with a governed MCP server for AI assistants.</p>
+				<p>Database monitoring, alerting and data movement for .NET, with a governed MCP server for AI assistants.</p>
 				<p class="tagline">A Moberg product · <em>Serious engineering, infinite possibilities.</em></p>
 			</div>
 			<div class="footerCols">
@@ -610,16 +576,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	.shotNote { font-size: 12.5px; color: var(--bx-text-dim); margin: 10px 0 0; text-align: center; }
 	.shotNote code { font-family: var(--sl-font-mono); font-size: 12px; }
 
-	/* 05 engines */
-	.engines { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
-	.engine { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px 18px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); }
-	.engineName { font-weight: 600; color: var(--bx-text); font-size: 15px; }
-	.engineRo { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
-	.engineRo.ok { background: rgba(22, 163, 74, 0.09); color: #15803d; }
-	.engineRo.gate { background: var(--bx-accent-dim); color: var(--bx-accent); }
-	:global(:root[data-theme='dark']) .engineRo.ok { background: rgba(74, 222, 128, 0.1); color: #4ade80; }
-
-	/* 06 paths */
+	/* 05 paths */
 	.paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 	.path { display: flex; flex-direction: column; text-decoration: none; padding: 28px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); transition: border-color .15s; }
 	.path:hover { border-color: var(--bx-accent); }
@@ -667,14 +624,14 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		.heroRings { opacity: 0.6; }
 	}
 	@media (max-width: 900px) {
-		.grid3, .engines { grid-template-columns: repeat(2, 1fr); }
+		.grid3 { grid-template-columns: repeat(2, 1fr); }
 		.paths, .footerInner { grid-template-columns: minmax(0, 1fr); }
 	}
 	@media (max-width: 640px) {
 		.hero { padding: 56px 0 52px; }
 		.eyebrowDot { display: none; }
 		.wrap { padding: 0 16px; }
-		.grid4, .grid3, .engines { grid-template-columns: minmax(0, 1fr); }
+		.grid4, .grid3 { grid-template-columns: minmax(0, 1fr); }
 		.gate { grid-template-columns: minmax(0, 1fr); }
 		.gateStep { border-right: none; border-bottom: 1px solid var(--bx-border); }
 		.gateStep:last-child { border-bottom: none; }

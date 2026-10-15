@@ -1,6 +1,6 @@
 ---
 title: Host wiring
-description: A complete, annotated Program.cs for embedding Beacon — service registration, the load-bearing middleware order, endpoint mapping, startup migration, and every option of AddBeaconServices.
+description: "A complete, annotated Program.cs for embedding Beacon: service registration, the load-bearing middleware order, endpoint mapping, startup migration, and every option of AddBeaconServices."
 ---
 
 This page gives you a complete `Program.cs` and explains each part. Copy it, then remove what you do not use. The reference host in the repository, `src/Beacon.SampleProject/Program.cs`, follows the same shape.
@@ -26,7 +26,7 @@ Beacon checks the encryption key in every environment and refuses to start when 
 
 ## The complete Program.cs
 
-This host keeps Beacon's metadata in PostgreSQL, monitors PostgreSQL, signs users in with Beacon's own user store (plus optional OIDC), runs jobs on Warp, and exposes the MCP server. `BeaconScheduler` and `BeaconClaimsTransformation` are small classes you add to your project — see [Background jobs](/integrate/background-jobs/) and [the claims transformation](#the-claims-transformation) below.
+This host keeps Beacon's metadata in PostgreSQL, monitors PostgreSQL, signs users in with Beacon's own user store (plus optional OIDC), runs jobs on Warp, and exposes the MCP server. `BeaconScheduler` and `BeaconClaimsTransformation` are small classes you add to your project. See [Background jobs](/integrate/background-jobs/) and [the claims transformation](#the-claims-transformation) below.
 
 ```csharp
 using Beacon.AI;                              // AddBeaconAI
@@ -52,7 +52,7 @@ builder.WebHost.ConfigureKestrel(x =>
 });
 builder.Services.AddHttpClient().ConfigureHttpClientDefaults(x => x.ConfigureHttpClient(y => y.Timeout = TimeSpan.FromMinutes(5)));
 
-// Your job runner (here: Warp) — see "Background jobs".
+// Your job runner (here: Warp). See "Background jobs".
 builder.Services.AddBeaconWarp(builder.Configuration);
 
 // Claims transformation + SignalR user id provider.
@@ -141,7 +141,7 @@ public static BeaconBuilder AddBeaconServices(
     Action<BeaconConfiguration> beaconConfiguration)
 ```
 
-It registers Beacon's core services and returns a `BeaconBuilder`. Chain connectors and host extensions on the builder, and finish with `UsePostgreSql(...)` or `UseSqlServer(...)` — those return `IServiceCollection`, so they end the chain.
+It registers Beacon's core services and returns a `BeaconBuilder`. Chain connectors and host extensions on the builder, and finish with `UsePostgreSql(...)` or `UseSqlServer(...)`. Those return `IServiceCollection`, so they end the chain.
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */ })
@@ -154,7 +154,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 
 | Option | Default | What it does |
 |---|---|---|
-| `AddBeaconScheduler<T>()` | — (required) | Your `IBeaconScheduler`. Without one, `AddBeaconServices` throws `Implementation of IBeaconScheduler is required.` |
+| `AddBeaconScheduler<T>()` | None (required) | Your `IBeaconScheduler`. Without one, `AddBeaconServices` throws `Implementation of IBeaconScheduler is required.` |
 | `BaseUrl` | `null` | Public URL of the UI, **including `/beacon`** (e.g. `https://beacon.example.com/beacon`). Notification messages link to `{BaseUrl}/notifications/{id}`. Editable later in **Admin settings**. |
 | `UseAI` | `false` | Turns AI features on. Also call `AddBeaconAI`. |
 | `Authorization.Enabled` | `false` | Role-based authorization. Turn it on in every real deployment. |
@@ -172,7 +172,7 @@ Only two parts of user management are also read from configuration: `Beacon:User
 
 ### The metadata database
 
-`UsePostgreSql()` and `UseSqlServer()` read `ConnectionStrings:BeaconContext`. Overloads take a connection string, or — on PostgreSQL — your own `NpgsqlDataSource`. The schema is always `beacon`. Details: [Metadata database](/integrate/database/).
+`UsePostgreSql()` and `UseSqlServer()` read `ConnectionStrings:BeaconContext`. Overloads take a connection string, or, on PostgreSQL, your own `NpgsqlDataSource`. The schema is always `beacon`. Details: [Metadata database](/integrate/database/).
 
 ### Authentication helpers
 
@@ -216,7 +216,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 1 | `UseForwardedHeaders` (behind a proxy) | Everything after it must see the client's address and scheme: the login throttle is per IP, the cookie's Secure flag follows the scheme. |
 | 2 | `UseHttpsRedirection` | API keys travel in headers; never accept them over plain HTTP outside development. |
 | 3 | `UseStaticFiles` | Serves the UI bundle before authentication runs. |
-| 4 | Your exception handler (optional) | Turns Beacon's exceptions into problem+json — see [below](#error-responses). |
+| 4 | Your exception handler (optional) | Turns Beacon's exceptions into problem+json. See [below](#error-responses). |
 | 5 | `UseMcpResourceMetadataChallenge` | Decorates every 401 from `/beacon/mcp` with the RFC 9728 `resource_metadata` pointer; must precede the middleware that writes those 401s. |
 | 6 | `ApiKeyAuthMiddleware` | Authenticates `Authorization: Bearer sk-sem_…` before cookie auth could redirect an MCP client to a login page. |
 | 7 | `UseBeaconJwtBearerAuthentication` | Bearer JWTs (Entra and other OIDC access tokens). |
@@ -224,7 +224,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 9 | `BeaconCookieAuthMiddleware` | Fills `HttpContext.User` from the `Beacon.Auth` cookie **before** authorization evaluates policies. |
 | 10 | `UseAuthorization` | Endpoint policies. |
 | 11 | `LoginFormAuthMiddleware` | Redirects signed-out browsers to `/beacon/login` (only when `EnableLoginForm`). |
-| 12 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects requests — `/beacon/api/health` and `/openapi/v1.json` included — to `/beacon/setup` (only with user management). |
+| 12 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects requests (`/beacon/api/health` and `/openapi/v1.json` included) to `/beacon/setup` (only with user management). |
 | 13 | `UseAntiforgery` | After authentication, so tokens are issued for the signed-in user. |
 
 :::danger[Do not reorder or assign `context.User` later]
@@ -247,7 +247,7 @@ The full route list is on [Routes & endpoints](/reference/routes/).
 
 ## The claims transformation
 
-`AddBeaconHostInfrastructure<T>()` needs an `IClaimsTransformation`. With Beacon's user store, this one adds the user id and name claims and resolves a global role from the store by the session's external id — never from a name the user typed. It behaves like the reference host's `SampleClaimsTransformation`; Beacon's own role constants are internal, so it carries the role names and levels itself:
+`AddBeaconHostInfrastructure<T>()` needs an `IClaimsTransformation`. With Beacon's user store, this one adds the user id and name claims and resolves a global role from the store by the session's external id, never from a name the user typed. It behaves like the reference host's `SampleClaimsTransformation`; Beacon's own role constants are internal, so it carries the role names and levels itself:
 
 ```csharp
 using System.Security.Claims;
@@ -353,7 +353,7 @@ Place it after `UseStaticFiles` and before the authentication middleware, so the
 The `Beacon.Auth` cookie and antiforgery tokens are protected with ASP.NET Core Data Protection, which belongs to your host:
 
 - **Your host already configures Data Protection** (shared key ring, Azure Blob, Redis): skip `AddBeaconDataProtection`.
-- **Otherwise** call `AddBeaconDataProtection(configuration, environment)`. It keeps the key ring in Beacon's database (`data_protection_keys`) under the application name `Beacon:DataProtection:ApplicationName` — required outside `Development`, one name per environment.
+- **Otherwise** call `AddBeaconDataProtection(configuration, environment)`. It keeps the key ring in Beacon's database (`data_protection_keys`) under the application name `Beacon:DataProtection:ApplicationName`, which is required outside `Development` and takes one name per environment.
 
 Outside `Development` the key ring must be encrypted at rest or the host does not start. Chain a protector:
 
@@ -362,7 +362,7 @@ builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environm
     .ProtectKeysWithCertificate(certificate);          // or .ProtectKeysWithAzureKeyVault(keyId, credential)
 ```
 
-`Beacon:DataProtection:AllowUnencryptedKeys=true` acknowledges an unencrypted ring instead (logged as a warning). With encryption on, keys that were stored unencrypted are revoked at startup — everyone signs in once more.
+`Beacon:DataProtection:AllowUnencryptedKeys=true` acknowledges an unencrypted ring instead (logged as a warning). With encryption on, keys that were stored unencrypted are revoked at startup, so everyone signs in once more.
 
 ## HTTPS redirection
 

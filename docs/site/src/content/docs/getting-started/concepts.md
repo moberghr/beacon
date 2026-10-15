@@ -1,6 +1,6 @@
 ---
 title: Core concepts
-description: The mental model behind Beacon — data sources, projects, queries, subscriptions, recipients, tasks, data contracts, approvals, the SQL execution gate, the MCP server, roles and audit.
+description: "The mental model behind Beacon: data sources, projects, queries, subscriptions, recipients, tasks, data contracts, approvals, the SQL execution gate, the MCP server, roles and audit."
 ---
 
 This page explains the objects Beacon works with and how they relate. Each section is short and links to the page with the details.

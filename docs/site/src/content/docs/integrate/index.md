@@ -1,9 +1,9 @@
 ---
 title: Integrate Beacon into your application
-description: The step-by-step checklist for embedding Beacon in an ASP.NET Core host — packages, Program.cs, database, sign-in, jobs, connectors, AI, MCP and production — written for people and for coding agents.
+description: "The step-by-step checklist for embedding Beacon in an ASP.NET Core host: packages, Program.cs, database, sign-in, jobs, connectors, AI, MCP and production, written for people and for coding agents."
 ---
 
-Beacon ships as a set of NuGet packages (`Moberg.Beacon.*`). You add them to an ASP.NET Core application, wire them in `Program.cs`, and your application serves Beacon's UI at `/beacon`, its REST API at `/beacon/api`, and its MCP server at `/beacon/mcp` — under your own sign-in, your own job runner and your own deployment.
+Beacon ships as a set of NuGet packages (`Moberg.Beacon.*`). You add them to an ASP.NET Core application, wire them in `Program.cs`, and your application serves Beacon's UI at `/beacon`, its REST API at `/beacon/api`, and its MCP server at `/beacon/mcp`, under your own sign-in, your own job runner and your own deployment.
 
 This section is the complete integration guide. This page is the checklist; each step links to a page with every option for that step.
 
@@ -16,7 +16,7 @@ Read https://moberghr.github.io/beacon/llms-integrate.txt first and follow its c
 Ask me before every decision the guide marks as one.
 ```
 
-Every page of these docs is also available as Markdown — add `.md` to the page URL, or use **Copy as Markdown** under the page title.
+Every page of these docs is also available as Markdown: add `.md` to the page URL, or use **Copy as Markdown** under the page title.
 :::
 
 ## Before you start
@@ -42,7 +42,7 @@ These choices shape the wiring. An agent should ask, not guess.
 | Which engines Beacon monitors | Any of nine connectors | Only the engines you have |
 | AI features | On (needs an LLM provider: OpenAI, Anthropic, Azure OpenAI or AWS Bedrock) or off | Off until you have a provider; MCP still needs the AI package |
 | MCP server | Exposed to AI clients or not | Exposed, with API keys |
-| Change approvals | Four-eyes review of query, migration, Custom SQL and recipient changes — off by default | On for regulated deployments |
+| Change approvals | Four-eyes review of query, migration, Custom SQL and recipient changes, off by default | On for regulated deployments |
 | Data migration (the only write path) | Off (default) or on | Off |
 
 ## The checklist
@@ -59,7 +59,7 @@ These choices shape the wiring. An agent should ask, not guess.
 
 6. **Map the endpoints:** `MapBeaconApi()`, `MapLoginEndpoints("/beacon", …)`, `MapSetupEndpoints("/beacon")`, `MapBeaconMcp()`, `MapMcpDiscovery()`, `MapBeaconUi()`. → [Host wiring](/integrate/host-setup/#endpoints)
 
-7. **Migrate Beacon's schema at startup** with `Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true)` — Beacon does not migrate itself. → [Metadata database](/integrate/database/)
+7. **Migrate Beacon's schema at startup** with `Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true)`. Beacon does not migrate itself. → [Metadata database](/integrate/database/)
 
 8. **Choose how people sign in:** Beacon's login form, OIDC/SSO (tenant allow-list, guest blocking, MFA), bearer JWTs, API keys. Plan the first-run admin and a break-glass account. → [Sign-in & identity](/integrate/authentication/)
 
@@ -67,21 +67,21 @@ These choices shape the wiring. An agent should ask, not guess.
 
 10. **Configure connectors** for the engines you monitor, each with a read-only database login. → [Data-source connectors](/integrate/connectors/)
 
-11. **Optional — AI:** set `UseAI = true`, call `AddBeaconAI`, configure the LLM provider and, optionally, local embeddings. → [AI providers](/integrate/ai/)
+11. **Optional, AI:** set `UseAI = true`, call `AddBeaconAI`, configure the LLM provider and, optionally, local embeddings. → [AI providers](/integrate/ai/)
 
-12. **Optional — MCP:** expose `/beacon/mcp`, set `Beacon:PublicBaseUrl`, issue API keys or map Entra callers, connect Claude, Cursor or VS Code. → [MCP & AI clients](/integrate/mcp/)
+12. **Optional, MCP:** expose `/beacon/mcp`, set `Beacon:PublicBaseUrl`, issue API keys or map Entra callers, connect Claude, Cursor or VS Code. → [MCP & AI clients](/integrate/mcp/)
 
-13. **Optional — extend:** expose your own EF Core `DbContext`, your Markdown docs, or your own HTTP endpoints as MCP tools. → [Extending Beacon](/integrate/extending/)
+13. **Optional, extend:** expose your own EF Core `DbContext`, your Markdown docs, or your own HTTP endpoints as MCP tools. → [Extending Beacon](/integrate/extending/)
 
 14. **Harden for production:** Data Protection keys encrypted at rest, forwarded headers behind a proxy, deployment locks, audit retention, setup token, session affinity for MCP. → [Production checklist](/integrate/production/)
 
 15. **Verify.** Start the app and check, in this order:
     - The console prints `Beacon first-run setup token (enter it on the setup page): …` (user management on, empty database).
-    - `/beacon/setup` creates the first administrator — in the browser, or [headless](/integrate/authentication/#headless-first-run-scripts-and-ci).
+    - `/beacon/setup` creates the first administrator, in the browser, or [headless](/integrate/authentication/#headless-first-run-scripts-and-ci).
     - `GET /beacon/api/health` answers `200` (until the first admin exists it redirects to `/beacon/setup`).
     - You can sign in and see **Home** at `/beacon/home`.
     - `GET /.well-known/mcp/server-card.json` lists the eight MCP tools (if you mapped MCP).
-    - An API key with the Execute scope can list the MCP tools — see [Check it works](/integrate/mcp/#check-it-works).
+    - An API key with the Execute scope can list the MCP tools. See [Check it works](/integrate/mcp/#check-it-works).
 
     If something fails, see [Troubleshooting](/integrate/troubleshooting/).
 
@@ -91,10 +91,10 @@ These choices shape the wiring. An agent should ask, not guess.
 flowchart LR
   subgraph Host["Your ASP.NET Core host"]
     direction TB
-    UI["/beacon — React UI<br/>Moberg.Beacon.UI"]
-    API["/beacon/api — REST + SignalR hub<br/>Moberg.Beacon.Api"]
-    MCP["/beacon/mcp — MCP server<br/>Moberg.Beacon.MCP"]
-    Core["Beacon.Core — handlers, project access,<br/>SQL execution gate, notifications"]
+    UI["/beacon: React UI<br/>Moberg.Beacon.UI"]
+    API["/beacon/api: REST + SignalR hub<br/>Moberg.Beacon.Api"]
+    MCP["/beacon/mcp: MCP server<br/>Moberg.Beacon.MCP"]
+    Core["Beacon.Core: handlers, project access,<br/>SQL execution gate, notifications"]
     Jobs["Your job runner<br/>implements IBeaconScheduler"]
     UI --> API --> Core
     MCP --> Core

@@ -34,7 +34,7 @@ function rehypeBasePaths() {
   };
 }
 
-// Beacon documentation — Astro + Starlight, Moberg house brand (blue #430cda).
+// Beacon documentation: Astro + Starlight, Moberg house brand (blue #430cda).
 // Deployed to GitHub Pages at https://moberghr.github.io/beacon/
 export default defineConfig({
   site: 'https://moberghr.github.io',
@@ -52,7 +52,7 @@ export default defineConfig({
     starlight({
       title: 'Beacon',
       description:
-        'Semantic database monitoring, alerting, and orchestration for .NET — with a governed MCP server for AI assistants.',
+        'Database monitoring, alerting and data movement for .NET, with a governed MCP server for AI assistants.',
       logo: {
         light: './src/assets/beacon-logo.svg',
         dark: './src/assets/beacon-logo-dark.svg',

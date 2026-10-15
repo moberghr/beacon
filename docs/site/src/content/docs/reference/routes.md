@@ -1,6 +1,6 @@
 ---
 title: Routes & endpoints
-description: Every URL Beacon serves — UI pages under /beacon, anonymous routes, REST API groups under /beacon/api, the SignalR hub, the MCP server and discovery documents — with the paging contract and error responses.
+description: "Every URL Beacon serves: UI pages under /beacon, anonymous routes, REST API groups under /beacon/api, the SignalR hub, the MCP server and discovery documents, with the paging contract and error responses."
 ---
 
 Beacon serves everything under `/beacon`. The site root `/` belongs to the host application. Paths below are absolute; replace the origin with your host's.

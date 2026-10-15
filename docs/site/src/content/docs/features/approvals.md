@@ -1,9 +1,9 @@
 ---
 title: Approvals
-description: Four-eyes change approval — what it reviews (query changes, migration jobs, Custom SQL rules, notification destinations), how a decision is bound to exactly what the reviewer saw, who may approve, strict mode, and the API.
+description: "Four-eyes change approval: what it reviews (query changes, migration jobs, Custom SQL rules, notification destinations), how a decision is bound to exactly what the reviewer saw, who may approve, strict mode, and the API."
 ---
 
-The approval workflow makes a second person review every change that decides **what SQL runs** or **where data goes** before it takes effect. It is **off by default** — a host cannot tell a new installation from an existing one, so turning it on is the host's decision, and Beacon logs a startup note while it is off.
+The approval workflow makes a second person review every change that decides **what SQL runs** or **where data goes** before it takes effect. It is **off by default**. A host cannot tell a new installation from an existing one, so turning it on is the host's decision, and Beacon logs a startup note while it is off.
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options =>
@@ -28,7 +28,7 @@ The per-kind switches apply only while the workflow is enabled. Configuration is
 
 ## Who approves
 
-Decisions need the **Approver** [functional permission](/features/authorization/) — Admins hold it too.
+Decisions need the **Approver** [functional permission](/features/authorization/). Admins hold it too.
 
 - The **requester never approves their own change**, however either of them signed in, and neither does anyone else who shaped it (for an AI actor's change: the plan's reviewer and whoever asked for its revisions). Admins are no exception.
 - Four eyes binds per Beacon user. Do not give one person two accounts that can approve.
@@ -37,7 +37,7 @@ Decisions need the **Approver** [functional permission](/features/authorization/
 
 ## Query changes
 
-**What counts as a change:** the query's executable content — its steps (added, removed, reordered), each step's name, data source, SQL and parameters, and the final query. Every character counts, whitespace and line endings included. A change to only the query's name or description goes live directly.
+**What counts as a change:** the query's executable content: its steps (added, removed, reordered), each step's name, data source, SQL and parameters, and the final query. Every character counts, whitespace and line endings included. A change to only the query's name or description goes live directly.
 
 **Submitting.** Saving a change files a *PendingApproval* version with exactly the submitted content and its SHA-256 content hash, and an approval request naming the requester and the active version the change was made on. The live query is not touched.
 
@@ -51,7 +51,7 @@ Decisions need the **Approver** [functional permission](/features/authorization/
 **Deciding.** Approving sends back the content hash the reviewer saw (`expectedContentHash`, required). The approval applies only if:
 
 - the request is still pending (a second decision answers `409` and never overwrites the first);
-- no other version went live since the change was made (otherwise it is stale — submit again);
+- no other version went live since the change was made (otherwise it is stale; submit again);
 - the proposal still holds the submitted content, and that content is what the reviewer was shown;
 - every step passes the save checks again (the execution gate and the data source's metadata).
 
@@ -59,11 +59,11 @@ The decision, the move of the query to the new version and the version statuses 
 
 ## Runs execute reviewed SQL
 
-With the workflow on, runs that happen without the person who wrote the SQL — scheduled subscription runs, test deliveries, subscriptions an AI actor creates, and [saved-query MCP tools](/features/saved-query-tools/) — execute only reviewed content:
+With the workflow on, runs that happen without the person who wrote the SQL (scheduled subscription runs, test deliveries, subscriptions an AI actor creates, and [saved-query MCP tools](/features/saved-query-tools/)) execute only reviewed content:
 
 - A subscription run executes the stored steps only when they are the content of the query's active version. Otherwise the run is recorded as **Skipped** ("query change not approved"), the subscription and its Control Tower row show **Not approved**, and a test delivery answers `409`.
 - A query stored before the workflow was on and never versioned since runs as stored outside strict mode, logging a warning each time; Beacon counts such queries at startup. Save the query to submit it.
-- In **strict mode** a run also needs an approval for exactly the active version's content hash — so versions that went live while the workflow was off, or were approved before Beacon recorded hashes, do not run until approved.
+- In **strict mode** a run also needs an approval for exactly the active version's content hash, so versions that went live while the workflow was off, or were approved before Beacon recorded hashes, do not run until approved.
 
 Interactive previews run the caller's own SQL under the caller's permissions and are not compared.
 

@@ -1,5 +1,5 @@
 /* ============================================================================
-   Beacon docs — Moberg house brand on Starlight.
+   Beacon docs: Moberg house brand on Starlight.
    Accent: Moberg Blue #430cda. Type: Helvetica Neue. Light-first, dark toggle.
    Design language mirrors moberghr.github.io/warp (numbered sections, terminal
    panels, dark footer) recoloured from Moberg purple to the corrected blue.
@@ -13,7 +13,7 @@
   --sl-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, 'Liberation Mono', monospace;
 }
 
-/* ── Starlight accent (Moberg blue) — dark theme is Starlight's :root default ── */
+/* ── Starlight accent (Moberg blue); the dark theme is Starlight's :root default ── */
 :root {
   --sl-color-accent-low: #211a4d;
   --sl-color-accent: #6c48ff;
@@ -211,7 +211,7 @@ body:has(main.bx) .sl-container { padding-bottom: 0; }
 body:has(main.bx) footer.sl-flex,
 body:has(main.bx) .moberg-doc-footer { display: none; }
 
-/* Code: no ligatures — `=>` and `--` must look like what you type. */
+/* Code: no ligatures, so `=>` and `--` must look like what you type. */
 code, pre, kbd, .expressive-code, .expressive-code * { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
 /* Dark theme: readable current-page item in the sidebar. */

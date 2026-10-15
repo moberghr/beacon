@@ -12,7 +12,7 @@ Beacon is published to nuget.org as `Moberg.Beacon.*` packages. Package IDs carr
 | `Moberg.Beacon.Core` | Domain, MediatR handlers, EF model, project access, SQL execution gate, notifications, scheduling contracts | Always (every other package depends on it) |
 | `Moberg.Beacon.Core.PostgreSql` | Beacon's metadata database on PostgreSQL: `UsePostgreSql(...)`, migrations, pgvector support | Beacon's own data lives in PostgreSQL |
 | `Moberg.Beacon.Core.SqlServer` | Beacon's metadata database on SQL Server: `UseSqlServer(...)`, migrations | Beacon's own data lives in SQL Server |
-| `Moberg.Beacon.Api` | REST endpoints under `/beacon/api`, the SignalR hub, cookie/OIDC/JWT/API-key authentication, login and first-run setup endpoints, antiforgery, Data Protection helpers | You serve the UI or the REST API — in practice always |
+| `Moberg.Beacon.Api` | REST endpoints under `/beacon/api`, the SignalR hub, cookie/OIDC/JWT/API-key authentication, login and first-run setup endpoints, antiforgery, Data Protection helpers | You serve the UI or the REST API (in practice always) |
 | `Moberg.Beacon.UI` | The built React app as a Razor Class Library, served at `/beacon` | You want the UI |
 | `Moberg.Beacon.AI` | LLM providers, the request queue, documentation generation, grounding, embeddings, learning loop, AI actors | AI features, and always with MCP (MCP depends on it) |
 | `Moberg.Beacon.MCP` | The MCP server at `/beacon/mcp`, its tools, filters, discovery documents, host endpoint tools | You expose Beacon to AI clients |
@@ -54,7 +54,7 @@ dotnet add package Moberg.Beacon.UI
 dotnet add package Moberg.Beacon.Connector.SqlServer
 ```
 
-Add your job runner too — for the reference implementation, the `Moberg.Warp.*` packages (see [Background jobs](/integrate/background-jobs/)).
+Add your job runner too. For the reference implementation, use the `Moberg.Warp.*` packages (see [Background jobs](/integrate/background-jobs/)).
 
 ## Dependency direction
 

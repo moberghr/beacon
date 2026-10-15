@@ -4,14 +4,14 @@ description: Expose approved, parameterized saved queries as named, read-only MC
 ---
 
 An agent that writes its own SQL for a recurring question gets a slightly different query every time. A **saved query
-tool** turns a reviewed Beacon query into a fixed MCP tool — `q_loan_book_by_month(from, to)` — that always runs the
+tool** turns a reviewed Beacon query into a fixed MCP tool, such as `q_loan_book_by_month(from, to)`, that always runs the
 same approved SQL with the caller's arguments bound as database parameters. Routines become deterministic and
 cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `ask` to regenerate SQL.
 
 ## Expose a query
 
 1. Write the query as usual. Parameters are `{name}` placeholders in the step SQL, with a type (Number, DateTime,
-   String) and a description — the description becomes the argument's description in the tool schema.
+   String) and a description. The description becomes the argument's description in the tool schema.
 2. Get a version **approved** (see [the approval rule](#which-version-runs)). With the approval workflow enabled,
    saving SQL changes submits a version for approval; an Approver (or an Admin) other than the requester approves it on
    **Approvals** (`/beacon/approvals`; see [Queries → Approval workflow](/features/queries/#approval-workflow)).
@@ -37,14 +37,14 @@ Rules the endpoint enforces:
 
 | Field | Rule |
 | --- | --- |
-| `name` | `^[a-z][a-z0-9_]{2,40}$`; the MCP tool is `q_<name>`. Unique across live (non-archived) queries — so it is unique in every project and always names one query. Required to enable. Two concurrent saves of the same name get the same "already used" error (`400`), never a `500`. |
+| `name` | `^[a-z][a-z0-9_]{2,40}$`; the MCP tool is `q_<name>`. Unique across live (non-archived) queries, so it is unique in every project and always names one query. Required to enable. Two concurrent saves of the same name get the same "already used" error (`400`), never a `500`. |
 | `description` | Optional, at most 1000 characters. Falls back to the approved version's description, then its name. |
 | `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below), and, while the approval workflow is on, a signed-in caller with a user id who neither requested nor approved that version (`403` otherwise, unless the host allows self-approval; checked when enabling, not again when a later version is approved). Disabling is always allowed, by anyone who may publish; the name stays reserved while it is set. Disabling with a name another query already uses succeeds and keeps the query's stored name. |
 
 The query detail DTO (`GET /beacon/api/queries/{id}`) carries `mcpToolEnabled`, `mcpToolName`,
 `mcpToolDescription`, `mcpToolRunnableVersionNumber` and `mcpToolIssue`. `mcpToolIssue` explains why the query is not
 a tool anyone can call: no approved active version, a parameter shape that cannot be a tool, or **not visible in any
-project** — no single project contains all of the data sources its steps read, so no caller can ever see it. The
+project**: no single project contains all of the data sources its steps read, so no caller can ever see it. The
 last one does not block enabling (a data source may be added to a project later); it is reported so the tool does
 not silently stay invisible.
 
@@ -61,9 +61,9 @@ version is not approved for its content hash. Nothing else is callable:
 
 | Version state | Callable? |
 | --- | --- |
-| Active, its approval request Approved (in strict mode: for the version's content hash) | **Yes** — this is the only runnable version |
+| Active, its approval request Approved (in strict mode: for the version's content hash) | **Yes**. This is the only runnable version |
 | Active, approved before Beacon kept content hashes | Outside strict mode only (named in the startup Warning) |
-| Pending approval (a later edit) | No — the tool keeps running the approved version until the edit is approved |
+| Pending approval (a later edit) | No. The tool keeps running the approved version until the edit is approved |
 | Rejected, or superseded by a newer submission | No |
 | Active without an approval (edited while the approval workflow was off, or restored from history while it was off) | No |
 | Draft / no version | No |
@@ -156,7 +156,7 @@ await writeFile(
 );
 ```
 
-When the approved SQL changes, the routine picks up the new version on its next run without an edit — and the
+When the approved SQL changes, the routine picks up the new version on its next run without an edit, and the
 `versionNumber` it records says which reviewed SQL produced the file.
 
 ## Security model
@@ -177,23 +177,23 @@ When the approved SQL changes, the routine picks up the new version on its next 
   tools; project-restricted API keys work and are held to their project list.
 - **Read-only execution.** Every step's SQL, with its arguments bound, goes through the shared execution gate
   (regex guardrail, AST read-only validator, cross-database rule, row limit) and runs through the provider's read-only
-  path — a `READ ONLY` transaction on PostgreSQL and MySQL; on the other engines the parser gates and the read-only
+  path: a `READ ONLY` transaction on PostgreSQL and MySQL; on the other engines the parser gates and the read-only
   login you connect with (see [How a query runs](/features/queries/#how-a-query-runs)). A final query joins the steps
   in in-memory SQLite behind the same gate.
 - **Parameters, never interpolation.** Each `{placeholder}` is replaced by a generated database parameter
   (`@p0`, `@p1`, …) and the value is sent as a parameter; argument text never reaches the SQL.
 - **Host-managed sources.** When a step reads a [host DbContext](/features/host-dbcontext/) data source, the host's
-  allow-list and column policy apply — in the gate and again in the provider — and masked columns come back masked.
+  allow-list and column policy apply, in the gate and again in the provider, and masked columns come back masked.
 - **Row limits and PII.** The final result is capped at the project's MCP row limit. An intermediate step of a
   multi-step query may return at most 50,000 rows; past that the call fails instead of joining an incomplete set.
   PII columns are masked per the project's PII detection setting before rows leave a step.
-- **Audit.** Every call — success or failure, including unknown tools and invalid arguments — is written to the MCP
+- **Audit.** Every call, whether it succeeds or fails and including unknown tools and invalid arguments, is written to the MCP
   audit log as `q_<name>` (a search as `search_saved_queries`), with project, data source, row count and error.
   Arguments are kept only when the project's retention settings allow content, and are never written to the
   application log. The project is resolved **before** the arguments are validated, so an invalid-argument row
   follows that project's retention setting. When no project can be established (an ambiguous or foreign
-  `project_id`, an unknown tool, a search across several projects) the row is structural only — tool, input size and
-  error class, never argument content — rather than falling back to the global setting.
+  `project_id`, an unknown tool, a search across several projects) the row is structural only (tool, input size and
+  error class, never argument content) rather than falling back to the global setting.
 - **No learning signals.** Saved queries are pre-approved SQL, not the caller's SQL, so they are **audit-only**:
   `McpSignalService` does not record them and they never feed pattern mining or golden examples.
 

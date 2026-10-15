@@ -1,9 +1,9 @@
 ---
 title: Metadata database
-description: Where Beacon keeps its own data — PostgreSQL with pgvector or SQL Server, the fixed beacon schema, how to create and migrate it, and how to hand Beacon your own NpgsqlDataSource.
+description: "Where Beacon keeps its own data: PostgreSQL with pgvector or SQL Server, the fixed beacon schema, how to create and migrate it, and how to hand Beacon your own NpgsqlDataSource."
 ---
 
-Beacon stores its own data — users, projects, data sources, queries, subscriptions, runs, audit rows, grounding — in a **metadata database**. This is separate from the databases Beacon monitors, although it can live on the same server.
+Beacon stores its own data (users, projects, data sources, queries, subscriptions, runs, audit rows, grounding) in a **metadata database**. This is separate from the databases Beacon monitors, although it can live on the same server.
 
 ## Choose a provider
 
@@ -13,7 +13,7 @@ Beacon stores its own data — users, projects, data sources, queries, subscript
 | Registration | `.UsePostgreSql(...)` | `.UseSqlServer(...)` |
 | Naming | snake_case tables and columns | Pascal case |
 | Semantic retrieval | `pgvector` column + HNSW index | Vectors compared in memory |
-| Extra requirement | The `vector` extension must be available on the server | — |
+| Extra requirement | The `vector` extension must be available on the server | None |
 
 Both providers carry their own EF Core migrations and are kept in step: every schema change ships for both.
 
@@ -30,7 +30,7 @@ Everything lives in the schema `beacon`, including the migration history table (
 // Explicit connection string
 .UsePostgreSql(connectionString);
 
-// Your own NpgsqlDataSource — Aspire, Entra passwordless auth, a shared pool
+// Your own NpgsqlDataSource: Aspire, Entra passwordless auth, a shared pool
 .UsePostgreSql(sp => sp.GetRequiredService<NpgsqlDataSource>());
 .UsePostgreSql(dataSource);
 
@@ -48,14 +48,14 @@ Every overload also takes a `schema` argument; it only accepts `"beacon"`.
 When you pass a data source (or a factory resolved once from the root provider), Beacon:
 
 - runs `SET search_path TO "beacon", public` on every connection it opens, so its unqualified SQL and the `vector` type resolve;
-- does not need `UseVector()` on your data source — it never binds the vector type;
+- does not need `UseVector()` on your data source, because it never binds the vector type;
 - expects connection reset to stay on (no `No Reset On Close=true`) and `Multiplexing` off.
 
 With a connection string, Beacon builds its own data source with `SearchPath=beacon,public`.
 
 ## Creating and migrating the schema
 
-**Beacon does not migrate its schema by itself.** Create the **database** first (`CREATE DATABASE beacon;`, or `POSTGRES_DB=beacon` for the container image) — Beacon creates the schema and tables, not the database. Then call `UseBeacon` once at startup, after `builder.Build()`:
+**Beacon does not migrate its schema by itself.** Create the **database** first (`CREATE DATABASE beacon;`, or `POSTGRES_DB=beacon` for the container image). Beacon creates the schema and tables, not the database. Then call `UseBeacon` once at startup, after `builder.Build()`:
 
 ```csharp
 var app = builder.Build();
@@ -69,12 +69,12 @@ Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 | Situation | Approach |
 |---|---|
 | One instance, or a dev machine | `UseBeacon(app.Services, createSchema: true)` at startup. |
-| Several instances starting together | Run migrations once — from a deployment step, a dedicated migrator process that calls `UseBeacon`, or an idempotent SQL script — rather than from every replica. |
+| Several instances starting together | Run migrations once, from a deployment step, a dedicated migrator process that calls `UseBeacon`, or an idempotent SQL script, rather than from every replica. |
 | The application login cannot create schemas or extensions | Pre-create the `beacon` schema (and on PostgreSQL the `vector` extension) as an administrator, grant the application login ownership of the schema, then call `UseBeacon(app.Services)` without `createSchema`. |
 
 ### pgvector on PostgreSQL
 
-One migration runs `CREATE EXTENSION IF NOT EXISTS vector;` and adds a `vector(384)` column with an HNSW index. The extension must be **available** on the server (`SELECT * FROM pg_available_extensions WHERE name = 'vector';` returns a row) and the migrating login must be allowed to create it — or an administrator installs it first.
+One migration runs `CREATE EXTENSION IF NOT EXISTS vector;` and adds a `vector(384)` column with an HNSW index. The extension must be **available** on the server (`SELECT * FROM pg_available_extensions WHERE name = 'vector';` returns a row) and the migrating login must be allowed to create it, or an administrator must install it first.
 
 - Azure Database for PostgreSQL – Flexible Server: add `VECTOR` to the `azure.extensions` server parameter.
 - Amazon RDS / Aurora PostgreSQL: pgvector is available on current engine versions.

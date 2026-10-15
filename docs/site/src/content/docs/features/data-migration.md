@@ -116,7 +116,7 @@ list shows, and zeros to everyone else.
 | **Timeout (minutes)** | No | 30 | 1 to 1,440. Stored with the job. |
 | **Enable migration job** | No | on | A disabled job does not run. |
 | **Validate query before execution** | No | on | Stored with the job. |
-| **Transformation script (optional)** | No | empty | Leave it empty — a job with a script fails when it runs. |
+| **Transformation script (optional)** | No | empty | Leave it empty. A job with a script fails when it runs. |
 
 The job is saved when the form is valid; its SQL is not run at creation. The destination table is checked for existence
 on every run.

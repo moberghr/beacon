@@ -112,8 +112,8 @@ total cost and the recent think cycles.
   actions are proposed has no linked subscriptions and its cycles run on demand.
 
 A background cycle runs as the actor's creator. Before any LLM call or SQL, Beacon checks that the creator may still
-work ad hoc with the data source (Query in a project that links it). When the creator may not — disabled or archived,
-no longer a member of a restricted project, or only a Viewer — the cycle is recorded as `Skipped` with
+work ad hoc with the data source (Query in a project that links it). When the creator may not (disabled or archived,
+no longer a member of a restricted project, or only a Viewer), the cycle is recorded as `Skipped` with
 "Skipped: owner not authorized.", and the actor keeps its status. An actor without a recorded creator runs background
 cycles only while its data source is openly reachable, and never with
 `Beacon:Authorization:RequireProjectMembership: true`.
@@ -187,7 +187,7 @@ actions are proposed has none. Start cycles with `POST /beacon/api/ai-actors/{id
 
 ## Related features
 
-- [AI Integration](/features/ai-integration/) — provider configuration and what reaches the provider
-- [Queries](/features/queries/) — the query and versioning model
-- [Subscriptions](/features/subscriptions/) — scheduling and delivery
-- [Approvals](/features/approvals/) — the approval workflow
+- [AI Integration](/features/ai-integration/): provider configuration and what reaches the provider
+- [Queries](/features/queries/): the query and versioning model
+- [Subscriptions](/features/subscriptions/): scheduling and delivery
+- [Approvals](/features/approvals/): the approval workflow

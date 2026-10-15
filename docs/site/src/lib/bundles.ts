@@ -31,7 +31,7 @@ export async function orderedDocs(sectionLabels?: string[]): Promise<Doc[]> {
 }
 
 export function bundle(title: string, intro: string, docs: Doc[]): string {
-	const header = `# ${title}\n\n> ${intro}\n\nPublished at ${SITE_URL}/ — every page is also available as Markdown at <page-url>.md\n`;
+	const header = `# ${title}\n\n> ${intro}\n\nPublished at ${SITE_URL}/. Every page is also available as Markdown at <page-url>.md.\n`;
 	return [header, ...docs.map(toMarkdown)].join('\n\n---\n\n');
 }
 

@@ -1,6 +1,6 @@
 ---
 title: Extending Beacon
-description: Make your own application part of Beacon — expose your EF Core DbContext as a read-only data source, import your Markdown docs as grounding, turn your HTTP endpoints into MCP tools, and replace Beacon's extension points.
+description: "Make your own application part of Beacon: expose your EF Core DbContext as a read-only data source, import your Markdown docs as grounding, turn your HTTP endpoints into MCP tools, and replace Beacon's extension points."
 ---
 
 An embedded Beacon can know your application, not only your databases. Three host extensions, all opt-in and all scoped to one **host project**:
@@ -18,7 +18,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
     .ExposeDbContext<ShopDbContext>(x =>
     {
         x.ProjectName = "Shop";                            // the host project; defaults to the data-source name
-        x.ReadOnlyConnection("ShopReadOnly")               // ConnectionStrings:ShopReadOnly — a read-only login
+        x.ReadOnlyConnection("ShopReadOnly")               // ConnectionStrings:ShopReadOnly, a read-only login
             .AllowTables("Orders", "OrderLines", "Customers")
             .AllowEntity<Product>()
             .ExcludeColumns(y => y.Table == "Customers" && y.Name == "Notes")
@@ -30,7 +30,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 
 - Tables are **default-deny**; unknown names fail startup.
 - Columns whose names look like secrets (`password`, `token`, `apikey`, `hash`, `otp`, …) are always excluded unless you lift one explicitly with `IncludeSecretLikeColumn("Table.Column")`.
-- The connection string is **never stored** — Beacon keeps only its name and reads it from configuration when it connects.
+- The connection string is **never stored**. Beacon keeps only its name and reads it from configuration when it connects.
 - SQL Server and PostgreSQL models are supported.
 - Every statement is checked against the exposed slice in the execution gate and again in the provider; masked columns are masked by output position.
 
@@ -78,13 +78,13 @@ app.MapGet("/api/orders/{id:int}", (int id, OrderService orders) => orders.Find(
 Or on a controller action: `[BeaconTool("customer_orders", Description = "…", ReadOnly = true)]`.
 
 - `ReadOnly` must be declared explicitly; Beacon never infers it from the HTTP verb.
-- The endpoint must carry authorization metadata (or your host has a fallback policy) — otherwise startup refuses it.
+- The endpoint must carry authorization metadata (or your host has a fallback policy); otherwise startup refuses it.
 - Calls run in-process through your endpoint's own pipeline, as a host principal built for the MCP caller (`IMcpHostPrincipalFactory`).
 - Only mapped Entra callers (users or systems) of the host project can call them; API-key callers cannot.
 - Write tools (`ReadOnly = false`) need `AllowWriteTools`, are offered to **user** callers only and are audited as `api_<name>:write`.
 - Above 20 tools (`NamedToolLimit`), clients see `search_api` + `call_api` instead of one tool per endpoint.
 
-## Saved queries as tools — no code
+## Saved queries as tools without code
 
 A SecurityAdmin can publish an approved saved query as an MCP tool `q_<name>` from the query's page. See [Saved query tools](/features/saved-query-tools/).
 
@@ -94,7 +94,7 @@ Beacon registers most services with `TryAdd`, so **your registration wins if you
 
 | Interface | Default | Replace it to |
 |---|---|---|
-| `IBeaconScheduler` | none — required | Use your job runner. |
+| `IBeaconScheduler` | None (required) | Use your job runner. |
 | `IEmailAdapter` | none | Send email (`AddEmailAdapter<T>()`). |
 | `IBeaconAuthenticationProvider` | user store | Check passwords somewhere else. |
 | `IBeaconAuthorizationProvider` | user store / allow-all | Cap users' global read/write from your own model. |
@@ -103,6 +103,6 @@ Beacon registers most services with `TryAdd`, so **your registration wins if you
 | `IMcpHostPrincipalFactory` | copies name/email/oid; system callers get `HostClaims` | Build the principal your endpoints expect for MCP calls. |
 | `IHostEndpointDispatchMiddleware` | none | Run your own middleware logic (tenant, culture, audit) around dispatched tool calls. |
 | `IApprovalNotifier` | SignalR | Notify approvers elsewhere. |
-| `IBeaconUserContext` | `HttpContextUserContext` | Resolve the current user differently — replace it in both places it is registered. |
+| `IBeaconUserContext` | `HttpContextUserContext` | Resolve the current user differently. Replace it in both places it is registered. |
 
 `IProjectAccessEvaluator` is replaceable in principle but it is the single decider for project access; replace it only with great care, and keep the project-authorization tests green if you fork it.

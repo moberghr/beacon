@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: Deliver subscription results through five channels — Email, Microsoft Teams, Slack, Jira and a generic webhook — to vetted, encrypted recipients, with a delivery history.
+description: Deliver subscription results through five channels (Email, Microsoft Teams, Slack, Jira and a generic webhook) to vetted, encrypted recipients, with a delivery history.
 ---
 
 When a subscription run [notifies](/features/subscriptions/#which-runs-notify), Beacon sends the result to each of the
@@ -12,10 +12,10 @@ webhook, a Jira project, or any HTTPS endpoint. Data-quality alerts use the same
 | Channel | What Beacon sends | Inline rows | Attachment |
 |---|---|---|---|
 | **Email** | An HTML email through the host's `IEmailAdapter` | The preview rows, as an HTML table | CSV or XLSX, when the subscription includes one |
-| **Teams** | An Adaptive Card (1.5) posted to a Teams webhook | First 10 rows, first 3 columns | — |
-| **Slack** | A Block Kit message posted to an incoming webhook, the rows as a fixed-width text table in a code block | First 25 rows, first 5 columns, each column cut to 20 characters | — |
-| **Jira** | An issue (type Task) or a comment on it, through the Jira Cloud REST API | The preview rows, as a table | — |
-| **Webhook** | A JSON `POST` to any allowed HTTPS URL | The preview rows, as JSON | — |
+| **Teams** | An Adaptive Card (1.5) posted to a Teams webhook | First 10 rows, first 3 columns | None |
+| **Slack** | A Block Kit message posted to an incoming webhook, the rows as a fixed-width text table in a code block | First 25 rows, first 5 columns, each column cut to 20 characters | None |
+| **Jira** | An issue (type Task) or a comment on it, through the Jira Cloud REST API | The preview rows, as a table | None |
+| **Webhook** | A JSON `POST` to any allowed HTTPS URL | The preview rows, as JSON | None |
 
 What every channel gets from a run:
 
@@ -25,7 +25,7 @@ What every channel gets from a run:
   rows**, and then by the channel's own limits above. The total row count is always stated.
 - **Query text**, only when the subscription has **Show query text in notification** on.
 - **Anomaly details** (Slack and webhook), when [anomaly detection](/features/anomaly-detection/) flagged the run.
-- **A link back to Beacon**, `{BaseUrl}/notifications/{id}` — see [Links back to Beacon](#links-back-to-beacon).
+- **A link back to Beacon**, `{BaseUrl}/notifications/{id}`; see [Links back to Beacon](#links-back-to-beacon).
 
 Rows are [PII-masked](/features/subscriptions/#what-a-run-reads-and-delivers) before they reach any channel, the
 attachment included.
@@ -69,7 +69,7 @@ Click **Add recipient** and fill in:
 |---|---|
 | **Notification type** | Email, Slack, Teams, Jira or Webhook. |
 | **Name** | How the recipient is listed and picked. |
-| Destination | Depends on the type — see the table below. |
+| Destination | Depends on the type; see the table below. |
 | **Description** | Optional. |
 | **Custom headers (JSON)** | Webhook only: a JSON object of HTTP headers (see [Webhook](#webhook)). |
 | **Body template** | Webhook only: a custom request body (see [Body templates](#body-templates)). |
@@ -127,7 +127,7 @@ once the workflow is on). Then where a recipient delivers is a reviewed change:
   approved destination needs no approval and withdraws the requester's own pending change. A change made while another
   person's change of the same recipient waits is refused (`409`).
 - **A rejected change** leaves the recipient skipped until it is changed back to its approved destination or saved
-  again; the recipients list and the **Recipients** tab show **Rejected — change it and save again** with the
+  again; the recipients list and the **Recipients** tab show **Rejected: change it and save again** with the
   reviewer's comment.
 - **Attaching an existing recipient** to a subscription or data contract is not reviewed.
 - **Rotating a credential** (a new webhook token, a new header value) is a change of where it delivers and waits for
@@ -399,8 +399,8 @@ page.
 
 ## Related
 
-- [Subscriptions](/features/subscriptions/) — which runs notify and what they carry
-- [Approvals](/features/approvals/) — the change-review workflow
-- [Configuration → Notification Destinations](/getting-started/configuration/#notification-destinations-optional) — the
+- [Subscriptions](/features/subscriptions/): which runs notify and what they carry
+- [Approvals](/features/approvals/): the change-review workflow
+- [Configuration → Notification Destinations](/getting-started/configuration/#notification-destinations-optional): the
   `Beacon:Notifications` settings
-- [Data Quality](/features/data-quality/) — contract alerts use the same recipients
+- [Data Quality](/features/data-quality/): contract alerts use the same recipients

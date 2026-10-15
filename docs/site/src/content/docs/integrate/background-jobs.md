@@ -1,6 +1,6 @@
 ---
 title: Background jobs
-description: Beacon runs no background work of its own — your job runner does. The IBeaconScheduler contract, the jobs Beacon expects, the system-work rule, a complete Warp implementation, and a Hangfire sketch.
+description: Beacon runs no background work of its own; your job runner does. The IBeaconScheduler contract, the jobs Beacon expects, the system-work rule, a complete Warp implementation, and a Hangfire sketch.
 ---
 
 Scheduled checks, data-quality evaluations, documentation generation, AI actor cycles and maintenance all run as background jobs. Beacon defines **what** must run; your host decides **how**, through one interface: `IBeaconScheduler`.
@@ -42,7 +42,7 @@ public interface IBeaconScheduler
 Register it with `options.AddBeaconScheduler<YourScheduler>()`. Without one, `AddBeaconServices` throws `Implementation of IBeaconScheduler is required.`
 
 - `cron` is a standard **5-field** expression (validated by Beacon before it reaches you).
-- Key recurring jobs by the **entity id** (`subscription-{id}`, `dq-{id}`), never by the name — names change, ids do not.
+- Key recurring jobs by the **entity id** (`subscription-{id}`, `dq-{id}`), never by the name. Names change, ids do not.
 - The `Enqueue…` methods return your runner's job id as a string. The UI correlates live `JobStatusChanged` events by that id; `notifyUserId` is the user who should receive them.
 
 ## What each job calls
@@ -82,7 +82,7 @@ Beacon decides project access from the caller. A background job has no HTTP requ
 scope.ServiceProvider.GetRequiredService<ISystemWorkScope>().MarkAsSystemWork();   // Beacon.Core.Authorization
 ```
 
-Do this in the job's scope **before** Beacon code runs. An unmarked scope without a request gets **no project access** and logs a warning — the job does nothing useful. Work done for a user (a subscription's scheduled run) is still executed **as that user**: Beacon sets the run-as owner itself and re-checks their access to the exact data sources right before any SQL or LLM call. A run the owner may no longer do is recorded as skipped — never run as the system. Do not resolve the current user in your job wrapper before Beacon's method runs.
+Do this in the job's scope **before** Beacon code runs. An unmarked scope without a request gets **no project access** and logs a warning, and the job does nothing useful. Work done for a user (a subscription's scheduled run) is still executed **as that user**: Beacon sets the run-as owner itself and re-checks their access to the exact data sources right before any SQL or LLM call. A run the owner may no longer do is recorded as skipped and never run as the system. Do not resolve the current user in your job wrapper before Beacon's method runs.
 
 ## Reference implementation: Moberg Warp
 
@@ -319,7 +319,7 @@ public sealed class BeaconScheduler(
 }
 ```
 
-**6. The dashboard (optional)** — keep it Admin-only:
+**6. The dashboard (optional).** Keep it Admin-only:
 
 ```csharp
 app.UseWarpUI(x =>
@@ -335,7 +335,7 @@ The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Fail
 
 ## Other job runners
 
-Any runner works if it can (1) run a job in its own DI scope, (2) register, update and remove recurring jobs by name, and (3) enqueue a one-off job and return an id. A Hangfire sketch — wrap Beacon's calls in a class that marks system work first:
+Any runner works if it can (1) run a job in its own DI scope, (2) register, update and remove recurring jobs by name, and (3) enqueue a one-off job and return an id. A Hangfire sketch: wrap Beacon's calls in a class that marks system work first:
 
 ```csharp
 using Beacon.Core.Authorization;
@@ -379,4 +379,4 @@ Hangfire activates `BeaconHangfireJobs` in a scope per job when you use its ASP.
 
 - **No automatic retries.** A failed run is recorded and visible in the UI; investigate it rather than retrying blindly. If one of your own jobs needs retries, configure them on that job only.
 - **Worker count vs connection pool.** Each subscription run opens a Beacon context plus a connection to the monitored database. Cap workers so you do not exhaust the pool (the reference host uses `min(2 × CPU, 20)`).
-- **Several instances.** Your runner must make sure a recurring job fires once across the cluster — Warp and Hangfire do this through their database.
+- **Several instances.** Your runner must make sure a recurring job fires once across the cluster. Warp and Hangfire do this through their database.

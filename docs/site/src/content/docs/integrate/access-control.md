@@ -1,6 +1,6 @@
 ---
 title: Access control
-description: Decide who sees what before go-live — global roles, projects as the access boundary, functional permissions, separation of duties, IdP role mapping, change approvals and deployment locks.
+description: "Decide who sees what before go-live: global roles, projects as the access boundary, functional permissions, separation of duties, IdP role mapping, change approvals and deployment locks."
 ---
 
 Beacon's access model has four layers. Set each one deliberately before people start using it.
@@ -23,13 +23,13 @@ Every user has at most one global role, which caps everything else:
 | **Editor** | Also create and change queries, subscriptions and other project content. |
 | **Admin** | Everything, in every project, plus every functional permission. |
 
-The first super admin is created at [first-run setup](/integrate/authentication/#beacons-user-store-and-first-run-setup). Give `Admin` to as few people as possible — the functional permissions below exist so that most administrative duties do not need it.
+The first super admin is created at [first-run setup](/integrate/authentication/#beacons-user-store-and-first-run-setup). Give `Admin` to as few people as possible. The functional permissions below exist so that most administrative duties do not need it.
 
 ## 2. Projects are the access boundary
 
 A **project** groups data sources and the queries, subscriptions, contracts and grounding built on them. Access is decided per project by one component, `IProjectAccessEvaluator`:
 
-- **Restricted** projects are visible only to their **members** and to Admins. Everyone else gets **404** — not a hint that the project exists.
+- **Restricted** projects are visible only to their **members** and to Admins. Everyone else gets **404**, so the existence of the project is not disclosed.
 - **Open** projects are visible to everyone with a global role, at that role.
 - **New projects start restricted**, with their creator as **ProjectAdmin**.
 - A **data source follows the projects that link it**. Something that reads several data sources is reachable only through one project that links all of them. Data sources created after project access was introduced are Admin-only until linked to a project.
@@ -52,13 +52,13 @@ Plan the first projects before inviting users:
 
 ## 3. Functional permissions
 
-Administrative duties are split out of the Admin role. Each is held through a **functional role** of the same name (a system role with no data access), assigned by an Admin — or mapped from an identity-provider app role at SSO sign-in.
+Administrative duties are split out of the Admin role. Each is held through a **functional role** of the same name (a system role with no data access), assigned by an Admin, or mapped from an identity-provider app role at SSO sign-in.
 
 | Permission | Grants |
 |---|---|
 | **Approver** | Approve or reject query changes and change requests (migration jobs, Custom SQL rules, recipient destinations). |
 | **Auditor** | Read the MCP audit log, MCP settings, admin settings and every API key. |
-| **SecurityAdmin** | Change MCP and admin settings (not the LLM connection or base URL — Admin only), manage notification recipients, publish saved queries as MCP tools, set repository tokens. |
+| **SecurityAdmin** | Change MCP and admin settings (not the LLM connection or base URL, which are Admin only), manage notification recipients, publish saved queries as MCP tools, set repository tokens. |
 | **UserAdmin** | Manage users and their non-privileged roles, end sessions, revoke API keys, change owners of scheduled work, manage project members, restrict projects. |
 | **DataSourceAdmin** | Create, test and delete data sources; link them to projects they can read. |
 | **MigrationOperator** | Create and run data-migration jobs (only when migrations are enabled). |
@@ -110,7 +110,7 @@ Make sure at least two people hold Approver (Admins count). Full rules: [Approva
 
 ## 5. Deployment locks
 
-Some guarantees should not depend on an Admin's good day. These keys can only be changed in host configuration — the UI shows the setting disabled, and the API answers 409:
+Some guarantees should not depend on an individual Admin's actions. These keys can only be changed in host configuration. The UI shows the setting disabled, and the API answers 409:
 
 | Key | Default | Pins |
 |---|---|---|

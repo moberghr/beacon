@@ -1,6 +1,6 @@
 ---
 title: Features
-description: A map of every Beacon feature page — monitoring and moving data, the AI and MCP layer, and governance and security.
+description: "A map of every Beacon feature page: monitoring and moving data, the AI and MCP layer, and governance and security."
 ---
 
 Every feature page, grouped as in the sidebar. New to Beacon? Read [Core concepts](/getting-started/concepts/) first,
@@ -13,7 +13,7 @@ then the [Quick start](/getting-started/quick-start/).
 | [Data sources](/features/data-sources/) | Nine connectors (PostgreSQL, SQL Server, MySQL, Azure Synapse, Snowflake, BigQuery, Databricks, AWS CloudWatch, REST API), encrypted connections, metadata, and per-engine read-only guarantees. |
 | [Queries](/features/queries/) | Saved, versioned SQL: steps across data sources, bound `{name}` parameters, an in-memory final query, and optional change review. |
 | [Subscriptions](/features/subscriptions/) | Run a query on a cron schedule as its owner, decide which runs notify, and choose what each notification carries. |
-| [Notifications](/features/notifications/) | Five channels — Email, Teams, Slack, Jira and Webhook — to vetted recipients, with a delivery history. |
+| [Notifications](/features/notifications/) | Five channels (Email, Teams, Slack, Jira and Webhook) to vetted recipients, with a delivery history. |
 | [Control Tower](/features/control-tower/) | Health across every subscription: success rates, health buckets, open tasks and anomaly sparklines. |
 | [Tasks](/features/tasks/) | Work items a subscription opens while its query returns rows, resolved automatically when the data recovers. |
 | [Anomaly detection](/features/anomaly-detection/) | Notify only when a run's row count is unusual against its own history. |

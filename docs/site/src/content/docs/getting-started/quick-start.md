@@ -119,7 +119,7 @@ npm run build --prefix src/Beacon.UI/web
 
 The build writes to `src/Beacon.UI/wwwroot/beacon`. Restart the host from step 4 so it picks up the files, then open [https://localhost:7187/beacon/setup](https://localhost:7187/beacon/setup).
 
-:::tip[Just looking around?]
+:::tip[Exploring the UI without a backend]
 `npm run dev:mock --prefix src/Beacon.UI/web` serves the UI at `http://localhost:5173/beacon/` with mock data and no backend. Nothing you do there is saved.
 :::
 

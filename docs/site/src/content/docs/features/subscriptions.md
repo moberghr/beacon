@@ -1,6 +1,6 @@
 ---
 title: Subscriptions
-description: Run a query on a cron schedule, decide which runs notify whom, and choose what each notification carries — runs execute as the subscription's owner.
+description: "Run a query on a cron schedule, decide which runs notify whom, and choose what each notification carries: runs execute as the subscription's owner."
 ---
 
 A subscription runs one query on a schedule and delivers the result to recipients. It decides when the query runs,
@@ -19,9 +19,9 @@ steps.
 
 | Field | Default | What it does |
 |---|---|---|
-| **Query** | — | The query to run (required). |
+| **Query** | Required | The query to run (required). |
 | **Cron expression** | `0 9 * * *` | When it runs: a standard 5-field cron expression (required). |
-| **Query parameters** | — | A value for each of the query's [parameters](/features/queries/#query-parameters), used by every run. Each value must read as the parameter's type. |
+| **Query parameters** | None | A value for each of the query's [parameters](/features/queries/#query-parameters), used by every run. Each value must read as the parameter's type. |
 
 Parameter values are bound as data. A value such as `CURRENT_DATE - INTERVAL '7 days'` is the literal text, never
 evaluated: write relative dates into the query's SQL instead.
@@ -32,7 +32,7 @@ evaluated: write relative dates into the query's SQL instead.
 |---|---|---|
 | **Send notification** | When result count changes | Which runs notify the recipients: **When result count changes**, **Every execution**, or **When result count increases**. |
 | **Minimum row count** | none | Notify only when a run returns at least this many rows. |
-| **Recipients** | — | Who is notified. Required unless **Create a task** is ticked. Recipients are created on the [Recipients](/features/notifications/#recipients) page. |
+| **Recipients** | None | Who is notified. Required unless **Create a task** is ticked. Recipients are created on the [Recipients](/features/notifications/#recipients) page. |
 | **Create a task and keep it open while the query returns rows** | off | The first run with rows opens a [task](/features/tasks/); later runs update it, and a run with no rows resolves it. This happens on every run, whatever the notification setting. |
 
 ### 3. Results
@@ -69,7 +69,7 @@ Every run is recorded with a status. Recipients are notified only when the statu
 | **Sent** | The trigger fired: **Every execution**; **When result count changes** and the count differs from the last run's; **When result count increases** and it is higher. A run with no earlier run to compare with notifies. With anomaly detection on: an anomaly was found. |
 | **Silenced** | The trigger did not fire, or anomaly detection found nothing unusual. |
 | **Failed** | Delivery to at least one recipient failed. The others are still notified; the run names the failed recipient ids with a generic reason. |
-| **Skipped** | Nothing ran, or nobody could be notified — see [Scheduled runs run as the owner](#scheduled-runs-run-as-the-owner). |
+| **Skipped** | Nothing ran, or nobody could be notified; see [Scheduled runs run as the owner](#scheduled-runs-run-as-the-owner). |
 
 A skipped run is not a baseline: the result-count trigger compares a run with the last run that was not skipped.
 
@@ -127,8 +127,8 @@ when none is set). An Admin edits it from the SLA banner on a task page (the **E
 ## Owner and project access
 
 A subscription records its **owner** when it is created: the signed-in creator, or, for a subscription an
-[AI actor](/features/ai-actors/) creates, the actor's creator — never a value from the request. The page shows the owner
-by display name, or as "User {id}" without one — never a user name or external id; subscriptions created before owners
+[AI actor](/features/ai-actors/) creates, the actor's creator, never a value from the request. The page shows the owner
+by display name, or as "User {id}" without one, never a user name or external id; subscriptions created before owners
 were recorded show "no owner recorded", and an owner who matches no Beacon user any more shows "unknown user". While
 Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user)
 cannot create a subscription (`403`).
@@ -141,7 +141,7 @@ not read answers `404`.
 
 Every scheduled run runs as the subscription's owner, as they are at that moment: right before any SQL runs, Beacon
 checks that the owner may still run saved SQL in one project that holds every data source of the query's steps. When the
-owner may not — disabled or archived, removed from a restricted project, or without the role that runs saved SQL — the
+owner may not (disabled or archived, removed from a restricted project, or without the role that runs saved SQL) the
 run is **skipped**:
 
 - nothing runs against the data sources, no notification is sent, no task is created or updated, and an AI actor is not
@@ -164,7 +164,7 @@ where it delivers (see [Notifications](/features/notifications/#approval-of-new-
 ### Change the owner
 
 An Admin or a UserAdmin clicks **Change owner** on the subscription page (in the header, and in the "owner not
-authorized" banner), picks a user and saves — or calls `PUT /beacon/api/subscriptions/{id}/owner` with
+authorized" banner), picks a user and saves, or calls `PUT /beacon/api/subscriptions/{id}/owner` with
 `{ "userId": 12 }`. The new owner must be an existing, enabled user who may run the subscription's query in one project
 that holds all of its data sources; anyone else is refused with `409`, because every run would be skipped.
 
@@ -176,10 +176,10 @@ A run executes its query through the same execution gate and read-only path as e
 - **Read-only:** every statement passes the regex guardrail, the read-only parser in the data source's dialect and the
   database-name rule, and runs inside a `READ ONLY` transaction on PostgreSQL and MySQL.
 - **Rows:** a statement may return at most `Beacon:Query:MaxExecutionRows` rows (default 100,000). A larger result fails
-  the run rather than delivering part of it, so the run's record count — which drives the trigger, the minimum row count,
-  anomaly detection and tasks — is always exact. **Max rows** then limits how many of those rows reach recipients.
-- **PII masking:** before the rows reach recipients, attachments or the stored result, columns holding PII are masked —
-  by the PII names in the SQL, by their own result-column names and by aliases over PII columns — following the PII
+  the run rather than delivering part of it, so the run's record count (which drives the trigger, the minimum row count,
+  anomaly detection and tasks) is always exact. **Max rows** then limits how many of those rows reach recipients.
+- **PII masking:** before the rows reach recipients, attachments or the stored result, columns holding PII are masked:
+  by the PII names in the SQL, by their own result-column names and by aliases over PII columns, following the PII
   detection setting and custom patterns of the projects that link the query's data sources (the strictest applies, as
   for MCP). With PII detection off in every linking project, rows are delivered as read. With a final query, the steps'
   rows are joined as read and the final query's result is masked instead: every column it fills from a step's PII
@@ -203,8 +203,8 @@ nobody by design. Then check the recipients and the delivery status in [Notifica
 
 ## Related
 
-- [Queries](/features/queries/) — the SQL a subscription runs
-- [Notifications](/features/notifications/) — channels, recipients and delivery history
-- [Tasks](/features/tasks/) — work items opened by **Create a task**
-- [Anomaly Detection](/features/anomaly-detection/) — the Anomaly step
-- [Control Tower](/features/control-tower/) — health across all subscriptions
+- [Queries](/features/queries/): the SQL a subscription runs
+- [Notifications](/features/notifications/): channels, recipients and delivery history
+- [Tasks](/features/tasks/): work items opened by **Create a task**
+- [Anomaly Detection](/features/anomaly-detection/): the Anomaly step
+- [Control Tower](/features/control-tower/): health across all subscriptions

@@ -1,12 +1,12 @@
 ---
 title: Host Endpoint Tools
-description: Expose selected endpoints of the host application as MCP tools — read-only by default, write tools behind an explicit opt-in — invoked in-process as the caller through the endpoint's own model binding, filters and authorization policies.
+description: Expose selected endpoints of the host application as MCP tools (read-only by default, write tools behind an explicit opt-in) invoked in-process as the caller through the endpoint's own model binding, filters and authorization policies.
 ---
 
-A host application already has endpoints that answer the questions an agent asks — a back-office grid of a
+A host application already has endpoints that answer the questions an agent asks: a back-office grid of a
 customer's loans, a lookup by id. `AddHostEndpointTools` turns the endpoints you mark into MCP tools. Each call runs
 **in-process, through the endpoint's real pipeline** (model binding, action filters, authorization policies), as a
-host identity built for the MCP caller — never as Beacon, and never with the caller's own token.
+host identity built for the MCP caller, never as Beacon, and never with the caller's own token.
 
 Every exposed endpoint **declares** whether it is read-only. The HTTP verb is never trusted, because back offices
 read over POST (Kendo grids, `[FromForm]` filters). By default only read-only endpoints are exposed; endpoints that
@@ -57,7 +57,7 @@ app.MapGet("/api/loans/{id:int}", (int id, LoanService loans) => loans.Find(id))
 The tool is exposed as `api_customer_loans` (or `api_loan_by_id`).
 
 The endpoint must carry authorization metadata (`[Authorize]` on the action or controller, a policy, or
-`[AllowAnonymous]`), or the host must have a fallback authorization policy — otherwise startup refuses it. A
+`[AllowAnonymous]`), or the host must have a fallback authorization policy; otherwise startup refuses it. A
 permission check implemented as a filter (like the `[Permission]` filter above) is not metadata. A host that has
 neither `[Authorize]` on its controllers nor a fallback policy puts `[Authorize]` on every exposed action, next to
 `[BeaconTool]` and its own permission filter, as above.
@@ -67,7 +67,7 @@ neither `[Authorize]` on its controllers nor a fallback policy puts `[Authorize]
 Beacon authorizes the dispatched call against the host principal it built for the MCP caller; it never runs an
 authentication handler. A policy that names **authentication schemes** (`[Authorize(AuthenticationSchemes = "StepUp")]`,
 `new AuthorizationPolicyBuilder("PartnerApi")`, a default or fallback policy with schemes) would therefore be
-evaluated as if that scheme had authenticated the caller — a step-up or MFA scheme would be bypassed. So an exposed
+evaluated as if that scheme had authenticated the caller: a step-up or MFA scheme would be bypassed. So an exposed
 endpoint whose combined policy names any scheme **fails startup**, naming the endpoint and the schemes, unless the
 host lists each scheme in `TrustedAuthenticationSchemes`:
 
@@ -125,7 +125,7 @@ The eight built-in tools are unaffected.
 
 ## Write tools
 
-A host can let agents change data through its own endpoints — an HR app letting a user book or withdraw their own
+A host can let agents change data through its own endpoints: an HR app letting a user book or withdraw their own
 leave from Claude Desktop. This is off unless the host opts in, and each endpoint still declares itself:
 
 ```csharp
@@ -159,7 +159,7 @@ public IActionResult WithdrawLeave(int id) { ... }
   the user before running the tool. Beacon does not add its own confirmation step: MCP elicitation is not used for
   write tools, so a client that auto-approves tools runs them without asking.
 - **User callers only.** A write tool is listed to, and runs for, a mapped Entra **user** caller only. A **system**
-  caller (an app-only token or service user) never sees write tools — not in the tool list, not in `search_api` —
+  caller (an app-only token or service user) never sees write tools (not in the tool list, not in `search_api`) 
   and a call to one is refused with `Forbidden: api_<name> changes data in the host application, and write tools run
   only for a signed-in user; a system caller cannot call them.`, whatever `HostClaims` it holds. A system identity
   acts with standing permissions and has no person who asked for the change and no client to confirm it. API-key
@@ -167,7 +167,7 @@ public IActionResult WithdrawLeave(int id) { ... }
 - **The endpoint is the authority.** Beacon checks the caller, the project and the endpoint's authorization policy,
   exactly as for reads, and adds nothing else. The endpoint must do its own input validation, business rules and
   record-level authorization ("only your own leave") against the host principal your `IMcpHostPrincipalFactory`
-  builds — treat a tool call like any other request from that user. Antiforgery passes the same way as for reads
+  builds: treat a tool call like any other request from that user. Antiforgery passes the same way as for reads
   (see [Antiforgery](#antiforgery)), so it is not a defence here.
 - **Audit.** Write calls are audited under the tool name `api_<name>:write` (see [Audit and privacy](#audit-and-privacy)).
 
@@ -176,8 +176,8 @@ interface keeps compiling and behaves as `false` for both.
 
 ## Who the call runs as
 
-Endpoint tools need a **mapped MCP caller** — an Entra user or system identity from
-[Entra ID callers](/features/mcp-entra-callers/) — configured for the tools' project and allowed to read it by its
+Endpoint tools need a **mapped MCP caller**, an Entra user or system identity from
+[Entra ID callers](/features/mcp-entra-callers/), configured for the tools' project and allowed to read it by its
 [project access](/features/authorization/#project-access): a user caller reaches a restricted project only while its
 Beacon user is a member (see [What a caller reaches](/features/mcp-entra-callers/#what-a-caller-reaches)). API-key
 callers and callers outside the project neither see nor can call them (fail closed); neither can anyone while the
@@ -197,7 +197,7 @@ A host whose permissions live in its own user store registers its own factory. T
 to the host's admin user and its `AdminPermission` set. The host's permission claim is `HostClaimTypes.Permission`
 (`http://schemas.example.com/claims/permission`) and its value is the permission's **integer** value
 (`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what the host's `Identity.HasPermission` compares
-against. The admin lookup is a **placeholder** — use whatever service the host already has for loading an active
+against. The admin lookup is a **placeholder**: use whatever service the host already has for loading an active
 admin and their permissions:
 
 ```csharp
@@ -209,7 +209,7 @@ internal sealed class HostPrincipalFactory(IServiceScopeFactory scopes) : IMcpHo
     {
         if (caller.Kind == McpCallerKind.System)
         {
-            // HostClaims come from Beacon:Mcp:Callers:Systems[*]:HostClaims — keep the set minimal.
+            // HostClaims come from Beacon:Mcp:Callers:Systems[*]:HostClaims: keep the set minimal.
             return new ClaimsPrincipal(new ClaimsIdentity(caller.HostClaims, "BeaconMcpSystem"));
         }
 
@@ -262,7 +262,7 @@ System identity host claims, in configuration (the value is the integer `AdminPe
    `[AllowAnonymous]` is exposable and runs without an authorization check: the host itself declared it public, so
    exposing it to an authorized MCP caller grants nothing new.
 5. The registered `IHostEndpointDispatchMiddleware` chain runs, in registration order, around the endpoint (see below).
-6. The endpoint's `RequestDelegate` runs — for MVC that is the whole action pipeline: model binding, validation,
+6. The endpoint's `RequestDelegate` runs; for MVC that is the whole action pipeline: model binding, validation,
    authorization/action/exception filters, the result.
 7. The response is captured into a buffer capped at `MaxResponseBytes`; the request is aborted after
    `RequestTimeout` or when the MCP call is cancelled.
@@ -272,7 +272,7 @@ context, so the MCP request's context (and the audit identity) is untouched.
 
 ### Host middleware and ambient state: dispatch middleware
 
-Host **middleware does not run** on dispatch — only the endpoint's own pipeline. When the endpoint depends on state a
+Host **middleware does not run** on dispatch: only the endpoint's own pipeline. When the endpoint depends on state a
 middleware sets, register an `IHostEndpointDispatchMiddleware`:
 
 ```csharp
@@ -282,14 +282,14 @@ Task InvokeAsync(HttpContext syntheticContext, McpCaller caller, Func<Task> next
 Registered middlewares are chained in registration order, with the endpoint's request delegate as the innermost
 `next`. The chain starts after `User`, `RequestServices`, the endpoint and route values are set and after Beacon's
 authorization check. As in ASP.NET Core middleware, ambient state set before `await next()`
-(`Thread.CurrentPrincipal`, an `AsyncLocal`) is visible to the endpoint and its filters — async work before it is
+(`Thread.CurrentPrincipal`, an `AsyncLocal`) is visible to the endpoint and its filters; async work before it is
 fine. A middleware that does not call `next` refuses the call; one that throws fails it. Both return a generic tool
 error and are audited. The dispatch runs in its own execution context, so the MCP request's own ambient principal is
 never changed.
 
 Take a host whose `[Permission(AdminPermission.X)]` is an `IAsyncAuthorizationFilter` that checks
 `Identity.Current.HasPermission(...)`, where `Identity.Current` reads `Thread.CurrentPrincipal`, which the host's own
-middleware sets with `Identity.Set(identity)` — it takes a `ClaimsIdentity`, not a principal. Without a dispatch middleware every tool call would be denied. The
+middleware sets with `Identity.Set(identity)`: it takes a `ClaimsIdentity`, not a principal. Without a dispatch middleware every tool call would be denied. The
 factory above maps the Entra user to admin permissions; the middleware makes that principal ambient:
 
 ```csharp
@@ -310,8 +310,8 @@ internal sealed class HostIdentityMiddleware : IHostEndpointDispatchMiddleware
 
 Beacon **mints a real antiforgery token pair** for the host principal with the host's own `IAntiforgery` and puts it
 on the dispatched request (the cookie token as a cookie, the request token in the configured header, or the form
-field when the header is disabled). The host's own validation — `[ValidateAntiForgeryToken]`, a global
-`AutoValidateAntiforgeryTokenAttribute`, minimal API form endpoints — therefore runs and passes. For minimal API
+field when the header is disabled). The host's own validation (`[ValidateAntiForgeryToken]`, a global
+`AutoValidateAntiforgeryTokenAttribute`, minimal API form endpoints) therefore runs and passes. For minimal API
 endpoints that require validation, Beacon validates the request the way `UseAntiforgery()` does and records the
 result. Nothing is exempted and real browser requests are validated exactly as before: the tokens are minted
 server-side and never leave the process (CSRF cannot apply to a request that never came from a browser). A host
@@ -330,10 +330,10 @@ request) must make sure it accepts these requests.
 
 ## Audit and privacy
 
-Every call — success, forbidden, refused, invalid arguments, timeout, error — writes an MCP audit row with the tool
+Every call (success, forbidden, refused, invalid arguments, timeout, error) writes an MCP audit row with the tool
 name `api_<name>` (or `search_api`), the project, the duration, the caller kind and hash, and the outcome. A call to a
-**write tool** is recorded as `api_<name>:write` — whether it was called by name or through `call_api`, and also when
-it was refused — so writes can be filtered in the audit log (`tool=api_book_leave:write`) without a schema change.
+**write tool** is recorded as `api_<name>:write` (whether it was called by name or through `call_api`, and also when
+it was refused) so writes can be filtered in the audit log (`tool=api_book_leave:write`) without a schema change.
 Metrics still bucket it under `api_*`. The
 arguments are stored only as the project's content-retention settings allow: under the
 [retention lock](/features/mcp-server/) they are reduced to their size. Argument values and response bodies are
@@ -346,7 +346,7 @@ write tools are marked *(writes)*.
 
 - Write tools are off unless `AllowWriteTools` is on, run for user callers only, and rely on the client's tool
   approval for confirmation (no Beacon-side approval or elicitation step).
-- Host **middleware does not run** — only the endpoint's own pipeline. Recreate what the endpoint needs from it (an
+- Host **middleware does not run**: only the endpoint's own pipeline. Recreate what the endpoint needs from it (an
   ambient principal, a tenant, a culture, an admin user loaded into `HttpContext.Items`) in an
   `IHostEndpointDispatchMiddleware`.
   A global MVC `AuthorizeFilter` whose policy names authentication schemes re-authenticates by scheme, finds no

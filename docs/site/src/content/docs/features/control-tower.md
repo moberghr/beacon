@@ -1,6 +1,6 @@
 ---
 title: Control Tower
-description: Health of every subscription you can read — health buckets, success rates, open tasks and anomaly sparklines, refreshed every 30 seconds.
+description: "Health of every subscription you can read: health buckets, success rates, open tasks and anomaly sparklines, refreshed every 30 seconds."
 ---
 
 The Control Tower is Beacon's operations view. It shows the health of every [subscription](/features/subscriptions/) you
@@ -80,7 +80,7 @@ Each matching subscription is a row:
 |--------|---------|
 | (status) | Green, Amber, Red or Stalled pill |
 | **Subscription** | Query name and folder path, with badges: **AI · {actor}** when an AI actor is assigned, **Anomaly** when anomaly detection is on, **Owner not authorized** when the owner may no longer run the query, and **Not approved** when the last run was skipped because the query's change is not approved |
-| **Success** | Success rate in the window (— when there are no runs) |
+| **Success** | Success rate in the window (n/a when there are no runs) |
 | **Runs** | Total runs, with the failed count highlighted when above zero |
 | **Tasks** | Open task count as a warning pill, or the total task count when nothing is open |
 | **Anomalies** | Sparkline of anomaly events per day across the window, with the total |

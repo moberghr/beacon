@@ -1,6 +1,6 @@
 ---
 title: User Management
-description: Built-in users and roles — internal password and external identity-provider users, first-run setup, functional roles, sessions, local and single sign-on, and the sign-in routes.
+description: "Built-in users and roles: internal password and external identity-provider users, first-run setup, functional roles, sessions, local and single sign-on, and the sign-in routes."
 ---
 
 Beacon has a built-in user store: internal users who sign in with a password stored in Beacon, external users who sign in through your identity provider, global roles, the six functional roles, and server-checked sessions. It is **off by default**. Who may do what once a user exists is described on [Authorization](/features/authorization/).
@@ -57,7 +57,7 @@ The host also maps the login and setup endpoints (`app.MapLoginEndpoints("/beaco
 While no super admin has ever existed in the database (an archived super admin counts), every page redirects to the setup page, `/beacon/setup`:
 
 1. Open Beacon. You are redirected to **setup**.
-2. Enter the **setup token**: the value of `Beacon:UserManagement:SetupToken`, or — when none is configured — the token Beacon prints once to the **process console** (standard error) at startup. The generated token is never written to the log; a log Warning only says that it was printed.
+2. Enter the **setup token**: the value of `Beacon:UserManagement:SetupToken`, or, when none is configured, the token Beacon prints once to the **process console** (standard error) at startup. The generated token is never written to the log; a log Warning only says that it was printed.
 3. Create the super admin (user name, e-mail address, password). The system roles and the functional roles are seeded.
 4. Sign in with the new account.
 
@@ -184,7 +184,7 @@ Beacon finds the user by the token subject together with the token issuer:
 - Internal users and super admins never match a token. A disabled or archived match refuses the token.
 - Users created by MCP caller provisioning (keyed on the Entra `oid`) get no REST session from a bearer token.
 
-SSO-provisioned users match a bearer token only when its `iss` and `sub` equal the ID token's — for Entra, a v2.0 access token issued to the same application.
+SSO-provisioned users match a bearer token only when its `iss` and `sub` equal the ID token's. For Entra, a v2.0 access token issued to the same application.
 
 ### Custom authentication provider
 
@@ -223,7 +223,7 @@ While local login is off, whichever provider authenticated a password, only a br
 
 With OIDC enabled, Beacon admits only subjects that pass its rules, **before** it provisions anything: the tenant allow-list (`AllowedTenants`, or an explicit `AllowAnyTenant`), the guest block (`BlockGuests`, on by default), then the optional `RequiredRoles`/`RequiredGroups`. A bearer token on the REST API, and a token returned to the login form, that the SSO authority issued passes the same rules. A refused sign-in is logged at Warning with the reason, tenant, issuer and a hash of the subject.
 
-With `RequireMfa: true` (off by default) an interactive SSO sign-in must show multi-factor authentication in its ID token — `amr` containing `mfa`, or an `acr` listed in `AcceptedAcrValues` — or it is refused and the login page says so. With Microsoft Entra ID, request `amr` as an optional ID-token claim. `RequireMfa` applies to the interactive SSO sign-in. Bearer tokens (REST and `/beacon/mcp`), API keys, the login-form JWT flow and password sign-in (break-glass included) are authenticated by their own credentials; set the MFA requirement for tokens in the identity provider that issues them.
+With `RequireMfa: true` (off by default) an interactive SSO sign-in must show multi-factor authentication in its ID token (`amr` containing `mfa`, or an `acr` listed in `AcceptedAcrValues`) or it is refused and the login page says so. With Microsoft Entra ID, request `amr` as an optional ID-token claim. `RequireMfa` applies to the interactive SSO sign-in. Bearer tokens (REST and `/beacon/mcp`), API keys, the login-form JWT flow and password sign-in (break-glass included) are authenticated by their own credentials; set the MFA requirement for tokens in the identity provider that issues them.
 
 SSO provisions new users **without a role** unless `DefaultRoleName` is set; they see "Your account has no access yet" until a role is assigned. The full option table is on [Configuration → OIDC / SSO](/getting-started/configuration/#optional-oidc--sso).
 
@@ -246,7 +246,7 @@ Password sign-in through the login form (`POST /beacon/api/auth/login`) is **on*
 
 With `Enabled: false`:
 
-- `POST /beacon/api/auth/login` is **not mapped**, unless a break-glass account is listed. Then every name gets the same password check (so timing reveals nothing), and only a stored, enabled, internal user whose stored user name is on the list signs in — whichever provider authenticated the password. Other accounts get the generic answer and the attempt logs `PasswordSignInRefused` (7120), without the name typed.
+- `POST /beacon/api/auth/login` is **not mapped**, unless a break-glass account is listed. Then every name gets the same password check (so timing reveals nothing), and only a stored, enabled, internal user whose stored user name is on the list signs in, whichever provider authenticated the password. Other accounts get the generic answer and the attempt logs `PasswordSignInRefused` (7120), without the name typed.
 - The login page shows only the single sign-on button. A break-glass account opens the password form at `/beacon/login?local=1`.
 - A break-glass sign-in logs `BreakGlassSignIn` (7119) at Warning. Treat every one as an incident.
 
@@ -256,7 +256,7 @@ Password sign-in, and the first-run setup, are throttled per client address: 10 
 
 ## Passwords set by an administrator
 
-Whoever sets a password can sign in with it, so a password an Admin sets — a new internal user, or a reset through `IUserManagementService.ResetPasswordAsync` in host code — must be replaced at the user's first sign-in. There is no REST route or UI action that sets another user's password.
+Whoever sets a password can sign in with it, so a password an Admin sets (a new internal user, or a reset through `IUserManagementService.ResetPasswordAsync` in host code) must be replaced at the user's first sign-in. There is no REST route or UI action that sets another user's password.
 
 - The right user name and password answer `401` with `passwordChangeRequired: true` (no session); a wrong password answers as usual.
 - The login page asks for a new password and sends the same sign-in again with `newPassword`. When the rules accept it (and it differs from the one set), it becomes the user's password, the requirement clears, the security stamp changes and the user is signed in. A refused password answers `400` with the reason.
@@ -291,7 +291,7 @@ The cookie is `HttpOnly`, `SameSite=Lax` and `Secure` when the request is HTTPS.
 
 ## Who assigned a role
 
-Every `user_roles` row records when the role was assigned (`AssignedAt`) and who assigned it (`AssignedByUserId`, the assigner's external id): when an Admin or UserAdmin creates a user, changes a user's roles, or calls `IUserManagementService.AssignRoleAsync`. It is empty where Beacon grants the role itself — the default role at a first SSO or MCP sign-in, and the super admin's Admin role at setup. Identity-provider mapped permissions are never stored.
+Every `user_roles` row records when the role was assigned (`AssignedAt`) and who assigned it (`AssignedByUserId`, the assigner's external id): when an Admin or UserAdmin creates a user, changes a user's roles, or calls `IUserManagementService.AssignRoleAsync`. It is empty where Beacon grants the role itself: the default role at a first SSO or MCP sign-in, and the super admin's Admin role at setup. Identity-provider mapped permissions are never stored.
 
 ## User entity
 
@@ -367,7 +367,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 ## Upgrading from 4.5
 
 - **First-run setup needs a token** (`Beacon:UserManagement:SetupToken`, at least 32 characters, or the one printed to the process console). Automation calling `POST /beacon/api/setup/superadmin` must send `setupToken`. Setup is "no super admin has ever existed", and until then SSO and MCP provisioning create no user.
-- **SSO requires an admission decision.** With OIDC enabled set `AllowedTenants` or `AllowAnyTenant: true`, or the host does not start. Guests are blocked by default. New SSO users get no role unless `DefaultRoleName` is set — review the users earlier versions provisioned with `Viewer`.
+- **SSO requires an admission decision.** With OIDC enabled set `AllowedTenants` or `AllowAnyTenant: true`, or the host does not start. Guests are blocked by default. New SSO users get no role unless `DefaultRoleName` is set. Review the users earlier versions provisioned with `Viewer`.
 - **JWT validation is mandatory and strict**, tokens must prove they are access tokens (set `AccessTokenClaim` if your provider's access tokens carry neither `typ: at+jwt` nor an Entra client claim), and REST bearer tokens must name an existing, enabled, external Beacon user.
 - **Sign-out** is `POST /beacon/api/auth/logout` with the antiforgery token; `GET /beacon/api/auth/signout` was removed, and the OIDC front-channel sign-out path is served only with `EnableFrontChannelLogout: true`.
 - **Disabling, re-enabling and archiving revoke API keys.**
@@ -381,7 +381,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 
 ## See also
 
-- [Authorization](/features/authorization/) — project access and functional permissions
+- [Authorization](/features/authorization/): project access and functional permissions
 - [API keys](/features/api-keys/)
 - [Admin settings](/features/admin-settings/)
-- [Configuration](/getting-started/configuration/) — every sign-in key
+- [Configuration](/getting-started/configuration/): every sign-in key

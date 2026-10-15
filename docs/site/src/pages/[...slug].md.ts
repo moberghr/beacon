@@ -1,4 +1,4 @@
-// Every doc page as raw Markdown at <page>.md — for "Copy as Markdown" and for agents.
+// Every doc page as raw Markdown at <page>.md, for "Copy as Markdown" and for agents.
 import type { APIRoute, GetStaticPaths } from 'astro';
 import { getCollection, type CollectionEntry } from 'astro:content';
 import { toMarkdown } from '../lib/markdown-export';

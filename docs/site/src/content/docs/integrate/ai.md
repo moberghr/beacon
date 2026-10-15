@@ -1,9 +1,9 @@
 ---
 title: AI providers
-description: Turn on Beacon's AI layer — UseAI and AddBeaconAI, the four LLM providers and their settings, the request queue, runtime switching, local embeddings for semantic retrieval, and what data reaches the provider.
+description: "Turn on Beacon's AI layer: UseAI and AddBeaconAI, the four LLM providers and their settings, the request queue, runtime switching, local embeddings for semantic retrieval, and what data reaches the provider."
 ---
 
-Beacon's AI layer powers natural-language questions (`ask`), project documentation, grounding and the learning loop, and AI actors. It is optional — except that the MCP package depends on the AI package, so an MCP host always registers it.
+Beacon's AI layer powers natural-language questions (`ask`), project documentation, grounding and the learning loop, and AI actors. It is optional, except that the MCP package depends on the AI package, so an MCP host always registers it.
 
 ## Turning it on
 
@@ -60,7 +60,7 @@ The provider is built from `Beacon:LLM` each time the process starts. Keep that 
 }
 ```
 
-`Model` and `FastModel` are free text — use whatever model ids your provider offers. `Model` does the work (SQL generation, documentation, actors); `FastModel` is stored with the configuration for a smaller model.
+`Model` and `FastModel` are free text. Use whatever model ids your provider offers. `Model` does the work (SQL generation, documentation, actors); `FastModel` is stored with the configuration for a smaller model.
 
 ### The request queue
 
@@ -68,7 +68,7 @@ Every LLM call goes through one queue that allows at most `Limits:MaxConcurrentR
 
 ## Local embeddings (optional)
 
-Semantic retrieval — finding the right tables, examples and documentation chunks for a question — can use a local ONNX embedding model. Nothing leaves your process.
+Semantic retrieval (finding the right tables, examples and documentation chunks for a question) can use a local ONNX embedding model. Nothing leaves your process.
 
 ```json
 {
@@ -85,7 +85,7 @@ Semantic retrieval — finding the right tables, examples and documentation chun
 - Model: **bge-small-en-v1.5** (384 dimensions, 512 tokens). Beacon does not ship the model files; download them and mount them read-only.
 - Embeddings are used only when `Enabled` is `true` **and** both files exist. Otherwise Beacon falls back to keyword retrieval.
 - On PostgreSQL vectors live in a `pgvector` column with an HNSW index; on SQL Server they are compared in memory.
-- Schedule the re-index jobs (`mcp-embedding-reindex`, `mcp-docchunk-reindex`) — see [Background jobs](/integrate/background-jobs/#recurring-maintenance-jobs).
+- Schedule the re-index jobs (`mcp-embedding-reindex`, `mcp-docchunk-reindex`); see [Background jobs](/integrate/background-jobs/#recurring-maintenance-jobs).
 
 ## What reaches the LLM provider
 
@@ -93,14 +93,14 @@ By default Beacon sends **schema and documentation, not row values**:
 
 | Data | Sent? |
 |---|---|
-| Table and column names, types, relationships, documentation, glossary, verified examples | Yes — this is the grounding |
+| Table and column names, types, relationships, documentation, glossary, verified examples | Yes (this is the grounding) |
 | The user's question | Yes |
 | Sample values from tables | Only with the per-project setting **sample-value collection** (off by default); never from PII or secret-like columns |
 | Values probed to ground a question (value grounding) | Only with **value grounding** on (off by default) |
 | Query results for an LLM judge in evaluations | Only with **eval judge** on (off by default) |
 | Database error text | Redacted: value-carrying errors are reduced to their class |
 
-Set the deployment lock `Beacon:Mcp:ForbidRowDataToLlm: true` to pin all three switches off for every project. Every LLM request that carries row-derived data is logged as event **7123 `RowDataSentToLlm`** with caller, project, data source ids and categories — never the values.
+Set the deployment lock `Beacon:Mcp:ForbidRowDataToLlm: true` to pin all three switches off for every project. Every LLM request that carries row-derived data is logged as event **7123 `RowDataSentToLlm`** with caller, project, data source ids and categories, never the values.
 
 ## Features that use AI
 

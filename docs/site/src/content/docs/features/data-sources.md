@@ -1,6 +1,6 @@
 ---
 title: Data Sources
-description: Connect the databases and services Beacon reads — nine connectors, credentials encrypted at rest, access through projects, and per-engine read-only guarantees.
+description: "Connect the databases and services Beacon reads: nine connectors, credentials encrypted at rest, access through projects, and per-engine read-only guarantees."
 ---
 
 ![Data sources](/img/screenshots/data-sources-light.png)
@@ -14,10 +14,10 @@ reached through the [projects](#projects-and-access) that link them.
 | Kind in the UI | Engine | What Beacon reads |
 |---|---|---|
 | **Database** | PostgreSQL, SQL Server, MySQL, Azure Synapse, Snowflake | SQL, plus tables and columns for metadata |
-| **AWS CloudWatch** | — | Log groups; metadata discovers the log fields |
-| **Databricks** | — | SQL against a SQL warehouse |
-| **BigQuery** | — | SQL against a project |
-| **API (OpenAPI)** | — | An HTTP API described by an OpenAPI spec; metadata imports its endpoints |
+| **AWS CloudWatch** | n/a | Log groups; metadata discovers the log fields |
+| **Databricks** | n/a | SQL against a SQL warehouse |
+| **BigQuery** | n/a | SQL against a project |
+| **API (OpenAPI)** | n/a | An HTTP API described by an OpenAPI spec; metadata imports its endpoints |
 
 Each connector is a separate package the host registers (see [Data-source connectors](/integrate/connectors/)).
 
@@ -93,7 +93,7 @@ There is no edit in the UI or the REST API. A host can change a data source in c
 ### Delete a data source
 
 **Delete** (`DELETE /beacon/api/data-sources/{id}`) archives the data source (soft delete). It is refused while a live
-query or migration job still uses it — the message names them — and a data source the host registered (a
+query or migration job still uses it, the message names them, and a data source the host registered (a
 [host DbContext](/features/host-dbcontext/) source) cannot be deleted.
 
 Archiving evicts the cached metadata and relationship graph; reading or refreshing an archived data source's metadata
@@ -135,11 +135,11 @@ A [migration write target](#migration-write-targets) has no refresh, because Bea
   other description is taken from the database catalog again (and cleared when the catalog has none).
 - **Names that cannot be quoted safely are left out.** A table or column whose name carries a quote, backtick, bracket,
   semicolon or control character is not stored, because Beacon builds SQL from catalog names. The refresh answers
-  `skippedNameCount` (the page says how many were left out), and the server log lists their names — control characters
+  `skippedNameCount` (the page says how many were left out), and the server log lists their names: control characters
   written as `\uXXXX`, at most 50 names. A table left out loses its stored description, a curated one included.
 - **Sampling is logged per table.** With sample-value collection on, each table that could not be sampled is logged by
   name with the reason (refused by the execution gate, failed on the data source, timed out, or a name that is not a
-  plain identifier — never the database's own error text), and every refresh ends with how many tables were sampled.
+  plain identifier, never the database's own error text), and every refresh ends with how many tables were sampled.
 - **Caches.** The refresh replaces the cached metadata, and the relationship graph is rebuilt on its next read.
 
 ```json
@@ -160,23 +160,23 @@ row data, so:
 
 - **Off by default, and each project's choice.** Sample-value collection (`EnableSampleValueCollection`) is off for a new
   installation. A refresh collects while it is on in the effective settings of every live project that links the data
-  source — the project's own override, else the global value — so turning it on for a project is enough even while the
+  source (the project's own override, else the global value) so turning it on for a project is enough even while the
   global value is off, and one linking project that has it off keeps the source unsampled. The global value decides
   alone only for a data source no live project links. The deployment lock `Beacon:Mcp:ForbidRowDataToLlm` turns it off
   everywhere (see [MCP Server → What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider)).
-- **Columns never read.** The refresh reads only the columns whose values may describe them — its sampling statement
+- **Columns never read.** The refresh reads only the columns whose values may describe them; its sampling statement
   names those columns, and a table with none is not queried. A column is left out when its name is PII (the built-in
-  pattern, including the banking identifiers `iban`, `oib` and `jmbg` as a whole name segment — `customer_iban`,
-  `ClientOib`, `IBANNumber`, but not `Libanon` or `Kibana` — and account numbers such as `account_number`, or a custom
+  pattern, including the banking identifiers `iban`, `oib` and `jmbg` as a whole name segment: `customer_iban`,
+  `ClientOib`, `IBANNumber`, but not `Libanon` or `Kibana`, and account numbers such as `account_number`, or a custom
   PII pattern); names a person's name (`first_name`, `LastName`, `surname`, `customer_name`, Croatian `ime`, `prezime`)
   or Croatian personal data (`adresa`, `telefon`, `mobitel`, `placa`, `stanje`, `broj_racuna`); looks like it holds a
   secret (`password`, `secret`, `token`, `api_key`, `private_key`, `credential`, `cookie`, `passcode`, `passphrase`, a
   connection string, `dsn`, `webhook_url`, and the name segments `pwd`, `session`, `signature`, `pin`, `otp`, `salt`,
-  `hash`, `bearer`, `jwt` and `hmac` — so `session_id` and `request_hmac` are left out while `pinned` or `hashtag` are
+  `hash`, `bearer`, `jwt` and `hmac`, so `session_id` and `request_hmac` are left out while `pinned` or `hashtag` are
   not); has a `key` segment beside `api`, `access`, `secret`, `private`, `signing`, `encryption`, `master`, `license`,
   `hmac`, `aes`, `rsa`, `pgp`, `gpg` or `ssh`, or is named just `key` (`hmac_key`, `EncryptionKey` and `ssh_key` are left
   out, while a surrogate key such as `ProductKey` or `ClientKey` is sampled); names a personal financial amount
-  (`salary`, `wage`, `balance`, `income` — not a `balance_type` or an `income_category`); or holds binary data.
+  (`salary`, `wage`, `balance`, `income`; not a `balance_type` or an `income_category`); or holds binary data.
   Financial amounts stay unmasked in query results.
 - **Values that drop a column's samples.** Every value read is screened whole, before it is cut to 50 characters. When
   one looks like PII (an e-mail address, a card or phone number, an IBAN, OIB or JMBG with valid check digits, or a
@@ -186,14 +186,14 @@ row data, so:
   a URL with a user name and password), the column keeps none. Each refresh logs, as counts only, how many columns it
   left out by name, for a PII-shaped value and for a credential-shaped value.
 - **A refresh clears what it no longer samples.** The refresh replaces the stored catalog, so a column that is now left
-  out loses the samples it held. Until then, samples stored earlier are screened again whenever they are read — with
-  today's name and value rules and the custom patterns of every project that links the source — and withheld if they
+  out loses the samples it held. Until then, samples stored earlier are screened again whenever they are read (with
+  today's name and value rules and the custom patterns of every project that links the source) and withheld if they
   fail.
 - **Who sees them.** The REST metadata response (`GET /beacon/api/data-sources/{id}/metadata`, and the refresh's
   response) carries sample values to an Admin only, screened under the settings that apply now; every other caller gets
   the columns without them (the UI does not show them). Grounding reads the stored samples itself, under the settings of
   the asking project and the projects it shares the source with: `ask` sends them to the LLM provider, and
-  `get_query_context` returns them to an MCP caller with Read in the project — in both cases only while sample-value
+  `get_query_context` returns them to an MCP caller with Read in the project; in both cases only while sample-value
   collection is on for that project and every project sharing the source, and never under
   `Beacon:Mcp:ForbidRowDataToLlm`. Both are recorded in the row-data egress log (event `7123`).
 - **Archiving or a migration write target clears them.** Archiving a data source (see
@@ -210,12 +210,12 @@ and click **Relationships** (`/beacon/data-sources/{id}/relationships`) to revie
   proposals without saving, then accept the ones that are correct.
 - **Manual** relationships are declared by hand. One is verified only when its creator may
   [curate](/features/knowledge-base/#who-curates-grounding) the data source's shared grounding; otherwise it waits,
-  unverified, for a curator — and a verified relationship that someone else relabels or gives another cardinality goes
+  unverified, for a curator, and a verified relationship that someone else relabels or gives another cardinality goes
   back to unverified.
 
 Only verified relationships are presented to the SQL generator as authoritative join paths; unverified ones are passed
-separately and flagged. The page opens with a **schema health** panel — table and relationship counts, how many are
-unverified, connected groups, isolated tables and detected junction tables — which shows which parts of a schema an AI
+separately and flagged. The page opens with a **schema health** panel (table and relationship counts, how many are
+unverified, connected groups, isolated tables and detected junction tables) which shows which parts of a schema an AI
 assistant cannot reach. See the [Knowledge Base guide](/features/knowledge-base/#schema-relationships).
 
 ## Projects and access
@@ -246,8 +246,8 @@ filtered in the database by the same rule.
   project, and lists every other project that links them.
 - **Shared state.** Relationships, metadata description edits and a forced metadata refresh change what every linking
   project sees, so they need Write in every live project that links the data source, or an Admin; a DataSourceAdmin
-  needs Write (or Manage) only in a project it acts through. Curating that state — verifying a relationship, deleting a
-  verified one, applying or rejecting a documentation patch that writes a description — needs the project admin role in
+  needs Write (or Manage) only in a project it acts through. Curating that state (verifying a relationship, deleting a
+  verified one, applying or rejecting a documentation patch that writes a description) needs the project admin role in
   every live project that links the data source, the DataSourceAdmin permission, or an Admin (see
   [Who curates grounding](/features/knowledge-base/#who-curates-grounding)).
 - **Shared guardrails.** A data source several live projects link runs MCP SQL, and is grounded and sampled, with the
@@ -269,9 +269,9 @@ source's own permissions: **connect every data source Beacon reads with a login 
 
 | Engine | What the database itself does on Beacon's read-only path | Data-source badge |
 |---|---|---|
-| PostgreSQL | Session `default_transaction_read_only = on` plus a `READ ONLY` transaction, and the statement is sent as a batch of exactly one command, so the driver and the server refuse a second statement: the server refuses any write. | Enforced by the engine — still use a read-only login |
-| MySQL / MariaDB | `SET SESSION TRANSACTION READ ONLY` plus `START TRANSACTION READ ONLY` on a connection without statement batches, rolled back afterwards: the server refuses any write. | Enforced by the engine — still use a read-only login |
-| SQL Server | No read-only session or transaction mode exists. The statement runs inside a transaction that is always rolled back, so a write the SQL checks missed is undone rather than committed — but not refused, and work outside the transaction (a sequence value, a call to another server) is not undone. A statement that ends that transaction itself fails the run: its result is discarded and the security log records `ReadOnlyTransactionEnded` (7116, the data source id). | **Read-only login required** |
+| PostgreSQL | Session `default_transaction_read_only = on` plus a `READ ONLY` transaction, and the statement is sent as a batch of exactly one command, so the driver and the server refuse a second statement: the server refuses any write. | Enforced by the engine; still use a read-only login |
+| MySQL / MariaDB | `SET SESSION TRANSACTION READ ONLY` plus `START TRANSACTION READ ONLY` on a connection without statement batches, rolled back afterwards: the server refuses any write. | Enforced by the engine; still use a read-only login |
+| SQL Server | No read-only session or transaction mode exists. The statement runs inside a transaction that is always rolled back, so a write the SQL checks missed is undone rather than committed, but not refused, and work outside the transaction (a sequence value, a call to another server) is not undone. A statement that ends that transaction itself fails the run: its result is discarded and the security log records `ReadOnlyTransactionEnded` (7116, the data source id). | **Read-only login required** |
 | Azure Synapse | No read-only mode; dedicated and serverless pools differ in what transactions they allow, so the statement runs plainly. | **Read-only login required** |
 | Snowflake | No read-only session (DDL commits on its own); the statement runs plainly. | **Read-only login required** |
 | BigQuery | No read-only session; the connector also requires a dry run to report statement type `SELECT`. | **Read-only login required** |
@@ -280,9 +280,9 @@ source's own permissions: **connect every data source Beacon reads with a login 
 On every engine without a database-level guarantee, Beacon's SQL checks are the only thing between a statement and the
 data source's own permissions, so a **login (role, service account, token) that can only read** is the boundary. The
 list and the data source page mark such sources, and Beacon logs a warning (naming the data source by id only) when one
-is saved and when the host starts — except a [migration write target](#migration-write-targets), which Beacon never
+is saved and when the host starts, except a [migration write target](#migration-write-targets), which Beacon never
 reads and labels as one instead. The `databaseReadOnlyEnforced` field of `GET /beacon/api/data-sources` and
-`GET /beacon/api/data-sources/{id}` reports it: `true` (the engine refuses writes), `false` (it does not — use a
+`GET /beacon/api/data-sources/{id}` reports it: `true` (the engine refuses writes), `false` (it does not; use a
 read-only login) or `null` (the source runs no SQL, such as CloudWatch or an API source).
 
 A SQL Server query over memory-optimized tables runs inside that rolled-back transaction, which such tables accept only
@@ -295,9 +295,9 @@ The column sample values collected during a metadata refresh are read on the sam
 The one exception to read-only logins is a **migration write target**: a data source an Admin marked as the destination
 of [data migrations](/features/data-migration/#migration-write-targets) (data source page → **Migration writes** → **Mark as migration write target**, or
 `PUT /beacon/api/data-sources/{id}/migration-writes` with `{ "allowMigrationWrites": true }`; Admin only, and marking
-needs `Beacon:Migrations:Enabled`). **Return to a read source** (or `{ "allowMigrationWrites": false }`) unmarks it. Beacon never reads a write target — query steps, previews,
+needs `Beacon:Migrations:Enabled`). **Return to a read source** (or `{ "allowMigrationWrites": false }`) unmarks it. Beacon never reads a write target: query steps, previews,
 subscriptions, data quality, MCP tools, AI grounding, documentation and metadata scans refuse it or leave it out, and its
-catalog is not offered — so its login may hold the grants a migration needs to write
+catalog is not offered, so its login may hold the grants a migration needs to write
 ([destination privileges](/features/data-migration/#destination-privileges)). The list and the page label it
 **Migration write target** instead of asking for a read-only login, and `allowMigrationWrites` in
 `GET /beacon/api/data-sources` and `GET /beacon/api/data-sources/{id}` reports it; `?migrationTargets=true` lists only
@@ -355,7 +355,7 @@ GRANT SELECT ON your_database.* TO 'beacon_readonly'@'%';
 `INSERT`, `UPDATE`, `CREATE` or `OPERATE`), set as the user's default role or as `role=` in the connection.
 
 **BigQuery:** a service account with `roles/bigquery.dataViewer` on the datasets and `roles/bigquery.jobUser` on the
-project — not `dataEditor` or `admin`.
+project, not `dataEditor` or `admin`.
 
 **Databricks:** a token for a principal with `USE CATALOG`, `USE SCHEMA` and `SELECT` only, and `CAN USE` on the SQL
 warehouse.
@@ -381,7 +381,7 @@ WHERE grantee = 'beacon_readonly';
 
 ## Related
 
-- [Queries](/features/queries/) — run SQL against a data source
-- [Data Migration](/features/data-migration/) — copy data into a migration write target
-- [Knowledge Base & Grounding](/features/knowledge-base/) — what Beacon builds from this metadata
-- [Data-source connectors](/integrate/connectors/) — registering connectors in the host
+- [Queries](/features/queries/): run SQL against a data source
+- [Data Migration](/features/data-migration/): copy data into a migration write target
+- [Knowledge Base & Grounding](/features/knowledge-base/): what Beacon builds from this metadata
+- [Data-source connectors](/integrate/connectors/): registering connectors in the host

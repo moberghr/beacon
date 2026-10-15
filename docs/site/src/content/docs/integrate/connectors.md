@@ -27,26 +27,26 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 | AWS CloudWatch Logs | `Moberg.Beacon.Connector.CloudWatch` | `.AddCloudWatchConnector()` |
 | REST API (OpenAPI) | `Moberg.Beacon.Connector.Api` | `.AddApiConnector()` |
 
-Only registered engines appear in **New data source**. Data sources themselves — connection details, metadata options, project links — are created in the UI by a DataSourceAdmin or an Admin, and their connection strings are encrypted with `Beacon:EncryptionKey` before they are stored. See [Data sources](/features/data-sources/).
+Only registered engines appear in **New data source**. Data sources themselves (connection details, metadata options, project links) are created in the UI by a DataSourceAdmin or an Admin, and their connection strings are encrypted with `Beacon:EncryptionKey` before they are stored. See [Data sources](/features/data-sources/).
 
 ## What each engine supports
 
 | Engine | Metadata scan | Database-level read-only | Row cap stops the read early | Migration write target |
 |---|---|---|---|---|
-| PostgreSQL | Yes | **Yes** — `READ ONLY` transaction, one statement per batch | Yes | Yes |
-| MySQL | Yes | **Yes** — `START TRANSACTION READ ONLY`, batches off | Yes | Yes |
-| SQL Server | Yes | No — runs in a transaction that is always rolled back | Yes | Yes |
+| PostgreSQL | Yes | **Yes**: `READ ONLY` transaction, one statement per batch | Yes | Yes |
+| MySQL | Yes | **Yes**: `START TRANSACTION READ ONLY`, batches off | Yes | Yes |
+| SQL Server | Yes | No: runs in a transaction that is always rolled back | Yes | Yes |
 | Azure Synapse | Yes | No | Yes | No |
 | Snowflake | Yes | No | Yes | No |
-| BigQuery | No | No — the connector's own parser check plus a dry run whose statement type must be `SELECT` | No (reads the capped result) | No |
-| Databricks | No | No — the connector's own parser check and configured catalog | No (reads the capped result) | No |
+| BigQuery | No | No: the connector's own parser check plus a dry run whose statement type must be `SELECT` | No (reads the capped result) | No |
+| Databricks | No | No: the connector's own parser check and configured catalog | No (reads the capped result) | No |
 | CloudWatch | Log fields | n/a (Logs Insights queries, no SQL) | n/a | No |
 | REST API | OpenAPI endpoints | n/a (HTTP requests, no SQL) | n/a | No |
 
 Every SQL engine goes through the same [execution gate](/features/security-model/#6-the-sql-execution-gate) before anything runs: length and character checks, a guardrail, a dialect-aware AST validator, the cross-database rule, a row cap written into the SQL and a statement timeout. Where the database cannot refuse a write itself, the data source shows a badge and Beacon logs a warning at startup and on save.
 
 :::caution[Always use a read-only login]
-The gate is the main defence; database-level read-only is defence in depth. Give every data source a login that **can only read** — on every engine, including PostgreSQL and MySQL. A data-migration write target is the one exception, and it is a separate, Admin-marked data source.
+The gate is the main defence; database-level read-only is defence in depth. Give every data source a login that **can only read**, on every engine, including PostgreSQL and MySQL. A data-migration write target is the one exception, and it is a separate, Admin-marked data source.
 :::
 
 ## Creating read-only logins
@@ -101,7 +101,7 @@ A query can have several steps on different data sources. Each step's result is 
 
 ## Monitoring your own application's database
 
-To let Beacon (and MCP clients) read your application's own EF Core model — with a table allow-list, column masking and a read-only connection string that is never stored — use `ExposeDbContext<TContext>(...)` instead of creating a data source by hand. See [Extending Beacon](/integrate/extending/#your-dbcontext-as-a-data-source).
+To let Beacon (and MCP clients) read your application's own EF Core model (with a table allow-list, column masking and a read-only connection string that is never stored) use `ExposeDbContext<TContext>(...)` instead of creating a data source by hand. See [Extending Beacon](/integrate/extending/#your-dbcontext-as-a-data-source).
 
 ## Notes
 

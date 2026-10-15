@@ -1,6 +1,6 @@
 ---
 title: Host Docs
-description: Ship the host application's markdown documentation with it and import it into a Beacon project — searchable by MCP agents with or without embeddings, readable through get_documentation, summarised in an AGENTS.md project brief.
+description: Ship the host application's markdown documentation with it and import it into a Beacon project. The documents are searchable by MCP agents with or without embeddings, readable through get_documentation, and summarised in an AGENTS.md project brief.
 ---
 
 A host application often keeps its own documentation next to the code: a `docs/wiki/` folder of generated markdown
@@ -24,7 +24,7 @@ beacon.ExposeDocs(o =>
      .Exclude("drafts/**");
 });
 
-beacon.UseSqlServer();                         // ends the builder chain — call ExposeDocs first
+beacon.UseSqlServer();                         // ends the builder chain: call ExposeDocs first
 
 var app = builder.Build();
 // ... apply migrations ...
@@ -32,7 +32,7 @@ await app.Services.SyncBeaconHostAsync();      // syncs ExposeDbContext data sou
 ```
 
 `SyncBeaconHostAsync` is the single startup entrypoint for everything a host declares. It runs the
-`ExposeDbContext` sync first (exactly what `SyncBeaconHostDataSourcesAsync` does — that call still works on its
+`ExposeDbContext` sync first (exactly what `SyncBeaconHostDataSourcesAsync` does; that call still works on its
 own) and then imports the documents. It is a plain startup call, not a hosted service.
 
 Both calls are **safe to run from several replicas at once**: the whole sync holds one lock in Beacon's own database
@@ -74,7 +74,7 @@ app:
 o.FromDirectory("docs/wiki");
 ```
 
-`FromDirectory` resolves a relative path against `IHostEnvironment.ContentRootPath` — make sure that is the
+`FromDirectory` resolves a relative path against `IHostEnvironment.ContentRootPath`. Make sure that is the
 output directory in your deployment (it is when the app is started from its own folder), or pass an absolute
 path such as `Path.Combine(AppContext.BaseDirectory, "docs/wiki")`.
 
@@ -103,7 +103,7 @@ The part of the resource name after the prefix is the document path (backslashes
 | `Exclude(params globs)` | Skips documents whose relative path matches (applies to every source of this call). |
 | `MaxDocumentBytes` | Per-document cap, default 512 KB. Larger files are skipped with a warning that names only the path. |
 
-`ExposeDocs` may be called more than once — for several folders, or for several projects. Only `.md`,
+`ExposeDocs` may be called more than once, for several folders or for several projects. Only `.md`,
 `.markdown` and `.txt` files are ingested, whatever the glob matches. Globs must be relative and may not contain
 `..`; a file that resolves outside the configured directory, and any symbolic link inside it (file or folder), is
 rejected. A configured directory that does not exist fails startup, so a broken deployment cannot silently archive
@@ -114,17 +114,17 @@ every imported document.
 Each document is stored as a `ProjectImportedDocument`, keyed by project, source (`docs:dir:docs/wiki`,
 `docs:res:{Assembly}:{prefix}`) and relative path.
 
-- **Title** — the frontmatter `title`, else the first `# ` heading (outside code fences), else the file name.
-- **Frontmatter** — a leading `---` YAML block is stripped from the body and kept as JSON (flat keys, quoted
+- **Title**: the frontmatter `title`, else the first `# ` heading (outside code fences), else the file name.
+- **Frontmatter**: a leading `---` YAML block is stripped from the body and kept as JSON (flat keys, quoted
   strings, `[a, b]` and `- item` lists, such as a `sources:` list).
-- **Idempotent** — a document whose content hash is unchanged is left alone; nothing is written when nothing
+- **Idempotent**: a document whose content hash is unchanged is left alone; nothing is written when nothing
   changed. A changed document is updated in place, a removed file is archived, and a file that comes back is
   un-archived.
-- **Case-insensitive paths** — source and path are matched ignoring letter case, as SQL Server's unique index
+- **Case-insensitive paths**: source and path are matched ignoring letter case, as SQL Server's unique index
   compares them. Renaming `Guide.md` to `guide.md` updates the existing row (it takes the new casing). Two files
   whose paths differ only by case (possible on a case-sensitive file system or in embedded resources) cannot both be
   stored: the first is imported and the other is skipped with a warning that names its path.
-- **Chunked for search** — new and changed documents are split into sentence-window chunks (the same chunker and
+- **Chunked for search**: new and changed documents are split into sentence-window chunks (the same chunker and
   `DocChunkWindowSentences` / `DocChunkOverlapSentences` settings as generated documentation). Keyword search
   works on them immediately. When the local embedder and semantic retrieval are enabled, the sync then embeds the
   new chunks through the doc-chunk re-index, and the recurring `mcp-docchunk-reindex` job keeps them current. An
@@ -134,16 +134,16 @@ The documents belong to one project and are only ever visible to callers authori
 
 ## On the MCP surface
 
-- **`get_documentation`** — the project-level response (no arguments) ends with an *Imported documents* listing
+- **`get_documentation`**: the project-level response (no arguments) ends with an *Imported documents* listing
   (title + path). `document: "<path>"` (or an exact title) returns one document in full; a title shared by several
   documents is an error that names their paths.
-- **`search`** — imported documents match on title, path or chunk text and appear as
+- **`search`**: imported documents match on title, path or chunk text and appear as
   `- **[IMPORTED_DOC]** \`path\` (title)`, followed by ` -- snippet` when there is one, with or without embeddings.
-- **`get_context` with `format: "agents_md"`** — a deterministic *project brief* in markdown to drop into an agent
+- **`get_context` with `format: "agents_md"`**: a deterministic *project brief* in markdown to drop into an agent
   workspace's `AGENTS.md`: the project description, data sources (host-managed ones marked read-only), up to 30 key
   tables (best-described and most-related first), masked columns, up to 30 glossary terms, the imported document
   titles, and how to use Beacon's tools (`get_query_context` → `dry_run` → `query`, read-only, masked columns stay
-  masked). Built from the catalog only — no LLM call — and audited like every tool call.
+  masked). Built from the catalog only, with no LLM call, and audited like every tool call.
 
 The REST API exposes the same documents: `GET /beacon/api/projects/{id}/imported-documents` (listing) and
 `GET /beacon/api/projects/{id}/imported-documents/{documentId}` (one document with its content). Both need Read in
