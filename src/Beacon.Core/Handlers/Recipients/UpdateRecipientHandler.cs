@@ -7,6 +7,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Recipients;
 
@@ -27,6 +28,8 @@ internal sealed class UpdateRecipientHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     RecipientChangeApproval changeApproval,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<UpdateRecipientHandler> logger)
     : IRequestHandler<UpdateRecipientCommand>
 {
@@ -101,12 +104,17 @@ internal sealed class UpdateRecipientHandler(
         var stored = new StoredRecipientSecrets(entity.NotificationType, entity.Destination, entity.HeadersJson);
         var (destination, headersJson) = secretEditor.Prepare(notificationType, request.Destination, request.HeadersJson, stored);
 
+        var delivery = secretEditor.DeliveryChangeOf(notificationType, request.Destination, request.HeadersJson, stored);
         var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
-        if (!permissions.IsAdmin && secretEditor.ChangesDelivery(notificationType, request.Destination, request.HeadersJson, stored))
+        if (!permissions.IsAdmin && delivery.Changed)
         {
             await DemandReadsEveryAttachedAsync(context, entity.Id, cancellationToken);
         }
 
+        var fields = new RecipientFieldChanges(
+            !string.Equals(entity.Name, request.Name, StringComparison.Ordinal),
+            !string.Equals(entity.Description, request.Description, StringComparison.Ordinal),
+            !string.Equals(entity.BodyTemplate, request.BodyTemplate, StringComparison.Ordinal));
         entity.Name = request.Name;
         entity.Description = request.Description;
         entity.Destination = destination;
@@ -115,7 +123,19 @@ internal sealed class UpdateRecipientHandler(
         entity.BodyTemplate = request.BodyTemplate;
 
         var submission = await changeApproval.SubmitUpdateAsync(context, requester, entity, stored, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+        if (!delivery.Changed && !fields.Any)
+        {
+            // Saved as it was: nothing to attribute or record (a stored hash may still be rewritten under the current key).
+            await context.SaveChangesAsync(cancellationToken);
+
+            return submission;
+        }
+
+        entity.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => RecipientAuditEntries.With(RecipientAuditEntries.Updated(entity.Id, notificationType, delivery, fields, submission), submission),
+            cancellationToken);
 
         return submission;
     }

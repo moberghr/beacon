@@ -72,6 +72,32 @@ public class ContentRetentionInterceptorTests
         _logger.Warnings.Should().OnlyContain(x => !x.Contains("how many users") && !x.Contains("select"));
     }
 
+    // The statements an audited call ran: under the lock their text goes, while their keyed hash, purpose, tables and error
+    // class stay, so the evidence that a statement ran (and which) outlives the content.
+    [Test]
+    public async Task LockedProject_ClearsAStatementsSql_AndKeepsItsHashAndStructure()
+    {
+        using var context = NpgsqlTestContext.Create();
+        var statement = new McpAuditStatement
+        {
+            ProjectId = ProjectId,
+            DataSourceId = 3,
+            Purpose = "initial",
+            Sql = "select email from users where name = 'ada'",
+            SqlHash = new string('a', 64),
+            TablesJson = "[\"users\"]",
+            RowCount = 1,
+            ErrorClass = McpContentRedactor.ClassPermission
+        };
+        context.Add(statement);
+
+        await _interceptor.RedactTrackedEntriesAsync(context.ChangeTracker, (_, _) => Task.FromResult(new ContentRetentionDecision(false, false)));
+
+        statement.Should().BeEquivalentTo(
+            new { Sql = (string?)null, SqlHash = new string('a', 64), Purpose = "initial", TablesJson = "[\"users\"]", ErrorClass = McpContentRedactor.ClassPermission },
+            x => x.ExcludingMissingMembers());
+    }
+
     [Test]
     public async Task UnlockedProject_ChangesNothing()
     {

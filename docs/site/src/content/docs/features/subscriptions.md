@@ -144,7 +144,19 @@ A subscription without an owner (created before owners were recorded) runs only 
 
 ### Change the owner
 
-An Admin or a UserAdmin assigns an owner with **Change owner** on the subscription page (in the header, and in the "owner not authorized" banner): pick a user and save. The same change is `PUT /beacon/api/subscriptions/{id}/owner` with `{ "userId": 12 }` (the user's id in the user directory) — for instance for a subscription created before owners were recorded, or one whose owner left. The new owner must be an existing, enabled user who may run the subscription's query: run saved SQL in one project that holds all of its data sources. A user who may not is refused with `409` and a message saying so, because every run would be skipped; the page shows that message and keeps the picker open so you can choose someone else.
+An Admin or a UserAdmin assigns an owner with **Change owner** on the subscription page (in the header, and in the "owner not authorized" banner): pick a user and save. The same change is `PUT /beacon/api/subscriptions/{id}/owner` with `{ "userId": 12 }` (the user's id in the user directory) — for instance for a subscription created before owners were recorded, or one whose owner left. The new owner must be an existing, enabled user who may run the subscription's query: run saved SQL in one project that holds all of its data sources. A user who may not is refused with `409` and a message saying so, because every run would be skipped; the page shows that message and keeps the picker open so you can choose someone else. The change is made only from the owner it was checked against: when someone else changed the owner (or archived the subscription) in the meantime, nothing is changed and the call answers `409` — reload and try again. Choosing the owner the subscription already has changes nothing, records nothing and checks nothing.
+
+### Who created and changed it
+
+A subscription also records who **created** it (the signed-in creator; for one an AI actor creates, the actor's creator)
+and who **changed it last**, and when: an edit, adding or removing recipients, a new SLA or owner, archiving and
+reactivating it, and archiving its query. Like the owner, these are taken from the caller, never from the request, and
+subscriptions created before this was recorded show neither. They are not shown on the subscription page; an Auditor or a
+UserAdmin finds a user's subscriptions under [Owned resources](/features/user-management/#owned-resources).
+
+Creating, editing, archiving and reactivating a subscription, adding and removing its recipients, changing its SLA and
+changing its owner are recorded in the [security audit trail](/features/security-audit/#event-catalogue)
+(`delivery.subscription_*`, `ownership.owner_changed`), by ids — never a recipient's destination.
 
 ### Execute Manually
 

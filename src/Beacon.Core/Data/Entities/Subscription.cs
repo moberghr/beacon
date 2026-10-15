@@ -3,7 +3,7 @@ using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
-public class Subscription : ArchivableBaseEntity
+public class Subscription : ArchivableBaseEntity, IAttributedEntity
 {
     public required int QueryId { get; set; }
 
@@ -63,6 +63,15 @@ public class Subscription : ArchivableBaseEntity
     /// recorded.
     /// </summary>
     public string? OwnerUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? CreatedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? ModifiedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public DateTime? ModifiedTime { get; set; }
 
     public Query Query { get; set; } = null!;
 

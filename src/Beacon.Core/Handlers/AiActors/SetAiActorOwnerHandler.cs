@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.AiActors;
 
@@ -13,10 +14,14 @@ internal sealed class SetAiActorOwnerHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     ProjectRequestAuthorizer authorizer,
+    ISecurityAuditRecorder securityAudit,
     ILogger<SetAiActorOwnerHandler> logger) : IRequestHandler<SetAiActorOwnerCommand>
 {
     public const string OwnerMayNotQueryMessage =
         "The new creator cannot run this AI actor: they need access to work ad hoc in a project that holds its data source.";
+
+    /// <summary>The AI actor was changed (its owner, or archived) between the read of its owner and the change: nothing was written.</summary>
+    public const string OwnerChangedMessage = "The AI actor changed while its owner was being set (its owner was changed by someone else, or it was archived); nothing was changed. Reload it and try again.";
 
     public async Task Handle(SetAiActorOwnerCommand request, CancellationToken cancellationToken)
     {
@@ -35,12 +40,18 @@ internal sealed class SetAiActorOwnerHandler(
         var ownerUserId = await AssignableUsers.ExternalIdOfActiveUserAsync(context, request.UserId, cancellationToken)
             ?? throw new InvalidOperationException("An AI actor can only be owned by an existing, enabled user.");
 
-        var exists = await context.AiActors
+        var current = await context.AiActors
             .Where(x => x.Id == request.ActorId)
-            .AnyAsync(cancellationToken);
-        if (!exists)
+            .Select(x =>
+                new
+                {
+                    x.CreatedByUserId
+                })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new BeaconNotFoundException($"AI actor {request.ActorId} not found.");
+        if (current.CreatedByUserId == ownerUserId)
         {
-            throw new BeaconNotFoundException($"AI actor {request.ActorId} not found.");
+            return;
         }
 
         // Background think cycles run as the creator: a creator who may not work ad hoc with the actor's data source
@@ -51,9 +62,22 @@ internal sealed class SetAiActorOwnerHandler(
             OwnerMayNotQueryMessage,
             cancellationToken);
 
-        await context.AiActors
-            .Where(x => x.Id == request.ActorId)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.CreatedByUserId, ownerUserId), cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.AiActors
+                .Where(x => x.Id == request.ActorId)
+                .Where(x => x.CreatedByUserId == current.CreatedByUserId)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.CreatedByUserId, ownerUserId), cancellationToken),
+            written => written == 0
+                ? throw new BeaconConflictException(OwnerChangedMessage)
+                :
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.OwnerChanged)
+                        .On(SecurityAuditResources.AiActor, request.ActorId)
+                        .With(new SecurityAuditDetails().Add("ownerUserId", request.UserId))
+                        .Naming("previousOwnerUserId", current.CreatedByUserId)
+                ],
+            cancellationToken);
     }
 }
 

@@ -8,6 +8,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Core.Mcp;
 
 namespace Beacon.AI.Services.Mcp;
 
@@ -28,6 +29,7 @@ internal sealed class AskSqlPipeline(
     ISqlExecutionGate gate,
     ILlmRowDataEgress rowDataEgress,
     IOptions<McpDeploymentOptions> deploymentOptions,
+    IMcpStatementLog statementLog,
     ILogger<AskSqlPipeline> logger) : IAskSqlPipeline
 {
     // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
@@ -351,7 +353,7 @@ internal sealed class AskSqlPipeline(
             repairs.Add(new AskRepairStep("dry-run", redactedDryRunError, dryRunRepairSql, dryRunRepairOk));
         }
 
-        var execResult = await executor.ExecuteAsync(dataSourceId, generatedSql, 100, ct);
+        var execResult = await ExecuteForAsync(McpStatementPurposes.Initial, executor, dataSourceId, generatedSql, ct);
 
         if (!execResult.IsSuccess && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
         {
@@ -372,7 +374,7 @@ internal sealed class AskSqlPipeline(
             {
                 if (ValidateGeneratedSql(retriedSql, settings, smartContext) == null)
                 {
-                    var retryExec = await executor.ExecuteAsync(dataSourceId, retriedSql, 100, ct);
+                    var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, retriedSql, ct);
                     repairs.Add(new AskRepairStep("execution", redactedExecutionError, retriedSql, retryExec.IsSuccess));
                     text += $"*Initial query failed ({CallerError(execResult.ErrorMessage, generatedSql)}), retried with corrected SQL.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
@@ -405,7 +407,7 @@ internal sealed class AskSqlPipeline(
             {
                 if (ValidateGeneratedSql(emptyRetry, settings, smartContext) == null)
                 {
-                    var retryExec = await executor.ExecuteAsync(dataSourceId, emptyRetry, 100, ct);
+                    var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, emptyRetry, ct);
                     if (retryExec.IsSuccess && retryExec.RowCount > 0)
                     {
                         repairs.Add(new AskRepairStep("empty-result", emptyResultError, emptyRetry, true));
@@ -481,7 +483,7 @@ internal sealed class AskSqlPipeline(
                 continue;
             }
 
-            var execResult = await executor.ExecuteAsync(dataSourceId, candidate.Sql, 100, ct);
+            var execResult = await ExecuteForAsync(McpStatementPurposes.Candidate, executor, dataSourceId, candidate.Sql, ct);
             evaluated.Add((candidate, ResultFingerprint(execResult), execResult.IsSuccess));
         }
 
@@ -610,6 +612,14 @@ internal sealed class AskSqlPipeline(
             @"\b(how many|count|number of|total of|are there|is there|any\b|exists?|do we have|does .{1,40} have|has .{1,40} ever)\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase,
             TimeSpan.FromSeconds(1));
+    }
+
+    // Runs a statement under the purpose the call's audit row records it with (the executor records it there).
+    private async Task<AskExecutionResult> ExecuteForAsync(string purpose, IAskSqlExecutor executor, int dataSourceId, string sql, CancellationToken ct)
+    {
+        using var scope = statementLog.BeginPurpose(purpose);
+
+        return await executor.ExecuteAsync(dataSourceId, sql, 100, ct);
     }
 
     private async Task<string?> TryDryRunAsync(IAskSqlExecutor executor, int dataSourceId, string sql, CancellationToken ct)

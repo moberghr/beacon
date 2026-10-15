@@ -22,6 +22,7 @@ using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -252,7 +253,8 @@ internal partial class QueryService(
     IStepSqlSaveCheck saveCheck,
     IQueryGuardrailService guardrail,
     ISharedSourceSettings sharedSourceSettings,
-    IOptions<QueryExecutionOptions> queryOptions) : IQueryService
+    IOptions<QueryExecutionOptions> queryOptions,
+    TimeProvider timeProvider) : IQueryService
 {
     /// <summary>The most rows one statement may return before its run fails (<c>Beacon:Query:MaxExecutionRows</c>). Settable for tests.</summary>
     internal int ExecutionRowCeiling { get; init; } = queryOptions.Value.MaxExecutionRows;
@@ -278,7 +280,8 @@ internal partial class QueryService(
                 {
                     Name = queryData.Name,
                     Description = queryData.Description,
-                    OwnerUserId = actor.UserId
+                    OwnerUserId = actor.UserId,
+                    CreatedByUserId = actor.UserId
                 },
                 queryData,
                 new QueryChangeSubmission(actor.UserId, userContext.DisplayName, "UserEdit", "New query", "New query submitted for approval"),
@@ -331,12 +334,15 @@ internal partial class QueryService(
             .SingleAsync(cancellationToken);
 
         // Archive the query
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         query.Archive();
+        query.RecordChangeBy(actor, timeProvider);
 
         // Cascade-archive all subscriptions
         foreach (var subscription in query.Subscriptions)
         {
             subscription.Archive();
+            subscription.RecordChangeBy(actor, timeProvider);
         }
 
         // Archive all steps and their parameters
@@ -555,7 +561,7 @@ internal partial class QueryService(
         await EnsureStepsPassTheGateAsync(queryData.Steps, cancellationToken);
     }
 
-    // The query with its steps live, owned by ownerUserId.
+    // The query with its steps live, owned and created by ownerUserId (the caller).
     private async Task StoreLiveQueryAsync(QueryData queryData, string? ownerUserId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -568,6 +574,7 @@ internal partial class QueryService(
             Description = queryData.Description,
             FinalQuery = queryData.FinalQuery,
             OwnerUserId = ownerUserId,
+            CreatedByUserId = ownerUserId,
             Steps = queryData.Steps
                 .Select(x =>
                     new QueryStep

@@ -54,6 +54,11 @@ internal static class UsersEndpoints
             return TypedResults.NoContent();
         }).WithName("SetUserRoles").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
+        // What the user owns, created or changed last, one kind per page, for offboarding: an Auditor's or a UserAdmin's.
+        users.MapGet("/{id:int}/owned-resources", ([AsParameters] GetUserOwnedResourcesQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("GetUserOwnedResources")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrUserAdminPolicy);
+
         // Signs out every session of the user (a new security stamp); their API keys are not affected.
         users.MapPost("/{id:int}/sign-out-everywhere", async (int id, IMediator m, CancellationToken ct) =>
         {

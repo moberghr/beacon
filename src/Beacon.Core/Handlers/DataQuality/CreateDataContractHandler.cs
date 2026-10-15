@@ -10,6 +10,7 @@ using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Worker;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataQuality.CreateDataContract;
 
@@ -21,7 +22,8 @@ internal sealed class CreateDataContractHandler(
     IConfiguredDatabaseResolver configuredDatabases,
     IBeaconActorAccessor actorAccessor,
     BeaconConfiguration configuration,
-    CustomSqlChangeApproval changeApproval) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
+    CustomSqlChangeApproval changeApproval,
+    ISecurityAuditRecorder securityAudit) : IRequestHandler<CreateDataContractCommand, CreateDataContractResult>
 {
     public async Task<CreateDataContractResult> Handle(CreateDataContractCommand request, CancellationToken cancellationToken)
     {
@@ -33,7 +35,8 @@ internal sealed class CreateDataContractHandler(
 
         // The owner is the signed-in caller, never a value from the request; a contract is never stored without one, and
         // with user management on its owner is a stored Beacon user (its evaluations act with the owner's access).
-        var ownerUserId = ScheduledWorkOwner.Require(await actorAccessor.GetCurrentAsync(cancellationToken), configuration);
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var ownerUserId = ScheduledWorkOwner.Require(actor, configuration);
 
         // Under the workflow its Custom SQL rules wait for a second person's approval: the caller is the requester.
         var requester = await changeApproval.RequesterAsync(null, hasCustomSql, cancellationToken);
@@ -79,6 +82,7 @@ internal sealed class CreateDataContractHandler(
             CronExpression = request.CronExpression,
             IsEnabled = request.IsEnabled,
             OwnerUserId = ownerUserId,
+            CreatedByUserId = actor.UserId,
             AlertOnFailure = request.AlertOnFailure,
             FailureThresholdScore = request.FailureThresholdScore,
             Rules = request.Rules
@@ -116,11 +120,11 @@ internal sealed class CreateDataContractHandler(
         };
     }
 
-    private static async Task<DataContract> CreateAsync(BeaconContext context, Func<DataContract> newContract, CancellationToken cancellationToken)
+    private async Task<DataContract> CreateAsync(BeaconContext context, Func<DataContract> newContract, CancellationToken cancellationToken)
     {
         var contract = newContract();
         context.DataContracts.Add(contract);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(context, () => [DataContractAuditEntries.Created(contract, null)], cancellationToken);
 
         return contract;
     }
@@ -148,8 +152,11 @@ internal sealed class CreateDataContractHandler(
             context.DataContracts.Add(contract);
             await context.SaveChangesAsync(cancellationToken);
 
-            await changeApproval.SubmitAsync(context, requester, contract, [], 0, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            var submission = await changeApproval.SubmitAsync(context, requester, contract, [], 0, cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => DataContractAuditEntries.With(DataContractAuditEntries.Created(contract, submission), submission),
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             return contract;

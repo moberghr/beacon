@@ -21,6 +21,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -126,6 +127,7 @@ public class ProjectAskToolRepairFlowTests
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
+            new McpStatementLog(),
             log.For<AskSqlPipeline>());
 
         await pipeline.RunAsync(
@@ -311,6 +313,7 @@ public class ProjectAskToolRepairFlowTests
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()),
             Options.Create(new McpDeploymentOptions()),
+            new McpStatementLog(),
             NullLogger<AskSqlPipeline>.Instance);
 
         await pipeline.RunAsync(llm.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
@@ -514,7 +517,7 @@ public class ProjectAskToolRepairFlowTests
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
             _executor.Object,
@@ -572,7 +575,7 @@ public class ProjectAskToolRepairFlowTests
             sharedSources,
             serviceProvider.Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             pipeline.Object,
             _executor.Object,
@@ -955,6 +958,7 @@ public class ProjectAskToolRepairFlowTests
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
+            new McpStatementLog(),
             logger ?? NullLogger<AskSqlPipeline>.Instance);
     }
 
@@ -981,7 +985,7 @@ public class ProjectAskToolRepairFlowTests
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
             new McpProjectContext { UserId = userId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
             Mock.Of<IAskSqlPipeline>(),
             _executor.Object,

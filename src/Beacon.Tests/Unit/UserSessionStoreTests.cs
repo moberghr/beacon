@@ -28,7 +28,7 @@ public class UserSessionStoreTests
             User(2, "ben", enabled: false),
             User(3, "cid", archived: true)
         };
-        var store = new UserSessionStore(Factory(users));
+        var store = new UserSessionStore(Factory(users), new RecordingSecurityAudit());
 
         var ana = await store.FindAsync("ana", CancellationToken.None);
         var ben = await store.FindAsync("ben", CancellationToken.None);
@@ -45,7 +45,7 @@ public class UserSessionStoreTests
     public async Task RenewStamp_ChangesThatUsersStampOnly()
     {
         var users = new List<BeaconUser> { User(1, "ana", stamp: "s-1"), User(2, "ben", stamp: "s-2") };
-        var store = new UserSessionStore(Factory(users));
+        var store = new UserSessionStore(Factory(users), new RecordingSecurityAudit());
 
         var renewed = await store.RenewStampAsync(1, CancellationToken.None);
         var unknown = await store.RenewStampAsync(9, CancellationToken.None);
@@ -61,7 +61,7 @@ public class UserSessionStoreTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await new UserSessionStore(capture.Factory()).FindAsync("ana", CancellationToken.None);
+        await new UserSessionStore(capture.Factory(), new RecordingSecurityAudit()).FindAsync("ana", CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("FROM beacon.users");
@@ -76,7 +76,7 @@ public class UserSessionStoreTests
     {
         var capture = SqlCapture.OnSqlServer().ThenNoRows();
 
-        await new UserSessionStore(capture.Factory()).FindAsync("ana", CancellationToken.None);
+        await new UserSessionStore(capture.Factory(), new RecordingSecurityAudit()).FindAsync("ana", CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("[beacon].[Users]");
@@ -90,7 +90,7 @@ public class UserSessionStoreTests
     {
         var capture = new SqlCapture().ThenRowsAffected(1);
 
-        var renewed = await new UserSessionStore(capture.Factory()).RenewStampAsync(7, CancellationToken.None);
+        var renewed = await new UserSessionStore(capture.Factory(), new RecordingSecurityAudit()).RenewStampAsync(7, CancellationToken.None);
 
         renewed.Should().BeTrue();
         var sql = capture.Commands.Should().ContainSingle().Subject;
@@ -105,7 +105,7 @@ public class UserSessionStoreTests
     {
         var capture = SqlCapture.OnSqlServer().ThenRowsAffected(1);
 
-        var renewed = await new UserSessionStore(capture.Factory()).RenewStampAsync(7, CancellationToken.None);
+        var renewed = await new UserSessionStore(capture.Factory(), new RecordingSecurityAudit()).RenewStampAsync(7, CancellationToken.None);
 
         renewed.Should().BeTrue();
         var sql = capture.Commands.Should().ContainSingle().Subject;

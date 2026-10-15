@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Authorization;
@@ -12,6 +13,7 @@ namespace Beacon.Core.Handlers.Setup;
 internal sealed class CreateSuperAdminHandler(
     IUserManagementService userService,
     FirstRunSetupToken setupToken,
+    ISecurityAuditRecorder securityAudit,
     ILogger<CreateSuperAdminHandler> logger)
     : IRequestHandler<CreateSuperAdminCommand, CreateSuperAdminResult>
 {
@@ -35,6 +37,14 @@ internal sealed class CreateSuperAdminHandler(
         if (!setupToken.Verify(request.Request.SetupToken))
         {
             logger.LogWarning("First-run setup rejected: the setup token is missing or invalid.");
+
+            // Whether a token was sent at all, never what was sent (nor the name the account would have had).
+            await securityAudit.RecordAsync(
+                new SecurityAuditEntry(SecurityAuditActions.SetupTokenRefused)
+                    .Ending(SecurityAuditOutcomes.Refused)
+                    .By(SecurityAuditActor.Anonymous)
+                    .With(new SecurityAuditDetails().Add("tokenPresent", !string.IsNullOrEmpty(request.Request.SetupToken))),
+                cancellationToken);
             return new CreateSuperAdminResult
             {
                 Success = false,

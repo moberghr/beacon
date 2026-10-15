@@ -204,7 +204,7 @@ public class StoredRunReadersTests
 
     private static TaskService TaskService(IDbContextFactory<BeaconContext> factory)
     {
-        return new TaskService(factory, NullLogger<TaskService>.Instance);
+        return new TaskService(factory, NullLogger<TaskService>.Instance, new RecordingSecurityAudit());
     }
 
     // The run must have recorded data sources, at least one, and some allowed project must hold each of them.

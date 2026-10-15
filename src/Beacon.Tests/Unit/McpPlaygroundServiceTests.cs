@@ -460,7 +460,7 @@ public class McpPlaygroundServiceTests
         // service and the playground's withhold decision.
         services.AddSingleton(deploymentOptions);
         services.AddScoped<McpAuditOutcome>();
-        services.AddScoped(x => new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), deploymentOptions, NullLogger<McpAuditService>.Instance, x.GetRequiredService<McpAuditOutcome>(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance));
+        services.AddScoped(x => new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), deploymentOptions, NullLogger<McpAuditService>.Instance, x.GetRequiredService<McpAuditOutcome>(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()));
 
         services.AddScoped(x => new DryRunTool(
             factory.Object,

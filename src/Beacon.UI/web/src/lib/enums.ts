@@ -32,6 +32,7 @@ export {
   NotificationStatus,
   NotificationTrigger,
   NotificationType,
+  OwnedResourceKind,
   ParameterType,
   ProjectMembershipManagement,
   ProjectRole,

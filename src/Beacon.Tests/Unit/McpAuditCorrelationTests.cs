@@ -178,7 +178,7 @@ public class McpAuditCorrelationTests
             SettingsProviderMock.Create().Object,
             new HttpContextAccessor { HttpContext = httpContext },
             Options.Create(new McpDeploymentOptions { Audit = audit ?? new McpAuditOptions() }),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         await service.LogToolCallAsync(
             sessionId: null,

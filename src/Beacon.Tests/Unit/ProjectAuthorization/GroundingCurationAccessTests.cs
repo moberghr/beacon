@@ -15,6 +15,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
 
@@ -289,6 +290,22 @@ public class GroundingCurationAccessTests
         created.VerifiedTime.Should().BeOnOrAfter(before);
     }
 
+    [Test]
+    public async Task CreatingARelationship_IsRecorded_WithWhetherItWasStoredVerified_InItsUnitOfWork()
+    {
+        var store = new Store();
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(42, "ext-curator"));
+
+        var result = await CreateHandler(store, TestProjectAccess.Unrestricted, TestPermissions.None, audit).Handle(NewRelationship(), CancellationToken.None);
+
+        var created = audit.Single("orders", "customer");
+        created.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.RelationshipCreated, ResourceType = SecurityAuditResources.SchemaRelationship, ResourceId = result.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), ActorUserId = (int?)42 },
+            x => x.ExcludingMissingMembers());
+        created.DetailsJson.Should().Contain("\"verified\":true");
+        audit.Ways.Should().Equal("saved");
+    }
+
     // Either change on its own — the label, or the cardinality — is a change to a verified join: a non-curator's stores it
     // unverified, without a verifier.
     [TestCase("buyer", SchemaRelationshipCardinality.OneToMany)]
@@ -429,15 +446,50 @@ public class GroundingCurationAccessTests
             .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BeaconActor(null, true) { Kind = BeaconPrincipalKind.User, BeaconUserId = null });
 
-        var withoutUser = () => new VerifySchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), anonymous.Object, Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance)
+        var withoutUser = () => new VerifySchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), anonymous.Object, new RecordingSecurityAudit(), Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance)
             .Handle(Reviewed(new VerifySchemaRelationshipCommand(SharedSource, 41, true)), CancellationToken.None);
         (await withoutUser.Should().ThrowAsync<BeaconForbiddenException>()).Which.Message.Should().Be(VerifySchemaRelationshipHandler.UnidentifiedVerifierMessage);
         store.Relationships.Single().IsVerified.Should().BeFalse();
 
-        await new VerifySchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance)
+        await new VerifySchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), new RecordingSecurityAudit(), Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance)
             .Handle(Reviewed(new VerifySchemaRelationshipCommand(SharedSource, 41, true)), CancellationToken.None);
 
         store.Relationships.Single().Should().BeEquivalentTo(new { IsVerified = true, VerifiedByUserId = (int?)CuratorUserId }, x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task VerifyingEditingAndDeletingARelationship_AreEachRecorded_AndAConflictIsNot()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(CuratorUserId, "ext-curator"));
+        var store = new Store();
+        store.Relationships.Add(Relationship(SharedSource, isVerified: false));
+
+        var stale = () => VerifyHandler(store, audit).Handle(
+            new VerifySchemaRelationshipCommand(SharedSource, 41, true) { ReviewedLabel = "someone else's label", ReviewedCardinality = SchemaRelationshipCardinality.OneToMany },
+            CancellationToken.None);
+        await stale.Should().ThrowAsync<BeaconConflictException>();
+        audit.Events.Should().BeEmpty();
+
+        await VerifyHandler(store, audit).Handle(Reviewed(new VerifySchemaRelationshipCommand(SharedSource, 41, true)), CancellationToken.None);
+        await VerifyHandler(store, audit).Handle(new VerifySchemaRelationshipCommand(SharedSource, 41, false), CancellationToken.None);
+        await UpdateHandler(store, EditorOfBoth, audit).Handle(Relabel("buyer"), CancellationToken.None);
+        await DeleteHandler(store, EditorOfBoth, TestPermissions.None, audit).Handle(new DeleteSchemaRelationshipCommand(SharedSource, 41), CancellationToken.None);
+
+        audit.Events.Select(x => x.Action).Should().Equal(
+            SecurityAuditActions.RelationshipVerified,
+            SecurityAuditActions.RelationshipUnverified,
+            SecurityAuditActions.RelationshipEdited,
+            SecurityAuditActions.RelationshipDeleted);
+        audit.Events.Should().OnlyContain(x => x.ResourceType == SecurityAuditResources.SchemaRelationship && x.ResourceId == "41");
+        foreach (var auditEvent in audit.Events)
+        {
+            SecurityAuditTestKit.AssertNoPii(auditEvent, "buyer", "customer");
+        }
+
+        audit.Events[2].DetailsJson.Should().Be(
+            "{\"dataSourceId\":10,\"labelChanged\":true,\"cardinalityBefore\":\"OneToMany\",\"cardinalityAfter\":\"OneToMany\",\"verifiedBefore\":false,\"verifiedAfter\":false}");
+        audit.Events[3].DetailsJson.Should().Be("{\"dataSourceId\":10,\"wasVerified\":false}");
+        audit.Ways.Should().Equal("saved", "saved", "saved", "saved");
     }
 
     // A verification as the curator sends it: naming the label and cardinality it reviewed.
@@ -446,16 +498,17 @@ public class GroundingCurationAccessTests
         return command with { ReviewedLabel = "customer", ReviewedCardinality = SchemaRelationshipCardinality.OneToMany };
     }
 
-    private static VerifySchemaRelationshipHandler VerifyHandler(Store store)
+    private static VerifySchemaRelationshipHandler VerifyHandler(Store store, ISecurityAuditRecorder? audit = null)
     {
         return new VerifySchemaRelationshipHandler(
             store.Factory,
             Mock.Of<ISchemaGraphService>(),
             TestProjectAccess.Actors(beaconUserId: CuratorUserId),
+            audit ?? new RecordingSecurityAudit(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<VerifySchemaRelationshipHandler>.Instance);
     }
 
-    private static DeleteSchemaRelationshipHandler DeleteHandler(Store store, ProjectAccessScope scope, IBeaconPermissionAccessor permissions)
+    private static DeleteSchemaRelationshipHandler DeleteHandler(Store store, ProjectAccessScope scope, IBeaconPermissionAccessor permissions, ISecurityAuditRecorder? audit = null)
     {
         return new DeleteSchemaRelationshipHandler(
             store.Factory,
@@ -463,6 +516,7 @@ public class GroundingCurationAccessTests
             TestProjectAccess.Evaluator(scope),
             permissions,
             TestProjectAccess.Actors(),
+            audit ?? new RecordingSecurityAudit(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<DeleteSchemaRelationshipHandler>.Instance);
     }
 
@@ -484,19 +538,20 @@ public class GroundingCurationAccessTests
         return new GetSchemaRelationshipsHandler(store.Factory, TestProjectAccess.Evaluator(scope), TestPermissions.None);
     }
 
-    private static CreateSchemaRelationshipHandler CreateHandler(Store store, ProjectAccessScope scope, IBeaconPermissionAccessor permissions)
+    private static CreateSchemaRelationshipHandler CreateHandler(Store store, ProjectAccessScope scope, IBeaconPermissionAccessor permissions, ISecurityAuditRecorder? audit = null)
     {
         return new CreateSchemaRelationshipHandler(
             store.Factory,
             Mock.Of<ISchemaGraphService>(),
             Mock.Of<IBeaconUserContext>(x => x.UserId == "42"),
             TestProjectAccess.Evaluator(scope),
-            permissions);
+            permissions,
+            audit ?? new RecordingSecurityAudit());
     }
 
-    private static UpdateSchemaRelationshipHandler UpdateHandler(Store store, ProjectAccessScope scope)
+    private static UpdateSchemaRelationshipHandler UpdateHandler(Store store, ProjectAccessScope scope, ISecurityAuditRecorder? audit = null)
     {
-        return new UpdateSchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(scope), TestPermissions.None, TestProjectAccess.Actors(beaconUserId: CuratorUserId));
+        return new UpdateSchemaRelationshipHandler(store.Factory, Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(scope), TestPermissions.None, TestProjectAccess.Actors(beaconUserId: CuratorUserId), audit ?? new RecordingSecurityAudit());
     }
 
     private static UpdateSchemaRelationshipCommand Relabel(string label)

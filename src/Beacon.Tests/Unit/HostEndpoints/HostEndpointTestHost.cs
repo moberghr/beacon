@@ -109,6 +109,7 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
         if (withMcpServer)
         {
             Beacon.MCP.ServiceConfiguration.AddBeaconMcp(builder.Services);
+            builder.Services.AddMcpAuditEvidence();
         }
         else
         {
@@ -116,6 +117,7 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             builder.Services.AddScoped<IProjectContext>(x => x.GetRequiredService<McpProjectContext>());
             builder.Services.AddTransient<McpAuditService>();
             builder.Services.AddScoped<McpAuditOutcome>();
+            builder.Services.AddMcpAuditEvidence();
         }
 
         // Project access without a database: the request's caller reads its configured projects; the actor is the
@@ -233,7 +235,7 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             App.Services.GetRequiredService<Beacon.Core.Services.IMcpSettingsProvider>(),
             accessor,
             Options.Create(new McpDeploymentOptions()),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         return new HostEndpointToolService(
             Registry,

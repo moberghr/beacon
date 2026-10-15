@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -70,9 +71,13 @@ internal class QueryVersionService(
     IBeaconUserContext userContext,
     BeaconConfiguration configuration,
     IStepSqlSaveCheck saveCheck,
+    ISecurityAuditRecorder securityAudit,
     ILogger<QueryVersionService> logger,
-    IApprovalNotifier? approvalNotifier = null) : IQueryVersionService
+    IApprovalNotifier? approvalNotifier = null,
+    TimeProvider? timeProvider = null) : IQueryVersionService
 {
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     /// <summary>The source a restore records on its version.</summary>
     public const string RestoreSource = "Restore";
 
@@ -399,7 +404,8 @@ internal class QueryVersionService(
             x.Status = QueryVersionStatus.Archived;
         }
 
-        // Apply snapshot to live query
+        // Apply snapshot to live query, attributed to the restoring caller
+        query.RecordChangeBy(userId, _timeProvider);
         query.Name = version.Name;
         query.Description = version.Description;
         query.FinalQuery = version.FinalQuery;
@@ -618,9 +624,13 @@ internal class QueryVersionService(
                     var first = proposal.ToVersion(0, 1);
                     newQuery.Versions = [first];
 
+                    var firstRequest = proposal.ToRequest(first, newQuery, null);
                     context.Queries.Add(newQuery);
-                    context.QueryApprovalRequests.Add(proposal.ToRequest(first, newQuery, null));
-                    await context.SaveChangesAsync(cancellationToken);
+                    context.QueryApprovalRequests.Add(firstRequest);
+                    await securityAudit.SaveWithEventsAsync(
+                        context,
+                        () => [Submitted(firstRequest, first, submission, [], newQuery: true)],
+                        cancellationToken);
                     await transaction.CommitAsync(cancellationToken);
 
                     return new SubmittedChange(first, []);
@@ -709,9 +719,13 @@ internal class QueryVersionService(
                     context.QueryVersions.Add(baseline);
                 }
 
+                var request = proposal.ToRequest(version, null, live.ActiveVersionId);
                 context.QueryVersions.Add(version);
-                context.QueryApprovalRequests.Add(proposal.ToRequest(version, null, live.ActiveVersionId));
-                await context.SaveChangesAsync(cancellationToken);
+                context.QueryApprovalRequests.Add(request);
+                await securityAudit.SaveWithEventsAsync(
+                    context,
+                    () => [Submitted(request, version, submission, pending, newQuery: false)],
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
 
                 return new SubmittedChange(version, pending);
@@ -729,6 +743,28 @@ internal class QueryVersionService(
 
             throw new BeaconConflictException(ConcurrentWriteMessage);
         }
+    }
+
+    // A submission as the security audit records it: the request, its query and version, the requester by Users.Id (an AI
+    // actor's change is requested by its creator, whoever approved the plan), where the change came from, and the requests
+    // it superseded — never the SQL, the name or the reason.
+    private static SecurityAuditEntry Submitted(
+        QueryApprovalRequest request,
+        QueryVersion version,
+        QueryChangeSubmission submission,
+        IReadOnlyList<SupersededRequest> superseded,
+        bool newQuery)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.QueryChangeSubmitted)
+            .On(SecurityAuditResources.ApprovalRequest, request.Id)
+            .With(new SecurityAuditDetails()
+                .Add("queryId", version.QueryId)
+                .Add("versionId", version.Id)
+                .Add("baseVersionId", request.BaseVersionId)
+                .AddCode("changeSource", submission.Source)
+                .Add("newQuery", newQuery)
+                .Add("supersededRequestIds", superseded.Select(x => x.Id)))
+            .Naming("requesterUserId", submission.RequesterUserId);
     }
 
     // The same person by the id a request recorded for them (ignoring case, as identity providers may change it).

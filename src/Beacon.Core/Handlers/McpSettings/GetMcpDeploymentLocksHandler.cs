@@ -10,12 +10,19 @@ internal sealed class GetMcpDeploymentLocksHandler(IOptions<McpDeploymentOptions
 {
     public Task<GetMcpDeploymentLocksResult> Handle(GetMcpDeploymentLocksQuery request, CancellationToken cancellationToken)
     {
-        var lockedFields = McpLockPolicy.ActiveRules(deploymentOptions.Value)
+        var activeRules = McpLockPolicy.ActiveRules(deploymentOptions.Value);
+        var lockedFields = activeRules
             .Select(x => x.FieldName)
+            .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        var locks = activeRules
+            .Select(x => new McpDeploymentLock(x.FieldName, x.LockName))
+            .OrderBy(x => x.FieldName, StringComparer.Ordinal)
+            .ThenBy(x => x.LockName, StringComparer.Ordinal)
+            .ToArray();
 
-        return Task.FromResult(new GetMcpDeploymentLocksResult(lockedFields));
+        return Task.FromResult(new GetMcpDeploymentLocksResult(lockedFields) { Locks = locks });
     }
 }
 
@@ -24,4 +31,11 @@ internal sealed class GetMcpDeploymentLocksHandler(IOptions<McpDeploymentOptions
 public record GetMcpDeploymentLocksQuery : IRequest<GetMcpDeploymentLocksResult>;
 
 /// <param name="LockedFields">Settings a deployment lock pins: they cannot be changed globally or per project, by anyone.</param>
-public record GetMcpDeploymentLocksResult(string[] LockedFields);
+public record GetMcpDeploymentLocksResult(string[] LockedFields)
+{
+    /// <summary>Each active lock and the setting it pins (<c>Audit:RequireContent</c> pins <c>RetainQueryContent</c> on).</summary>
+    public McpDeploymentLock[] Locks { get; init; } = [];
+}
+
+/// <summary>An active deployment lock (<c>Beacon:Mcp</c>) and the setting it pins.</summary>
+public record McpDeploymentLock(string FieldName, string LockName);

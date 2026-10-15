@@ -7,6 +7,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -108,13 +109,17 @@ public class ProjectAccessDtoAndEventTests
         var logs = new LogRecorder();
         var encryption = new Mock<IEncryptionService>();
         encryption.Setup(x => x.Encrypt(It.IsAny<string>())).Returns("enc");
-        var handler = new UpdateRepositoryTokenHandler(factory.Object, encryption.Object, TestProjectAccess.Actors(), logs.For<UpdateRepositoryTokenHandler>());
+        var audit = new RecordingSecurityAudit(new BeaconActor("ext-ada", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true });
+        var handler = new UpdateRepositoryTokenHandler(factory.Object, encryption.Object, TestProjectAccess.Actors(), audit, logs.For<UpdateRepositoryTokenHandler>());
 
         await handler.Handle(new UpdateRepositoryTokenCommand(9, "ghp_secret_value"), CancellationToken.None);
 
         logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("Repository access token set", StringComparison.Ordinal))
             .Which.Message.Should().Contain("repository 9").And.Contain($"project {ProjectId}");
         logs.Entries.Should().NotContain(x => x.FullText.Contains("ghp_secret_value"));
+        audit.Single("ghp_secret_value", "enc", "example.test").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.RepositoryTokenChanged, ActorUserId = (int?)3, ResourceType = SecurityAuditResources.Repository, ResourceId = "9", ProjectId = (int?)ProjectId, DetailsJson = "{\"tokenSet\":true}" },
+            x => x.ExcludingMissingMembers());
     }
 
     // The project row (restricted), no data sources, no repositories, no documentation.

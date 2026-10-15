@@ -45,6 +45,7 @@ const DataContractDetailPage = lazyWithRetry(() => import('./routes/data-quality
 const McpPlaygroundPage = lazyWithRetry(() => import('./routes/mcp/McpPlaygroundPage'));
 const McpLearningPage = lazyWithRetry(() => import('./routes/mcp/McpLearningPage'));
 const McpSettingsPage = lazyWithRetry(() => import('./routes/mcp/McpSettingsPage'));
+const SecurityAuditPage = lazyWithRetry(() => import('./routes/security-audit/SecurityAuditPage'));
 const AiActorsListPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorsListPage'));
 const AiActorDetailPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorDetailPage'));
 const MigrationJobsListPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobsListPage'));
@@ -124,6 +125,7 @@ export default function App() {
                   <Route path="/data-sources/:id" element={lazyRoute(DataSourceDetailPage)} />
                   <Route path="/data-sources/:id/relationships" element={lazyRoute(RelationshipsPage)} />
                   <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
+                  <Route path="/security-audit" element={lazyRoute(SecurityAuditPage)} />
                   <Route path="/settings" element={lazyRoute(SettingsPage)} />
                   <Route path="/data-quality" element={lazyRoute(DataQualityPage)} />
                   <Route path="/data-quality/:id" element={lazyRoute(DataContractDetailPage)} />

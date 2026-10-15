@@ -3,11 +3,19 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Queries;
 
+/// <summary>
+/// Locks a query against changes by anyone but its lock holder, or unlocks it. A change of the lock is recorded as the
+/// query's last change (by the caller) and as a security audit event in the same save.
+/// </summary>
 internal sealed class ToggleQueryLockHandler(
     IDbContextFactory<BeaconContext> contextFactory,
+    IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<ToggleQueryLockHandler> logger)
     : IRequestHandler<ToggleQueryLockCommand, ToggleQueryLockResult>
 {
@@ -75,6 +83,13 @@ internal sealed class ToggleQueryLockHandler(
                 request.UserId);
         }
 
+        query.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.QueryLockChanged)
+                .On(SecurityAuditResources.Query, query.Id)
+                .With(new SecurityAuditDetails().Add("locked", query.IsLocked)),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         return new ToggleQueryLockResult

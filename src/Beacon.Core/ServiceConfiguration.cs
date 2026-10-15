@@ -131,6 +131,30 @@ public static class ServiceConfiguration
         // change of the encryption key), else from the encryption key, each through its own purpose-bound derivation.
         services.TryAddSingleton(new Mcp.McpCallerSubjectHasher(Mcp.McpCallerSubjectHasher.KeySource(configuration, encryptionKey)));
 
+        // The MCP audit's keyed content hashes (what a call received, each statement it ran), from the same secret through
+        // their own derivation; and the scoped log of the statements a call ran on data sources, which its audit row takes.
+        services.TryAddSingleton(new Mcp.McpContentHasher(Mcp.McpCallerSubjectHasher.KeySource(configuration, encryptionKey)));
+        services.TryAddScoped<Mcp.IMcpStatementLog, Mcp.McpStatementLog>();
+
+        // The security audit trail (Beacon:Audit): append-only events with a keyed HMAC each (the integrity key, else one
+        // derived for this purpose from the caller-hash secret; earlier keys still verify), sealed and kept append-only by
+        // the interceptor both providers register, written by the scoped recorder, and kept forever unless a retention of
+        // at least a year is set. ValidateOnStart so a retention or key out of range fails the host at boot.
+        services.AddOptions<Configuration.SecurityAuditOptions>()
+            .Bind(configuration.GetSection(Configuration.SecurityAuditOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.SecurityAuditOptionsValidator>());
+        services.TryAddSingleton(SecurityAudit.SecurityAuditIntegrity.From(configuration, encryptionKey, previousEncryptionKeys));
+        services.TryAddSingleton<SecurityAuditInterceptor>();
+        services.TryAddScoped<SecurityAudit.ISecurityAuditRecorder, SecurityAudit.SecurityAuditRecorder>();
+        services.TryAddTransient<SecurityAudit.ISecurityAuditRetentionService, SecurityAudit.SecurityAuditRetentionService>();
+
+        // Reads of audit data are recorded before they return anything (fail closed), an identical read by the same actor
+        // within a minute once; one verification of the trail runs at a time per process, the scheduled one included.
+        services.TryAddSingleton<SecurityAudit.SecurityAuditReadGate>();
+        services.TryAddScoped<SecurityAudit.SecurityAuditReads>();
+        services.TryAddTransient<SecurityAudit.ISecurityAuditVerificationService, SecurityAudit.SecurityAuditVerificationService>();
+
         // Keyed hashes of where governed recipients deliver: under a key derived from the encryption key for this purpose;
         // hashes written under a previous key keep matching until the re-encryption run rewrites them.
         services.TryAddSingleton(new ChangeApprovals.RecipientDestinationHasher(encryptionKey, previousEncryptionKeys));

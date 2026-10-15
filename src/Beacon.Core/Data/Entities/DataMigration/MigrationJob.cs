@@ -6,7 +6,7 @@ using Beacon.Core.Models.Queries;
 
 namespace Beacon.Core.Data.Entities.DataMigration;
 
-public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkflow
+public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkflow, IAttributedEntity
 {
     public required string Name { get; set; }
     public required string Description { get; set; }
@@ -47,6 +47,15 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
     /// saved with the workflow off), which runs as before.
     /// </summary>
     public string? ApprovedDefinitionHash { get; set; }
+
+    /// <inheritdoc />
+    public string? CreatedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? ModifiedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public DateTime? ModifiedTime { get; set; }
 
     // IMultiStepWorkflow implementation
     private List<QueryStepData>? _parsedSteps;

@@ -17,6 +17,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using NUnit.Framework;
 using ActorEntity = Beacon.Core.Data.Entities.AiActor;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit;
 
@@ -69,10 +70,12 @@ public class AiActorCycleProposeOnlyTests
     private Mock<DbSet<Subscription>> _subscriptionsSet = null!;
     private Mock<IQueryService> _queryService = null!;
     private Mock<ISubscriptionService> _subscriptionService = null!;
+    private RecordingSecurityAudit _audit = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(12, "ext-ben"));
         _store = new Store();
         _store.DataSources.Add(
             new DataSource
@@ -94,6 +97,26 @@ public class AiActorCycleProposeOnlyTests
         _subscriptionsSet = BuildSet(_store.Subscriptions);
         _queryService = new Mock<IQueryService>(MockBehavior.Strict);
         _subscriptionService = new Mock<ISubscriptionService>(MockBehavior.Strict);
+    }
+
+    // A generated plan waits for a reviewer: its submission is on record (its actor, version and how many actions it
+    // proposes), never its analysis or the SQL it proposes.
+    [Test]
+    public async Task GeneratePlanAsync_RecordsThePlansSubmission()
+    {
+        SeedActor();
+        var service = BuildService(PlanJson);
+
+        var result = await service.GeneratePlanAsync(new GeneratePlanOptions { ActorId = ActorId }, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        var plan = _store.Plans.Should().ContainSingle().Subject;
+        var submitted = _audit.Single("one stale monitor", "Failed payments", "SELECT 1");
+        submitted.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.AiPlanSubmitted, ActorUserId = (int?)12, ResourceType = SecurityAuditResources.AiActorPlan, ResourceId = plan.Id.ToString() },
+            x => x.ExcludingMissingMembers());
+        submitted.DetailsJson.Should().Be("{\"aiActorId\":5,\"parentPlanId\":null,\"version\":1,\"proposedActionCount\":2}");
+        _audit.Ways.Should().Equal("saved");
     }
 
     [Test]
@@ -226,7 +249,8 @@ public class AiActorCycleProposeOnlyTests
             [typeof(Query)] = _queriesSet.Object,
             [typeof(Subscription)] = _subscriptionsSet.Object,
             [typeof(AiActorExecution)] = BuildSet(_store.Executions).Object,
-            [typeof(AiActorConversation)] = BuildSet(_store.Conversations).Object
+            [typeof(AiActorConversation)] = BuildSet(_store.Conversations).Object,
+            [typeof(AiActorPlan)] = BuildSet(_store.Plans).Object
         };
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -262,6 +286,7 @@ public class AiActorCycleProposeOnlyTests
             Mock.Of<IQueryProposalCheck>(MockBehavior.Strict),
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
+            _audit,
             Mock.Of<ILogger<AiActorService>>());
     }
 
@@ -297,6 +322,8 @@ public class AiActorCycleProposeOnlyTests
         public List<AiActorExecution> Executions { get; } = [];
 
         public List<AiActorConversation> Conversations { get; } = [];
+
+        public List<AiActorPlan> Plans { get; } = [];
     }
 
     private sealed class CycleContext(IReadOnlyDictionary<Type, object> sets) : BeaconContext(Options, "beacon")

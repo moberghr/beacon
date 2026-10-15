@@ -238,7 +238,7 @@ public class ApiKeyServiceValidationTests
         // drop archived users (an archived owner would read as "no owner" instead of being refused), and the owner's
         // roles come in the same query.
         var capture = new SqlCapture().ThenNoRows();
-        var service = new ApiKeyService(capture.Factory(), Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now), NullLogger<ApiKeyService>.Instance);
+        var service = new ApiKeyService(capture.Factory(), Options.Create(new ApiKeyOptions()), new FakeTimeProvider(Now), new RecordingSecurityAudit(), TestProjectAccess.Actors(), NullLogger<ApiKeyService>.Instance);
 
         var credential = await service.ValidateApiKeyAsync(PlainTextKey);
 
@@ -282,6 +282,8 @@ public class ApiKeyServiceValidationTests
             factory.Object,
             Options.Create(options),
             new FakeTimeProvider(Now),
+            new RecordingSecurityAudit(),
+            TestProjectAccess.Actors(),
             logs?.For<ApiKeyService>() ?? NullLogger<ApiKeyService>.Instance);
     }
 

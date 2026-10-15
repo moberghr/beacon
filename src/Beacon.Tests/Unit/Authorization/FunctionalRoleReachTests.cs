@@ -127,11 +127,13 @@ public class FunctionalRoleReachTests
     }
 
     [Test]
-    public async Task OverTheApi_AnAuditor_ReadsTheAuditAndSettings_AndNothingElse()
+    public async Task OverTheApi_AnAuditor_ReadsTheAuditsAndSettings_AndNothingElse()
     {
         await using var app = await StartAsync(BeaconPermissions.Auditor);
 
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/mcp/audit?from=2026-01-01&to=2026-01-02")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SendAsync(app, HttpMethod.Get, "/beacon/api/security-audit/?from=2026-01-01&to=2026-01-02")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SendAsync(app, HttpMethod.Post, "/beacon/api/security-audit/verify", "{\"from\":\"2026-01-01\",\"to\":\"2026-01-02\"}")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/mcp/settings")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/api-keys/admin/")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await SendAsync(app, HttpMethod.Put, "/beacon/api/mcp/settings", "{\"data\":{}}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -154,6 +156,7 @@ public class FunctionalRoleReachTests
         (await SendAsync(app, HttpMethod.Post, "/beacon/api/approvals/changes/1/reject", "{\"comment\":null}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/queries/1")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await SendAsync(app, HttpMethod.Get, "/beacon/api/mcp/audit?from=2026-01-01&to=2026-01-02")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await SendAsync(app, HttpMethod.Get, "/beacon/api/security-audit/?from=2026-01-01&to=2026-01-02")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Test]

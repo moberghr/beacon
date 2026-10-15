@@ -14,6 +14,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Handlers.UserSettings;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using MediatR;
@@ -33,6 +34,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Beacon.Tests.Unit;
 
@@ -113,6 +115,63 @@ public class BeaconSessionEventsTests
         (await signIn.Content.ReadAsStringAsync()).Should().Be("refused", "the endpoint is told the sign-in did not happen");
         after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "a disabled or archived user's cookie carries no session");
         host.Logs.Should().Contain(x => x.Contains("user_disabled_or_archived_at_sign_in", StringComparison.Ordinal) && x.Contains("user 7", StringComparison.Ordinal));
+    }
+
+    [TestCase("disabled", "user_disabled_or_archived")]
+    [TestCase("stamp", "security_stamp_changed")]
+    public async Task ASessionEndedAtACheck_IsRecorded_AsTheUsers_WithItsReason(string change, string reason)
+    {
+        var store = new FakeSessionStore().With("ana.ext-id", 7, "stamp-1", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+        await host.SignInAsync("ana.ext-id");
+        if (change == "disabled")
+        {
+            store.Deactivate("ana.ext-id");
+        }
+        else
+        {
+            store.RenewStamp("ana.ext-id");
+        }
+
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        (await host.GetAsync("/test/me")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        host.Audit.Single("ana.ext-id").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.SessionEnded, ActorKind = SecurityAuditActorKinds.User, ActorUserId = (int?)7, ResourceId = "7", DetailsJson = $"{{\"reason\":\"{reason}\"}}" },
+            x => x.ExcludingMissingMembers());
+        host.Audit.Ways.Should().Equal("recorded");
+    }
+
+    [Test]
+    public async Task ASessionNamingNoStoredUser_IsRecordedByAKeyedHashOfItsId_NeverTheId()
+    {
+        var store = new FakeSessionStore().With("ana.secret-id", 7, "stamp-1", "Viewer");
+        await using var host = await SessionHost.StartAsync(store);
+        await host.SignInAsync("ana.secret-id");
+        store.Remove("ana.secret-id");
+
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        await host.GetAsync("/test/me");
+
+        var ended = host.Audit.Single("ana.secret-id", SubjectFingerprint.Of("ana.secret-id"));
+        ended.ActorKind.Should().Be(SecurityAuditActorKinds.Session);
+        ended.ActorUserId.Should().BeNull();
+        ended.CallerHash.Should().Be(SecurityAuditTestKit.CallerHasher.Hash(Core.SecurityAudit.SecurityAuditRecorder.SessionTenant, "ana.secret-id"));
+        ended.DetailsJson.Should().Be("{\"reason\":\"user_missing\"}");
+    }
+
+    [Test]
+    public async Task ASignInRefusedAsTheCookieIsIssued_IsRecordedOnce()
+    {
+        var store = new FakeSessionStore().With("ana", 7, "stamp-1", "Viewer");
+        store.Deactivate("ana");
+        await using var host = await SessionHost.StartAsync(store);
+
+        await host.GetAsync("/test/sign-in?user=ana");
+
+        host.Audit.Single().Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.SessionEnded, ActorUserId = (int?)7, DetailsJson = "{\"reason\":\"user_disabled_or_archived_at_sign_in\"}" },
+            x => x.ExcludingMissingMembers());
     }
 
     [Test]
@@ -681,6 +740,7 @@ public class BeaconSessionEventsTests
     public void AddBeaconCookieAuthentication_WiresTheSessionEvents()
     {
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         services.AddLogging();
         services.AddBeaconCookieAuthentication();
         using var provider = services.BuildServiceProvider();
@@ -723,6 +783,7 @@ public class BeaconSessionEventsTests
     private static ServiceProvider AuthenticationServices(TimeProvider time, FakeSessionStore? store = null)
     {
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         services.AddLogging();
         services.AddSingleton(time);
         services.AddDataProtection().UseEphemeralDataProtectionProvider();
@@ -771,15 +832,19 @@ public class BeaconSessionEventsTests
         private readonly WebApplication _app;
         private readonly HttpClient _client;
 
-        private SessionHost(WebApplication app, FakeTimeProvider time, LogRecorder logs)
+        private SessionHost(WebApplication app, FakeTimeProvider time, LogRecorder logs, RecordingSecurityAudit audit)
         {
             _app = app;
             _client = app.GetTestClient();
             Time = time;
             LogRecorder = logs;
+            Audit = audit;
         }
 
         public FakeTimeProvider Time { get; }
+
+        /// <summary>The security audit events the host's requests recorded.</summary>
+        public RecordingSecurityAudit Audit { get; }
 
         public string? Cookie { get; set; }
 
@@ -802,16 +867,19 @@ public class BeaconSessionEventsTests
         {
             var time = new FakeTimeProvider(Start);
             var logs = new LogRecorder();
+            var audit = new RecordingSecurityAudit();
             var configuration = new BeaconConfiguration();
             configuration.UserManagement.Enabled = userManagement;
 
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
+            builder.Services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
             builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
             builder.Logging.AddProvider(logs);
             builder.Services.AddSingleton(configuration);
             builder.Services.AddSingleton<TimeProvider>(time);
             builder.Services.AddSingleton<IUserSessionStore>(store);
+            builder.Services.AddSingleton<ISecurityAuditRecorder>(audit);
             builder.Services.AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = revalidateMinutes, AbsoluteLifetimeHours = 12 }));
             builder.Services.AddSingleton(Options.Create(roleMapping ?? new RoleMappingOptions()));
             builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
@@ -926,7 +994,7 @@ public class BeaconSessionEventsTests
             app.MapGet("/test/expiry", (Func<HttpContext, Task<IResult>>)ReportExpiryAsync);
             await app.StartAsync();
 
-            return new SessionHost(app, time, logs);
+            return new SessionHost(app, time, logs, audit);
         }
 
         public async Task<HttpResponseMessage> SignInAsync(string user, string? roles = null, bool remember = false, string? idpPermission = null)
@@ -1016,6 +1084,7 @@ public class BeaconSessionEventsTests
                 Mock.Of<IRoleService>(),
                 configuration,
                 TimeProvider.System,
+                new RecordingSecurityAudit(),
                 null,
                 x.GetRequiredService<SessionStampExpectation>()));
             services.AddScoped<IBeaconAuthenticationProvider, DatabaseAuthenticationProvider>();

@@ -15,6 +15,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpGlossary;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
@@ -258,7 +259,7 @@ public class GlossaryInjectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var handler = new CreateGlossaryTermHandler(factory.Object);
+        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
 
         await handler.Handle(new CreateGlossaryTermCommand
         {
@@ -289,7 +290,7 @@ public class GlossaryInjectionTests
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
-        var handler = new CreateGlossaryTermHandler(factory.Object);
+        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
 
         var act = () => handler.Handle(new CreateGlossaryTermCommand
         {
@@ -307,7 +308,7 @@ public class GlossaryInjectionTests
     public async Task CreateGlossaryTermHandler_BlankTerm_Throws()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
-        var handler = new CreateGlossaryTermHandler(factory.Object);
+        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
 
         var act = async () => await handler.Handle(new CreateGlossaryTermCommand
         {
@@ -329,7 +330,7 @@ public class GlossaryInjectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var handler = new UpdateGlossaryTermHandler(factory.Object);
+        var handler = new UpdateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
 
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 404, Term = "x" },
             CancellationToken.None);
@@ -338,10 +339,43 @@ public class GlossaryInjectionTests
     }
 
     [Test]
+    public async Task CreatingEditingAndDeletingATerm_AreRecorded_ByIdAndFieldNames_NeverTheirText()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+        var set = BuildDbSet(new List<McpGlossaryTerm>());
+        var created = new Mock<IDbContextFactory<BeaconContext>>();
+        created
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GlossaryHandlerContext(set.Object));
+        var term = NewTerm(1, "revenue", "Total sales amount recognized", isActive: true);
+
+        await new CreateGlossaryTermHandler(created.Object, audit).Handle(
+            new CreateGlossaryTermCommand { ProjectId = ProjectId, DataSourceId = DataSourceId, Term = "net revenue", Definition = "Sales minus refunds" },
+            CancellationToken.None);
+        await new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), audit).Handle(
+            new UpdateGlossaryTermCommand { Id = 1, Definition = "Sales recognized this period", IsActive = false },
+            CancellationToken.None);
+        await new DeleteGlossaryTermHandler(BuildGlossaryHandlerFactory(term), audit).Handle(new DeleteGlossaryTermCommand(1), CancellationToken.None);
+
+        audit.Events.Select(x => x.Action).Should().Equal(
+            SecurityAuditActions.GlossaryTermCreated,
+            SecurityAuditActions.GlossaryTermUpdated,
+            SecurityAuditActions.GlossaryTermDeleted);
+        audit.Ways.Should().Equal("saved", "staged", "staged");
+        audit.Events.Should().OnlyContain(x => x.ProjectId == ProjectId && x.ResourceType == SecurityAuditResources.GlossaryTerm);
+        audit.Of(SecurityAuditActions.GlossaryTermUpdated).Single().DetailsJson.Should().Be(
+            $"{{\"fields\":[\"definition\",\"isActive\"],\"dataSourceId\":{(term.DataSourceId?.ToString() ?? "null")},\"isActive\":false}}");
+        foreach (var auditEvent in audit.Events)
+        {
+            SecurityAuditTestKit.AssertNoPii(auditEvent, "revenue", "Sales minus refunds", "Sales recognized", "Total sales amount");
+        }
+    }
+
+    [Test]
     public async Task DeleteGlossaryTermHandler_SoftDeactivates_TermRetained()
     {
         var term = NewTerm(1, "revenue", "Total sales amount recognized", isActive: true);
-        var handler = new DeleteGlossaryTermHandler(BuildGlossaryHandlerFactory(term));
+        var handler = new DeleteGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
 
         await handler.Handle(new DeleteGlossaryTermCommand(1), CancellationToken.None);
 
@@ -352,7 +386,7 @@ public class GlossaryInjectionTests
     [Test]
     public async Task DeleteGlossaryTermHandler_WhenMissing_Throws()
     {
-        var handler = new DeleteGlossaryTermHandler(BuildGlossaryHandlerFactory());
+        var handler = new DeleteGlossaryTermHandler(BuildGlossaryHandlerFactory(), new RecordingSecurityAudit());
 
         var act = async () => await handler.Handle(new DeleteGlossaryTermCommand(404), CancellationToken.None);
 
@@ -392,7 +426,7 @@ public class GlossaryInjectionTests
     public async Task UpdateGlossaryTermHandler_AppliesSuppliedFields_LeavesOthersUnchanged()
     {
         var term = NewTerm(1, "revenue", "Old definition", isActive: true, metric: "SUM(amount)");
-        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term));
+        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
 
         await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = "New definition" }, CancellationToken.None);
 
@@ -405,7 +439,7 @@ public class GlossaryInjectionTests
     public async Task UpdateGlossaryTermHandler_BlankTerm_Throws_AndLeavesTermUnchanged()
     {
         var term = NewTerm(1, "revenue", "def", isActive: true);
-        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term));
+        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
 
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Term = "   " }, CancellationToken.None);
 
@@ -417,7 +451,7 @@ public class GlossaryInjectionTests
     public async Task UpdateGlossaryTermHandler_BlankDefinition_Throws()
     {
         var term = NewTerm(1, "revenue", "def", isActive: true);
-        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term));
+        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
 
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = " " }, CancellationToken.None);
 
@@ -611,7 +645,7 @@ public class GlossaryInjectionTests
     }
 
     /// <summary>Minimal <see cref="BeaconContext"/> exposing only the glossary set for the CRUD handler tests.</summary>
-    private sealed class GlossaryHandlerContext : BeaconContext
+    private sealed class GlossaryHandlerContext : BeaconContext, IObservableSaves
     {
         private static readonly DbContextOptions<GlossaryHandlerContext> Options =
             new DbContextOptionsBuilder<GlossaryHandlerContext>()
@@ -644,10 +678,16 @@ public class GlossaryInjectionTests
             return base.Set<TEntity>();
         }
 
+        public event Action? Saving;
+
         public override int SaveChanges() => 0;
 
-        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(0);
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            Saving?.Invoke();
+
+            return Task.FromResult(0);
+        }
     }
 
     private sealed class NonNpgsqlDatabaseFacade : DatabaseFacade

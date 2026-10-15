@@ -36,6 +36,15 @@ public class McpAuditLog : BaseEntity
     /// <summary>The <c>api_key_id</c> claim of an API-key caller. No FK — the audit must outlive a deleted key.</summary>
     public int? ApiKeyId { get; set; }
 
+    /// <summary>
+    /// Keyed hash of the call's parameters as received, written whether or not the parameters themselves are retained, so
+    /// two calls with the same input can be matched without keeping it.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     public McpSession? Session { get; set; }
     public BeaconUser? User { get; set; }
+
+    /// <summary>The statements the call ran on data sources; deleted with the row.</summary>
+    public List<McpAuditStatement> Statements { get; set; } = new();
 }

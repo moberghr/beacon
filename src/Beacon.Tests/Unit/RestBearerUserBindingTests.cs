@@ -30,6 +30,8 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit;
 
@@ -909,6 +911,7 @@ public class RestBearerUserBindingTests
     private static async Task<WebApplication> StartLoginHostAsync(IBeaconAuthenticationProvider provider)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         builder.WebHost.UseTestServer();
         builder.Services
             .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -982,6 +985,7 @@ public class RestBearerUserBindingTests
             NullLogger<JwtExternalApiAuthenticationProvider>.Instance);
 
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         if (users != null)
         {
             services.AddSingleton(users);
@@ -1095,6 +1099,7 @@ public class RestBearerUserBindingTests
     private static async Task<bool> AuthorizeAsync(ClaimsPrincipal user, string policyName)
     {
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         services.AddLogging();
         services.AddBeaconApiAuthorization();
         using var provider = services.BuildServiceProvider();

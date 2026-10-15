@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.Grounding;
 
@@ -96,11 +97,18 @@ public class GroundingRecheckTests
         var reads = 0;
         using var logs = new LogRecorder();
 
-        var result = await new RecheckGroundingHandler(store.Factory, TestGroundingSqlChecks.Real(onRead: () => reads++), logs.For<RecheckGroundingHandler>())
+        var audit = new RecordingSecurityAudit();
+        var result = await new RecheckGroundingHandler(store.Factory, TestGroundingSqlChecks.Real(onRead: () => reads++), audit, logs.For<RecheckGroundingHandler>())
             .Handle(new RecheckGroundingQuery(ProjectId), CancellationToken.None);
 
         result.Refused.Should().ContainSingle().Which.Id.Should().Be(5);
         reads.Should().Be(2, "the data source and its catalog, once for the whole recheck");
+        var rechecked = audit.Single("secret_column", "How many orders");
+        rechecked.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.GroundingRechecked, ResourceType = SecurityAuditResources.Project, ResourceId = ProjectId.ToString(), ProjectId = (int?)ProjectId },
+            x => x.ExcludingMissingMembers());
+        rechecked.DetailsJson.Should().Be("{\"goldenCasesChecked\":2,\"patternsChecked\":1,\"refusedCount\":1}");
+        audit.Ways.Should().Equal("recorded");
         logs.Entries.Should().ContainSingle().Which.Message.Should().Be(
             "Grounding recheck of project 1: 1 of 2 active golden cases and 1 approved learned patterns refused (golden cases 5; patterns )");
         logs.Contains("secret_column").Should().BeFalse();
@@ -212,7 +220,7 @@ public class GroundingRecheckTests
 
     private static RecheckGroundingHandler Handler(Store store)
     {
-        return new RecheckGroundingHandler(store.Factory, TestGroundingSqlChecks.Real(), new LogRecorder().For<RecheckGroundingHandler>());
+        return new RecheckGroundingHandler(store.Factory, TestGroundingSqlChecks.Real(), new RecordingSecurityAudit(), new LogRecorder().For<RecheckGroundingHandler>());
     }
 
     private static GroundingStartupNote Note(LogRecorder logs, bool userManagement)

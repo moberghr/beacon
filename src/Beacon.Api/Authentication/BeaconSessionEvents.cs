@@ -76,7 +76,7 @@ internal static class BeaconSessionEvents
             var user = await store.FindAsync(externalId, context.HttpContext.RequestAborted);
             if (user is { IsActive: false })
             {
-                RefuseSignIn(context, now, "user_disabled_or_archived_at_sign_in", user.Id);
+                await RefuseSignInAsync(context, now, "user_disabled_or_archived_at_sign_in", user.Id);
                 return;
             }
 
@@ -87,7 +87,7 @@ internal static class BeaconSessionEvents
                 && verifiedStamp != null
                 && !string.Equals(verifiedStamp, user.SecurityStamp ?? string.Empty, StringComparison.Ordinal))
             {
-                RefuseSignIn(context, now, "security_stamp_changed_at_sign_in", user.Id);
+                await RefuseSignInAsync(context, now, "security_stamp_changed_at_sign_in", user.Id);
                 return;
             }
 
@@ -361,6 +361,7 @@ internal static class BeaconSessionEvents
             "Session ended: {Reason} (subject {SubjectHash})",
             "user_missing",
             SubjectFingerprint.Of(externalId));
+        await SignInAudit.SessionEndedAsync(context.HttpContext, "user_missing", null, externalId);
 
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(context.Scheme.Name);
@@ -375,13 +376,14 @@ internal static class BeaconSessionEvents
 
     // No session for this sign-in: the cookie is issued already expired and without an identity, and WasSignInRefused
     // tells the caller.
-    private static void RefuseSignIn(CookieSigningInContext context, DateTimeOffset now, string reason, int userId)
+    private static async Task RefuseSignInAsync(CookieSigningInContext context, DateTimeOffset now, string reason, int userId)
     {
         Logger(context.HttpContext.RequestServices)?.LogInformation(
             ProjectAccessEvents.SessionEnded,
             "Session ended: {Reason} (user {UserId})",
             reason,
             userId);
+        await SignInAudit.SessionEndedAsync(context.HttpContext, reason, userId, null);
 
         context.HttpContext.Items[SignInRefusedItem] = true;
         context.Principal = new ClaimsPrincipal(new ClaimsIdentity());
@@ -396,6 +398,7 @@ internal static class BeaconSessionEvents
             "Session ended: {Reason} (user {UserId})",
             reason,
             userId);
+        await SignInAudit.SessionEndedAsync(context.HttpContext, reason, userId, NameIdentifierOf(context.Principal));
 
         context.RejectPrincipal();
         await context.HttpContext.SignOutAsync(context.Scheme.Name);

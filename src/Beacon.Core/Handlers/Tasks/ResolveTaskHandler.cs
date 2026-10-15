@@ -3,12 +3,14 @@ using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Tasks;
 
 internal sealed class ResolveTaskHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<ResolveTaskHandler> logger)
     : IRequestHandler<ResolveTaskCommand>
 {
@@ -44,17 +46,28 @@ internal sealed class ResolveTaskHandler(
         // never overwritten.
         var assigneeUserId = task.AssigneeUserId;
         var resolvedAt = DateTime.UtcNow;
-        var updated = await context.QueryTasks
-            .Where(x => x.Id == request.Id)
-            .Where(x => !x.Resolved)
-            .Where(x => x.AssigneeUserId == assigneeUserId)
-            .ExecuteUpdateAsync(
-                x => x
-                    .SetProperty(y => y.Resolved, true)
-                    .SetProperty(y => y.ResolvedAt, resolvedAt)
-                    .SetProperty(y => y.ResolutionNotes, request.ResolutionNotes)
-                    .SetProperty(y => y.ResolvedByUserId, resolvedByUserId),
-                cancellationToken);
+        var updated = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.QueryTasks
+                .Where(x => x.Id == request.Id)
+                .Where(x => !x.Resolved)
+                .Where(x => x.AssigneeUserId == assigneeUserId)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.Resolved, true)
+                        .SetProperty(y => y.ResolvedAt, resolvedAt)
+                        .SetProperty(y => y.ResolutionNotes, request.ResolutionNotes)
+                        .SetProperty(y => y.ResolvedByUserId, resolvedByUserId),
+                    cancellationToken),
+            written => written == 0
+                ? []
+                :
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.TaskResolved)
+                        .On(SecurityAuditResources.Task, request.Id)
+                        .Naming("assigneeUserId", assigneeUserId)
+                ],
+            cancellationToken);
 
         if (updated == 0)
         {

@@ -521,7 +521,7 @@ public class FirstRunSetupTests
     {
         var console = new SignalingWriter();
         var setupToken = new FirstRunSetupToken(Configuration(setupToken: null), NullLogger<FirstRunSetupToken>.Instance, console);
-        var handler = new CreateSuperAdminHandler(FirstRunUsers().Object, setupToken, NullLogger<CreateSuperAdminHandler>.Instance);
+        var handler = new CreateSuperAdminHandler(FirstRunUsers().Object, setupToken, new RecordingSecurityAudit(), NullLogger<CreateSuperAdminHandler>.Instance);
 
         await handler.Handle(Command("wrong"), CancellationToken.None);
         await handler.Handle(Command("wrong"), CancellationToken.None);
@@ -663,11 +663,12 @@ public class FirstRunSetupTests
         return users;
     }
 
-    private static CreateSuperAdminHandler CreateHandler(Mock<IUserManagementService> users, LogRecorder? logs = null)
+    private static CreateSuperAdminHandler CreateHandler(Mock<IUserManagementService> users, LogRecorder? logs = null, RecordingSecurityAudit? audit = null)
     {
         return new CreateSuperAdminHandler(
             users.Object,
             new FirstRunSetupToken(Configuration(ConfiguredToken), NullLogger<FirstRunSetupToken>.Instance, TextWriter.Null),
+            audit ?? new RecordingSecurityAudit(),
             (logs ?? new LogRecorder()).For<CreateSuperAdminHandler>());
     }
 
@@ -788,6 +789,7 @@ public class FirstRunSetupTests
         var handler = new CreateSuperAdminHandler(
             services.GetRequiredService<IUserManagementService>(),
             services.GetRequiredService<FirstRunSetupToken>(),
+            new RecordingSecurityAudit(),
             services.GetRequiredService<ILogger<CreateSuperAdminHandler>>());
         var mediator = new Mock<IMediator>();
         mediator

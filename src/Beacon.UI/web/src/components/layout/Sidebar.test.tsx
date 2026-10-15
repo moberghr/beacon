@@ -12,7 +12,7 @@ vi.mock('sonner', () => ({
 }));
 
 /** The pages a functional permission opens, by sidebar name. */
-const PERMISSION_PAGES = ['Data Migration', 'MCP Settings', 'Approvals', 'User Management', 'Admin Settings'];
+const PERMISSION_PAGES = ['Data Migration', 'MCP Settings', 'Approvals', 'User Management', 'Admin Settings', 'Security Audit'];
 
 function sessionOf(isAuthenticated: boolean, roles: string[], displayName: string, signOutEverywhereEnabled = true) {
   mswServer.use(
@@ -62,7 +62,7 @@ describe('Sidebar', () => {
 
   it.each([
     ['Approver', ['Approvals']],
-    ['Auditor', ['MCP Settings', 'Admin Settings']],
+    ['Auditor', ['MCP Settings', 'Admin Settings', 'Security Audit']],
     ['SecurityAdmin', ['MCP Settings', 'Admin Settings']],
     ['UserAdmin', ['User Management']],
     ['MigrationOperator', ['Data Migration']],
@@ -102,6 +102,7 @@ describe('Sidebar', () => {
 
     expect(await screen.findByText('MCP Settings')).toBeInTheDocument();
     expect(screen.getByText('Admin Settings')).toBeInTheDocument();
+    expect(screen.getByText('Security Audit')).toBeInTheDocument();
     expect(screen.getByText('API Keys')).toBeInTheDocument();
     expect(screen.getByText('Data Sources')).toBeInTheDocument();
     expect(screen.getByText('Home')).toBeInTheDocument();

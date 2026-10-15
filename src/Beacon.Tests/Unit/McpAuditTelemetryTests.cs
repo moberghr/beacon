@@ -423,7 +423,7 @@ public class McpAuditTelemetryTests
             loggerFactory.CreateLogger<McpAuditService>(),
             outcome,
             Options.Create(new BeaconTelemetryOptions { CaptureContent = captureContent }),
-            loggerFactory);
+            loggerFactory, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         await service.LogToolCallAsync(
             sessionId: null,

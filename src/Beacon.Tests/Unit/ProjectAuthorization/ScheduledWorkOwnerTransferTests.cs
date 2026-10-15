@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ActorEntity = Beacon.Core.Data.Entities.AiActor;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
 
@@ -203,6 +204,44 @@ public class ScheduledWorkOwnerTransferTests
 
         await SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, 1));
         _subscriptions[0].OwnerUserId.Should().Be("ext-admin", "an Admin may name themselves");
+    }
+
+    [Test]
+    public async Task EachOwnerChange_IsRecordedOnce_NamingTheOwnersByUsersId_AndTheSameOwnerAgainRecordsNothing()
+    {
+        _world.Member(RestrictedProject, EditorId, ProjectRole.Editor);
+        _subscriptions[0].OwnerUserId = "ext-viewer";
+
+        await SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, EditorId));
+        await SendAsync(new SetDataContractOwnerCommand(ContractId, EditorId));
+        await SendAsync(new SetAiActorOwnerCommand(ActorId, EditorId));
+        await SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, EditorId));
+
+        var changes = _world.Audit.Events;
+        changes.Should().HaveCount(3, "the last change named the owner the subscription already had");
+        changes.Should().OnlyContain(x => x.Action == SecurityAuditActions.OwnerChanged && x.ActorUserId == 1);
+        changes.Select(x => (x.ResourceType, x.ResourceId, x.DetailsJson)).Should().Equal(
+            (SecurityAuditResources.Subscription, SubscriptionId.ToString(), "{\"ownerUserId\":5,\"previousOwnerUserId\":6}"),
+            (SecurityAuditResources.DataContract, ContractId.ToString(), "{\"ownerUserId\":5,\"previousOwnerUserId\":null}"),
+            (SecurityAuditResources.AiActor, ActorId.ToString(), "{\"ownerUserId\":5,\"previousOwnerUserId\":null}"));
+        foreach (var change in changes)
+        {
+            SecurityAuditTestKit.AssertNoPii(change, "ext-editor", "ext-viewer", "ext-admin");
+        }
+
+        _world.Audit.Ways.Should().Equal("saved", "saved", "saved");
+        _subscriptions[0].ModifiedByUserId.Should().Be("ext-admin");
+        _subscriptions[0].ModifiedTime.Should().NotBeNull();
+        _contracts[0].ModifiedByUserId.Should().Be("ext-admin");
+    }
+
+    [Test]
+    public async Task ARefusedOwnerChange_RecordsNothing()
+    {
+        var act = () => SendAsync(new SetSubscriptionOwnerCommand(SubscriptionId, EditorId));
+
+        await act.Should().ThrowAsync<BeaconConflictException>();
+        _world.Audit.Events.Should().BeEmpty();
     }
 
     [Test]

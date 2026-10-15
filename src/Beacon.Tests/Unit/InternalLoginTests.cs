@@ -143,6 +143,6 @@ public class InternalLoginTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
 
-        return new UserManagementService(factory.Object, hasher.Object, Mock.Of<IRoleService>(), new BeaconConfiguration(), TimeProvider.System);
+        return new UserManagementService(factory.Object, hasher.Object, Mock.Of<IRoleService>(), new BeaconConfiguration(), TimeProvider.System, new RecordingSecurityAudit());
     }
 }

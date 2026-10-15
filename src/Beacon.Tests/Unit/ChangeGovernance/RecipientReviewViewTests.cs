@@ -270,7 +270,7 @@ public class RecipientReviewViewTests
     private static RecipientSecretEditor Editor(ChangeApprovalStore store) => new(NotificationTestKit.Policy(), store.Protector);
 
     private static CreateRecipientHandler CreateHandler(ChangeApprovalStore store) =>
-        new(store.Factory(), Editor(store), TestChangeApprovals.Recipients(store.Protector, TestChangeApprovals.On(), TestChangeApprovals.Caller(Ada)));
+        new(store.Factory(), Editor(store), TestChangeApprovals.Recipients(store.Protector, TestChangeApprovals.On(), TestChangeApprovals.Caller(Ada)), TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
     private static UpdateRecipientHandler UpdateHandler(ChangeApprovalStore store) =>
         new(
@@ -280,6 +280,7 @@ public class RecipientReviewViewTests
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
             TestChangeApprovals.Recipients(store.Protector, TestChangeApprovals.On(), TestChangeApprovals.Caller(Ada)),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateRecipientHandler>.Instance);
 
     private static GetRecipientsHandler RecipientsHandler(ChangeApprovalStore store, IBeaconPermissionAccessor permissions) =>
@@ -299,5 +300,6 @@ public class RecipientReviewViewTests
             store.Protector,
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
 }

@@ -21,7 +21,9 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Api.Authentication;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Beacon.Tests.Unit;
 
@@ -86,6 +88,63 @@ public class OidcEventHandlersTests
         semRoles.Should().Equal("Viewer");
 
         userService.VerifyAll();
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_AnAdmittedSignIn_IsRecordedAsTheUsers_NeverByItsSubjectOrEmail()
+    {
+        var audit = new RecordingSecurityAudit();
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-alice-0001")).Object,
+            sub: "sub-alice-0001",
+            iss: "https://login.example.com/",
+            email: "alice@example.com",
+            name: "Alice Example",
+            preferredUsername: "alice.typed",
+            existingRoleFromIdp: null,
+            audit: audit);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result.Should().BeNull();
+        audit.Single("sub-alice-0001", "alice@example.com", "alice.typed", "Alice Example").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.SsoSignedIn, ActorKind = SecurityAuditActorKinds.User, ActorUserId = (int?)11, ResourceId = "11" },
+            x => x.ExcludingMissingMembers());
+        audit.Ways.Should().Equal("recorded");
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_ARefusedSignIn_IsRecordedByTheSubjectsKeyedHash_WithTheReason()
+    {
+        var audit = new RecordingSecurityAudit();
+        var foreign = BuildContext(
+            new Mock<IUserManagementService>(MockBehavior.Strict).Object,
+            sub: "sub-eve-0001",
+            iss: "https://login.example.com/",
+            email: "eve@other.example",
+            name: "Eve",
+            preferredUsername: "eve",
+            existingRoleFromIdp: null,
+            tenantId: "tenant-other",
+            audit: audit);
+        var disabled = new Mock<IUserManagementService>();
+        disabled
+            .Setup(x => x.GetOrCreateExternalUserAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new BeaconException("This account has been disabled."));
+        var refusedAccount = BuildContext(disabled.Object, "sub-dan-0001", "https://login.example.com/", "dan@example.com", "Dan", "dan", null, audit: audit);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(foreign);
+        await OidcEventHandlers.HandleTokenValidatedAsync(refusedAccount);
+
+        audit.Events.Should().HaveCount(2).And.OnlyContain(x => x.Action == SecurityAuditActions.SsoRefused && x.Outcome == SecurityAuditOutcomes.Refused && x.ActorUserId == null);
+        audit.Events[0].CallerHash.Should().Be(SecurityAuditTestKit.CallerHasher.Hash("tenant-other", "sub-eve-0001"));
+        audit.Events[0].DetailsJson.Should().Contain("\"reason\":\"").And.NotContain("[withheld]");
+        audit.Events[1].CallerHash.Should().Be(SecurityAuditTestKit.CallerHasher.Hash(TenantId, "sub-dan-0001"));
+        audit.Events[1].DetailsJson.Should().Be("{\"reason\":\"AccountRefused\"}");
+        foreach (var refusal in audit.Events)
+        {
+            SecurityAuditTestKit.AssertNoPii(refusal, "sub-eve-0001", "sub-dan-0001", "eve@other.example", "dan@example.com", "disabled");
+        }
     }
 
     [Test]
@@ -767,6 +826,7 @@ public class OidcEventHandlersTests
     private static RemoteFailureContext BuildRemoteFailureContext(Exception failure)
     {
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
         var httpContext = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         var scheme = new AuthenticationScheme(
@@ -820,7 +880,8 @@ public class OidcEventHandlersTests
         string roleClaimType = ClaimTypes.Role,
         LogRecorder? logs = null,
         RoleMappingOptions? roleMapping = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        RecordingSecurityAudit? audit = null)
     {
         var oidcOptions = new OidcAuthenticationOptions
         {
@@ -834,6 +895,8 @@ public class OidcEventHandlersTests
         var services = new ServiceCollection();
         services.AddSingleton(userService);
         services.AddSingleton(Options.Create(oidcOptions));
+        services.AddSingleton<ISecurityAuditRecorder>(audit ?? new RecordingSecurityAudit());
+
         if (roleMapping != null)
         {
             services.AddSingleton(Options.Create(roleMapping));

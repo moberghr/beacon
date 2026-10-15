@@ -21,6 +21,7 @@ import {
   Lightbulb as IconLightbulb,
   Settings as IconCog,
   Info as IconInfo,
+  ScrollText as IconAudit,
   ChevronDown,
   LogOut as IconLogOut,
   type LucideIcon,
@@ -108,6 +109,7 @@ const SECTIONS: NavSection[] = [
       { name: 'Approvals', Icon: IconApprovals, slug: 'approvals', visible: opensFor('Approver') },
       { name: 'User Management', Icon: IconUsers, slug: 'users', visible: opensFor('UserAdmin') },
       { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
+      { name: 'Security Audit', Icon: IconAudit, slug: 'security-audit', visible: opensFor('Auditor') },
     ],
   },
 ];

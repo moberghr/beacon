@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
@@ -13,10 +14,15 @@ internal sealed class SetSubscriptionOwnerHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     ProjectRequestAuthorizer authorizer,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<SetSubscriptionOwnerHandler> logger) : IRequestHandler<SetSubscriptionOwnerCommand>
 {
     public const string OwnerMayNotRunMessage =
         "The new owner cannot run this subscription's query: they need access to run saved SQL in a project that holds all of its data sources.";
+
+    /// <summary>The subscription was changed (its owner, or archived) between the read of its owner and the change: nothing was written.</summary>
+    public const string OwnerChangedMessage = "The subscription changed while its owner was being set (its owner was changed by someone else, or it was archived); nothing was changed. Reload it and try again.";
 
     public async Task Handle(SetSubscriptionOwnerCommand request, CancellationToken cancellationToken)
     {
@@ -35,12 +41,18 @@ internal sealed class SetSubscriptionOwnerHandler(
         var ownerUserId = await AssignableUsers.ExternalIdOfActiveUserAsync(context, request.UserId, cancellationToken)
             ?? throw new InvalidOperationException("A subscription can only be owned by an existing, enabled user.");
 
-        var exists = await context.Subscriptions
+        var current = await context.Subscriptions
             .Where(x => x.Id == request.SubscriptionId)
-            .AnyAsync(cancellationToken);
-        if (!exists)
+            .Select(x =>
+                new
+                {
+                    x.OwnerUserId
+                })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new BeaconNotFoundException($"Subscription {request.SubscriptionId} not found.");
+        if (current.OwnerUserId == ownerUserId)
         {
-            throw new BeaconNotFoundException($"Subscription {request.SubscriptionId} not found.");
+            return;
         }
 
         // Scheduled runs run as the owner: an owner who may not run the query would only have every run skipped.
@@ -50,9 +62,28 @@ internal sealed class SetSubscriptionOwnerHandler(
             OwnerMayNotRunMessage,
             cancellationToken);
 
-        await context.Subscriptions
-            .Where(x => x.Id == request.SubscriptionId)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.OwnerUserId, ownerUserId), cancellationToken);
+        var modifiedTime = timeProvider.GetUtcNow().UtcDateTime;
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.Subscriptions
+                .Where(x => x.Id == request.SubscriptionId)
+                .Where(x => x.OwnerUserId == current.OwnerUserId)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.OwnerUserId, ownerUserId)
+                        .SetProperty(y => y.ModifiedByUserId, actor.UserId)
+                        .SetProperty(y => y.ModifiedTime, modifiedTime),
+                    cancellationToken),
+            written => written == 0
+                ? throw new BeaconConflictException(OwnerChangedMessage)
+                :
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.OwnerChanged)
+                        .On(SecurityAuditResources.Subscription, request.SubscriptionId)
+                        .With(new SecurityAuditDetails().Add("ownerUserId", request.UserId))
+                        .Naming("previousOwnerUserId", current.OwnerUserId)
+                ],
+            cancellationToken);
     }
 }
 

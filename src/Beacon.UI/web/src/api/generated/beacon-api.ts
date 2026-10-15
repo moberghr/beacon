@@ -11241,6 +11241,85 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getUserOwnedResources(
+    id: number,
+    kind: OwnedResourceKind,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfOwnedResourceItem> {
+    let url_ = this.baseUrl + "/beacon/api/users/{id}/owned-resources?";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (kind === undefined || kind === null)
+      throw new Error(
+        "The parameter 'kind' must be defined and cannot be null.",
+      );
+    else url_ += "Kind=" + encodeURIComponent("" + kind) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetUserOwnedResources(_response);
+    });
+  }
+
+  protected processGetUserOwnedResources(
+    response: Response,
+  ): Promise<PagedListOfOwnedResourceItem> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfOwnedResourceItem);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfOwnedResourceItem>(null as any);
+  }
+
+  /**
    * @return No Content
    */
   signUserOutEverywhere(id: number): Promise<void> {
@@ -11281,6 +11360,180 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @param from (optional)
+   * @param to (optional)
+   * @param category (optional)
+   * @param action (optional)
+   * @param actorUserId (optional)
+   * @param resourceType (optional)
+   * @param resourceId (optional)
+   * @param projectId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getSecurityAuditEvents(
+    from: Date | undefined,
+    to: Date | undefined,
+    category: string | undefined,
+    action: string | undefined,
+    actorUserId: number | undefined,
+    resourceType: string | undefined,
+    resourceId: string | undefined,
+    projectId: number | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfSecurityAuditEventItem> {
+    let url_ = this.baseUrl + "/beacon/api/security-audit?";
+    if (from === null) throw new Error("The parameter 'from' cannot be null.");
+    else if (from !== undefined)
+      url_ +=
+        "From=" + encodeURIComponent(from ? "" + from.toISOString() : "") + "&";
+    if (to === null) throw new Error("The parameter 'to' cannot be null.");
+    else if (to !== undefined)
+      url_ += "To=" + encodeURIComponent(to ? "" + to.toISOString() : "") + "&";
+    if (category === null)
+      throw new Error("The parameter 'category' cannot be null.");
+    else if (category !== undefined)
+      url_ += "Category=" + encodeURIComponent("" + category) + "&";
+    if (action === null)
+      throw new Error("The parameter 'action' cannot be null.");
+    else if (action !== undefined)
+      url_ += "Action=" + encodeURIComponent("" + action) + "&";
+    if (actorUserId === null)
+      throw new Error("The parameter 'actorUserId' cannot be null.");
+    else if (actorUserId !== undefined)
+      url_ += "ActorUserId=" + encodeURIComponent("" + actorUserId) + "&";
+    if (resourceType === null)
+      throw new Error("The parameter 'resourceType' cannot be null.");
+    else if (resourceType !== undefined)
+      url_ += "ResourceType=" + encodeURIComponent("" + resourceType) + "&";
+    if (resourceId === null)
+      throw new Error("The parameter 'resourceId' cannot be null.");
+    else if (resourceId !== undefined)
+      url_ += "ResourceId=" + encodeURIComponent("" + resourceId) + "&";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "ProjectId=" + encodeURIComponent("" + projectId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetSecurityAuditEvents(_response);
+    });
+  }
+
+  protected processGetSecurityAuditEvents(
+    response: Response,
+  ): Promise<PagedListOfSecurityAuditEventItem> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfSecurityAuditEventItem);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfSecurityAuditEventItem>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  verifySecurityAudit(
+    body: VerifySecurityAuditCommand,
+  ): Promise<VerifySecurityAuditResult> {
+    let url_ = this.baseUrl + "/beacon/api/security-audit/verify";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processVerifySecurityAudit(_response);
+    });
+  }
+
+  protected processVerifySecurityAudit(
+    response: Response,
+  ): Promise<VerifySecurityAuditResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as VerifySecurityAuditResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<VerifySecurityAuditResult>(null as any);
   }
 
   /**
@@ -18672,6 +18925,7 @@ export interface GetMcpAuditLogsResult {
 
 export interface GetMcpDeploymentLocksResult {
   lockedFields: string[];
+  locks?: McpDeploymentLock[];
 
   [key: string]: any;
 }
@@ -19046,6 +19300,28 @@ export interface McpAuditLogItem {
   mcpSessionId: string | null;
   upstreamRequestId: string | null;
   apiKeyId: number | null;
+  contentHash: string | null;
+  statements: McpAuditStatementItem[];
+
+  [key: string]: any;
+}
+
+export interface McpAuditStatementItem {
+  id: number;
+  purpose: string;
+  dataSourceId: number | null;
+  rowCount: number | null;
+  durationMs: number | null;
+  errorClass: string | null;
+  sqlHash: string | null;
+  sql: string | null;
+
+  [key: string]: any;
+}
+
+export interface McpDeploymentLock {
+  fieldName: string;
+  lockName: string;
 
   [key: string]: any;
 }
@@ -19329,6 +19605,28 @@ export enum NotificationType {
   Webhook = 5,
 }
 
+export interface OwnedResourceItem {
+  id?: number;
+  kind?: OwnedResourceKind;
+  name?: string;
+  isOwner?: boolean;
+  isCreator?: boolean;
+  isLastModifier?: boolean;
+  nameWithheld?: boolean;
+  createdTime?: Date;
+  modifiedTime?: Date | null;
+
+  [key: string]: any;
+}
+
+export enum OwnedResourceKind {
+  Query = 0,
+  Subscription = 1,
+  DataContract = 2,
+  Recipient = 3,
+  MigrationJob = 4,
+}
+
 export interface PagedListOfAdminApiKeyEntry {
   items: AdminApiKeyEntry[];
   totalCount: number;
@@ -19465,6 +19763,14 @@ export interface PagedListOfNotificationEntry {
   [key: string]: any;
 }
 
+export interface PagedListOfOwnedResourceItem {
+  items: OwnedResourceItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
 export interface PagedListOfProjectMemberEntry {
   items: ProjectMemberEntry[];
   totalCount: number;
@@ -19531,6 +19837,14 @@ export interface PagedListOfRecurringJobModel {
 
 export interface PagedListOfSchemaRelationshipItem {
   items: SchemaRelationshipItem[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfSecurityAuditEventItem {
+  items: SecurityAuditEventItem[];
   totalCount: number;
   pageCount: number;
 
@@ -20289,6 +20603,34 @@ export enum SchemaRelationshipOrigin {
 
 export interface SearchProjectMemberCandidatesResult {
   candidates: MemberCandidate[];
+
+  [key: string]: any;
+}
+
+export interface SecurityAuditEventItem {
+  id?: number;
+  eventGuid?: string;
+  createdTime?: Date;
+  category?: string;
+  action?: string;
+  outcome?: string;
+  actorKind?: string;
+  actorUserId?: number | null;
+  apiKeyId?: number | null;
+  callerHash?: string | null;
+  projectId?: number | null;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  detailsJson?: string | null;
+  traceId?: string | null;
+  keyId?: string;
+
+  [key: string]: any;
+}
+
+export interface SecurityAuditEventVerdict {
+  eventId: number;
+  verdict: string;
 
   [key: string]: any;
 }
@@ -21062,6 +21404,27 @@ export interface VerifySchemaRelationshipBody {
   isVerified: boolean;
   reviewedLabel: string | null;
   reviewedCardinality: SchemaRelationshipCardinality | null;
+
+  [key: string]: any;
+}
+
+export interface VerifySecurityAuditCommand {
+  from: Date | null;
+  to: Date | null;
+  eventIds?: number[] | null;
+
+  [key: string]: any;
+}
+
+export interface VerifySecurityAuditResult {
+  checkedCount: number;
+  intactCount: number;
+  modifiedCount: number;
+  unknownKeyCount: number;
+  failedEventIds: number[];
+  outOfRangeCount?: number;
+  outcome?: string;
+  verdicts?: SecurityAuditEventVerdict[] | null;
 
   [key: string]: any;
 }

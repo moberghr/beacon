@@ -541,7 +541,7 @@ public class AiActorOwnershipTests
 
     private SetAiActorOwnerHandler SetOwnerHandler(ClaimsPrincipal caller)
     {
-        return new SetAiActorOwnerHandler(Factory(), Actor(caller), TestPermissions.ForPrincipal(caller), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(caller)), NullLogger<SetAiActorOwnerHandler>.Instance);
+        return new SetAiActorOwnerHandler(Factory(), Actor(caller), TestPermissions.ForPrincipal(caller), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(caller)), new RecordingSecurityAudit(), NullLogger<SetAiActorOwnerHandler>.Instance);
     }
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)

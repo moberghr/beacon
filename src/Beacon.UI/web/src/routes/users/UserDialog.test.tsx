@@ -104,6 +104,28 @@ describe('UserDialog roles', () => {
     expect(writes.account).toBe(0);
   });
 
+  it('offers a UserAdmin the user\'s owned resources, read only once shown', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
+    serve();
+    const reads: string[] = [];
+    mswServer.use(
+      http.get('*/beacon/api/users/7/owned-resources', ({ request }) => {
+        reads.push(request.url);
+        return HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 });
+      }),
+    );
+
+    await renderEdit(user());
+    const show = await screen.findByRole('button', { name: 'Show owned resources' });
+    expect(reads).toHaveLength(0);
+
+    fireEvent.click(show);
+
+    expect(await screen.findByText('None.')).toBeInTheDocument();
+    expect(reads).toHaveLength(1);
+    expect(screen.getByRole('region', { name: 'Owned resources' })).toBeInTheDocument();
+  });
+
   it('shows a UserAdmin the Admin and functional roles disabled, and the others assignable', async () => {
     mswServer.use(permissionsHandler({ permissions: ['UserAdmin'] }));
     serve();

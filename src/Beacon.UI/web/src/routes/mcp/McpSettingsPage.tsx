@@ -26,6 +26,7 @@ import {
   useMcpSettings,
   useUpdateMcpProjectSettings,
   useUpdateMcpSettings,
+  type McpDeploymentLock,
   type McpProjectSettingsData,
   type McpSettingsData,
 } from './queries';
@@ -181,7 +182,9 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
   const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpSettings();
   // Settings the deployment pins: their switches stay as pinned, for every role.
-  const locked = new Set((useMcpDeploymentLocks().data ?? []).map(lowerFirst));
+  const deploymentLocks = useMcpDeploymentLocks().data;
+  const locked = new Set((deploymentLocks?.lockedFields ?? []).map(lowerFirst));
+  const contentLock = contentLockOf(deploymentLocks?.locks);
   const safetyLocked = locked.has('enforceReadOnly') || locked.has('enablePiiDetection');
   const rowDataLocked = ROW_DATA_KEYS.some(x => locked.has(x));
   const updateMutation = useUpdateMcpSettings();
@@ -453,6 +456,7 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
                 Retain question and SQL text in signals and audit
                 {locked.has('retainQueryContent') && <Lock className="h-3.5 w-3.5 text-text-muted" aria-label="Locked by deployment configuration" />}
               </label>
+              {locked.has('retainQueryContent') && <ContentLockNote lock={contentLock} />}
               <Field
                 label="Statement timeout (s)"
                 hint={
@@ -734,6 +738,7 @@ interface ProjectSettingsFormProps {
 function ProjectSettingsForm({ projectId, projectName, scopeSelector, readOnly }: ProjectSettingsFormProps) {
   const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpProjectSettings(projectId);
+  const contentLock = contentLockOf(useMcpDeploymentLocks().data?.locks);
   // The global values decide whether clearing an override that pins a safety switch on loosens it.
   const global = useMcpSettings().data;
   const updateMutation = useUpdateMcpProjectSettings();
@@ -869,6 +874,10 @@ function ProjectSettingsForm({ projectId, projectName, scopeSelector, readOnly }
           sub={`${data.lockedFields.join(', ')} ${data.lockedFields.length === 1 ? 'is' : 'are'} pinned by Beacon:Mcp and cannot be changed here or globally.${
             ROW_DATA_KEYS.some(x => locked.has(x))
               ? ' Beacon:Mcp:ForbidRowDataToLlm keeps every value read from the data away from the LLM provider.'
+              : ''
+          }${
+            locked.has('retainQueryContent') && contentLock === REQUIRE_CONTENT_LOCK
+              ? ' Beacon:Mcp:Audit:RequireContent keeps the question and SQL text of every call in the audit.'
               : ''
           }`}
         />
@@ -1035,6 +1044,45 @@ function seedFor(field: OverrideFieldDef): McpProjectSettingsData[OverrideKey] {
 
 function lowerFirst(name: string): string {
   return name.length === 0 ? name : name[0].toLowerCase() + name.slice(1);
+}
+
+/** The lock `Beacon:Mcp:Audit:RequireContent` goes by: it pins content retention on, so the audit keeps the text. */
+const REQUIRE_CONTENT_LOCK = 'Audit:RequireContent';
+const FORCE_NO_CONTENT_LOCK = 'ForceNoContentRetention';
+
+/** The lock that pins content retention, when one does. */
+function contentLockOf(locks: McpDeploymentLock[] | undefined): string | undefined {
+  return locks?.find(x => x.fieldName === 'RetainQueryContent')?.lockName;
+}
+
+/** Why the content retention switch cannot be changed: which lock pins it, which way, and where it is unlocked. */
+function ContentLockNote({ lock }: { lock: string | undefined }) {
+  if (lock === REQUIRE_CONTENT_LOCK) {
+    return (
+      <p className="m-0 text-xs text-text-muted">
+        Kept on by the deployment (<span className="mono">Beacon:Mcp:Audit:RequireContent</span>): the audit keeps the
+        question and SQL text of every call, so it cannot be switched off unseen. Nobody can turn it off here or per
+        project, an Admin included; only the host&apos;s configuration can.
+      </p>
+    );
+  }
+
+  if (lock === FORCE_NO_CONTENT_LOCK) {
+    return (
+      <p className="m-0 text-xs text-text-muted">
+        Off by the deployment (<span className="mono">Beacon:Mcp:ForceNoContentRetention</span>): signals and the audit
+        keep the structure of each call and keyed hashes of its text, never the text. Nobody can turn it on here or per
+        project, an Admin included; only the host&apos;s configuration can.
+      </p>
+    );
+  }
+
+  return (
+    <p className="m-0 text-xs text-text-muted">
+      Pinned by the deployment (<span className="mono">Beacon:Mcp</span>): nobody can change it here or per project, an
+      Admin included; only the host&apos;s configuration can.
+    </p>
+  );
 }
 
 function ProjectContextPreview() {

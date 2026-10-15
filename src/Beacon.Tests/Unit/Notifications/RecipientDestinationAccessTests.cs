@@ -104,6 +104,7 @@ public class RecipientDestinationAccessTests
             TestProjectAccess.Actors(),
             permissions,
             TestChangeApprovals.Recipients(NotificationTestKit.Protector()),
+            new RecordingSecurityAudit(), TimeProvider.System,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<UpdateRecipientHandler>.Instance);
         var recipient = _recipients.First(x => x.Id == recipientId);
 

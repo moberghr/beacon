@@ -29,6 +29,8 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Worker;
 using Beacon.Tests.Common;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit;
 
@@ -250,6 +252,7 @@ public class LocalLoginTests
         var configuration = new BeaconConfiguration();
         configuration.UserManagement.LocalLogin = Off("root");
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         services.AddLogging();
         services.AddSingleton(Gate(configuration, Stored(InternalUser(1, "root"), InternalUser(2, "ana"))));
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie();
@@ -443,7 +446,7 @@ public class LocalLoginTests
         configuration.UserManagement.LocalLogin.Enabled = enabled;
         var httpContext = new DefaultHttpContext
         {
-            RequestServices = new ServiceCollection().AddSingleton(configuration).BuildServiceProvider()
+            RequestServices = new ServiceCollection().AddSingleton(configuration).AddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit()).BuildServiceProvider()
         };
 
         var response = AuthEndpoints.GetSsoConfig(Options.Create(new OidcAuthenticationOptions { Enabled = true }), httpContext);
@@ -493,6 +496,7 @@ public class LocalLoginTests
         List<BeaconUser>? gateUsers = null)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         builder.WebHost.UseTestServer();
         if (logs != null)
         {
@@ -591,6 +595,7 @@ public class LocalLoginTests
             Mock.Of<IRoleService>(),
             configuration,
             TimeProvider.System,
+            new RecordingSecurityAudit(),
             logs?.For<UserManagementService>());
     }
 

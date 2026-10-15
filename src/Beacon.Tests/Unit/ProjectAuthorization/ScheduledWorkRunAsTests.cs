@@ -513,6 +513,7 @@ public class ScheduledWorkRunAsTests
             Mock.Of<IQueryProposalCheck>(MockBehavior.Strict),
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
+            new RecordingSecurityAudit(),
             NullLogger<AiActorService>.Instance);
 
         await service.ExecuteThinkCycleBackgroundAsync(actor.Id);

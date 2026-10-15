@@ -22,6 +22,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
@@ -42,8 +43,9 @@ public class ProjectCreationAccessTests
     {
         var saved = new List<object>();
         var logs = new LogRecorder();
+        var audit = new RecordingSecurityAudit(new BeaconActor("ext-ada", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true });
 
-        var result = await CreateProject(saved, Editor(), logs: logs).Handle(new CreateProjectCommand("p", null, [], []), CancellationToken.None);
+        var result = await CreateProject(saved, Editor(), logs: logs, audit: audit).Handle(new CreateProjectCommand("Finance plans", null, [], ["https://example.test/repo"]), CancellationToken.None);
 
         var project = saved.OfType<Project>().Should().ContainSingle().Subject;
         project.RequiresMembership.Should().BeTrue();
@@ -55,6 +57,16 @@ public class ProjectCreationAccessTests
         });
         result.Should().Be(new CreateProjectResult(project.Id, true));
         logs.Entries.Should().BeEmpty();
+        audit.Single("Finance plans", "example.test").Should().BeEquivalentTo(
+            new
+            {
+                Action = SecurityAuditActions.ProjectCreated,
+                ActorUserId = (int?)3,
+                ResourceType = SecurityAuditResources.Project,
+                DetailsJson = "{\"requiresMembership\":true,\"creatorIsMember\":true,\"dataSourceIds\":[],\"repositoryCount\":1,\"repositoryTokenSet\":false}"
+            },
+            x => x.ExcludingMissingMembers());
+        audit.Ways.Should().Equal("saved");
     }
 
     [Test]
@@ -163,6 +175,7 @@ public class ProjectCreationAccessTests
             TestProjectAccess.Evaluator(Editor()),
             BeaconMembership(capture.Factory()),
             Options.Create(new ProjectAuthorizationOptions()),
+            new RecordingSecurityAudit(),
             NullLogger<CreateProjectHandler>.Instance);
 
         var act = () => handler.Handle(new CreateProjectCommand("p", null, [10], []), CancellationToken.None);
@@ -263,6 +276,7 @@ public class ProjectCreationAccessTests
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             TestQueryServices.Runner(),
+            new RecordingSecurityAudit(),
             NullLogger<DataSourceService>.Instance);
 
         await service.CreateDataSource(
@@ -318,7 +332,8 @@ public class ProjectCreationAccessTests
         BeaconActor? actor = null,
         IProjectMembershipSource? membership = null,
         LogRecorder? logs = null,
-        IBeaconPermissionAccessor? permissions = null)
+        IBeaconPermissionAccessor? permissions = null,
+        RecordingSecurityAudit? audit = null)
     {
         var restricted = new Project { Id = RestrictedProject, Name = "restricted", RequiresMembership = true };
         var open = new Project { Id = OpenProject, Name = "open" };
@@ -348,6 +363,7 @@ public class ProjectCreationAccessTests
             TestProjectAccess.Evaluator(scope),
             membership ?? BeaconMembership(factory),
             Options.Create(new ProjectAuthorizationOptions()),
+            audit ?? new RecordingSecurityAudit(),
             logs?.For<CreateProjectHandler>() ?? NullLogger<CreateProjectHandler>.Instance);
     }
 

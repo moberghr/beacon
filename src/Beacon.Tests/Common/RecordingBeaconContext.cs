@@ -17,7 +17,7 @@ internal sealed class RecordingBeaconContext(
     List<object> saved,
     SqlCapture? offline = null,
     Action? onSave = null)
-    : BeaconContext(offline == null ? Options : OfflineOptions(offline), "beacon")
+    : BeaconContext(offline == null ? Options : OfflineOptions(offline), "beacon"), IObservableSaves
 {
     // An unserved set is the real EF set: it never connects (SqlCapture.NeverConnects), so reading one fails at once.
     private static readonly DbContextOptions<RecordingBeaconContext> Options =
@@ -36,11 +36,15 @@ internal sealed class RecordingBeaconContext(
             .AddInterceptors(offline.OfflineInterceptors())
             .Options;
 
+    /// <inheritdoc />
+    public event Action? Saving;
+
     public override DbSet<TEntity> Set<TEntity>() where TEntity : class =>
         sets.TryGetValue(typeof(TEntity), out var set) ? (DbSet<TEntity>)set : base.Set<TEntity>();
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        Saving?.Invoke();
         var added = ChangeTracker.Entries()
             .Where(x => x.State == EntityState.Added)
             .Select(x => x.Entity)

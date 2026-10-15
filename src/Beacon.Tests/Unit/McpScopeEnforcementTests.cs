@@ -222,6 +222,7 @@ public class McpScopeEnforcementTests
         var registration = new ServiceCollection();
         registration.AddLogging();
         Beacon.MCP.ServiceConfiguration.AddBeaconMcp(registration);
+        registration.AddMcpAuditEvidence();
         using var provider = registration.BuildServiceProvider();
 
         var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>().Value;
@@ -298,6 +299,7 @@ public class McpScopeEnforcementTests
         var auditLogs = new List<McpAuditLog>();
         var registration = AuditingRegistration(auditLogs, required: false);
         Beacon.MCP.ServiceConfiguration.AddBeaconMcp(registration);
+        registration.AddMcpAuditEvidence();
         var handlerRan = false;
         registration.Configure<McpServerOptions>(x => x.Handlers.CallToolHandler = (_, _) =>
         {
@@ -587,6 +589,7 @@ public class McpScopeEnforcementTests
         var registration = AuditingRegistration(auditLogs, required, failSave, caller);
         registration.AddTransient<McpAuditService>();
         registration.AddScoped<McpAuditOutcome>();
+        registration.AddMcpAuditEvidence();
         registration.AddScoped<McpProjectContext>();
         registration.AddScoped<IProjectContext>(x => new McpProjectContext { UserId = 7 });
         return registration.BuildServiceProvider();

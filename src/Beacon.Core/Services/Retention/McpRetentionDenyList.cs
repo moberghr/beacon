@@ -66,6 +66,16 @@ public static class McpRetentionDenyList
         Rule<McpAuditLog>(nameof(McpAuditLog.McpSessionId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.UpstreamRequestId), RetentionKind.Structural),
 
+        // A keyed hash of the parameters: kept whatever the lock, so calls with the same input still match.
+        Rule<McpAuditLog>(nameof(McpAuditLog.ContentHash), RetentionKind.Structural),
+
+        // McpAuditStatement — the statement text is content; its keyed hash, purpose, tables and error class are structure.
+        Rule<McpAuditStatement>(nameof(McpAuditStatement.Purpose), RetentionKind.Structural),
+        Rule<McpAuditStatement>(nameof(McpAuditStatement.SqlHash), RetentionKind.Structural),
+        Rule<McpAuditStatement>(nameof(McpAuditStatement.Sql), RetentionKind.Content),
+        Rule<McpAuditStatement>(nameof(McpAuditStatement.TablesJson), RetentionKind.Structural),
+        Rule<McpAuditStatement>(nameof(McpAuditStatement.ErrorClass), RetentionKind.Structural),
+
         // McpLearnedPattern — PatternContent is Structural WITH A GUARD: under the lock it is only ever the
         // deterministic schema/table/column template (the LLM lesson extractor is disabled). The examples are
         // verbatim user content.
@@ -143,6 +153,7 @@ public static class McpRetentionDenyList
     {
         [typeof(McpQuerySignal)] = x => ((McpQuerySignal)x).ProjectId,
         [typeof(McpAuditLog)] = x => ((McpAuditLog)x).ProjectId,
+        [typeof(McpAuditStatement)] = x => ((McpAuditStatement)x).ProjectId,
         [typeof(McpLearnedPattern)] = x => ((McpLearnedPattern)x).ProjectId,
         [typeof(McpDocumentationPatch)] = x => ((McpDocumentationPatch)x).ProjectId,
         [typeof(McpEvalCase)] = x => ((McpEvalCase)x).ProjectId,

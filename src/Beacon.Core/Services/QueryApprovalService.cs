@@ -9,6 +9,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -56,6 +57,7 @@ internal class QueryApprovalService(
     IBeaconUserContext userContext,
     IStepSqlSaveCheck saveCheck,
     BeaconConfiguration configuration,
+    ISecurityAuditRecorder securityAudit,
     ILogger<QueryApprovalService> logger) : IQueryApprovalService
 {
     /// <summary>Why a decision on a request that is no longer pending is refused.</summary>
@@ -329,7 +331,9 @@ internal class QueryApprovalService(
                         .SetProperty(y => y.ActiveVersionId, request.QueryVersionId)
                         .SetProperty(y => y.Name, request.Name)
                         .SetProperty(y => y.Description, request.Description)
-                        .SetProperty(y => y.FinalQuery, request.FinalQuery),
+                        .SetProperty(y => y.FinalQuery, request.FinalQuery)
+                        .SetProperty(y => y.ModifiedByUserId, reviewer.UserId)
+                        .SetProperty(y => y.ModifiedTime, (DateTime?)reviewedAt),
                     cancellationToken);
             if (moved == 0)
             {
@@ -372,7 +376,10 @@ internal class QueryApprovalService(
                 }
             }
 
-            await context.SaveChangesAsync(cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [Decided(requestId, request.QueryId, request.QueryVersionId, ApprovalStatus.Approved, request.RequestedByUserId, withdrawn: false)],
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
 
@@ -402,6 +409,7 @@ internal class QueryApprovalService(
         EnsurePending(request.Status);
 
         var reviewerName = await ChangeAuthorLabel.OfAsync(context, reviewer.UserId, userContext.DisplayName, cancellationToken);
+        var withdrawn = reviewer.IsRecordedAs(request.RequestedByUserId);
         var reviewedAt = DateTime.UtcNow;
 
         var strategy = context.Database.CreateExecutionStrategy();
@@ -435,6 +443,10 @@ internal class QueryApprovalService(
                 .Where(x => x.Status == QueryVersionStatus.PendingApproval)
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.Status, QueryVersionStatus.Rejected), cancellationToken);
 
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [Decided(requestId, request.QueryId, request.QueryVersionId, ApprovalStatus.Rejected, request.RequestedByUserId, withdrawn)],
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
 
@@ -447,6 +459,28 @@ internal class QueryApprovalService(
 
         return await context.QueryApprovalRequests
             .CountAsync(r => r.Status == ApprovalStatus.Pending, cancellationToken);
+    }
+
+    // A decision as the security audit records it: the request, its query and version, the outcome, the requester by
+    // Users.Id (the reviewer is the event's actor), and whether the requester withdrew their own request — never the comment.
+    private static SecurityAuditEntry Decided(
+        int requestId,
+        int queryId,
+        int versionId,
+        ApprovalStatus outcome,
+        string? requesterExternalId,
+        bool withdrawn)
+    {
+        var action = outcome == ApprovalStatus.Approved ? SecurityAuditActions.QueryChangeApproved : SecurityAuditActions.QueryChangeRejected;
+
+        return new SecurityAuditEntry(action)
+            .On(SecurityAuditResources.ApprovalRequest, requestId)
+            .With(new SecurityAuditDetails()
+                .Add("queryId", queryId)
+                .Add("versionId", versionId)
+                .Add("outcome", outcome)
+                .Add("withdrawn", withdrawn))
+            .Naming("requesterUserId", requesterExternalId);
     }
 
     private static void EnsurePending(ApprovalStatus status)

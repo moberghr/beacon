@@ -307,6 +307,7 @@ public class GroundingTranslationTests
             capture.Factory(),
             TestGroundingSqlChecks.PassThrough().Object,
             TestProjectAccess.Actors(),
+            new RecordingSecurityAudit(),
             NullLogger<PromoteSignalToGoldenHandler>.Instance);
     }
 
@@ -332,7 +333,7 @@ public class GroundingTranslationTests
     {
         var capture = Capture(sqlServer).ThenRow(true).ThenNoRows().ThenNoRows();
 
-        var result = await new RecheckGroundingHandler(capture.Factory(), TestGroundingSqlChecks.PassThrough().Object, NullLogger<RecheckGroundingHandler>.Instance)
+        var result = await new RecheckGroundingHandler(capture.Factory(), TestGroundingSqlChecks.PassThrough().Object, new RecordingSecurityAudit(), NullLogger<RecheckGroundingHandler>.Instance)
             .Handle(new RecheckGroundingQuery(4), CancellationToken.None);
 
         result.Refused.Should().BeEmpty();

@@ -1333,6 +1333,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime?>("ChangedOn")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1360,6 +1364,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int>("Mode")
                         .HasColumnType("int");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1408,6 +1419,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1428,6 +1443,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("bit");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1805,6 +1827,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1866,6 +1892,59 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("McpAuditLogs", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditStatement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ErrorClass")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("McpAuditLogId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int?>("RowCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Sql")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("TablesJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("McpAuditLogId");
+
+                    b.ToTable("McpAuditStatements", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
@@ -3480,6 +3559,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -3512,6 +3595,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("McpToolName")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -4039,6 +4129,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("BodyTemplate")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -4052,6 +4146,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("HeadersJson")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -4062,6 +4163,93 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Recipients", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.SecurityAuditEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ActorKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<int?>("ActorUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ApiKeyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CallerHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DetailsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<Guid>("EventGuid")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Hmac")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<int?>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResourceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResourceType")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId", "CreatedTime");
+
+                    b.HasIndex("CreatedTime");
+
+                    b.HasIndex("EventGuid")
+                        .IsUnique();
+
+                    b.HasIndex("ResourceType", "ResourceId");
+
+                    b.ToTable("SecurityAuditEvents", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>
@@ -4081,6 +4269,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("CreateTasks")
                         .HasColumnType("bit");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -4096,6 +4288,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int?>("MinimumRowCount")
                         .HasColumnType("int");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
 
                     b.Property<int>("NotificationTrigger")
                         .HasColumnType("int");
@@ -4566,6 +4765,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Session");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditStatement", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.McpAuditLog", "AuditLog")
+                        .WithMany("Statements")
+                        .HasForeignKey("McpAuditLogId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AuditLog");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
@@ -5064,6 +5274,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataSource", b =>
                 {
                     b.Navigation("QuerySteps");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
+                {
+                    b.Navigation("Statements");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", b =>

@@ -155,26 +155,29 @@ public class ChangeLockOrderTests
             .ThenScalar(true)
             .ThenRow("public", "orders", 1, "id", 10);
 
-    // The recipient as stored: a governed webhook on its approved destination.
+    // The recipient as stored: a governed webhook on its approved destination, with no recorded creator or modifier.
     private static object[] StoredRecipient() =>
     [
         RecipientId,
         RecipientDestinationDefinition.Hash(TestChangeApprovals.Hasher, NotificationType.Webhook, Approved, null),
         DBNull.Value,
         DBNull.Value,
+        DBNull.Value,
         DateTime.UtcNow,
         DBNull.Value,
         Protector.Protect(Approved),
+        DBNull.Value,
+        DBNull.Value,
         DBNull.Value,
         "ops hook",
         (int)NotificationType.Webhook
     ];
 
-    // The contract as stored, with one Custom SQL rule waiting for approval and no recipients: the contract's columns, the
-    // rule's, then the (empty) recipient join's.
+    // The contract as stored (no recorded creator or modifier), with one Custom SQL rule waiting for approval and no
+    // recipients: the contract's columns, the rule's, then the (empty) recipient join's.
     private static object[] StoredContract() =>
     [
-        ContractId, false, DBNull.Value, DateTime.UtcNow, "0 * * * *", ChangeApprovalStore.Warehouse, DBNull.Value, 80, false, "orders contract", DBNull.Value, DBNull.Value, "public", "orders",
+        ContractId, false, DBNull.Value, DBNull.Value, DateTime.UtcNow, "0 * * * *", ChangeApprovalStore.Warehouse, DBNull.Value, 80, false, DBNull.Value, DBNull.Value, "orders contract", DBNull.Value, DBNull.Value, "public", "orders",
         11, ChangeApprovalHashes.NothingApproved, DBNull.Value, JsonSerializer.Serialize(new { sql = "SELECT 1 AS passed" }), DateTime.UtcNow, ContractId, DBNull.Value, true, "custom", (int)DataContractRuleType.CustomSql, (int)DataContractSeverity.Medium, 1.0,
         DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value
     ];
@@ -249,13 +252,14 @@ public class ChangeLockOrderTests
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
             TestChangeApprovals.Recipients(Protector, configuration, TestChangeApprovals.Caller(Ada)),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateRecipientHandler>.Instance);
 
     private static RecipientService RecipientService(SqlCapture capture, BeaconConfiguration configuration) =>
         new(
             capture.Factory(),
             new RecipientSecretEditor(NotificationTestKit.Policy(), Protector),
-            TestChangeApprovals.Recipients(Protector, configuration, TestChangeApprovals.Caller(Ada)));
+            TestChangeApprovals.Recipients(Protector, configuration, TestChangeApprovals.Caller(Ada)), TestProjectAccess.Actors(), new RecordingSecurityAudit(), TimeProvider.System);
 
     private static UpdateDataContractHandler ContractHandler(SqlCapture capture, BeaconConfiguration configuration) =>
         new(
@@ -266,6 +270,7 @@ public class ChangeLockOrderTests
             TestConfiguredDatabases.None,
             TestChangeApprovals.Caller(Ada, beaconUserId: 7, isAdmin: true),
             TestChangeApprovals.CustomSql(configuration, TestChangeApprovals.Caller(Ada, beaconUserId: 7, isAdmin: true)),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();

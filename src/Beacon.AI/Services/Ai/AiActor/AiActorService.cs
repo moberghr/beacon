@@ -17,6 +17,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Helpers;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Services.Security;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.AI.Services.Ai.AiActor;
 
@@ -56,6 +57,7 @@ public class AiActorService : IAiActorServiceExtended
     private readonly IQueryProposalCheck _proposalCheck;
     private readonly IQueryVersionService _versionService;
     private readonly BeaconConfiguration _configuration;
+    private readonly ISecurityAuditRecorder _securityAudit;
     private readonly ILogger<AiActorService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -77,6 +79,7 @@ public class AiActorService : IAiActorServiceExtended
         IQueryProposalCheck proposalCheck,
         IQueryVersionService versionService,
         BeaconConfiguration configuration,
+        ISecurityAuditRecorder securityAudit,
         ILogger<AiActorService> logger)
     {
         _contextFactory = contextFactory;
@@ -91,6 +94,7 @@ public class AiActorService : IAiActorServiceExtended
         _proposalCheck = proposalCheck;
         _versionService = versionService;
         _configuration = configuration;
+        _securityAudit = securityAudit;
         _logger = logger;
     }
 
@@ -1204,7 +1208,8 @@ public class AiActorService : IAiActorServiceExtended
                     Name = name,
                     Description = description,
                     AiActorId = actor.Id,
-                    OwnerUserId = actor.CreatedByUserId
+                    OwnerUserId = actor.CreatedByUserId,
+                    CreatedByUserId = actor.CreatedByUserId
                 },
                 new QueryData
                 {
@@ -1251,6 +1256,7 @@ public class AiActorService : IAiActorServiceExtended
             Description = description,
             AiActorId = actor.Id,
             OwnerUserId = actor.CreatedByUserId,
+            CreatedByUserId = actor.CreatedByUserId,
             Steps = { queryStep }
         };
 
@@ -1369,12 +1375,24 @@ public class AiActorService : IAiActorServiceExtended
             ShowQuery = true,
             IncludeAttachment = false,
             AiActorId = actor.Id,
-            // Owned by the actor's creator, whose access its runs act with.
-            OwnerUserId = actor.CreatedByUserId
+            // Owned and created by the actor's creator, whose access its runs act with.
+            OwnerUserId = actor.CreatedByUserId,
+            CreatedByUserId = actor.CreatedByUserId
         };
 
         context.Subscriptions.Add(subscription);
-        await context.SaveChangesAsync(cancellationToken);
+        await _securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.SubscriptionCreated)
+                    .On(SecurityAuditResources.Subscription, subscription.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("queryId", subscription.QueryId)
+                        .Add("aiActorId", actor.Id)
+                        .Add("createTasks", subscription.CreateTasks))
+            ],
+            cancellationToken);
 
         action.Success = true;
         action.ResultEntityId = subscription.Id;
@@ -1528,6 +1546,8 @@ public class AiActorService : IAiActorServiceExtended
         await _versionService.EnsureBaselineVersionAsync(queryId, cancellationToken);
 
         firstStep.SqlValue = newSql;
+        query.ModifiedByUserId = actor.CreatedByUserId;
+        query.ModifiedTime = DateTime.UtcNow;
         context.QueryStepChangeHistory.Add(new QueryStepChangeHistory
         {
             QueryStepId = firstStep.Id,
@@ -1837,7 +1857,19 @@ public class AiActorService : IAiActorServiceExtended
             };
 
             context.AiActorPlans.Add(plan);
-            await context.SaveChangesAsync(cancellationToken);
+            await _securityAudit.SaveWithEventsAsync(
+                context,
+                () =>
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.AiPlanSubmitted)
+                        .On(SecurityAuditResources.AiActorPlan, plan.Id)
+                        .With(new SecurityAuditDetails()
+                            .Add("aiActorId", plan.AiActorId)
+                            .Add("parentPlanId", plan.ParentPlanId)
+                            .Add("version", plan.Version)
+                            .Add("proposedActionCount", proposedActions.Count))
+                ],
+                cancellationToken);
 
             _logger.LogInformation("Generated plan {PlanId} for actor {ActorId} with {ActionCount} proposed actions",
                 plan.Id, actor.Id, proposedActions.Count);
@@ -2099,7 +2131,7 @@ public class AiActorService : IAiActorServiceExtended
     // A plan is approved, rejected or sent back for revision only from PendingApproval, as one conditional update that
     // records who decided: a decision on a plan that is no longer pending (decided, or decided concurrently) changes
     // nothing and is refused.
-    private static async Task DecidePlanAsync(
+    private async Task DecidePlanAsync(
         BeaconContext context,
         int planId,
         AiActorPlanStatus status,
@@ -2108,16 +2140,35 @@ public class AiActorService : IAiActorServiceExtended
         DateTime reviewedAt,
         CancellationToken cancellationToken)
     {
-        var decided = await context.AiActorPlans
-            .Where(x => x.Id == planId)
-            .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
-            .ExecuteUpdateAsync(
-                x => x
-                    .SetProperty(y => y.Status, status)
-                    .SetProperty(y => y.ReviewedAt, reviewedAt)
-                    .SetProperty(y => y.ReviewedByUserId, reviewerUserId)
-                    .SetProperty(y => y.ReviewerComment, comment),
-                cancellationToken);
+        // The decision and its security audit event commit together; the reviewer is the event's actor, the comment stays
+        // on the plan.
+        var action = status switch
+        {
+            AiActorPlanStatus.Rejected => SecurityAuditActions.AiPlanRejected,
+            AiActorPlanStatus.RevisionRequested => SecurityAuditActions.AiPlanRevisionRequested,
+            _ => SecurityAuditActions.AiPlanApproved
+        };
+        var decided = await _securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.AiActorPlans
+                .Where(x => x.Id == planId)
+                .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.Status, status)
+                        .SetProperty(y => y.ReviewedAt, reviewedAt)
+                        .SetProperty(y => y.ReviewedByUserId, reviewerUserId)
+                        .SetProperty(y => y.ReviewerComment, comment),
+                    cancellationToken),
+            written => written == 0
+                ? []
+                :
+                [
+                    new SecurityAuditEntry(action)
+                        .On(SecurityAuditResources.AiActorPlan, planId)
+                        .With(new SecurityAuditDetails().Add("outcome", status))
+                ],
+            cancellationToken);
         if (decided == 0)
         {
             throw new BeaconConflictException(PlanNotPendingMessage);

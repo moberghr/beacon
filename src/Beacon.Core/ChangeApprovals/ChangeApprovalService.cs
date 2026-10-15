@@ -11,6 +11,7 @@ using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.ChangeApprovals;
 
@@ -62,6 +63,7 @@ internal sealed class ChangeApprovalService(
     RecipientSecretProtector secretProtector,
     RecipientDestinationHasher hasher,
     BeaconConfiguration configuration,
+    ISecurityAuditRecorder securityAudit,
     ILogger<ChangeApprovalService> logger,
     IApprovalNotifier? approvalNotifier = null) : IChangeApprovalService
 {
@@ -261,6 +263,10 @@ internal sealed class ChangeApprovalService(
             }
 
             await ApplyAsync(context, request, state, cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [ChangeApprovalAuditEntries.Decided(requestId, request.Kind, request.ResourceId, ApprovalStatus.Approved, request.RequestedByUserId)],
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
 
@@ -312,6 +318,10 @@ internal sealed class ChangeApprovalService(
                 throw new BeaconConflictException(QueryApprovalService.AlreadyDecidedMessage);
             }
 
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [ChangeApprovalAuditEntries.Decided(requestId, request.Kind, request.ResourceId, ApprovalStatus.Rejected, request.RequestedByUserId)],
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
 

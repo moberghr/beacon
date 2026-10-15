@@ -133,6 +133,7 @@ public class McpAuditCallToolFilterTests
     {
         var registration = new ServiceCollection();
         Beacon.MCP.ServiceConfiguration.AddBeaconMcp(registration);
+        registration.AddMcpAuditEvidence();
 
         registration.Should().ContainSingle(x => x.ServiceType == typeof(McpAuditOutcome))
             .Which.Lifetime.Should().Be(ServiceLifetime.Scoped,
@@ -145,6 +146,7 @@ public class McpAuditCallToolFilterTests
         var registration = new ServiceCollection();
         registration.AddLogging();
         Beacon.MCP.ServiceConfiguration.AddBeaconMcp(registration);
+        registration.AddMcpAuditEvidence();
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -216,6 +218,7 @@ public class McpAuditCallToolFilterTests
         var registration = new ServiceCollection();
         registration.AddLogging();
         Beacon.MCP.ServiceConfiguration.AddBeaconMcp(registration);
+        registration.AddMcpAuditEvidence();
 
         // A custom handler chained the way AddHostEndpointTools / the saved-query tools chain theirs.
         var customRan = false;

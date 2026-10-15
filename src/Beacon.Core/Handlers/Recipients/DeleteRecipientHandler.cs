@@ -2,10 +2,15 @@ using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Recipients;
 
-internal sealed class DeleteRecipientHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class DeleteRecipientHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider)
     : IRequestHandler<DeleteRecipientCommand>
 {
     public async Task Handle(DeleteRecipientCommand request, CancellationToken cancellationToken)
@@ -38,6 +43,8 @@ internal sealed class DeleteRecipientHandler(IDbContextFactory<BeaconContext> co
         }
 
         entity.Recipient.Archive();
+        entity.Recipient.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(context, RecipientAuditEntries.Deleted(request.Id), cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 }

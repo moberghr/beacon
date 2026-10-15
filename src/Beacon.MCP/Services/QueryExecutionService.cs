@@ -5,6 +5,8 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.MCP.Tools;
+using Beacon.Core.Mcp;
+using Beacon.Core.Services.Retention;
 
 namespace Beacon.MCP.Services;
 
@@ -13,7 +15,8 @@ internal sealed class QueryExecutionService(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     ISharedSourceSettings sharedSourceSettings,
-    IProjectContext projectContext) : IQueryExecutionService
+    IProjectContext projectContext,
+    IMcpStatementLog statementLog) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -30,7 +33,13 @@ internal sealed class QueryExecutionService(
         // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL and MySQL
         // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
         // non-database providers forward to normal execution and rely on the parser gates upstream.
-        var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        // On the call's audit row as it reached the source, under the purpose the caller runs it for (§9.5, failures too).
+        var result = await statementLog.RecordAsync(
+            dataSourceId,
+            null,
+            limitedSql,
+            () => provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token),
+            x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
 
         // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId); 0 falls
         // back to the global effective settings — with the strictest guardrails of the live projects that link the source.
@@ -90,7 +99,12 @@ internal sealed class QueryExecutionService(
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-        var result = await provider.ValidateQueryAsync(dataSource, sql, ct);
+        var result = await statementLog.RecordAsync(
+            dataSourceId,
+            McpStatementPurposes.DryRun,
+            sql,
+            () => provider.ValidateQueryAsync(dataSource, sql, ct),
+            x => (null, x.IsValid || x.Skipped ? null : McpContentRedactor.ClassValidation));
 
         if (result.IsValid)
         {

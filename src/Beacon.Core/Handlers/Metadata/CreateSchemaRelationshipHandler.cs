@@ -3,6 +3,7 @@ using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Metadata;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -12,14 +13,16 @@ namespace Beacon.Core.Handlers.Metadata;
 /// <summary>
 /// Adds a manual relationship to a data source. It is stored verified — a join every project linking the source is told
 /// to trust — only when its creator may curate the source's grounding (<see cref="GroundingCuration"/>: Curate in every
-/// live project linking it, or a DataSourceAdmin, or an Admin); anyone else's waits unverified for a curator.
+/// live project linking it, or a DataSourceAdmin, or an Admin); anyone else's waits unverified for a curator. The creation
+/// is recorded in the security audit (ids, whether it was stored verified) in the same unit of work.
 /// </summary>
 internal sealed class CreateSchemaRelationshipHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     ISchemaGraphService schemaGraphService,
     IBeaconUserContext userContext,
     IProjectAccessEvaluator projectAccess,
-    IBeaconPermissionAccessor permissionAccessor)
+    IBeaconPermissionAccessor permissionAccessor,
+    ISecurityAuditRecorder securityAudit)
     : IRequestHandler<CreateSchemaRelationshipCommand, CreateSchemaRelationshipResult>
 {
     public async Task<CreateSchemaRelationshipResult> Handle(CreateSchemaRelationshipCommand request, CancellationToken cancellationToken)
@@ -76,7 +79,18 @@ internal sealed class CreateSchemaRelationshipHandler(
         };
 
         context.SchemaRelationships.Add(relationship);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.RelationshipCreated)
+                    .On(SecurityAuditResources.SchemaRelationship, relationship.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("dataSourceId", request.DataSourceId)
+                        .Add("verified", relationship.IsVerified)
+                        .Add("cardinality", request.Cardinality))
+            ],
+            cancellationToken);
 
         // The cached graph is now stale — leaving it would keep serving pre-edit joins (§6.2).
         schemaGraphService.Invalidate(request.DataSourceId);

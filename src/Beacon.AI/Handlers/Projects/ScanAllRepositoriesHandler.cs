@@ -5,6 +5,7 @@ using Beacon.AI.Services.GitHub;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Handlers.Projects;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.AI.Handlers.Projects;
 
@@ -12,6 +13,7 @@ internal sealed class ScanAllRepositoriesHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IGitHubScannerService scanner,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<ScanAllRepositoriesHandler> logger)
     : IRequestHandler<ScanAllRepositoriesCommand, ScanAllRepositoriesResult>
 {
@@ -34,6 +36,12 @@ internal sealed class ScanAllRepositoriesHandler(
             request.ProjectId,
             repoIds,
             actor.LogId);
+        await securityAudit.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.RepositoryScanRequested)
+                .On(SecurityAuditResources.Project, request.ProjectId)
+                .InProject(request.ProjectId)
+                .With(new SecurityAuditDetails().Add("repositoryIds", repoIds)),
+            cancellationToken);
 
         var errors = new List<string>();
         var scanned = 0;

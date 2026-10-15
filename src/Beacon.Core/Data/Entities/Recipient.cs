@@ -4,7 +4,7 @@ using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
-public class Recipient : ArchivableBaseEntity
+public class Recipient : ArchivableBaseEntity, IAttributedEntity
 {
     public required string Name { get; set; }
 
@@ -27,6 +27,15 @@ public class Recipient : ArchivableBaseEntity
     /// before.
     /// </summary>
     public string? ApprovedDestinationHash { get; set; }
+
+    /// <inheritdoc />
+    public string? CreatedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? ModifiedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public DateTime? ModifiedTime { get; set; }
 
     public List<Subscription> Subscriptions { get; set; } = new();
 

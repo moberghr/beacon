@@ -15,6 +15,7 @@ using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Validators;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -280,6 +281,7 @@ internal partial class QueryService
         }
 
         // Update basic query properties
+        query.RecordChangeBy(actor, timeProvider);
         query.Name = queryData.Name;
         query.Description = queryData.Description;
         query.FinalQuery = queryData.FinalQuery;

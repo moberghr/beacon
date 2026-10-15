@@ -2,10 +2,15 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
-internal sealed class MoveQueryToFolderHandler(IDbContextFactory<BeaconContext> contextFactory)
+/// <summary>Moves a query into a folder (or to the root); the move is recorded as the query's last change, by the caller.</summary>
+internal sealed class MoveQueryToFolderHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IBeaconActorAccessor actorAccessor,
+    TimeProvider timeProvider)
     : IRequestHandler<MoveQueryToFolderCommand, Unit>
 {
     public async Task<Unit> Handle(MoveQueryToFolderCommand request, CancellationToken cancellationToken)
@@ -34,6 +39,7 @@ internal sealed class MoveQueryToFolderHandler(IDbContextFactory<BeaconContext> 
         }
 
         query.FolderId = request.FolderId;
+        query.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
 
         await context.SaveChangesAsync(cancellationToken);
 

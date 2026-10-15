@@ -28,12 +28,17 @@ internal sealed partial class McpAuditService(
     ILogger<McpAuditService> logger,
     McpAuditOutcome outcome,
     IOptions<BeaconTelemetryOptions> telemetryOptions,
-    ILoggerFactory loggerFactory)
+    ILoggerFactory loggerFactory,
+    McpContentHasher contentHasher,
+    IMcpStatementLog statementLog)
 {
     internal const string McpSessionIdHeader = "Mcp-Session-Id";
     internal static readonly EventId ToolAuditedEvent = new(9100, "McpToolAudited");
     private const int MaxHeaderIdLength = 128;
     private const int MaxContentLength = 4000;
+    private const int MaxTablesJsonLength = 4000;
+    private const int MaxPurposeLength = 32;
+    private const int MaxErrorClassLength = 64;
     internal const string InvalidToolName = "<invalid>";
 
     private readonly ILogger _auditLogger = loggerFactory.CreateLogger(BeaconTelemetry.AuditLogCategory);
@@ -45,6 +50,30 @@ internal sealed partial class McpAuditService(
         var retainContent = false;
         McpAuditLog? entry = null;
         var persisted = false;
+
+        // An empty error is no error, on the row, in the log stream and in the metrics alike.
+        errorMessage = string.IsNullOrEmpty(errorMessage) ? null : errorMessage;
+
+        // The statements the call ran on data sources, recorded by the executors whatever the learning settings, taken
+        // once: each goes on this row, on the success and the failure path alike (§9.5).
+        var statements = statementLog.TakeAll();
+        if (tables == null && statements.Count > 0)
+        {
+            tables = statements
+                .SelectMany(x => x.Tables)
+                .Where(x => !McpStatementTables.IsMarker(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        if (statements.Dropped > 0)
+        {
+            logger.LogWarning(
+                "MCP tool {Tool} ran {DroppedCount} statements past the {MaxStatements} its audit row keeps; the row records how many it does not hold",
+                BoundedToolName(tool),
+                statements.Dropped,
+                statements.Count);
+        }
 
         try
         {
@@ -98,7 +127,11 @@ internal sealed partial class McpAuditService(
                 SpanId = activity?.SpanId.ToHexString(),
                 McpSessionId = mcpSessionId,
                 UpstreamRequestId = upstreamRequestId,
-                ApiKeyId = apiKeyId
+                ApiKeyId = apiKeyId,
+
+                // Always written: calls with the same input can be matched whether or not the input itself is kept.
+                ContentHash = contentHasher.Hash(parameters),
+                Statements = StatementRows(statements, projectId, retainContent)
             };
 
             await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -120,6 +153,69 @@ internal sealed partial class McpAuditService(
             resultRowCount, errorMessage, parameters);
     }
 
+    // The statement rows, and after them, when the call ran more statements than the log keeps, a marker row whose row
+    // count is how many are not held: the row never reads as the whole of what the call ran when it is not.
+    private List<McpAuditStatement> StatementRows(McpStatementsTaken statements, int? projectId, bool retainContent)
+    {
+        var rows = statements
+            .Select(x => StatementRow(x, projectId, retainContent))
+            .ToList();
+        if (statements.Dropped > 0)
+        {
+            rows.Add(new McpAuditStatement
+            {
+                ProjectId = projectId,
+                Purpose = McpStatementPurposes.Truncated,
+                RowCount = statements.Dropped
+            });
+        }
+
+        return rows;
+    }
+
+    // One statement as the audit keeps it: its keyed hash always, its text only while the project retains query content
+    // (ContentRetentionInterceptor strips it again under the lock), the tables it names, rows, time and error class.
+    private McpAuditStatement StatementRow(McpStatement statement, int? projectId, bool retainContent)
+    {
+        return new McpAuditStatement
+        {
+            ProjectId = projectId,
+            DataSourceId = statement.DataSourceId,
+            Purpose = Bounded(statement.Purpose, MaxPurposeLength)!,
+            SqlHash = contentHasher.Hash(statement.Sql),
+            Sql = retainContent ? statement.Sql : null,
+            TablesJson = TablesJson(statement.Tables),
+            RowCount = statement.RowCount,
+            DurationMs = statement.DurationMs,
+            ErrorClass = Bounded(statement.ErrorClass, MaxErrorClassLength)
+        };
+    }
+
+    // A JSON array of the table names, as many as fit the column; when not all fit, the last entry says how many more
+    // there are (McpStatementTables.More).
+    internal static string? TablesJson(IReadOnlyList<string> tables)
+    {
+        if (tables.Count == 0)
+        {
+            return null;
+        }
+
+        var json = System.Text.Json.JsonSerializer.Serialize(tables);
+        var kept = tables.Count;
+        while (json.Length > MaxTablesJsonLength && kept > 0)
+        {
+            kept--;
+            json = System.Text.Json.JsonSerializer.Serialize(tables
+                .Take(kept)
+                .Append(McpStatementTables.More(tables.Count - kept)));
+        }
+
+        return json;
+    }
+
+    private static string? Bounded(string? value, int maxLength) =>
+        value?.Length > maxLength ? value[..maxLength] : value;
+
     private async Task<bool> RetainsContentAsync(int? projectId, CancellationToken ct)
     {
         try
@@ -134,6 +230,18 @@ internal sealed partial class McpAuditService(
         }
         catch (Exception ex)
         {
+            // Under Beacon:Mcp:Audit:RequireContent the deployment pins content retention on: an unreadable setting cannot
+            // turn it off, so the row keeps its content (the content retention lock still applies at save).
+            if (deploymentOptions.Value.Audit?.RequireContent == true)
+            {
+                logger.LogError(
+                    "Content retention settings unavailable for project {ProjectId}; the audit keeps content because the deployment requires it ({Failure}).",
+                    projectId,
+                    FailureCodes.Describe(ex));
+
+                return true;
+            }
+
             logger.LogWarning("Content retention settings unavailable for project {ProjectId}; auditing structurally ({Failure}).", projectId, FailureCodes.Describe(ex));
 
             return false;

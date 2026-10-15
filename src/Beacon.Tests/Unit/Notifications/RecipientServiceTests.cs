@@ -105,7 +105,7 @@ public class RecipientServiceTests
 
     private static RecipientService Service(RecipientStore store)
     {
-        return new RecipientService(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()));
+        return new RecipientService(NotificationTestKit.Factory(store), NotificationTestKit.Editor(), TestChangeApprovals.Recipients(NotificationTestKit.Protector()), TestProjectAccess.Actors(), new RecordingSecurityAudit(), TimeProvider.System);
     }
 
     private static RecipientData Data(string name, string destination, NotificationType type, string? headers = null, int? recipientId = null)

@@ -37,9 +37,16 @@ public class AuthenticationResult
     /// <summary>
     /// The Beacon user id the result is bound to, when the provider bound one (the login-form JWT flow binds the token
     /// to an existing Beacon user). A provider that wraps another re-reads exactly this user, never one found by a
-    /// provider-agnostic external id.
+    /// provider-agnostic external id. On a failed password check of an internal user, the user the name resolved to, when
+    /// one did: for the security audit of the attempt only, never to sign anyone in.
     /// </summary>
     public int? BeaconUserId { get; init; }
+
+    /// <summary>
+    /// The credentials were right, but local login is off and the account is not a break-glass account: refused by rule.
+    /// <see cref="Success"/> is false.
+    /// </summary>
+    public bool LocalLoginRefused { get; init; }
 
     /// <summary>
     /// The credentials were right, but the user must choose a new password before signing in (an administrator set the

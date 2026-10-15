@@ -282,6 +282,16 @@ Deleting a query will disable all subscriptions using it.
 
 Queries are archived (soft delete) and can be restored if needed.
 
+### Who created and changed it
+
+A query records who **created** it and who **changed it last**, and when — taken from the caller, never from the request:
+an edit, restoring a version, archiving it, and, with the [approval workflow](#approval-workflow) on, the approval that
+makes a proposed version live (the reviewer is recorded as the last to change it). Queries created before this was
+recorded show neither. An Auditor or a UserAdmin finds the queries a user owns, created or changed last under
+[Owned resources](/features/user-management/#owned-resources). The submissions and decisions of the approval workflow are
+recorded in the [security audit trail](/features/security-audit/#event-catalogue) (`approvals.query_change_*`); creating
+and editing a query outside the workflow is attributed on the query but not recorded there as an event.
+
 ### Preview Query Execution
 
 Test queries without scheduling:

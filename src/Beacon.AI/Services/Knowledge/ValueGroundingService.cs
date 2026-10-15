@@ -9,6 +9,8 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Core.Mcp;
+using Beacon.Core.Services.Retention;
 
 namespace Beacon.AI.Services.Knowledge;
 
@@ -24,6 +26,7 @@ internal sealed class ValueGroundingService(
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
     IQueryGuardrailService guardrail,
+    IMcpStatementLog statementLog,
     ILogger<ValueGroundingService> logger) : IValueGroundingService
 {
     private const int MaxLiterals = 4;
@@ -379,7 +382,13 @@ internal sealed class ValueGroundingService(
         ProviderQueryResult result;
         try
         {
-            result = await provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, new Dictionary<string, object?>(), timeoutCts.Token);
+            // The probe reaches the data source with a literal of the question: on the call's audit row as a probe.
+            result = await statementLog.RecordAsync(
+                dataSource.Id,
+                McpStatementPurposes.Probe,
+                report.FinalSql,
+                () => provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, new Dictionary<string, object?>(), timeoutCts.Token),
+                x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {

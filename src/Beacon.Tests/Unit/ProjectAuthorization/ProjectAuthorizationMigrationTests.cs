@@ -33,8 +33,8 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 /// last edited a golden case and who rated a query signal, three nullable ids that existing rows leave empty, and when and to
 /// which case a signal was promoted. The last one adds whether a verdict came from a curator, a boolean existing verdicts
 /// leave false, and the digests of a signal's promotable SQL and of a learned pattern's content, nullable, which existing
-/// rows leave empty; its target model is the snapshot. Each earlier migration's target model differs from the next one's
-/// only by that next migration.
+/// rows leave empty. The security audit migration that follows is checked by <c>SecurityAuditMigrationTests</c>. Each
+/// earlier migration's target model differs from the next one's only by that next migration.
 /// </summary>
 [TestFixture]
 public class ProjectAuthorizationMigrationTests
@@ -59,8 +59,8 @@ public class ProjectAuthorizationMigrationTests
             .SkipWhile(x => !x.EndsWith("_AddProjectAuthorization", StringComparison.Ordinal))
             .Skip(1)
             .Should().Equal(
-                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff"), IdEndingWith(migrations, "_AddQueryChangeIntegrity"), IdEndingWith(migrations, "_AddChangeApprovalRequests"), IdEndingWith(migrations, "_AddGroundingAttribution"), IdEndingWith(migrations, "_AddGroundingProvenance")],
-                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp, sample-default, change-integrity, change-request, grounding-attribution and grounding-provenance migrations follow it");
+                [IdEndingWith(migrations, "_AddContractOwnerNotAuthorized"), IdEndingWith(migrations, "_AddDataSourceMigrationWrites"), IdEndingWith(migrations, "_AddUserSecurityStamp"), IdEndingWith(migrations, "_DefaultSampleValueCollectionOff"), IdEndingWith(migrations, "_AddQueryChangeIntegrity"), IdEndingWith(migrations, "_AddChangeApprovalRequests"), IdEndingWith(migrations, "_AddGroundingAttribution"), IdEndingWith(migrations, "_AddGroundingProvenance"), IdEndingWith(migrations, "_AddSecurityAuditTrail")],
+                "it sorts after every earlier migration, and only the contract-owner, migration-writes, security-stamp, sample-default, change-integrity, change-request, grounding-attribution, grounding-provenance and security-audit migrations follow it");
     }
 
     [TestCase(false, "data_contracts", "owner_not_authorized_since", "timestamp with time zone")]
@@ -382,7 +382,7 @@ public class ProjectAuthorizationMigrationTests
     // it). Only added columns: no index, no SQL, no stored value changes.
     [TestCase(false, "mcp_query_signals", "feedback_from_curator", "boolean", "candidate_sql_hash", "mcp_learned_patterns", "content_hash", "character varying(64)")]
     [TestCase(true, "McpQuerySignals", "FeedbackFromCurator", "bit", "CandidateSqlHash", "McpLearnedPatterns", "ContentHash", "nvarchar(64)")]
-    public void TheGroundingProvenanceMigration_AddsAFalseBooleanAndTwoNullableDigests_AndNothingElse_AndItsTargetModelIsTheSnapshot(
+    public void TheGroundingProvenanceMigration_AddsAFalseBooleanAndTwoNullableDigests_AndNothingElse_AndItsTargetModelIsTheOneBeforeTheNext(
         bool sqlServer,
         string signals,
         string fromCurator,
@@ -422,11 +422,15 @@ public class ProjectAuthorizationMigrationTests
                 migration.UpOperations.OfType<AddColumnOperation>().Select(x => $"{x.Table}.{x.Name} {x.ColumnType} {x.IsNullable} {x.DefaultValue}"),
                 "the migration's Up adds exactly the columns its target model adds");
         differences.Should().HaveCount(3, "the target model differs from the one before only by this migration");
+        var next = MigrationNamed(context, migrations, "_AddSecurityAuditTrail");
         context.GetService<IMigrationsModelDiffer>()
-            .GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+            .GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Select(x => x.GetType().Name)
+            .Should().BeEquivalentTo(
+                next.UpOperations.Select(x => x.GetType().Name),
+                "the next migration's target model differs from its target model only by that migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        Ordered(migrations).Last().Should().EndWith("_AddGroundingProvenance", "it sorts after every earlier migration");
+        NextAfter(migrations, "_AddGroundingProvenance").Should().EndWith("_AddSecurityAuditTrail", "it sorts after every earlier migration");
     }
 
     [TestCase(false, "queries.owner_user_id", "character varying(200)", "project_data_sources.linked_by_user_id", "query_step_change_history.data_source_id", "integer")]

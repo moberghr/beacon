@@ -12,6 +12,7 @@ using Beacon.Core.Data;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -171,7 +172,7 @@ public class ProjectSearchToolPagingTests
             SettingsProviderMock.Create().Object,
             new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         return new ProjectSearchTool(
             _knowledgeGraph.Object,

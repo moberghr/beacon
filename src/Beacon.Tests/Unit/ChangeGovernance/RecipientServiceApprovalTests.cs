@@ -128,7 +128,7 @@ public class RecipientServiceApprovalTests
         new(
             store.Factory(),
             new RecipientSecretEditor(NotificationTestKit.Policy(), store.Protector),
-            TestChangeApprovals.Recipients(store.Protector, TestChangeApprovals.On(), caller ?? TestChangeApprovals.Caller(Ada)));
+            TestChangeApprovals.Recipients(store.Protector, TestChangeApprovals.On(), caller ?? TestChangeApprovals.Caller(Ada)), TestProjectAccess.Actors(), new RecordingSecurityAudit(), TimeProvider.System);
 
     private static RecipientDeliveryApproval Deliveries(ChangeApprovalStore store) =>
         TestChangeApprovals.Deliveries(store.Factory(), store.Protector, TestChangeApprovals.On());

@@ -6,6 +6,7 @@ using Beacon.Core.Notifications;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Recipients;
 
@@ -18,7 +19,9 @@ namespace Beacon.Core.Handlers.Recipients;
 internal sealed class CreateRecipientHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     RecipientSecretEditor secretEditor,
-    RecipientChangeApproval changeApproval)
+    RecipientChangeApproval changeApproval,
+    IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit)
     : IRequestHandler<CreateRecipientCommand, CreateRecipientResult>
 {
     public async Task<CreateRecipientResult> Handle(CreateRecipientCommand request, CancellationToken cancellationToken)
@@ -41,6 +44,7 @@ internal sealed class CreateRecipientHandler(
         var notificationType = (NotificationType)request.NotificationType;
         var (destination, headersJson) = secretEditor.Prepare(notificationType, request.Destination, request.HeadersJson, stored: null);
         var requester = await changeApproval.RequesterAsync(null, cancellationToken);
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -62,13 +66,17 @@ internal sealed class CreateRecipientHandler(
             HeadersJson = headersJson,
             BodyTemplate = request.BodyTemplate,
             ApprovedDestinationHash = RecipientChangeApproval.ApprovedHashOfNew(requester),
+            CreatedByUserId = actor.UserId
         };
 
         if (requester == null)
         {
             var entity = NewRecipient();
             context.Recipients.Add(entity);
-            await context.SaveChangesAsync(cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [RecipientAuditEntries.Created(entity.Id, notificationType, null)],
+                cancellationToken);
 
             return new CreateRecipientResult(entity.Id);
         }
@@ -100,8 +108,11 @@ internal sealed class CreateRecipientHandler(
             context.Recipients.Add(entity);
             await context.SaveChangesAsync(cancellationToken);
 
-            await changeApproval.SubmitNewAsync(context, requester, entity, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            var submission = await changeApproval.SubmitNewAsync(context, requester, entity, cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => RecipientAuditEntries.With(RecipientAuditEntries.Created(entity.Id, entity.NotificationType, submission), submission),
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             return entity.Id;

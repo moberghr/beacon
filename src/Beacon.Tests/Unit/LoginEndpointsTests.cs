@@ -23,6 +23,9 @@ using Beacon.Core.Models;
 using MediatR;
 using Beacon.UI;
 using AuthenticationOptions = Beacon.Core.AuthenticationOptions;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Beacon.Core.SecurityAudit;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -163,6 +166,7 @@ public class LoginEndpointsTests
     public void AddBeaconApiServices_RealtimeOff_StillRegistersLoginRateLimiter()
     {
         var services = new ServiceCollection();
+        services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
 
         services.AddBeaconApiServices(x => x.Realtime = false);
 
@@ -303,6 +307,7 @@ public class LoginEndpointsTests
     private static async Task<WebApplication> StartHostAsync(bool useHostRateLimiter, bool registerLimiter)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         builder.WebHost.UseTestServer();
 
         var authProvider = new Mock<IBeaconAuthenticationProvider>();
@@ -351,6 +356,7 @@ public class LoginEndpointsTests
     private static async Task<WebApplication> StartSessionHostAsync(IBeaconAuthenticationProvider authProvider, IMediator? mediator = null)
     {
         var builder = WebApplication.CreateBuilder();
+        builder.Services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
         builder.WebHost.UseTestServer();
         builder.Services
             .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)

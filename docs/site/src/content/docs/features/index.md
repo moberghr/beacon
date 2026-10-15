@@ -53,6 +53,9 @@ Flexible authorization for your Beacon installation. Supports role-based access 
 ### [Anomaly Detection](/features/anomaly-detection/)
 Statistical anomaly detection that learns baselines from historical execution data and alerts on unusual patterns.
 
+### [Security Audit Trail](/features/security-audit/)
+An append-only, signed record of sign-ins and of changes to identities, keys, access, data sources, delivery, settings, approvals and curation — read and verified by an Auditor, and copied to the `Beacon.Audit` log stream for your SIEM.
+
 ### [API Keys](/features/api-keys/)
 Scoped API keys (`Read`, `Execute`) with optional per-project restrictions and a mandatory expiry, bound to their owner's account — SHA256-hashed at rest, shown exactly once.
 

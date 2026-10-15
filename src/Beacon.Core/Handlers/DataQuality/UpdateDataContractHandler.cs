@@ -11,6 +11,7 @@ using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Worker;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataQuality.UpdateDataContract;
 
@@ -22,6 +23,8 @@ internal sealed class UpdateDataContractHandler(
     IConfiguredDatabaseResolver configuredDatabases,
     IBeaconActorAccessor actorAccessor,
     CustomSqlChangeApproval changeApproval,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<UpdateDataContractHandler> logger) : IRequestHandler<UpdateDataContractCommand>
 {
     /// <summary>Why a save is refused when the contract's Custom SQL rules changed while it was being saved.</summary>
@@ -169,7 +172,11 @@ internal sealed class UpdateDataContractHandler(
             contract.Recipients = recipients;
         }
 
-        await context.SaveChangesAsync(cancellationToken);
+        contract.RecordChangeBy(actor, timeProvider);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => DataContractAuditEntries.With(DataContractAuditEntries.Updated(contract, replacedDataSourceId, submission), submission),
+            cancellationToken);
         await tx.CommitAsync(cancellationToken);
         await changeApproval.NotifySupersededAsync(submission, cancellationToken);
 

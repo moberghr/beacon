@@ -21,6 +21,7 @@ using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Npgsql;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
@@ -43,7 +44,9 @@ public class ProjectMembershipHandlersTests
         var saved = new List<object>();
         var factory = Recording(saved, users: [new BeaconUser { Id = MemberId, ExternalId = "ext-ben", UserName = "ben", IsEnabled = true }]);
 
-        var result = await SetMember(factory, ProjectAdminScope()).Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.Editor), CancellationToken.None);
+        var audit = new RecordingSecurityAudit(Caller());
+
+        var result = await SetMember(factory, ProjectAdminScope(), audit: audit).Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.Editor), CancellationToken.None);
 
         result.Should().Be(new SetProjectMemberResult(ProjectId, MemberId, ProjectRole.Editor, true));
         saved.OfType<ProjectMember>().Should().ContainSingle().Which.Should().BeEquivalentTo(new
@@ -53,6 +56,10 @@ public class ProjectMembershipHandlersTests
             Role = ProjectRole.Editor,
             AddedByUserId = (int?)3
         });
+        audit.Single("ext-ben", "ben").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.MemberAdded, ActorUserId = (int?)3, ProjectId = (int?)ProjectId, ResourceId = ProjectId.ToString(), DetailsJson = "{\"memberUserId\":8,\"role\":\"Editor\"}" },
+            x => x.ExcludingMissingMembers());
+        audit.Ways.Should().Equal("staged");
     }
 
     [Test]
@@ -153,11 +160,18 @@ public class ProjectMembershipHandlersTests
             .ThenRow(ProjectId, DBNull.Value)
             .ThenRowsAffected(1);
 
-        await Remove(capture, ProjectAdminScope()).Handle(new RemoveProjectMemberCommand(ProjectId, MemberId), CancellationToken.None);
+        var audit = new RecordingSecurityAudit(Caller());
+
+        await Remove(capture, ProjectAdminScope(), audit: audit).Handle(new RemoveProjectMemberCommand(ProjectId, MemberId), CancellationToken.None);
 
         var delete = capture.Commands[1];
         delete.Should().StartWith("DELETE FROM beacon.project_members");
         delete.Should().Contain("EXISTS");
+        audit.Single().Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.MemberRemoved, ActorUserId = (int?)3, ProjectId = (int?)ProjectId, DetailsJson = "{\"memberUserId\":8}" },
+            x => x.ExcludingMissingMembers());
+        audit.Ways.Should().Equal("saved");
+        capture.TransactionIsolationLevels.Should().Equal([IsolationLevel.Serializable], "the removal and its event share the serializable transaction");
     }
 
     [Test]
@@ -261,10 +275,15 @@ public class ProjectMembershipHandlersTests
             ],
             offline: transactions);
 
-        var result = await Link(factory, ProjectAdminScope()).Handle(new LinkProjectDataSourcesCommand(ProjectId, [10, 11, 10]), CancellationToken.None);
+        var audit = new RecordingSecurityAudit(Caller());
+
+        var result = await Link(factory, ProjectAdminScope(), audit: audit).Handle(new LinkProjectDataSourcesCommand(ProjectId, [10, 11, 10]), CancellationToken.None);
 
         result.LinkedDataSourceIds.Should().Equal(10);
         saved.OfType<ProjectDataSource>().Should().ContainSingle().Which.Should().BeEquivalentTo(new { ProjectId, DataSourceId = 10, LinkedByUserId = (int?)3 });
+        audit.Single().Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.DataSourcesLinked, ActorUserId = (int?)3, ProjectId = (int?)ProjectId, DetailsJson = "{\"dataSourceIds\":[10],\"asDataSourceAdmin\":false}" },
+            x => x.ExcludingMissingMembers());
         transactions.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
         transactions.Commits.Should().Be(1);
     }
@@ -286,14 +305,37 @@ public class ProjectMembershipHandlersTests
             .ThenScalar(false)
             .ThenThrow(new PostgresException("duplicate", "ERROR", "ERROR", "23505"))
             .ThenRowsAffected(1);
+        var audit = new SecurityAuditRecorder(
+            capture.Factory(),
+            TestProjectAccess.Actors(),
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            NullLoggerFactory.Instance);
 
-        var result = await SetMember(capture, ProjectAdminScope()).Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.Editor), CancellationToken.None);
+        // The event save after the update is captured and stopped there (the capture cannot answer a successful insert).
+        var act = () => new SetProjectMemberHandler(
+                capture.Factory(),
+                TestProjectAccess.Evaluator(ProjectAdminScope()),
+                Source(),
+                TestProjectAccess.Actors(),
+                TestPermissions.None,
+                Options.Create(new RoleMappingOptions()),
+                new FakeTimeProvider(DateTimeOffset.UtcNow),
+                audit,
+                NullLogger<SetProjectMemberHandler>.Instance)
+            .Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.Editor), CancellationToken.None);
 
-        result.Should().Be(new SetProjectMemberResult(ProjectId, MemberId, ProjectRole.Editor, false), "a concurrent insert of the same member makes this an update");
-        capture.Commands[3].Should().StartWith("INSERT INTO beacon.project_members");
+        var thrown = await act.Should().ThrowAsync<DbUpdateException>();
+        thrown.Which.InnerException.Should().BeOfType<SqlCapturedException>();
+        capture.Commands[3].Should().StartWith("INSERT INTO beacon.project_members").And.Contain("INSERT INTO beacon.security_audit_events", "the member and its event go in one save");
         capture.Commands[4].Should().StartWith("UPDATE beacon.project_members");
+        capture.Commands[5].Should().Contain("INSERT INTO beacon.security_audit_events")
+            .And.NotContain("project_members", "the lost insert and its event are not saved again with the update");
+        capture.CommandParameters[5].Values.Should().Contain(SecurityAuditActions.MemberRoleChanged).And.NotContain(SecurityAuditActions.MemberAdded);
+        capture.Commands.Should().HaveCount(6);
         capture.TransactionIsolationLevels.Should().Contain(IsolationLevel.Serializable);
-        capture.Commits.Should().Be(1);
+        capture.Commits.Should().Be(0, "the role change and its event commit together");
     }
 
     [Test]
@@ -462,6 +504,7 @@ public class ProjectMembershipHandlersTests
             TestPermissions.Holding(BeaconPermissions.UserAdmin),
             Options.Create(new RoleMappingOptions()),
             new FakeTimeProvider(DateTimeOffset.UtcNow),
+            new RecordingSecurityAudit(),
             logs.For<SetProjectMemberHandler>());
 
         var result = await handler.Handle(new SetProjectMemberCommand(ProjectId, MemberId, ProjectRole.ProjectAdmin), CancellationToken.None);
@@ -734,6 +777,11 @@ public class ProjectMembershipHandlersTests
             notOpen: []);
     }
 
+    private static BeaconActor Caller()
+    {
+        return new BeaconActor("ext-ada", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true };
+    }
+
     private static IProjectMembershipSource Source(bool userManagement = true)
     {
         var configuration = new BeaconConfiguration();
@@ -742,12 +790,12 @@ public class ProjectMembershipHandlersTests
         return new DatabaseProjectMembershipSource(configuration, new SqlCapture().Factory());
     }
 
-    private static SetProjectMemberHandler SetMember(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
+    private static SetProjectMemberHandler SetMember(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null, RecordingSecurityAudit? audit = null)
     {
-        return SetMember(capture.Factory(), scope, source, permissions);
+        return SetMember(capture.Factory(), scope, source, permissions, audit);
     }
 
-    private static SetProjectMemberHandler SetMember(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
+    private static SetProjectMemberHandler SetMember(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null, RecordingSecurityAudit? audit = null)
     {
         return new SetProjectMemberHandler(
             factory,
@@ -757,15 +805,16 @@ public class ProjectMembershipHandlersTests
             permissions ?? TestPermissions.None,
             Options.Create(new RoleMappingOptions()),
             new FakeTimeProvider(DateTimeOffset.UtcNow),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<SetProjectMemberHandler>.Instance);
     }
 
-    private static RemoveProjectMemberHandler Remove(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
+    private static RemoveProjectMemberHandler Remove(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null, RecordingSecurityAudit? audit = null)
     {
-        return Remove(capture.Factory(), scope, source, permissions);
+        return Remove(capture.Factory(), scope, source, permissions, audit);
     }
 
-    private static RemoveProjectMemberHandler Remove(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null)
+    private static RemoveProjectMemberHandler Remove(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IProjectMembershipSource? source = null, IBeaconPermissionAccessor? permissions = null, RecordingSecurityAudit? audit = null)
     {
         return new RemoveProjectMemberHandler(
             factory,
@@ -774,6 +823,7 @@ public class ProjectMembershipHandlersTests
             TestProjectAccess.Actors(),
             permissions ?? TestPermissions.None,
             Options.Create(new RoleMappingOptions()),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<RemoveProjectMemberHandler>.Instance);
     }
 
@@ -830,10 +880,11 @@ public class ProjectMembershipHandlersTests
             TestProjectAccess.Actors(),
             permissions,
             Options.Create(new ProjectAuthorizationOptions()),
+            new RecordingSecurityAudit(),
             NullLogger<SetProjectAccessModeHandler>.Instance);
     }
 
-    private static SetProjectAccessModeHandler AccessMode(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource source, IBeaconPermissionAccessor? permissions = null)
+    private static SetProjectAccessModeHandler AccessMode(SqlCapture capture, ProjectAccessScope scope, IProjectMembershipSource source, IBeaconPermissionAccessor? permissions = null, RecordingSecurityAudit? audit = null)
     {
         return new SetProjectAccessModeHandler(
             capture.Factory(),
@@ -842,6 +893,7 @@ public class ProjectMembershipHandlersTests
             TestProjectAccess.Actors(),
             permissions ?? TestPermissions.None,
             Options.Create(new ProjectAuthorizationOptions()),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<SetProjectAccessModeHandler>.Instance);
     }
 
@@ -850,7 +902,7 @@ public class ProjectMembershipHandlersTests
         return Link(capture.Factory(), scope);
     }
 
-    private static LinkProjectDataSourcesHandler Link(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IHostDataSourceRegistry? hostSources = null, IBeaconPermissionAccessor? permissions = null)
+    private static LinkProjectDataSourcesHandler Link(IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope, IHostDataSourceRegistry? hostSources = null, IBeaconPermissionAccessor? permissions = null, RecordingSecurityAudit? audit = null)
     {
         return new LinkProjectDataSourcesHandler(
             factory,
@@ -859,6 +911,7 @@ public class ProjectMembershipHandlersTests
             permissions ?? TestPermissions.None,
             hostSources ?? new TestHostDataSources(),
             Options.Create(new ProjectAuthorizationOptions()),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<LinkProjectDataSourcesHandler>.Instance);
     }
 

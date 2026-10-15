@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Services;
@@ -19,6 +20,7 @@ internal class UserManagementService(
     IRoleService roleService,
     BeaconConfiguration configuration,
     TimeProvider timeProvider,
+    ISecurityAuditRecorder securityAudit,
     ILogger<UserManagementService>? logger = null,
     SessionStampExpectation? stampExpectation = null) : IUserManagementService
 {
@@ -113,8 +115,18 @@ internal class UserManagementService(
                 },
             };
 
+            // Created with the setup token, by nobody signed in.
             context.Users.Add(user);
-            await context.SaveChangesAsync(ct);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () =>
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.SuperAdminCreated)
+                        .On(SecurityAuditResources.User, user.Id)
+                        .By(SecurityAuditActor.Anonymous)
+                        .With(new SecurityAuditDetails().Add("roleIds", [adminRole.Id]))
+                ],
+                ct);
             await transaction.CommitAsync(ct);
 
             return new BeaconUserData
@@ -419,7 +431,7 @@ internal class UserManagementService(
         };
 
         context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
+        await securityAudit.SaveWithEventsAsync(context, () => [UserCreated(user.Id, true, validRoleIds)], ct);
 
         return new BaseResponse { Success = true, Message = "User created successfully." };
     }
@@ -560,8 +572,19 @@ internal class UserManagementService(
                 },
         };
 
+        // Provisioned by Beacon itself at the subject's first sign-in (SSO or a mapped MCP caller), with the configured
+        // default role. The actor is named here: the request's caller is not resolved yet while it signs in.
         context.Users.Add(newUser);
-        await context.SaveChangesAsync(ct);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.UserProvisioned)
+                    .On(SecurityAuditResources.User, newUser.Id)
+                    .By(SecurityAuditActor.System)
+                    .With(new SecurityAuditDetails().Add("roleIds", defaultRole == null ? [] : [defaultRole.Id]))
+            ],
+            ct);
 
         return new BeaconUserData
         {
@@ -635,7 +658,7 @@ internal class UserManagementService(
         };
 
         context.Users.Add(user);
-        await context.SaveChangesAsync(ct);
+        await securityAudit.SaveWithEventsAsync(context, () => [UserCreated(user.Id, false, validRoleIds)], ct);
 
         return new BaseResponse { Success = true, Message = "External user pre-registered successfully." };
     }
@@ -660,23 +683,41 @@ internal class UserManagementService(
         var wasEnabled = user.IsEnabled;
 
         // What the user signs in with, or whether they may: a change signs out every session they hold.
-        var signsOut = user.IsEnabled != request.IsEnabled
-            || user.UserName != request.UserName
-            || !string.Equals(EmptyAsNull(user.Email), EmptyAsNull(request.Email), StringComparison.Ordinal);
+        var userNameChanged = user.UserName != request.UserName;
+        var emailChanged = !string.Equals(EmptyAsNull(user.Email), EmptyAsNull(request.Email), StringComparison.Ordinal);
+        var displayNameChanged = !string.Equals(user.DisplayName, request.DisplayName, StringComparison.Ordinal);
+        var signsOut = user.IsEnabled != request.IsEnabled || userNameChanged || emailChanged;
 
         user.UserName = request.UserName;
         user.Email = request.Email;
         user.DisplayName = request.DisplayName;
         user.IsEnabled = request.IsEnabled;
 
-        if (!wasEnabled || !user.IsEnabled)
-        {
-            await RevokeApiKeysAsync(context, user, ct);
-        }
+        var revokedKeys = !wasEnabled || !user.IsEnabled
+            ? await RevokeApiKeysAsync(context, user, ct)
+            : 0;
 
         if (signsOut)
         {
             user.SecurityStamp = SecurityStamps.New();
+        }
+
+        // Which fields changed, never their values.
+        if (signsOut || displayNameChanged || revokedKeys > 0)
+        {
+            await securityAudit.StageAsync(
+                context,
+                new SecurityAuditEntry(SecurityAuditActions.UserUpdated)
+                    .On(SecurityAuditResources.User, user.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("userNameChanged", userNameChanged)
+                        .Add("emailChanged", emailChanged)
+                        .Add("displayNameChanged", displayNameChanged)
+                        .Add("enabledBefore", wasEnabled)
+                        .Add("enabledAfter", user.IsEnabled)
+                        .Add("sessionsSignedOut", signsOut)
+                        .Add("apiKeysRevoked", revokedKeys)),
+                ct);
         }
 
         await context.SaveChangesAsync(ct);
@@ -706,7 +747,13 @@ internal class UserManagementService(
 
         user.Archive();
         user.SecurityStamp = SecurityStamps.New();
-        await RevokeApiKeysAsync(context, user, ct);
+        var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.UserArchived)
+                .On(SecurityAuditResources.User, user.Id)
+                .With(new SecurityAuditDetails().Add("apiKeysRevoked", revokedKeys)),
+            ct);
         await context.SaveChangesAsync(ct);
 
         return new BaseResponse { Success = true, Message = "User deleted successfully." };
@@ -735,7 +782,13 @@ internal class UserManagementService(
         // Either transition revokes: disabling, and re-enabling too (see RevokeApiKeysAsync), and signs out every session.
         user.IsEnabled = !user.IsEnabled;
         user.SecurityStamp = SecurityStamps.New();
-        await RevokeApiKeysAsync(context, user, ct);
+        var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(user.IsEnabled ? SecurityAuditActions.UserEnabled : SecurityAuditActions.UserDisabled)
+                .On(SecurityAuditResources.User, user.Id)
+                .With(new SecurityAuditDetails().Add("apiKeysRevoked", revokedKeys)),
+            ct);
 
         await context.SaveChangesAsync(ct);
 
@@ -770,6 +823,7 @@ internal class UserManagementService(
 
         // A role change signs out every session the user holds.
         user.SecurityStamp = SecurityStamps.New();
+        await securityAudit.StageAsync(context, RolesChanged(userId, [roleId], []), ct);
         context.UserRoles.Add(new BeaconUserRole
         {
             UserId = userId,
@@ -804,6 +858,7 @@ internal class UserManagementService(
             user.SecurityStamp = SecurityStamps.New();
         }
 
+        await securityAudit.StageAsync(context, RolesChanged(userId, [], [roleId]), ct);
         context.UserRoles.Remove(userRole);
         await context.SaveChangesAsync(ct);
 
@@ -847,6 +902,10 @@ internal class UserManagementService(
         user.MustChangePassword = false;
         user.SecurityStamp = SecurityStamps.New();
 
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.PasswordChanged).On(SecurityAuditResources.User, user.Id),
+            ct);
         await context.SaveChangesAsync(ct);
         stampExpectation?.Record(user.ExternalId, user.SecurityStamp);
 
@@ -885,6 +944,12 @@ internal class UserManagementService(
         user.MustChangePassword = true;
         user.SecurityStamp = SecurityStamps.New();
 
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.PasswordReset)
+                .On(SecurityAuditResources.User, user.Id)
+                .With(new SecurityAuditDetails().Add("mustChangePassword", true)),
+            ct);
         await context.SaveChangesAsync(ct);
 
         return new BaseResponse { Success = true, Message = "Password reset successfully." };
@@ -895,14 +960,21 @@ internal class UserManagementService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var user = await FindInternalUserAsync(context, username, ct);
-        if (!MaySignIn(user, password))
+        if (!MaySignIn(user, password, out var refusedByLocalLogin))
         {
-            return AuthenticationResult.Failed(InvalidCredentials);
+            // The user the name resolved to, for the security audit of the attempt (the caller never sees it).
+            return new AuthenticationResult
+            {
+                Success = false,
+                ErrorMessage = InvalidCredentials,
+                BeaconUserId = user?.Id,
+                LocalLoginRefused = refusedByLocalLogin
+            };
         }
 
         if (user.MustChangePassword)
         {
-            return AuthenticationResult.PasswordChangeNeeded(NewPasswordRequired);
+            return PasswordChangeNeeded(NewPasswordRequired, user.Id);
         }
 
         user.LastLoginAt = DateTime.UtcNow;
@@ -923,7 +995,7 @@ internal class UserManagementService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var user = await FindInternalUserAsync(context, username, ct);
-        if (!MaySignIn(user, currentPassword) || !user.MustChangePassword)
+        if (!MaySignIn(user, currentPassword, out _) || !user.MustChangePassword)
         {
             return AuthenticationResult.Failed(InvalidCredentials);
         }
@@ -934,12 +1006,12 @@ internal class UserManagementService(
         }
         catch (BeaconException ex)
         {
-            return AuthenticationResult.PasswordChangeNeeded(ex.Message);
+            return PasswordChangeNeeded(ex.Message, user.Id);
         }
 
         if (string.Equals(newPassword, currentPassword, StringComparison.Ordinal))
         {
-            return AuthenticationResult.PasswordChangeNeeded("The new password must differ from the one an administrator set.");
+            return PasswordChangeNeeded("The new password must differ from the one an administrator set.", user.Id);
         }
 
         // The user's own password from now on; a new password signs out every session the user may still hold.
@@ -949,6 +1021,15 @@ internal class UserManagementService(
         user.MustChangePassword = false;
         user.SecurityStamp = SecurityStamps.New();
         user.LastLoginAt = DateTime.UtcNow;
+
+        // By the user, who is signing in: the request has no caller yet.
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.PasswordChanged)
+                .On(SecurityAuditResources.User, user.Id)
+                .By(SecurityAuditActor.OfUser(user.Id))
+                .With(new SecurityAuditDetails().Add("required", true)),
+            ct);
         await context.SaveChangesAsync(ct);
         stampExpectation?.Record(user.ExternalId, user.SecurityStamp);
 
@@ -1002,6 +1083,19 @@ internal class UserManagementService(
         };
     }
 
+    // The right password of a user who must choose a new one first: not signed in; the user named for the security audit
+    // of the refused attempt only.
+    private static AuthenticationResult PasswordChangeNeeded(string message, int userId)
+    {
+        return new AuthenticationResult
+        {
+            Success = false,
+            PasswordChangeRequired = true,
+            ErrorMessage = message,
+            BeaconUserId = userId
+        };
+    }
+
     // A missing e-mail address and an empty one are the same address.
     private static string? EmptyAsNull(string? value)
     {
@@ -1013,8 +1107,9 @@ internal class UserManagementService(
     // account from a wrong password. Local login is decided by the user name the account is stored with (exact), not by
     // what was typed (an e-mail address, another casing). A right password refused because local login is off is logged,
     // with the user's id only.
-    private bool MaySignIn([NotNullWhen(true)] BeaconUser? user, string password)
+    private bool MaySignIn([NotNullWhen(true)] BeaconUser? user, string password, out bool refusedByLocalLogin)
     {
+        refusedByLocalLogin = false;
         var passwordMatches = user is { PasswordHash: not null, PasswordSalt: not null }
             ? passwordHasher.VerifyPassword(password, user.PasswordHash, user.PasswordSalt)
             : VerifyAgainstDummyCredential(password);
@@ -1027,6 +1122,8 @@ internal class UserManagementService(
         {
             return true;
         }
+
+        refusedByLocalLogin = true;
 
         logger?.LogInformation(
             Authorization.ProjectAccess.ProjectAccessEvents.PasswordSignInRefused,
@@ -1072,7 +1169,7 @@ internal class UserManagementService(
     // The keys are enumerated before the save, so a key stored concurrently (approved before the change, inserted after
     // the enumeration) escapes the revocation; advancing the user's API-key generation in the same save makes that key
     // carry a generation that is no longer theirs, and validation refuses it.
-    private async Task RevokeApiKeysAsync(BeaconContext context, BeaconUser user, CancellationToken ct)
+    private async Task<int> RevokeApiKeysAsync(BeaconContext context, BeaconUser user, CancellationToken ct)
     {
         user.ApiKeyGeneration++;
 
@@ -1087,5 +1184,25 @@ internal class UserManagementService(
             key.IsRevoked = true;
             key.RevokedAt = revokedAt;
         }
+
+        return keys.Count;
+    }
+
+    private static SecurityAuditEntry UserCreated(int userId, bool isInternalUser, IReadOnlyCollection<int> roleIds)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.UserCreated)
+            .On(SecurityAuditResources.User, userId)
+            .With(new SecurityAuditDetails()
+                .Add("internal", isInternalUser)
+                .Add("roleIds", roleIds));
+    }
+
+    private static SecurityAuditEntry RolesChanged(int userId, IReadOnlyCollection<int> addedRoleIds, IReadOnlyCollection<int> removedRoleIds)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.RolesChanged)
+            .On(SecurityAuditResources.User, userId)
+            .With(new SecurityAuditDetails()
+                .Add("addedRoleIds", addedRoleIds)
+                .Add("removedRoleIds", removedRoleIds));
     }
 }

@@ -10,6 +10,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -20,6 +21,7 @@ internal sealed class LinkProjectDataSourcesHandler(
     IBeaconPermissionAccessor permissionAccessor,
     IHostDataSourceRegistry hostSources,
     IOptions<ProjectAuthorizationOptions> options,
+    ISecurityAuditRecorder securityAudit,
     ILogger<LinkProjectDataSourcesHandler> logger)
     : IRequestHandler<LinkProjectDataSourcesCommand, LinkProjectDataSourcesResult>
 {
@@ -95,6 +97,15 @@ internal sealed class LinkProjectDataSourcesHandler(
             return new LinkProjectDataSourcesResult(project.Id, []);
         }
 
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.DataSourcesLinked)
+                .On(SecurityAuditResources.Project, project.Id)
+                .InProject(project.Id)
+                .With(new SecurityAuditDetails()
+                    .Add("dataSourceIds", linked)
+                    .Add("asDataSourceAdmin", asDataSourceAdmin && !scope.IsUnrestricted)),
+            cancellationToken);
         foreach (var dataSourceId in linked)
         {
             context.ProjectDataSources.Add(new ProjectDataSource { ProjectId = project.Id, DataSourceId = dataSourceId, LinkedByUserId = actor.BeaconUserId });

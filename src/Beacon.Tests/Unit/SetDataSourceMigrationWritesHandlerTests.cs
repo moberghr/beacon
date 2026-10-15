@@ -16,6 +16,7 @@ using Beacon.Core.Handlers.DataSources;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -34,6 +35,7 @@ public class SetDataSourceMigrationWritesHandlerTests
     private ProjectAccessWorld _world = null!;
     private DataSource _source = null!;
     private LogRecorder _logs = null!;
+    private RecordingSecurityAudit _audit = null!;
     private MemoryCache _cache = null!;
     private Mock<ISchemaGraphService> _graphs = null!;
     private List<ColumnMetadata> _columns = null!;
@@ -41,6 +43,7 @@ public class SetDataSourceMigrationWritesHandlerTests
     [SetUp]
     public void SetUp()
     {
+        _audit = new RecordingSecurityAudit();
         _world = new ProjectAccessWorld();
         _source = _world.Source(SourceId);
         _columns = [];
@@ -77,6 +80,16 @@ public class SetDataSourceMigrationWritesHandlerTests
                 ChangedByUserId = "1"
             });
         _logs.Contains($"Data source {SourceId} migration writes changed from False to True by 1").Should().BeTrue();
+        _audit.Single().Should().BeEquivalentTo(
+            new
+            {
+                Action = SecurityAuditActions.MigrationWritesChanged,
+                ResourceType = SecurityAuditResources.DataSource,
+                ResourceId = SourceId.ToString(),
+                DetailsJson = "{\"allowMigrationWritesBefore\":false,\"allowMigrationWritesAfter\":true,\"forced\":false}"
+            },
+            x => x.ExcludingMissingMembers());
+        _audit.Ways.Should().Equal("staged");
         _cache.TryGetValue(DatabaseMetadataService.GetCacheKey(SourceId), out _).Should().BeFalse();
         _graphs.Verify(x => x.Invalidate(SourceId), Times.Once);
     }
@@ -146,6 +159,7 @@ public class SetDataSourceMigrationWritesHandlerTests
 
         _world.Saved.Should().BeEmpty();
         _logs.Entries.Should().BeEmpty();
+        _audit.Events.Should().BeEmpty();
     }
 
     // Beacon stops reading a write target, so what reads the source fails from then on: marking it needs the Admin's
@@ -243,6 +257,7 @@ public class SetDataSourceMigrationWritesHandlerTests
             _cache,
             _graphs.Object,
             TimeProvider.System,
+            _audit,
             _logs.For<SetDataSourceMigrationWritesHandler>());
 
         await handler.Handle(command, CancellationToken.None);

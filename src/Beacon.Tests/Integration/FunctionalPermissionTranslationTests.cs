@@ -299,6 +299,6 @@ public class FunctionalPermissionTranslationTests
             Mock.Of<IBeaconUserContext>(),
             NullLogger<MigrationService>.Instance,
             Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.MigrationOptions()),
-            TestChangeApprovals.Submitter());
+            TestChangeApprovals.Submitter(), TestProjectAccess.Actors(), new RecordingSecurityAudit(), TimeProvider.System);
     }
 }

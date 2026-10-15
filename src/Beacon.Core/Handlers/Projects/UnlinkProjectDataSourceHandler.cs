@@ -6,6 +6,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -13,6 +14,7 @@ internal sealed class UnlinkProjectDataSourceHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<UnlinkProjectDataSourceHandler> logger)
     : IRequestHandler<UnlinkProjectDataSourceCommand, UnlinkProjectDataSourceResult>
 {
@@ -71,6 +73,15 @@ internal sealed class UnlinkProjectDataSourceHandler(
             link.DataSource.OpenWhenUnlinked = false;
         }
 
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.DataSourceUnlinked)
+                .On(SecurityAuditResources.Project, request.ProjectId)
+                .InProject(request.ProjectId)
+                .With(new SecurityAuditDetails()
+                    .Add("dataSourceId", request.DataSourceId)
+                    .Add("leftUnlinked", !stillLinked)),
+            cancellationToken);
         context.ProjectDataSources.Remove(link);
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

@@ -26,6 +26,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ProviderValidationResult = Beacon.Core.Models.Providers.QueryValidationResult;
+using Beacon.Core.Mcp;
+using Beacon.Core.Services.Retention;
 
 namespace Beacon.Tests.Unit;
 
@@ -157,6 +159,45 @@ public class CrossSourceQueryServiceTests
             Times.Once,
             "the per-source cap comes from the operator's MaxRowLimit, applied to the SQL that actually runs");
         text.Should().Contain("### Final Results");
+    }
+
+    // Each source's dry run and statement reach that source: each is a statement of the call's audit row, the executed one
+    // as it ran (capped), with what it returned. The join over the in-memory store reaches no data source.
+    [Test]
+    public async Task EachSourcesDryRunAndStatement_AreRecorded_AsTheyReachedTheSource()
+    {
+        Generates("SELECT id FROM orders");
+        var log = new McpStatementLog();
+
+        var (text, succeeded) = await CreateService(statementLog: log).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        var statements = log.TakeAll();
+        statements.Select(x => x.Purpose).Should().Equal(McpStatementPurposes.DryRun, McpStatementPurposes.SourceStep);
+        statements[1].Should().BeEquivalentTo(new
+        {
+            DataSourceId = (int?)DataSourceId,
+            Sql = $"SELECT id FROM orders LIMIT {MaxRowLimit}",
+            RowCount = (int?)1,
+            ErrorClass = (string?)null
+        });
+        statements[1].Tables.Should().Equal("orders");
+        statements[0].RowCount.Should().BeNull("a dry run returns no rows");
+    }
+
+    [Test]
+    public async Task ASourceThatFails_IsRecordedWithItsErrorClass_NeverTheMessage()
+    {
+        Generates("SELECT id FROM orders");
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = "permission denied for table orders (owner alice)" });
+        var log = new McpStatementLog();
+
+        await CreateService(statementLog: log).ExecuteAsync(_llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+
+        log.TakeAll().Single(x => x.Purpose == McpStatementPurposes.SourceStep).ErrorClass.Should().Be(McpContentRedactor.ClassPermission);
     }
 
     [Test]
@@ -609,7 +650,8 @@ public class CrossSourceQueryServiceTests
         Dictionary<string, HashSet<string>>? warehouseCatalog = null,
         ILlmRowDataEgress? egress = null,
         Microsoft.Extensions.Logging.ILogger<CrossSourceQueryService>? logger = null,
-        bool forbidRowData = false)
+        bool forbidRowData = false,
+        IMcpStatementLog? statementLog = null)
     {
         var warehouseHostKey = hostGuard == null ? null : HostKey;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -655,6 +697,7 @@ public class CrossSourceQueryServiceTests
             _sqlGen.Object,
             egress ?? TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
+            statementLog ?? new McpStatementLog(),
             NullLoggerFactory.Instance,
             logger ?? NullLogger<CrossSourceQueryService>.Instance);
     }

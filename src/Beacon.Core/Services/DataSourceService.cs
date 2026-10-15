@@ -12,6 +12,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -47,6 +48,7 @@ internal class DataSourceService(
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
     GatedSqlRunner sqlRunner,
+    ISecurityAuditRecorder securityAudit,
     ILogger<DataSourceService> logger,
     ISharedSourceSettings? sharedSourceSettings = null) : IDataSourceService
 {
@@ -70,13 +72,27 @@ internal class DataSourceService(
             OpenWhenUnlinked = false
         };
 
+        var projectIds = dataSourceData.ProjectIds
+            .Distinct()
+            .ToList();
         context.DataSources.Add(dataSource);
-        foreach (var projectId in dataSourceData.ProjectIds.Distinct())
+        foreach (var projectId in projectIds)
         {
             context.ProjectDataSources.Add(new ProjectDataSource { ProjectId = projectId, DataSource = dataSource, LinkedByUserId = dataSourceData.LinkedByUserId });
         }
 
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.DataSourceCreated)
+                    .On(SecurityAuditResources.DataSource, dataSource.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("dataSourceType", dataSource.DataSourceType)
+                        .AddCode("databaseEngineType", dataSource.DatabaseEngineType?.ToString())
+                        .Add("projectIds", projectIds))
+            ],
+            cancellationToken);
         DataSourceReadOnlyEnforcement.WarnIfNotEnforced(logger, providerFactory, dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType);
 
         // For API data sources, import endpoint metadata from OpenAPI spec
@@ -197,6 +213,10 @@ internal class DataSourceService(
         await DatabaseMetadataService.ClearStoredSampleValuesAsync(context, dataSourceId, cancellationToken);
 
         dataSource.Archive();
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.DataSourceDeleted).On(SecurityAuditResources.DataSource, dataSourceId),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         EvictMetadata(dataSourceId);
@@ -266,6 +286,25 @@ internal class DataSourceService(
 
         EnsureNotHostManaged(dataSource);
 
+        var connectionChanged = ConnectionChanged(dataSource.EncryptedConnectionData, dataSourceData.ConnectionString);
+        var excludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null;
+        var includeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
+        var changes = new (string Field, bool Changed)[]
+        {
+            (nameof(DataSource.Name), dataSource.Name != dataSourceData.Name),
+            (nameof(DataSource.DatabaseEngineType), dataSource.DatabaseEngineType != dataSourceData.DatabaseEngineType),
+            (nameof(DataSource.MetadataLoadingEnabled), dataSource.MetadataLoadingEnabled != dataSourceData.MetadataLoadingEnabled),
+            (nameof(DataSource.MetadataMaxTables), dataSource.MetadataMaxTables != dataSourceData.MetadataMaxTables),
+            (nameof(DataSource.MetadataMaxColumnsPerTable), dataSource.MetadataMaxColumnsPerTable != dataSourceData.MetadataMaxColumnsPerTable),
+            (nameof(DataSource.MetadataLoadTableNamesOnly), dataSource.MetadataLoadTableNamesOnly != dataSourceData.MetadataLoadTableNamesOnly),
+            (nameof(DataSource.MetadataExcludeSchemas), dataSource.MetadataExcludeSchemas != excludeSchemas),
+            (nameof(DataSource.MetadataIncludeSchemas), dataSource.MetadataIncludeSchemas != includeSchemas)
+        };
+        var changedFields = changes
+            .Where(x => x.Changed)
+            .Select(x => x.Field)
+            .ToList();
+
         dataSource.Name = dataSourceData.Name;
         dataSource.EncryptedConnectionData = encryptionService.Encrypt(dataSourceData.ConnectionString);
         dataSource.DatabaseEngineType = dataSourceData.DatabaseEngineType;
@@ -273,8 +312,22 @@ internal class DataSourceService(
         dataSource.MetadataMaxTables = dataSourceData.MetadataMaxTables;
         dataSource.MetadataMaxColumnsPerTable = dataSourceData.MetadataMaxColumnsPerTable;
         dataSource.MetadataLoadTableNamesOnly = dataSourceData.MetadataLoadTableNamesOnly;
-        dataSource.MetadataExcludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null;
-        dataSource.MetadataIncludeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
+        dataSource.MetadataExcludeSchemas = excludeSchemas;
+        dataSource.MetadataIncludeSchemas = includeSchemas;
+
+        // A new connection (its credentials, host or database) is a credential change; any other edit is an update. The
+        // event names the fields that changed, never a value.
+        if (connectionChanged || changedFields.Count > 0)
+        {
+            await securityAudit.StageAsync(
+                context,
+                new SecurityAuditEntry(connectionChanged ? SecurityAuditActions.CredentialsRotated : SecurityAuditActions.DataSourceUpdated)
+                    .On(SecurityAuditResources.DataSource, dataSource.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("connectionChanged", connectionChanged)
+                        .AddCodes("changedFields", changedFields)),
+                cancellationToken);
+        }
 
         await context.SaveChangesAsync(cancellationToken);
         DataSourceReadOnlyEnforcement.WarnIfNotEnforced(logger, providerFactory, dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType);
@@ -511,6 +564,25 @@ internal class DataSourceService(
         {
             throw new InvalidOperationException(
                 $"Data source '{dataSource.Name}' is managed by the host application (ExposeDbContext) and cannot be edited or deleted here.");
+        }
+    }
+
+    // Whether the connection string given differs from the stored one; one that cannot be read back counts as changed.
+    private bool ConnectionChanged(string? storedEncrypted, string connectionString)
+    {
+        if (string.IsNullOrEmpty(storedEncrypted))
+        {
+            return true;
+        }
+
+        try
+        {
+            return !string.Equals(encryptionService.Decrypt(storedEncrypted), connectionString, StringComparison.Ordinal);
+        }
+        catch (Exception)
+        {
+            // A stored value Beacon cannot read (encrypted under a key no longer configured) is being replaced: changed.
+            return true;
         }
     }
 }

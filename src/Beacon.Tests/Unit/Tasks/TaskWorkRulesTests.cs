@@ -16,6 +16,7 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.Tasks;
 
@@ -36,10 +37,13 @@ public class TaskWorkRulesTests
     private List<QueryTask> _tasks = null!;
     private List<BeaconUser> _users = null!;
     private bool _userManagement;
+    private RecordingSecurityAudit _audit = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _audit = new RecordingSecurityAudit();
+        _audit.ResolveUser = x => _users.FirstOrDefault(y => y.ExternalId == x)?.Id;
         _userManagement = true;
         _tasks = [];
         _users =
@@ -191,7 +195,7 @@ public class TaskWorkRulesTests
     {
         // The write is conditional on the assignee the check saw: here the row no longer matches it.
         var capture = new SqlCapture().ThenRow("ext-ana", false).ThenRowsAffected(0);
-        var handler = new ResolveTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), NullLogger<ResolveTaskHandler>.Instance);
+        var handler = new ResolveTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), new RecordingSecurityAudit(), NullLogger<ResolveTaskHandler>.Instance);
 
         var act = () => handler.Handle(new ResolveTaskCommand(TaskId, "done"), CancellationToken.None);
 
@@ -202,7 +206,7 @@ public class TaskWorkRulesTests
     public async Task Resolve_ConditionalWrite_Translates()
     {
         var capture = new SqlCapture().ThenRow("ext-ana", false).ThenRowsAffected(1);
-        var handler = new ResolveTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), NullLogger<ResolveTaskHandler>.Instance);
+        var handler = new ResolveTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), new RecordingSecurityAudit(), NullLogger<ResolveTaskHandler>.Instance);
 
         await handler.Handle(new ResolveTaskCommand(TaskId, "done"), CancellationToken.None);
 
@@ -219,7 +223,7 @@ public class TaskWorkRulesTests
     public async Task TaskService_ResolvesAnOpenTask_AndNeverReResolvesOne()
     {
         var task = AddTask(assignee: "ext-ana");
-        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance);
+        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit());
 
         await service.ResolveTask(TaskId, "first", "ext-ana", CancellationToken.None);
         var again = () => service.ResolveTask(TaskId, "second", "ext-ben", CancellationToken.None);
@@ -238,7 +242,7 @@ public class TaskWorkRulesTests
     {
         var task = AddTask(assignee: "ext-ana");
         task.ResolvedByUserId = "ext-ben";
-        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance);
+        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit());
 
         await service.CreateOrUpdateTask(task.SubscriptionId, resultCount: 0, CancellationToken.None);
 
@@ -253,7 +257,7 @@ public class TaskWorkRulesTests
     public async Task AutoResolve_LeavesATaskWithRowsOpen()
     {
         var task = AddTask(assignee: null);
-        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance);
+        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit());
 
         await service.CreateOrUpdateTask(task.SubscriptionId, resultCount: 2, CancellationToken.None);
 
@@ -409,7 +413,7 @@ public class TaskWorkRulesTests
 
         var calls = new Func<Task>[]
         {
-            () => new ResolveTaskHandler(Factory(), actor, NullLogger<ResolveTaskHandler>.Instance).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None),
+            () => new ResolveTaskHandler(Factory(), actor, new RecordingSecurityAudit(), NullLogger<ResolveTaskHandler>.Instance).Handle(new ResolveTaskCommand(TaskId, null), CancellationToken.None),
             () => new SnoozeTaskHandler(Factory(), actor, NullLogger<SnoozeTaskHandler>.Instance).Handle(new SnoozeTaskCommand(TaskId, DateTime.UtcNow.AddHours(1)), CancellationToken.None),
             () => new SetTaskPriorityHandler(Factory(), actor, NullLogger<SetTaskPriorityHandler>.Instance).Handle(new SetTaskPriorityCommand(TaskId, TaskPriority.Critical), CancellationToken.None),
             () => AssignHandler(actor).Handle(new AssignTaskCommand(TaskId, null), CancellationToken.None)
@@ -424,6 +428,71 @@ public class TaskWorkRulesTests
         task.SnoozedUntil.Should().BeNull();
         task.Priority.Should().Be(TaskPriority.Normal);
         task.AssigneeUserId.Should().BeNull();
+    }
+
+    // --- security audit -----------------------------------------------------------------------------------------
+
+    [Test]
+    public async Task ClaimingATask_IsRecordedAsAClaim_NamingPeopleByUsersId()
+    {
+        AddTask(assignee: null);
+
+        await AssignHandler(Interactive("ext-ben", RoleService.RoleNames.Editor)).Handle(new AssignTaskCommand(TaskId, "ext-ben"), CancellationToken.None);
+
+        var claimed = _audit.Single("ext-ben", "ben");
+        claimed.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.TaskClaimed, ActorUserId = (int?)2, ResourceType = SecurityAuditResources.Task, ResourceId = TaskId.ToString() },
+            x => x.ExcludingMissingMembers());
+        claimed.DetailsJson.Should().Be("{\"unassigned\":false,\"previousAssigneeUserId\":null,\"assigneeUserId\":2}");
+        _audit.Ways.Should().Equal("saved");
+    }
+
+    [Test]
+    public async Task ReassigningATask_IsRecordedAsAReassignment_AndANoOpRecordsNothing()
+    {
+        AddTask(assignee: "ext-ana");
+
+        await AssignHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new AssignTaskCommand(TaskId, "ext-ana"), CancellationToken.None);
+        _audit.Events.Should().BeEmpty("the task already had that assignee");
+
+        await AssignHandler(Interactive("ext-admin", RoleService.RoleNames.Admin)).Handle(new AssignTaskCommand(TaskId, "ext-ben"), CancellationToken.None);
+
+        var reassigned = _audit.Single("ext-ana", "ext-ben", "ext-admin");
+        reassigned.Action.Should().Be(SecurityAuditActions.TaskReassigned);
+        reassigned.ActorUserId.Should().Be(5);
+        reassigned.DetailsJson.Should().Be("{\"unassigned\":false,\"previousAssigneeUserId\":1,\"assigneeUserId\":2}");
+    }
+
+    [Test]
+    public async Task ResolvingATask_IsRecorded_NeverItsNotes()
+    {
+        AddTask(assignee: "ext-ana");
+
+        await ResolveHandler(Interactive("ext-ana", RoleService.RoleNames.Editor)).Handle(new ResolveTaskCommand(TaskId, "paid by ana@corp.example"), CancellationToken.None);
+
+        var resolved = _audit.Single("paid by", "ext-ana");
+        resolved.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.TaskResolved, ActorUserId = (int?)1, ResourceId = TaskId.ToString(), DetailsJson = "{\"assigneeUserId\":1}" },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task TheHostTaskService_RecordsAResolution_AndBeaconsAutoResolutionAsTheSystems()
+    {
+        var task = AddTask(assignee: "ext-ana");
+        var service = new TaskService(Factory(), NullLogger<TaskService>.Instance, _audit);
+
+        await service.ResolveTask(TaskId, "first", "ext-ana", CancellationToken.None);
+        task.Resolved = false;
+        await service.CreateOrUpdateTask(task.SubscriptionId, resultCount: 0, CancellationToken.None);
+        await service.CreateOrUpdateTask(task.SubscriptionId, resultCount: 0, CancellationToken.None);
+
+        _audit.Events.Select(x => x.Action).Should().Equal(SecurityAuditActions.TaskResolved, SecurityAuditActions.TaskAutoResolved);
+        var auto = _audit.Of(SecurityAuditActions.TaskAutoResolved).Single();
+        auto.ActorKind.Should().Be(SecurityAuditActorKinds.System);
+        auto.ActorUserId.Should().BeNull();
+        auto.DetailsJson.Should().Be("{\"subscriptionId\":1}");
+        _audit.Ways.Should().Equal("saved", "staged");
     }
 
     // --- assign -------------------------------------------------------------------------------------------------
@@ -557,7 +626,7 @@ public class TaskWorkRulesTests
     public async Task Assign_ATaskReassignedBetweenTheCheckAndTheWrite_IsNotOverwritten()
     {
         var capture = new SqlCapture().ThenScalar("ext-ana").ThenRowsAffected(0);
-        var handler = new AssignTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), Configuration(userManagement: false), NullLogger<AssignTaskHandler>.Instance);
+        var handler = new AssignTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), Configuration(userManagement: false), new RecordingSecurityAudit(), NullLogger<AssignTaskHandler>.Instance);
 
         var act = () => handler.Handle(new AssignTaskCommand(TaskId, null), CancellationToken.None);
 
@@ -568,7 +637,7 @@ public class TaskWorkRulesTests
     public async Task Assign_ConditionalWrite_Translates()
     {
         var capture = new SqlCapture().ThenScalar("ext-ana").ThenRowsAffected(1);
-        var handler = new AssignTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), Configuration(userManagement: false), NullLogger<AssignTaskHandler>.Instance);
+        var handler = new AssignTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-ana", false)), Configuration(userManagement: false), new RecordingSecurityAudit(), NullLogger<AssignTaskHandler>.Instance);
 
         await handler.Handle(new AssignTaskCommand(TaskId, null), CancellationToken.None);
 
@@ -584,7 +653,7 @@ public class TaskWorkRulesTests
     {
         // The task (assigned to ext-ana), then the assignee check for an Admin handing it to ext-ben, who is not found.
         var capture = new SqlCapture().ThenScalar("ext-ana").ThenScalar(false);
-        var handler = new AssignTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-admin", true)), Configuration(userManagement: true), NullLogger<AssignTaskHandler>.Instance);
+        var handler = new AssignTaskHandler(capture.Factory(), FixedActor(new BeaconActor("ext-admin", true)), Configuration(userManagement: true), new RecordingSecurityAudit(), NullLogger<AssignTaskHandler>.Instance);
 
         var act = () => handler.Handle(new AssignTaskCommand(TaskId, "ext-ben"), CancellationToken.None);
 
@@ -726,7 +795,7 @@ public class TaskWorkRulesTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance).GetTaskDetails(TaskId, null, CancellationToken.None);
+        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(TaskId, null, CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("'User '").And.NotContain("user_name", "a resolver or assignee is never named by their user name");
@@ -737,7 +806,7 @@ public class TaskWorkRulesTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        var details = await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance).GetTaskDetails(TaskId, null, CancellationToken.None);
+        var details = await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(TaskId, null, CancellationToken.None);
 
         details.Should().BeNull();
         var sql = capture.Commands.Should().ContainSingle().Subject;
@@ -756,7 +825,9 @@ public class TaskWorkRulesTests
 
     private ResolveTaskHandler ResolveHandler(ClaimsPrincipal caller)
     {
-        return new ResolveTaskHandler(Factory(), Actor(caller), NullLogger<ResolveTaskHandler>.Instance);
+        var actor = Actor(caller);
+
+        return new ResolveTaskHandler(Factory(), actor, _audit.For(actor), NullLogger<ResolveTaskHandler>.Instance);
     }
 
     private AssignTaskHandler AssignHandler(ClaimsPrincipal caller)
@@ -766,7 +837,7 @@ public class TaskWorkRulesTests
 
     private AssignTaskHandler AssignHandler(IBeaconActorAccessor actor)
     {
-        return new AssignTaskHandler(Factory(), actor, Configuration(_userManagement), NullLogger<AssignTaskHandler>.Instance);
+        return new AssignTaskHandler(Factory(), actor, Configuration(_userManagement), _audit.For(actor), NullLogger<AssignTaskHandler>.Instance);
     }
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)

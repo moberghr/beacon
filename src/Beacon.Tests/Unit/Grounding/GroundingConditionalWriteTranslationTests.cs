@@ -46,7 +46,7 @@ public class GroundingConditionalWriteTranslationTests
         var capture = Capture(sqlServer)
             .ThenRow("customer", (int)SchemaRelationshipCardinality.OneToMany, false)
             .ThenRowsAffected(1);
-        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(EditorOfBoth), TestPermissions.None, TestProjectAccess.Actors());
+        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(EditorOfBoth), TestPermissions.None, TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
         var result = await handler.Handle(Relabel("buyer"), CancellationToken.None);
 
@@ -68,7 +68,7 @@ public class GroundingConditionalWriteTranslationTests
             .ThenRow("customer", (int)SchemaRelationshipCardinality.OneToMany, false)
             .ThenRowsAffected(0);
         var graph = new Mock<ISchemaGraphService>();
-        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), graph.Object, TestProjectAccess.Evaluator(EditorOfBoth), TestPermissions.None, TestProjectAccess.Actors());
+        var handler = new UpdateSchemaRelationshipHandler(capture.Factory(), graph.Object, TestProjectAccess.Evaluator(EditorOfBoth), TestPermissions.None, TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
         var act = () => handler.Handle(Relabel("buyer"), CancellationToken.None);
 
@@ -85,7 +85,7 @@ public class GroundingConditionalWriteTranslationTests
             .ThenRow("customer", (int)SchemaRelationshipCardinality.OneToMany, false)
             .ThenRowsAffected(1);
         var handler = new DeleteSchemaRelationshipHandler(
-            capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(EditorOfBoth), TestPermissions.None, TestProjectAccess.Actors(), NullLogger<DeleteSchemaRelationshipHandler>.Instance);
+            capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Evaluator(EditorOfBoth), TestPermissions.None, TestProjectAccess.Actors(), new RecordingSecurityAudit(), NullLogger<DeleteSchemaRelationshipHandler>.Instance);
 
         await handler.Handle(new DeleteSchemaRelationshipCommand(10, 41), CancellationToken.None);
 
@@ -101,7 +101,7 @@ public class GroundingConditionalWriteTranslationTests
         var capture = Capture(sqlServer)
             .ThenRow("customer", (int)SchemaRelationshipCardinality.OneToMany)
             .ThenRowsAffected(1);
-        var handler = new VerifySchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Actors(), NullLogger<VerifySchemaRelationshipHandler>.Instance);
+        var handler = new VerifySchemaRelationshipHandler(capture.Factory(), Mock.Of<ISchemaGraphService>(), TestProjectAccess.Actors(), new RecordingSecurityAudit(), NullLogger<VerifySchemaRelationshipHandler>.Instance);
 
         await handler.Handle(
             new VerifySchemaRelationshipCommand(10, 41, true) { ReviewedLabel = "customer", ReviewedCardinality = SchemaRelationshipCardinality.OneToMany },
@@ -119,7 +119,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var digest = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(7, Content, Question, Sql, digest)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, digest)
             .ThenRowsAffected(1);
 
         await StatusHandler(capture).Handle(Decide(McpPatternStatus.Rejected, digest), CancellationToken.None);
@@ -140,7 +140,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var digest = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(7, Content, Question, Sql, DBNull.Value)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, DBNull.Value)
             .ThenRowsAffected(1)
             .ThenRowsAffected(1);
 
@@ -163,7 +163,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var reviewed = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(7, Content, Question, Sql, reviewed)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, reviewed)
             .ThenRowsAffected(0);
 
         var act = () => StatusHandler(capture).Handle(Decide(McpPatternStatus.Rejected, reviewed), CancellationToken.None);
@@ -307,6 +307,7 @@ public class GroundingConditionalWriteTranslationTests
             capture.Factory(),
             TestGroundingSqlChecks.PassThrough().Object,
             TestProjectAccess.Actors(),
+            new RecordingSecurityAudit(),
             NullLogger<UpdatePatternStatusHandler>.Instance);
     }
 

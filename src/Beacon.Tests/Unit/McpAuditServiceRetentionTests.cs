@@ -123,7 +123,7 @@ public class McpAuditServiceRetentionTests
             provider.Object,
             httpContextAccessor ?? new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         await service.LogToolCallAsync(
             sessionId: null,
