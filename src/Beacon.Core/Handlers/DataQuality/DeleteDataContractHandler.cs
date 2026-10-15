@@ -7,6 +7,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataQuality.DeleteDataContract;
 
@@ -15,6 +16,8 @@ internal sealed class DeleteDataContractHandler(
     IBeaconScheduler scheduler,
     IBeaconUserContext userContext,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<DeleteDataContractHandler> logger) : IRequestHandler<DeleteDataContractCommand>
 {
     public async Task Handle(DeleteDataContractCommand request, CancellationToken cancellationToken)
@@ -43,6 +46,8 @@ internal sealed class DeleteDataContractHandler(
         await scheduler.RemoveDataQualityJob(contract.Id, contract.Name);
 
         contract.Archive();
+        contract.RecordChangeBy(actor, timeProvider);
+        await securityAudit.StageAsync(context, DataContractAuditEntries.Archived(contract.Id), cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 }

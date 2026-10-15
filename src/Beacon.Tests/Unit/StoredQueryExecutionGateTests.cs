@@ -437,6 +437,7 @@ public class StoredQueryExecutionGateTests
             new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             TestQueryServices.Runner(),
+            new RecordingSecurityAudit(),
             NullLogger<DataSourceService>.Instance);
     }
 

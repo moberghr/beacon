@@ -2,10 +2,15 @@ using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Subscriptions;
 
-internal sealed class SetSubscriptionSlaHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class SetSubscriptionSlaHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider)
     : IRequestHandler<SetSubscriptionSlaCommand>
 {
     private const int MinSlaHours = 1;
@@ -33,7 +38,22 @@ internal sealed class SetSubscriptionSlaHandler(IDbContextFactory<BeaconContext>
             throw new InvalidOperationException($"Subscription {request.SubscriptionId} not found.");
         }
 
+        var before = subscription.SlaHours;
+        if (before == request.SlaHours)
+        {
+            return;
+        }
+
         subscription.SlaHours = request.SlaHours;
+        subscription.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.SubscriptionSlaChanged)
+                .On(SecurityAuditResources.Subscription, request.SubscriptionId)
+                .With(new SecurityAuditDetails()
+                    .Add("slaHoursBefore", before)
+                    .Add("slaHoursAfter", request.SlaHours)),
+            cancellationToken);
 
         await context.SaveChangesAsync(cancellationToken);
     }

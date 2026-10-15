@@ -14,6 +14,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -293,6 +294,29 @@ public class ValueGroundingServiceTests
         provider.Verify(
             x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    // A probe reaches the data source with a literal of the question: it is a statement of the call's audit row.
+    [Test]
+    public async Task EveryProbe_IsRecordedAsAProbeStatement_WithItsRowsAndTables()
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) })
+        };
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "REFUNDED" }] });
+        var log = new McpStatementLog();
+        var (service, _) = BuildService(provider, statementLog: log);
+
+        await service.BuildValueMatchesBlockAsync(DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        var probe = log.TakeAll().Should().ContainSingle().Subject;
+        probe.Should().BeEquivalentTo(new { DataSourceId = (int?)DataSourceId, Purpose = McpStatementPurposes.Probe, RowCount = (int?)1, ErrorClass = (string?)null });
+        probe.Sql.Should().Contain("refunded", "the statement as it reached the source; an audit keeps it only while content is retained");
+        probe.Tables.Should().Contain("sales.orders");
     }
 
     // TEST-6: a probe hit that is PII-shaped (an email address) must never reach the rendered block —
@@ -589,7 +613,8 @@ public class ValueGroundingServiceTests
         DataSourceType dataSourceType = DataSourceType.Database,
         DatabaseEngineType engine = DatabaseEngineType.PostgreSQL,
         string? configuredDatabase = null,
-        string? hostManagedKey = null)
+        string? hostManagedKey = null,
+        IMcpStatementLog? statementLog = null)
     {
         var dataSource = new DataSource
         {
@@ -621,6 +646,7 @@ public class ValueGroundingServiceTests
             TestSqlGate.Create(hostGuard: new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources())),
             TestConfiguredDatabases.Of(configuredDatabase),
             new QueryGuardrailService(),
+            statementLog ?? new McpStatementLog(),
             NullLogger<ValueGroundingService>.Instance);
 
         return (service, factory);

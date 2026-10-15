@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -19,6 +20,7 @@ internal sealed class UpdateGoldenCaseHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IGroundingSqlCheck groundingSqlCheck,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<UpdateGoldenCaseHandler> logger)
     : IRequestHandler<UpdateGoldenCaseCommand>
 {
@@ -49,6 +51,10 @@ internal sealed class UpdateGoldenCaseHandler(
             ? null
             : await CheckedGoldSqlAsync(evalCase.DataSourceId, request.GoldSql, cancellationToken);
 
+        var activeBefore = evalCase.IsActive;
+        var questionChanged = request.Question != null && !string.Equals(request.Question, evalCase.Question, StringComparison.Ordinal);
+        var goldSqlChanged = goldSql != null && !string.Equals(goldSql, evalCase.GoldSql, StringComparison.Ordinal);
+        var notesChanged = request.Notes != null && !string.Equals(request.Notes, evalCase.Notes, StringComparison.Ordinal);
         if (request.Question != null)
         {
             evalCase.Question = request.Question;
@@ -73,6 +79,18 @@ internal sealed class UpdateGoldenCaseHandler(
         }
 
         evalCase.ModifiedByUserId = actor.BeaconUserId;
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.GoldenCaseEdited)
+                .On(SecurityAuditResources.EvalCase, evalCase.Id)
+                .InProject(evalCase.ProjectId)
+                .With(new SecurityAuditDetails()
+                    .Add("questionChanged", questionChanged)
+                    .Add("goldSqlChanged", goldSqlChanged)
+                    .Add("notesChanged", notesChanged)
+                    .Add("isActiveBefore", activeBefore)
+                    .Add("isActiveAfter", evalCase.IsActive)),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 

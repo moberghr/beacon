@@ -13,6 +13,7 @@ using Beacon.Core.Data;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -39,7 +40,7 @@ public class ProjectGetDocumentationResponseFormatTests
         // Validation runs before project resolution or any documentation service call — null
         // services prove it. The rejection itself is audited (§1.7).
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
-        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var projectContext = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };
 
         var tool = new ProjectGetDocumentationTool(
@@ -189,7 +190,7 @@ public class ProjectGetDocumentationResponseFormatTests
             SettingsProviderMock.Create().Object,
             new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         // The project-level response also lists imported documents; an empty list-backed store has none.
         var tool = new ProjectGetDocumentationTool(

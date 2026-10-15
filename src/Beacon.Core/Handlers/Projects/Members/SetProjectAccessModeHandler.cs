@@ -7,6 +7,7 @@ using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects.Members;
 
@@ -17,6 +18,7 @@ internal sealed class SetProjectAccessModeHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     IOptions<ProjectAuthorizationOptions> options,
+    ISecurityAuditRecorder securityAudit,
     ILogger<SetProjectAccessModeHandler> logger)
     : IRequestHandler<SetProjectAccessModeCommand, SetProjectAccessModeResult>
 {
@@ -54,6 +56,15 @@ internal sealed class SetProjectAccessModeHandler(
         if (project.RequiresMembership != request.RequiresMembership)
         {
             project.RequiresMembership = request.RequiresMembership;
+            await securityAudit.StageAsync(
+                context,
+                new SecurityAuditEntry(SecurityAuditActions.AccessModeChanged)
+                    .On(SecurityAuditResources.Project, project.Id)
+                    .InProject(project.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("requiresMembershipBefore", !request.RequiresMembership)
+                        .Add("requiresMembershipAfter", request.RequiresMembership)),
+                cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
 
             logger.LogInformation(

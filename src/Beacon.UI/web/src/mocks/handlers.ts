@@ -40,7 +40,7 @@
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
  * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
- *   admin-settings, user-settings
+ *   users/:id/owned-resources, security-audit, POST security-audit/verify (honest empties), admin-settings, user-settings
  * - data-quality: overview, contracts
  * - catch-alls: 404 GET / 400 mutations / 503 hub negotiate
  */
@@ -1154,7 +1154,13 @@ const aiActorsHandlers = [
 const mcpHandlers = [
   // The default deployment locks read-only enforcement and PII detection on.
   http.get('/beacon/api/mcp/settings/locks', () =>
-    HttpResponse.json({ lockedFields: ['EnablePiiDetection', 'EnforceReadOnly'] })),
+    HttpResponse.json({
+      lockedFields: ['EnablePiiDetection', 'EnforceReadOnly'],
+      locks: [
+        { fieldName: 'EnablePiiDetection', lockName: 'ForcePiiDetection' },
+        { fieldName: 'EnforceReadOnly', lockName: 'ForceReadOnly' },
+      ],
+    })),
   http.get('/beacon/api/mcp/settings', () =>
     HttpResponse.json({
       askSystemPrompt: null,
@@ -1450,6 +1456,24 @@ const adminHandlers = [
     })),
   http.put('/beacon/api/users/:id/roles', () => new HttpResponse(null, { status: 204 })),
   http.post('/beacon/api/users/:id/sign-out-everywhere', () => new HttpResponse(null, { status: 204 })),
+  // What a user owns, created or changed last — honest empty in the mock.
+  http.get('/beacon/api/users/:id/owned-resources', () => HttpResponse.json(paged([]))),
+
+  // Security audit trail (Auditor) — honest empty in the mock; a verification checks nothing (outcome empty, no event found).
+  http.get('/beacon/api/security-audit', () => HttpResponse.json(paged([]))),
+  http.post('/beacon/api/security-audit/verify', async ({ request }) => {
+    const body = (await request.json()) as { eventIds?: number[] | null };
+    return HttpResponse.json({
+      checkedCount: 0,
+      intactCount: 0,
+      modifiedCount: 0,
+      unknownKeyCount: 0,
+      outOfRangeCount: 0,
+      outcome: 'empty',
+      failedEventIds: [],
+      verdicts: body.eventIds ? body.eventIds.map(eventId => ({ eventId, verdict: 'not_found' })) : null,
+    });
+  }),
 
   // Admin (LLM provider) settings — no secrets are ever returned, only "*Set" booleans.
   http.get('/beacon/api/admin-settings', () =>

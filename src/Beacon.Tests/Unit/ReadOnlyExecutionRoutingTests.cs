@@ -35,6 +35,7 @@ using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
 using GuardrailValidationResult = Beacon.Core.Services.Security.QueryValidationResult;
 using ProviderValidationResult = Beacon.Core.Models.Providers.QueryValidationResult;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -680,7 +681,7 @@ public class ReadOnlyExecutionRoutingTests
             SettingsProviderMock.Create().Object,
             new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var signalService = new McpSignalService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             settingsProvider.Object,

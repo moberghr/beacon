@@ -32,6 +32,7 @@ public class ProjectAuthorizationCoverageTests
     private static readonly IReadOnlyDictionary<string, string> OwnerOrAdminRoutes = new Dictionary<string, string>
     {
         ["AdminRevokeApiKey"] = "UserAdmin: key administration",
+        ["GetUserOwnedResources"] = "Auditor or UserAdmin: a user's resources across projects, for offboarding",
         ["RevokeApiKey"] = "owner: the caller's own key",
         ["DeleteDashboard"] = "dashboards carry their own access list",
         ["DeleteWidget"] = "dashboards carry their own access list",

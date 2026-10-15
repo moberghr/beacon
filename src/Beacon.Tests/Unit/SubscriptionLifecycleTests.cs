@@ -203,7 +203,7 @@ public class SubscriptionLifecycleTests
             Mock.Of<IAnomalyDetectionService>(),
             actors ?? TestProjectAccess.Actors(),
             configuration ?? new BeaconConfiguration(),
-            Microsoft.Extensions.Options.Options.Create(queryOptions ?? new QueryExecutionOptions()));
+            Microsoft.Extensions.Options.Options.Create(queryOptions ?? new QueryExecutionOptions()), new RecordingSecurityAudit(), TimeProvider.System);
     }
 
     private static SubscriptionData NewSubscriptionData(int queryId) =>

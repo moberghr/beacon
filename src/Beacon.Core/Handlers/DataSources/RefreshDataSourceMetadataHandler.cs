@@ -7,6 +7,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataSources;
 
@@ -17,6 +18,7 @@ internal sealed class RefreshDataSourceMetadataHandler(
     IOptionsMonitor<MetadataRefreshOptions> refreshOptions,
     IBeaconPermissionAccessor permissionAccessor,
     MetadataSampleView sampleView,
+    ISecurityAuditRecorder securityAudit,
     ILogger<RefreshDataSourceMetadataHandler> logger)
     : IRequestHandler<RefreshDataSourceMetadataCommand, DatabaseMetadataSnapshot>
 {
@@ -49,6 +51,15 @@ internal sealed class RefreshDataSourceMetadataHandler(
         {
             cooldown.Finish(request.DataSourceId, cooldownMinutes, succeeded);
         }
+
+        // A forced refresh scans the live database on a caller's request: on record, with whether it skipped the cooldown.
+        await securityAudit.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.MetadataRefreshed)
+                .On(SecurityAuditResources.DataSource, request.DataSourceId)
+                .With(new SecurityAuditDetails()
+                    .Add("forced", true)
+                    .Add("cooldownExempt", ignoreCooldown)),
+            cancellationToken);
 
         // Relationship sync is an enrichment on top of the refresh, not part of it. A transient failure
         // must degrade to the pre-feature behaviour — metadata refreshed, relationships left as they

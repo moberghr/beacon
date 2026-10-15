@@ -55,7 +55,7 @@ internal static class OidcEventHandlers
         var admission = OidcAdmission.Evaluate(principal, oidcOptions);
         if (admission != OidcAdmissionDecision.Admitted)
         {
-            LogRefusal(logger, admission.ToString(), principal, externalId);
+            await RefuseAsync(context, logger, admission.ToString(), principal, externalId);
             context.Fail(new OidcNotAdmittedException());
             return;
         }
@@ -66,7 +66,7 @@ internal static class OidcEventHandlers
         // looked up or provisioned.
         if (!OidcAdmission.MeetsMfaRequirement(principal, oidcOptions))
         {
-            LogRefusal(logger, "MfaNotPerformed", principal, externalId);
+            await RefuseAsync(context, logger, "MfaNotPerformed", principal, externalId);
             context.Fail(new OidcMfaRequiredException());
             return;
         }
@@ -93,8 +93,10 @@ internal static class OidcEventHandlers
         }
         catch (BeaconException ex)
         {
-            // Disabled, archived, or first-run setup not completed: the message is a fixed string from the user store.
+            // Disabled, archived, or first-run setup not completed: the message is a fixed string from the user store (logged);
+            // the audit records a code.
             LogRefusal(logger, ex.Message, principal, externalId);
+            await SignInAudit.SsoRefusedAsync(context.HttpContext, "AccountRefused", TenantOrIssuer(principal), externalId);
             context.Fail(new OidcNotAdmittedException());
             return;
         }
@@ -105,6 +107,7 @@ internal static class OidcEventHandlers
 
         EnrichBeaconClaims(context, user);
         AddIdpPermissions(context, roleMapping, idpPermissions, services.GetService<TimeProvider>() ?? TimeProvider.System);
+        await SignInAudit.SsoSignedInAsync(context.HttpContext, user.Id);
         if (idpPermissions.Count > 0)
         {
             logger.LogInformation(
@@ -309,6 +312,19 @@ internal static class OidcEventHandlers
             || AuthorizationClaimTypes.Contains(claimType)
             || McpCallerClaimTypes.Reserved.Contains(claimType)
             || claimType.StartsWith(BeaconClaimPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Logged, and recorded in the security audit trail with the reason code and the subject's keyed hash.
+    private static async Task RefuseAsync(TokenValidatedContext context, ILogger logger, string reason, ClaimsPrincipal principal, string externalId)
+    {
+        LogRefusal(logger, reason, principal, externalId);
+        await SignInAudit.SsoRefusedAsync(context.HttpContext, reason, TenantOrIssuer(principal), externalId);
+    }
+
+    // The tenant the subject belongs to, else its issuer: what its keyed hash is computed under, as for MCP callers.
+    private static string TenantOrIssuer(ClaimsPrincipal principal)
+    {
+        return GetClaim(principal, "tid") ?? GetClaim(principal, "iss") ?? "-";
     }
 
     // Reason, tenant, issuer and a subject hash: never the raw subject, an e-mail or other claim values.

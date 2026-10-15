@@ -218,9 +218,9 @@ The Admin role's duties are split into six functional permissions. An Admin hold
 | Permission | The duty |
 |---|---|
 | **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own; reads every project's approval requests. See [Approvals](/features/approvals/) |
-| **Auditor** | Reads the MCP audit, the MCP and project settings, the admin settings (secrets masked) and every user's API keys |
+| **Auditor** | Reads and verifies the [security audit trail](/features/security-audit/); reads the MCP audit, the MCP and project settings, the admin settings (secrets masked), every user's API keys and what a user owns, created or changed last |
 | **SecurityAdmin** | Changes the MCP settings and the admin settings except the LLM connection and base URL; manages recipients; publishes saved queries as MCP tools; sets repository access tokens |
-| **UserAdmin** | Manages users (external users only) and their roles and sessions, revokes any user's API keys, changes the owner of scheduled work, manages the members of any project, restricts projects |
+| **UserAdmin** | Manages users (external users only) and their roles and sessions, sees what a user owns, created or changed last, revokes any user's API keys, changes the owner of scheduled work, manages the members of any project, restricts projects |
 | **DataSourceAdmin** | Creates, tests and deletes data sources; links a data source no open project holds into a project it administers, when it can read the source; changes shared data-source state; forces a metadata refresh without the cooldown |
 | **MigrationOperator** | Runs [data migration](/features/data-migration/) for the jobs whose data sources it may query and write (mapped only while `Beacon:Migrations:Enabled`) |
 
@@ -297,7 +297,7 @@ The realtime hub (`/beacon/api/hub`) admits a signed-in caller with read permiss
 
 ## MCP safety locks
 
-Read-only enforcement and PII detection are MCP settings, globally and per project, but by default the deployment pins both on: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` default to `true`. Two more locks are off by default: `ForceNoContentRetention` (questions, SQL and free-text errors never persisted) and `ForbidRowDataToLlm` (no value read from a data source reaches the LLM provider). While a lock is on, nobody can change the setting it pins, an Admin included (`409`, `/errors/setting-locked`); `GET /beacon/api/mcp/settings/locks` lists the pinned settings, and the MCP settings page shows them disabled. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Only host configuration lifts a lock; see [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks).
+Read-only enforcement and PII detection are MCP settings, globally and per project, but by default the deployment pins both on: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` default to `true`. Two more locks are off by default: `ForceNoContentRetention` (questions, SQL and free-text errors never persisted) and `ForbidRowDataToLlm` (no value read from a data source reaches the LLM provider). `Beacon:Mcp:Audit:RequireContent` (off by default) pins content retention **on**, so the MCP audit keeps question and SQL text; it cannot be combined with `ForceNoContentRetention` (the host does not start with both on), see [Keeping audit content](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock). While a lock is on, nobody can change the setting it pins, an Admin included (`409`, `/errors/setting-locked`); `GET /beacon/api/mcp/settings/locks` lists the pinned settings, and the MCP settings page shows them disabled. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Only host configuration lifts a lock; see [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks).
 
 ## Host seams
 
@@ -350,7 +350,9 @@ Bound from `Beacon:Authorization` and validated at startup: `RequireProjectMembe
 
 ## Audit and security events
 
-Beacon keeps two audit tables, `McpAuditLog` (every MCP tool call, read by Auditors) and `AppSettingHistory` (admin settings, MCP settings and migration-write-target changes), and writes security-relevant actions as structured log events 7101–7123 with identifiers only. The log events are not stored by Beacon: route them through your log pipeline. See [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
+Security-relevant actions (sign-ins, users and roles, API keys, project access, data sources, delivery, settings, approvals, ownership, alert tasks, curation, data contracts and migration jobs) are recorded in the append-only, signed [security audit trail](/features/security-audit/), which an Auditor reads and verifies. Beacon also keeps `McpAuditLog` (every MCP tool call and the statements it ran, read by Auditors) and `AppSettingHistory` (admin settings, MCP settings and migration-write-target changes), and writes security-relevant actions as structured log events 7101–7123 with identifiers only; those log events are not stored by Beacon, so route them through your log pipeline. See [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
+
+Queries, subscriptions, recipients, data contracts and migration jobs also record who created them and who changed them last. They implement `IAttributedEntity` (`Beacon.Core.Data.Entities.Base`: `CreatedByUserId` and `ModifiedByUserId`, the `Users.ExternalId` of the creator and of the last to change it, and `ModifiedTime`). Beacon sets them from the request's caller (`BeaconActor.UserId`, with `Attribution.RecordChangeBy`), never from a request body; they are null for resources created or changed before they were recorded. An Auditor or a UserAdmin lists a user's resources with `GET /beacon/api/users/{id}/owned-resources` (see [User management: Owned resources](/features/user-management/#owned-resources)).
 
 ## Troubleshooting
 
@@ -425,6 +427,19 @@ The approval workflow became a four-eyes control bound to reviewed content, and 
 ### Upgrading: grounding integrity
 
 Feedback no longer creates golden examples (an Admin promotes candidates), curation needs the project admin role, every curation binds to the content reviewed, and grounding SQL is checked before it is stored. Apply the `AddGroundingAttribution` and `AddGroundingProvenance` migrations, review existing golden cases that record no promoting user, and add a project admin to each project whose grounding someone other than an Admin should curate. See [Knowledge base](/features/knowledge-base/#who-curates-grounding).
+
+### Upgrading: security audit trail
+
+Security-relevant actions are recorded in an append-only, signed trail an Auditor reads and verifies, governed resources record who created and last changed them, and the MCP audit keeps the statements each call ran. Apply the `AddSecurityAuditTrail` migration (additive; nothing is backfilled). See [Security audit trail: Upgrading](/features/security-audit/#upgrading) for the schema, public API and REST changes.
+
+- **Events and attribution start at the upgrade.** Existing resources record no creator or last modifier until they are next changed.
+- **Set `Beacon:Audit:IntegrityKey`** before you change the encryption key or the caller hash key; otherwise events signed under the old derived key verify as *unknown key* once that secret leaves the configuration.
+- **Schedule the verify and purge jobs** (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly; `ISecurityAuditRetentionService.PurgeExpiredAsync`, daily); the sample host schedules both. Events are kept forever until `Beacon:Audit:RetentionDays` (365 to 36,500) is set.
+- **Alert on** `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero, and ship the `Beacon.Audit` events 9104 to 9110 to your SIEM.
+- **Reads of audit data fail closed**: the security audit, MCP audit and owned-resources routes record each read first and fail when that record cannot be written.
+- **Owner changes** of subscriptions, data contracts and AI actors answer `409` when the owner changed since it was read.
+- **Where content is retained, the MCP audit now stores the SQL of every statement a call ran.** Review this against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins it on, `ForceNoContentRetention` pins it off.
+- **A host that wires sign-in without `AddBeaconServices`** must register `ISecurityAuditRecorder`; `TaskService` and `AppSettingsService` now take one.
 
 ## See also
 

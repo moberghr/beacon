@@ -109,6 +109,9 @@ public static class BeaconApiEndpoints
         // projects without a ProjectAdmin).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, GroundingStartupNote>());
 
+        // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
+
         return services;
     }
 
@@ -179,6 +182,7 @@ public static class BeaconApiEndpoints
         group.MapUserSettingsEndpoints();
         group.MapTasksEndpoints();
         group.MapUsersEndpoints();
+        group.MapSecurityAuditEndpoints();
 
         // Mapped on `endpoints`, NOT on the group: the group carries the antiforgery filter,
         // which would reject the hub's negotiate handshake. Route and policy are the contract

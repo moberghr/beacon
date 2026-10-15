@@ -67,7 +67,7 @@ public class DataContractCustomSqlSaveTests
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var editor = Interactive(RoleService.RoleNames.Editor);
-        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration(), TestChangeApprovals.CustomSql());
+        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration(), TestChangeApprovals.CustomSql(), new RecordingSecurityAudit());
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
@@ -277,6 +277,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         var act = () => handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
@@ -334,6 +335,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(Admin()),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(CustomSqlRule("SELECT 1 AS passed")), CancellationToken.None);
@@ -359,6 +361,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(Admin()),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
@@ -510,6 +513,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(ReferentialRule("Sales", "CUSTOMERS", "Id")) with { SchemaName = "SALES", TableName = "Orders" }, CancellationToken.None);
@@ -534,6 +538,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(Interactive(RoleService.RoleNames.Editor)),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         var act = () => handler.Handle(UpdateCommand(ReferentialRule("finance", "ledger", "id")), CancellationToken.None);
@@ -616,6 +621,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(editor),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         // Disabling it and pointing it at another data source.
@@ -640,6 +646,7 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(Admin()),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
 
         await handler.Handle(UpdateCommand(VolumeRule()) with { Name = "renamed" }, CancellationToken.None);
@@ -692,12 +699,12 @@ public class DataContractCustomSqlSaveTests
     {
         // Each handler is built just before it runs: the request's user lives in the ambient HttpContext.
         var editor = Interactive(RoleService.RoleNames.Editor);
-        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(editor), TestChangeApprovals.CustomSql(), NullLogger<UpdateDataContractHandler>.Instance)
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(editor), TestChangeApprovals.CustomSql(), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<UpdateDataContractHandler>.Instance)
             .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
-        Func<Task> delete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), Actor(editor), NullLogger<DeleteDataContractHandler>.Instance)
+        Func<Task> delete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(editor), Actor(editor), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<DeleteDataContractHandler>.Instance)
             .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
         Func<Task> evaluate = () => EvaluateHandler(editor, contract: null).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
-        Func<Task> adminDelete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(Admin()), Actor(Admin()), NullLogger<DeleteDataContractHandler>.Instance)
+        Func<Task> adminDelete = () => new DeleteDataContractHandler(ContextFactory(OrdinarySource()), _scheduler.Object, UserContext(Admin()), Actor(Admin()), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<DeleteDataContractHandler>.Instance)
             .Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
 
         await update.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*owner or an Admin*");
@@ -714,7 +721,7 @@ public class DataContractCustomSqlSaveTests
         var contract = Contract(ExistingRule(DataContractRuleType.Volume, "{\"minRows\":1}"));
         contract.OwnerUserId = null;
         var caller = WithoutId(RoleService.RoleNames.Editor);
-        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(caller), TestChangeApprovals.CustomSql(), NullLogger<UpdateDataContractHandler>.Instance)
+        Func<Task> update = () => new UpdateDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(caller), TestSqlGate.Create(), TestConfiguredDatabases.None, Actor(caller), TestChangeApprovals.CustomSql(), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<UpdateDataContractHandler>.Instance)
             .Handle(UpdateCommand(VolumeRule()), CancellationToken.None);
         Func<Task> delete = () => DeleteHandler(caller, contract).Handle(new DeleteDataContractCommand(ContractId), CancellationToken.None);
         Func<Task> evaluate = () => EvaluateHandler(caller, contract).Handle(new EvaluateDataContractCommand(ContractId), CancellationToken.None);
@@ -801,12 +808,12 @@ public class DataContractCustomSqlSaveTests
 
     private EvaluateDataContractHandler EvaluateHandler(ClaimsPrincipal user, DataContract? contract)
     {
-        return new EvaluateDataContractHandler(_evaluation.Object, ContextFactory(OrdinarySource(), contract), Actor(user), NullLogger<EvaluateDataContractHandler>.Instance);
+        return new EvaluateDataContractHandler(_evaluation.Object, ContextFactory(OrdinarySource(), contract), Actor(user), new RecordingSecurityAudit(), NullLogger<EvaluateDataContractHandler>.Instance);
     }
 
     private SetDataContractOwnerHandler SetOwnerHandler(ClaimsPrincipal user, IDbContextFactory<BeaconContext> factory)
     {
-        return new SetDataContractOwnerHandler(factory, Actor(user), TestPermissions.ForPrincipal(user), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(user)), NullLogger<SetDataContractOwnerHandler>.Instance);
+        return new SetDataContractOwnerHandler(factory, Actor(user), TestPermissions.ForPrincipal(user), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(user)), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<SetDataContractOwnerHandler>.Instance);
     }
 
     private static List<BeaconUser> Users()
@@ -837,7 +844,7 @@ public class DataContractCustomSqlSaveTests
             configuredDatabases ?? TestConfiguredDatabases.None,
             Actor(user),
             new BeaconConfiguration(),
-            TestChangeApprovals.CustomSql());
+            TestChangeApprovals.CustomSql(), new RecordingSecurityAudit());
     }
 
     private UpdateDataContractHandler UpdateHandler(ClaimsPrincipal user, DataSource? dataSource, params DataContractRule[] existingRules)
@@ -850,12 +857,13 @@ public class DataContractCustomSqlSaveTests
             TestConfiguredDatabases.None,
             Actor(user),
             TestChangeApprovals.CustomSql(),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateDataContractHandler>.Instance);
     }
 
     private DeleteDataContractHandler DeleteHandler(ClaimsPrincipal user, DataContract contract)
     {
-        return new DeleteDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(user), Actor(user), NullLogger<DeleteDataContractHandler>.Instance);
+        return new DeleteDataContractHandler(ContextFactory(OrdinarySource(), contract, contract.Rules), _scheduler.Object, UserContext(user), Actor(user), new RecordingSecurityAudit(), TimeProvider.System, NullLogger<DeleteDataContractHandler>.Instance);
     }
 
     private IDbContextFactory<BeaconContext> ContextFactory(

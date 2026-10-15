@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Common;
 
@@ -34,6 +35,9 @@ internal sealed class ProjectAccessWorld
     public List<ProjectMember> Members { get; } = [];
 
     public List<object> Saved { get; } = [];
+
+    /// <summary>The security audit events handlers resolved from <see cref="Register"/> recorded, by the request's caller.</summary>
+    public RecordingSecurityAudit Audit { get; } = new();
 
     /// <summary>Whether the host runs Beacon user management (default: it does).</summary>
     public bool UserManagement { get; set; } = true;
@@ -169,6 +173,8 @@ internal sealed class ProjectAccessWorld
         services.AddScoped<ISystemWorkScope, SystemWorkScope>();
         services.AddScoped<IRunAsScope, RunAsScope>();
         services.AddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
+        Audit.ResolveUser = x => Users.FirstOrDefault(y => y.ExternalId == x)?.Id;
+        services.AddScoped<ISecurityAuditRecorder>(x => Audit.For(x.GetRequiredService<IBeaconActorAccessor>()));
         services.AddSingleton<IProjectMembershipSource, DatabaseProjectMembershipSource>();
         services.AddSingleton<IRunAsCeilingSource, DatabaseRunAsCeilingSource>();
         services.AddScoped<IProjectAccessEvaluator, ProjectAccessEvaluator>();

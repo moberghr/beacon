@@ -2,7 +2,7 @@ using Beacon.Core.Data.Entities.Base;
 
 namespace Beacon.Core.Data.Entities.DataQuality;
 
-public class DataContract : ArchivableBaseEntity
+public class DataContract : ArchivableBaseEntity, IAttributedEntity
 {
     public List<Recipient> Recipients { get; set; } = new();
 
@@ -21,6 +21,15 @@ public class DataContract : ArchivableBaseEntity
     public bool IsEnabled { get; set; } = true;
 
     public string? OwnerUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? CreatedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? ModifiedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public DateTime? ModifiedTime { get; set; }
 
     /// <summary>
     /// When a scheduled evaluation was first skipped because the owner may no longer run the contract's rules; null once

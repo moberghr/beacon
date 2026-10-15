@@ -293,6 +293,41 @@ The cookie is `HttpOnly`, `SameSite=Lax` and `Secure` when the request is HTTPS.
 
 Every `user_roles` row records when the role was assigned (`AssignedAt`) and who assigned it (`AssignedByUserId`, the assigner's external id): when an Admin or UserAdmin creates a user, changes a user's roles, or calls `IUserManagementService.AssignRoleAsync`. It is empty where Beacon grants the role itself: the default role at a first SSO or MCP sign-in, and the super admin's Admin role at setup. Identity-provider mapped permissions are never stored.
 
+## Owned resources
+
+Before a user leaves, find what they hold: open the user on the **User Management** page and choose **Show owned
+resources** (an Auditor or a UserAdmin; nothing is read until you do). It lists, one kind per tab and ten to a page, the
+live queries, subscriptions, data contracts, recipients and migration jobs the user **owns** (the user whose access
+scheduled runs act with; recipients and migration jobs have no owner), **created**, or **changed last**, with the dates.
+Reassign what they own (see [Subscriptions: Change the owner](/features/subscriptions/#change-the-owner)) before you
+disable them, since scheduled runs of a disabled owner are skipped. Archived resources are not listed; an archived user is
+found too.
+
+The same list is `GET /beacon/api/users/{id}/owned-resources?kind={kind}` (paged and sortable like other lists, oldest
+first; `404` for an unknown user). `kind` is a number: `0` queries, `1` subscriptions, `2` data contracts, `3`
+recipients, `4` migration jobs. Each item carries `id`, `kind`, `name`, `isOwner`, `isCreator`, `isLastModifier`,
+`nameWithheld`, `createdTime` and `modifiedTime`. Who created or last changed a resource is recorded from the version that
+added the [security audit trail](/features/security-audit/#who-created-and-changed-what) on; resources from before show
+neither.
+
+The list crosses projects, so names follow what the caller may read: an Auditor sees every name; a UserAdmin sees the
+names of the resources its projects reach (as the resource's own list shows them; recipients belong to no project and
+are always named), and every other resource by id and kind only: `name` empty and `nameWithheld: true`, shown as *Name
+withheld*. Every read is recorded first in the security audit trail (`identity.owned_resources_read`, the kind and the
+page) and fails when that record cannot be written.
+
+## Recorded in the security audit
+
+Sign-ins (password, single sign-on and break-glass, successful, failed and refused), sign-outs, sessions Beacon ended,
+first-run setup (the super admin, and setup tokens refused), users created, provisioned, updated, enabled, disabled and
+archived, passwords changed or set by an administrator, and role changes are recorded in the
+[security audit trail](/features/security-audit/#event-catalogue), by user id, never by name, e-mail address, the
+sign-in name typed or an external id. A failed password sign-in names the user the sign-in name resolved to, when it
+did, and the attempt by a keyed hash of the name typed, so many attempts on one name can be told from attempts spread
+over many names without the name being stored. A right password refused because an administrator set it and the user
+must choose a new one is recorded as a refused sign-in (`password_change_required`). An Auditor reads them on the
+**Security Audit** page.
+
 ## User entity
 
 | Field | Description |
@@ -343,6 +378,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 | `POST /users/{id}/toggle-enabled` | enable or disable a user |
 | `PUT /users/{id}/roles` | replace a user's roles (ends their sessions when they change) |
 | `POST /users/{id}/sign-out-everywhere` | end every session of the user (`204`; `409` when user management is off) |
+| `GET /users/{id}/owned-resources` | the user's live resources of one `kind`, paged; for an Auditor or a UserAdmin (see [Owned resources](#owned-resources)) |
 
 ### First-run setup
 

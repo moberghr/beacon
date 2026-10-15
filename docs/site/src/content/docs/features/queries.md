@@ -138,6 +138,16 @@ Queries can be filed in folders through the API: `GET`/`POST /beacon/api/query-f
 Queries cannot be deleted, in the UI or the API. Stop a query from running by archiving its subscriptions, and remove
 an MCP tool by turning it off on the query page. While a query is live, the data sources it reads cannot be deleted.
 
+### Who created and changed it
+
+A query records who **created** it and who **changed it last**, and when, taken from the caller, never from the request:
+an edit, restoring a version, archiving it, and, with the [approval workflow](#approval-workflow) on, the approval that
+makes a proposed version live (the reviewer is recorded as the last to change it). Queries created before this was
+recorded show neither. An Auditor or a UserAdmin finds the queries a user owns, created or changed last under
+[Owned resources](/features/user-management/#owned-resources). The submissions and decisions of the approval workflow are
+recorded in the [security audit trail](/features/security-audit/#event-catalogue) (`approvals.query_change_*`); creating
+and editing a query outside the workflow is attributed on the query but not recorded there as an event.
+
 ## Approval workflow
 
 The approval workflow is **off by default**. A host turns it on in code (`options.EnableApprovalWorkflow(...)` in

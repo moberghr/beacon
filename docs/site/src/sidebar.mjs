@@ -88,13 +88,14 @@ export const SECTIONS = [
   {
     label: 'Govern & secure',
     slug: 'features',
-    summary: 'The security model: projects, permissions, approvals, users, API keys and admin settings.',
+    summary: 'The security model: projects, permissions, approvals, users, API keys, the security audit trail and admin settings.',
     items: [
       { label: 'Security model', slug: 'features/security-model' },
       { label: 'Authorization', slug: 'features/authorization' },
       { label: 'Approvals', slug: 'features/approvals' },
       { label: 'User management', slug: 'features/user-management' },
       { label: 'API keys', slug: 'features/api-keys' },
+      { label: 'Security audit trail', slug: 'features/security-audit' },
       { label: 'Admin settings', slug: 'features/admin-settings' },
     ],
   },

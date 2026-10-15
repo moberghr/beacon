@@ -18,6 +18,7 @@ using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit.SavedQueryTools;
 
@@ -327,7 +328,7 @@ public class SavedQueryToolServiceTests
             SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = true }, projectSettings: projectSettings).Object,
             new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()),
-            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+            NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var configuration = new BeaconConfiguration { SavedQueryTools = new SavedQueryToolOptions { NamedToolLimit = namedToolLimit } };
 
         var evaluator = TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn([.. allowedProjects]));

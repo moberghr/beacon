@@ -19,6 +19,7 @@ import {
   type RoleEntry,
   type UserEntry,
 } from './queries';
+import { OwnedResources } from './OwnedResources';
 import {
   INTERNAL_USER_NOTE,
   SIGN_IN_IDENTITY_NOTE,
@@ -496,6 +497,7 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
           />
         )}
       </form>
+      <OwnedResources userId={user.id} />
     </Dialog>
   );
 }

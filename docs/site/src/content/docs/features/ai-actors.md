@@ -49,7 +49,9 @@ the subscriptions it manages on demand (`POST /beacon/api/subscriptions/{id}/exe
 an actor a new creator with **Change owner** on its page (`PUT /beacon/api/ai-actors/{id}/owner` with
 `{ "userId": <user id> }`). The new creator must be an existing, enabled user who may work ad hoc (Editor or above) in
 a project that links the actor's data source; otherwise the change answers `409`, because every background think cycle
-would be skipped. The actor's page names the creator by display name, or "User {id}" without one.
+would be skipped. If someone else changed the creator, or archived the actor, since it was read, nothing is changed and
+the call answers `409`; choosing the creator the actor already has changes nothing. The actor's page names the creator
+by display name, or "User {id}" without one.
 
 An actor belongs to the projects that link its data source: the actor, its plans and its think cycles are visible only
 through such a project the caller may use, and refining it or running it on demand needs Query there (see

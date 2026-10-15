@@ -232,7 +232,8 @@ public class UserStoreIdentityTests
             Mock.Of<IPasswordHasher>(),
             Mock.Of<IRoleService>(),
             new BeaconConfiguration(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new RecordingSecurityAudit());
     }
 
     private static UserManagementService Service(
@@ -261,6 +262,7 @@ public class UserStoreIdentityTests
             Mock.Of<IPasswordHasher>(),
             (roleService ?? new Mock<IRoleService>()).Object,
             new BeaconConfiguration(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new RecordingSecurityAudit());
     }
 }

@@ -166,7 +166,22 @@ where it delivers (see [Notifications](/features/notifications/#approval-of-new-
 An Admin or a UserAdmin clicks **Change owner** on the subscription page (in the header, and in the "owner not
 authorized" banner), picks a user and saves, or calls `PUT /beacon/api/subscriptions/{id}/owner` with
 `{ "userId": 12 }`. The new owner must be an existing, enabled user who may run the subscription's query in one project
-that holds all of its data sources; anyone else is refused with `409`, because every run would be skipped.
+that holds all of its data sources; anyone else is refused with `409`, because every run would be skipped. The change
+is made only from the owner it was checked against: when someone else changed the owner (or archived the subscription)
+in the meantime, nothing is changed and the call answers `409`; reload and try again. Choosing the owner the
+subscription already has changes nothing, records nothing and checks nothing.
+
+### Who created and changed it
+
+A subscription also records who **created** it (the signed-in creator; for one an AI actor creates, the actor's creator)
+and who **changed it last**, and when: an edit, adding or removing recipients, a new SLA or owner, archiving and
+reactivating it, and archiving its query. Like the owner, these are taken from the caller, never from the request, and
+subscriptions created before this was recorded show neither. They are not shown on the subscription page; an Auditor or a
+UserAdmin finds a user's subscriptions under [Owned resources](/features/user-management/#owned-resources).
+
+Creating, editing, archiving and reactivating a subscription, adding and removing its recipients, changing its SLA and
+changing its owner are recorded in the [security audit trail](/features/security-audit/#event-catalogue)
+(`delivery.subscription_*`, `ownership.owner_changed`), by ids, never a recipient's destination.
 
 ## What a run reads and delivers
 

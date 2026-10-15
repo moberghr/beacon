@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Queries;
 
@@ -26,6 +27,8 @@ internal sealed class SetQueryMcpToolHandler(
     ProjectRequestAuthorizer authorizer,
     IBeaconActorAccessor actorAccessor,
     BeaconConfiguration configuration,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider,
     ILogger<SetQueryMcpToolHandler> logger)
     : IRequestHandler<SetQueryMcpToolCommand, SetQueryMcpToolResult>
 {
@@ -96,9 +99,21 @@ internal sealed class SetQueryMcpToolHandler(
         // Reported, not blocking: the data sources may be added to a project later, and the tool shows up then.
         issue ??= await SavedQueryRunnableVersion.InspectIssueAsync(context, runnable, cancellationToken);
 
+        var wasEnabled = query.McpToolEnabled;
         query.McpToolEnabled = request.Enabled;
         query.McpToolName = name;
         query.McpToolDescription = description;
+        query.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.QueryMcpToolChanged)
+                .On(SecurityAuditResources.Query, query.Id)
+                .With(new SecurityAuditDetails()
+                    .Add("enabled", request.Enabled)
+                    .Add("wasEnabled", wasEnabled)
+                    .AddCode("tool", name == null ? null : SavedQueryToolRules.ToolName(name))
+                    .Add("versionNumber", runnable?.VersionNumber)),
+            cancellationToken);
 
         try
         {

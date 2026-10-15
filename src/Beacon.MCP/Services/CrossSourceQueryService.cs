@@ -14,6 +14,8 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.MCP.Tools;
+using Beacon.Core.Mcp;
+using Beacon.Core.Services.Retention;
 
 namespace Beacon.MCP.Services;
 
@@ -27,6 +29,7 @@ internal sealed class CrossSourceQueryService(
     ISqlGenerationService sqlGenerationService,
     ILlmRowDataEgress rowDataEgress,
     IOptions<McpDeploymentOptions> deploymentOptions,
+    IMcpStatementLog statementLog,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -186,7 +189,12 @@ internal sealed class CrossSourceQueryService(
             // §1.5 backstop — per-source execution goes through the read-only path. The database-level
             // guarantee is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above.
-            var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+            var result = await statementLog.RecordAsync(
+                dataSource.Id,
+                McpStatementPurposes.SourceStep,
+                limitedSql,
+                () => provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token),
+                x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
 
             if (!result.Success)
             {
@@ -350,7 +358,7 @@ internal sealed class CrossSourceQueryService(
         try
         {
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-            var dryRun = await provider.ValidateQueryAsync(dataSource, sql, ct);
+            var dryRun = await DryRunAsync(provider, dataSource, sql, ct);
 
             // Skipped = the engine has no dry-run strategy — nothing was checked, so there is nothing
             // to repair; proceed exactly like the infrastructure-failure path below.
@@ -407,7 +415,7 @@ internal sealed class CrossSourceQueryService(
         try
         {
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-            var reDryRun = await provider.ValidateQueryAsync(dataSource, retriedSql, ct);
+            var reDryRun = await DryRunAsync(provider, dataSource, retriedSql, ct);
             if (!reDryRun.IsValid && !reDryRun.Skipped)
             {
                 signal.SetRetry(retriedSql, false);
@@ -430,5 +438,16 @@ internal sealed class CrossSourceQueryService(
         signal.SetRetry(retriedSql, true);
 
         return retriedSql;
+    }
+
+    // A dry run reaches the data source too: on the call's audit row as a dry-run statement.
+    private Task<Core.Models.Providers.QueryValidationResult> DryRunAsync(IDataSourceProvider provider, Core.Data.Entities.DataSource dataSource, string sql, CancellationToken ct)
+    {
+        return statementLog.RecordAsync(
+            dataSource.Id,
+            McpStatementPurposes.DryRun,
+            sql,
+            () => provider.ValidateQueryAsync(dataSource, sql, ct),
+            x => (null, x.IsValid || x.Skipped ? null : McpContentRedactor.ClassValidation));
     }
 }

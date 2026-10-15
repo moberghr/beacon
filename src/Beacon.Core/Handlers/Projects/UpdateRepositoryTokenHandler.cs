@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Projects;
 
@@ -12,6 +13,7 @@ internal sealed class UpdateRepositoryTokenHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<UpdateRepositoryTokenHandler> logger)
     : IRequestHandler<UpdateRepositoryTokenCommand>
 {
@@ -29,6 +31,14 @@ internal sealed class UpdateRepositoryTokenHandler(
             ? encryptionService.Encrypt(request.AccessToken!)
             : null;
 
+        // Whether a token is set now, never the token.
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.RepositoryTokenChanged)
+                .On(SecurityAuditResources.Repository, repo.Id)
+                .InProject(repo.ProjectId)
+                .With(new SecurityAuditDetails().Add("tokenSet", isSet)),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);

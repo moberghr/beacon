@@ -112,6 +112,7 @@ public class AdHocQueryErrorRedactionTests
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
             runner,
+            new RecordingSecurityAudit(),
             log.For<DataSourceService>(),
             settings.Object);
     }

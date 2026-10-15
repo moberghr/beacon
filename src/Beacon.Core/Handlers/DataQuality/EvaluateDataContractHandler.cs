@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.DataQuality.EvaluateDataContract;
 
@@ -12,13 +13,19 @@ internal sealed class EvaluateDataContractHandler(
     IDataQualityEvaluationService evaluationService,
     IDbContextFactory<BeaconContext> contextFactory,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<EvaluateDataContractHandler> logger) : IRequestHandler<EvaluateDataContractCommand, DataQualityEvaluationData>
 {
     public async Task<DataQualityEvaluationData> Handle(EvaluateDataContractCommand request, CancellationToken cancellationToken)
     {
         await EnsureOwnerOrAdminAsync(request.DataContractId, cancellationToken);
 
-        return await evaluationService.EvaluateContractAsync(request.DataContractId, cancellationToken);
+        var evaluation = await evaluationService.EvaluateContractAsync(request.DataContractId, cancellationToken);
+
+        // A manual evaluation runs the contract's rules on its data source now: on record, by counts only.
+        await securityAudit.RecordAsync(DataContractAuditEntries.Evaluated(evaluation), cancellationToken);
+
+        return evaluation;
     }
 
     private async Task EnsureOwnerOrAdminAsync(int contractId, CancellationToken cancellationToken)

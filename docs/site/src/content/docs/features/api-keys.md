@@ -123,6 +123,15 @@ A key works only while its owner can sign in:
 - **A role removed from the owner** takes effect on their keys at the next request: a key is capped by its owner's current global role, and keeps `Execute` only while the owner may still write (see [Scopes](#scopes)).
 - **An owner who no longer signs in** (opt-in): with `Beacon:ApiKeys:MaxOwnerInactivityDays` set, a key stops working once its owner has not signed in to Beacon with their own identity (a password, a single sign-on, or an identity-provider token on MCP or the REST API, never an API key) for that many days (counted from the account's creation for an owner who never signed in). This covers an owner removed at the identity provider but never disabled in Beacon. The caller gets `401` with *"This API key is inactive: its owner has not signed in to Beacon for N days. The key works again after the owner signs in."*, the refusal is logged with the key id (`owner_inactive`), and the key is listed as inactive. Nothing is revoked: the key works again after the owner signs in. Off by default (`0`). Every sign-in with the owner's own identity counts, including an MCP client or agent that calls `/beacon/mcp` or the REST API with the owner's delegated Entra token, so an agent acting for the owner keeps their keys active as well. Offboard at the identity provider (no new tokens) and disable the Beacon user to end the keys, sessions and delegated access together. An account used only through its API keys (a service account) never signs in: with the rule on, its keys stop working that many days after its last sign-in, or its creation, unless it signs in now and then.
 
+### Recorded in the security audit
+
+Creating a key (`keys.api_key_created`: its owner, scopes, projects and expiry, never the key or its hash), revoking
+your own (`keys.api_key_revoked`) and revoking someone else's (`keys.api_key_revoked_by_administrator`) are recorded in
+the [security audit trail](/features/security-audit/), as are the keys revoked when their owner is disabled, re-enabled
+or archived (counted on the user's event). Every other event recorded while a request used a key names the key
+(`ApiKeyId`) and its owner (`ActorUserId`), with the actor kind `api_key`. An Auditor reads them on the **Security Audit**
+page.
+
 ### Expiration
 
 Every new key expires: after 90 days when no date is given (or after `MaxLifetimeDays`, if that is lower), and never later than `Beacon:ApiKeys:MaxLifetimeDays` days after creation (365 by default; see [Configuration → API Keys](/getting-started/configuration/#api-keys)). A date that is not in the future, or beyond the maximum, is refused with `400`.

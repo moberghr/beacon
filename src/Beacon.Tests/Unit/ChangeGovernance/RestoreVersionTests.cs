@@ -48,8 +48,12 @@ public class RestoreVersionTests
         var old = store.AddVersion(1, QueryVersionStatus.Archived, "SELECT 0");
         var active = store.Activate(store.AddVersion(2, QueryVersionStatus.Active));
 
-        var restored = await TestQueryServices.VersionService(store.Factory()).RestoreVersionAsync(old.Id, "ext-ada", CancellationToken.None);
+        var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 14, 9, 0, 0, TimeSpan.Zero));
 
+        var restored = await TestQueryServices.VersionService(store.Factory(), timeProvider: time).RestoreVersionAsync(old.Id, "ext-ada", CancellationToken.None);
+
+        store.Query.ModifiedByUserId.Should().Be("ext-ada", "the restoring caller made the live query's last change");
+        store.Query.ModifiedTime.Should().Be(time.GetUtcNow().UtcDateTime);
         restored.Should().BeEquivalentTo(new
         {
             Status = QueryVersionStatus.Active,

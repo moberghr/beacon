@@ -4,7 +4,7 @@ using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
-public class Query : ArchivableBaseEntity, IMultiStepWorkflow
+public class Query : ArchivableBaseEntity, IMultiStepWorkflow, IAttributedEntity
 {
     public string Name { get; set; } = null!;
 
@@ -69,6 +69,15 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     /// while it has none, only its owner and Admins reach it. Null for queries created before owners were recorded.
     /// </summary>
     public string? OwnerUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? CreatedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public string? ModifiedByUserId { get; set; }
+
+    /// <inheritdoc />
+    public DateTime? ModifiedTime { get; set; }
 
     public List<Subscription> Subscriptions { get; set; } = new();
 

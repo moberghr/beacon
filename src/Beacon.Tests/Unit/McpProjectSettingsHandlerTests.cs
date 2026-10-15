@@ -332,7 +332,7 @@ public class McpProjectSettingsHandlerTests
 
     private UpdateMcpProjectSettingsHandler CreateUpdateHandler(McpDeploymentOptions? options = null, IBeaconPermissionAccessor? permissions = null)
     {
-        return new UpdateMcpProjectSettingsHandler(CreateFactory(), _provider.Object, Options.Create(options ?? new McpDeploymentOptions()), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), NullLogger<UpdateMcpProjectSettingsHandler>.Instance);
+        return new UpdateMcpProjectSettingsHandler(CreateFactory(), _provider.Object, Options.Create(options ?? new McpDeploymentOptions()), permissions ?? TestPermissions.Admin, TestProjectAccess.Actors(), new RecordingSecurityAudit(), NullLogger<UpdateMcpProjectSettingsHandler>.Instance);
     }
 
     private IDbContextFactory<BeaconContext> CreateFactory()

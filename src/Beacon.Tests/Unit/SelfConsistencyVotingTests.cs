@@ -12,6 +12,7 @@ using Beacon.Core.Models.Ai;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -354,6 +355,31 @@ public class SelfConsistencyVotingTests
             It.IsAny<McpSettingsData>(), It.IsAny<int>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // Each candidate a vote executes is a statement of its own on the call's audit row; the winner then runs as the answer.
+    [Test]
+    public async Task EveryCandidateExecution_IsTaggedCandidate_AndTheWinnersRunInitial()
+    {
+        var log = new McpStatementLog();
+        var purposes = new List<string?>();
+        _settings.SelfConsistencyCandidateCount = 2;
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(WinnerSql, TwoTables));
+        _sqlGeneration
+            .Setup(x => x.GenerateCandidatesAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                _settings, It.IsAny<int>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SqlGenerationResult> { new(WinnerSql, TwoTables) });
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, WinnerSql, 100, It.IsAny<CancellationToken>()))
+            .Callback(() => purposes.Add(log.CurrentPurpose))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n| n |\n| --- |\n| 1 |", null, 1, true));
+
+        await CreatePipeline(log).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        purposes.Should().Equal(McpStatementPurposes.Candidate, McpStatementPurposes.Candidate, McpStatementPurposes.Initial);
+    }
+
     [Test]
     public async Task MultiTableCandidate_RequestsExactlyNMinusOneExtraCandidates()
     {
@@ -645,7 +671,7 @@ public class SelfConsistencyVotingTests
         outcome.Text.Should().NotContain("Semantic warnings");
     }
 
-    private AskSqlPipeline CreatePipeline()
+    private AskSqlPipeline CreatePipeline(IMcpStatementLog? statementLog = null)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
@@ -653,6 +679,7 @@ public class SelfConsistencyVotingTests
             TestSqlGate.Create(_guardrail.Object),
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
+            statementLog ?? new McpStatementLog(),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

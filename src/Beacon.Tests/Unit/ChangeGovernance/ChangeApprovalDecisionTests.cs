@@ -358,6 +358,7 @@ public class ChangeApprovalDecisionTests
             store.Protector,
             TestChangeApprovals.Hasher,
             configuration ?? TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance,
             notifier);
 }

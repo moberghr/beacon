@@ -22,6 +22,7 @@ using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit.Metadata;
 
@@ -46,6 +47,46 @@ public class MetadataRefreshTests
 
         await again.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage("*less than 15 minutes ago*");
         metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AForcedRefresh_IsRecorded_WithWhetherItSkippedTheCooldown_AndARefusedOneIsNot()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(4, "ext-dsa"));
+        var metadata = new Mock<IDatabaseMetadataService>();
+        var handler = RefreshHandler(metadata, cooldownMinutes: 15, audit: audit);
+
+        await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+        var again = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+        await again.Should().ThrowAsync<BeaconRateLimitedException>();
+
+        var refreshed = audit.Single("ext-dsa");
+        refreshed.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.MetadataRefreshed, ActorUserId = (int?)4, ResourceType = SecurityAuditResources.DataSource, ResourceId = "7" },
+            x => x.ExcludingMissingMembers());
+        refreshed.DetailsJson.Should().Be("{\"forced\":true,\"cooldownExempt\":false}");
+        audit.Ways.Should().Equal("recorded");
+
+        var exempt = new RecordingSecurityAudit();
+        await RefreshHandler(new Mock<IDatabaseMetadataService>(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin), audit: exempt)
+            .Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+        exempt.Single().DetailsJson.Should().Be("{\"forced\":true,\"cooldownExempt\":true}");
+    }
+
+    [Test]
+    public async Task AFailedForcedRefresh_IsNotRecorded()
+    {
+        var audit = new RecordingSecurityAudit();
+        var metadata = new Mock<IDatabaseMetadataService>();
+        var handler = RefreshHandler(metadata, audit: audit);
+        metadata
+            .Setup(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("scan failed"));
+
+        var act = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        audit.Events.Should().BeEmpty();
     }
 
     [Test]
@@ -402,7 +443,8 @@ public class MetadataRefreshTests
         RefreshSettings? settings = null,
         MemoryCache? cache = null,
         TimeProvider? time = null,
-        IBeaconPermissionAccessor? permissions = null)
+        IBeaconPermissionAccessor? permissions = null,
+        ISecurityAuditRecorder? audit = null)
     {
         metadata
             .Setup(x => x.RefreshMetadataAsync(It.IsAny<int>(), true, It.IsAny<CancellationToken>()))
@@ -415,6 +457,7 @@ public class MetadataRefreshTests
             settings ?? new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = cooldownMinutes } },
             permissions ?? TestPermissions.None,
             new MetadataSampleView(permissions ?? TestPermissions.None, Mock.Of<ISharedSourceSettings>(), new QueryGuardrailService()),
+            audit ?? new RecordingSecurityAudit(),
             NullLogger<RefreshDataSourceMetadataHandler>.Instance);
     }
 
@@ -534,6 +577,7 @@ public class MetadataRefreshTests
                 Cache,
                 Graph.Object,
                 TestQueryServices.Runner(),
+                new RecordingSecurityAudit(),
                 NullLogger<DataSourceService>.Instance);
         }
 

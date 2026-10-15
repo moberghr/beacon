@@ -232,7 +232,7 @@ export Beacon__PreviousEncryptionKeys__0="<the key configured until now>"
 
 `IStoredValueReEncryptionService` re-encrypts every stored value only a previous key decrypts (conditional writes, so a concurrent save wins). The sample host enqueues it as `ReEncryptStoredValuesJob` at every start while a previous key is listed; a host with its own jobs does the same. Startup also logs how many values remain under a previous key, how many no key decrypts, and how many recipient approval hashes cannot be recomputed. Remove the previous keys once none remain.
 
-Before changing the key, set `Beacon:Mcp:CallerHashKey` to the key in use now, so MCP audit rows keep grouping together across the change.
+Before changing the key, set `Beacon:Mcp:CallerHashKey` to the key in use now, so MCP audit rows keep grouping together across the change. The MCP audit's content hashes (`ContentHash`, `SqlHash`) come from the same secret and behave the same way. **Set `Beacon:Audit:IntegrityKey` before you change the key** too, so security audit events written from then on do not depend on it; events signed before keep verifying while their secret stays configured (see [Security audit trail](#security-audit-trail)).
 
 ## Data Protection (the keys behind the session cookie)
 
@@ -491,6 +491,32 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 
 The `Covers…` switches apply only while `Enabled` is on. Turning a switch, or the workflow, off releases what it held; startup warns with the counts. Startup also logs how changes are governed (a Warning outside Development while the workflow is off).
 
+## Security audit trail
+
+Beacon records sign-ins and changes to identities, keys, access, data sources, delivery, settings, approvals, ownership, tasks, curation, data quality and migrations in an append-only, signed trail an Auditor reads (see [Security audit trail](/features/security-audit/)). It needs no configuration; these settings tune it:
+
+```json
+{
+  "Beacon": {
+    "Audit": {
+      "IntegrityKey": "<from a secret store>",
+      "PreviousIntegrityKeys": [],
+      "RetentionDays": null
+    }
+  }
+}
+```
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `Beacon:Audit:IntegrityKey` | string | derived | The secret events are signed with: at least 32 characters, supplied like the encryption key (a secret store, or `Beacon__Audit__IntegrityKey`), never committed. Unset, Beacon derives a key for this purpose from `Beacon:Mcp:CallerHashKey`, else from `Beacon:EncryptionKey`. Set it before you change the encryption key |
+| `Beacon:Audit:PreviousIntegrityKeys` | string[] | empty | Integrity keys used earlier, as a list (`Beacon__Audit__PreviousIntegrityKeys__0`, ...): accepted when verifying events, never used to sign. Move the old key here when you set a new one |
+| `Beacon:Audit:RetentionDays` | int | none (keep forever) | Days events are kept: between `365` and `36500`. The purge must be scheduled; the sample host runs it daily as the Warp job `security-audit-retention` (see [Retention](/features/security-audit/#retention)) |
+
+An integrity key shorter than 32 characters or containing `${`, or a retention outside the range, stops the host at startup with a message that never contains a key. At startup the host logs the id of the key events are sealed under and where it comes from (never the key), with a Warning while `IntegrityKey` is unset.
+
+Two jobs keep the trail checked and bounded; neither runs unless the host schedules it. The sample host schedules both as Warp recurring jobs: `security-audit-verify` (hourly at `:15`), which verifies the events written since its last run and writes a checkpoint to the `Beacon.Audit` log stream, and `security-audit-retention` (daily), the purge. A host embedding Beacon schedules `ISecurityAuditVerificationService.VerifyNewEventsAsync` and `ISecurityAuditRetentionService.PurgeExpiredAsync` itself (see [Scheduled verification](/features/security-audit/#scheduled-verification)). Alert on the counters `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero.
+
 ## AI / LLM
 
 Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`. Optional; not validated. AI features also need `options.UseAI = true`.
@@ -583,12 +609,13 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 | `Beacon:Mcp:ForceReadOnly` | **`true`** | MCP read-only enforcement on, globally and per project; the SQL gate judges every statement read-only whatever it is asked. `false` logs a startup Warning |
 | `Beacon:Mcp:ForcePiiDetection` | **`true`** | PII detection on. `false` logs a startup Warning |
 | `Beacon:Mcp:ForceNoContentRetention` | `false` | Content retention off: questions, SQL and free-text errors are never persisted |
+| `Beacon:Mcp:Audit:RequireContent` | `false` | Content retention on, globally and per project, so the MCP audit keeps the question and the SQL of every statement a call ran. Cannot be combined with `ForceNoContentRetention`: with both on the host fails to start. See [Keeping audit content](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock) |
 | `Beacon:Mcp:ForbidRowDataToLlm` | `false` | Sample-value collection, value grounding and the eval judge off: no value read from a data source goes to the LLM provider |
 | `Beacon:Mcp:Ceilings:*` | none | Cap the MCP row limit and the SQL and question lengths; the other ceilings clamp recorded settings (see [MCP](#mcp-beaconmcp)) |
 | `Beacon:Mcp:Audit:Required` | `false` | Withhold an MCP tool result whose audit row could not be written |
 | `Beacon:Migrations:Enabled` | `false` | Data migration, the only write path |
 
-A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them. Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
+A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
 Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/features/admin-settings/).
 
@@ -605,7 +632,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
       "ForceNoContentRetention": false,
       "ForbidRowDataToLlm": false,
       "Ceilings": { "MaxRowLimit": 1000, "MaxSqlChars": 100000, "MaxQuestionChars": 4000 },
-      "Audit": { "Required": true, "RetentionDays": 400, "RequestIdHeader": "X-Request-Id" }
+      "Audit": { "Required": true, "RetentionDays": 400, "RequestIdHeader": "X-Request-Id", "RequireContent": false }
     }
   }
 }
@@ -622,6 +649,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `Audit:Required` | bool | `false` | Fail closed: withhold a tool result whose audit row could not be written |
 | `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; greater than 0 when set. The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
 | `Audit:RequestIdHeader` | string | `X-Request-Id` | Upstream correlation header stored with each audit row; empty reads none |
+| `Audit:RequireContent` | bool | `false` | See [Deployment locks](#deployment-locks) |
 | `CallerHashKey` | string | derived from `Beacon:EncryptionKey` | See [Encryption key](#encryption-key-configuration-required) |
 
 The MCP settings page's own built-in defaults (row limit 1000, PII detection on, content retention on, sample values and value grounding off) are runtime settings, not configuration. See [MCP server](/features/mcp-server/) and [MCP observability and audit](/features/mcp-observability-and-audit/).

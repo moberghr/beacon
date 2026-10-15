@@ -28,6 +28,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit.HostData;
 
@@ -320,7 +321,7 @@ public class HostOutputMaskingPathTests
             NullLogger<McpAuditService>.Instance,
             new McpAuditOutcome(),
             Options.Create(new BeaconTelemetryOptions()),
-            NullLoggerFactory.Instance);
+            NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var signalService = new McpSignalService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             settingsProvider.Object,

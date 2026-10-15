@@ -6,13 +6,19 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
+/// <summary>
+/// Archives an empty query folder, or one whose queries move to its parent: each moved query records the move as its last
+/// change, by the caller.
+/// </summary>
 internal sealed class DeleteQueryFolderHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IBeaconActorAccessor actorAccessor,
+    TimeProvider timeProvider,
     ILogger<DeleteQueryFolderHandler> logger)
     : IRequestHandler<DeleteQueryFolderCommand, Unit>
 {
@@ -47,9 +53,11 @@ internal sealed class DeleteQueryFolderHandler(
             if (request.MoveQueriesToParent)
             {
                 // Move queries to parent folder (or root if no parent)
+                var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
                 foreach (var query in folder.Queries)
                 {
                     query.FolderId = folder.ParentFolderId;
+                    query.RecordChangeBy(actor, timeProvider);
                 }
             }
             else

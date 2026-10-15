@@ -44,6 +44,7 @@ then the [Quick start](/getting-started/quick-start/).
 | [Approvals](/features/approvals/) | The opt-in four-eyes review of query changes, migration jobs, Custom SQL rules and recipient destinations. |
 | [User management](/features/user-management/) | Users, roles, password and SSO sign-in, and the first-run setup. |
 | [API keys](/features/api-keys/) | Read and Execute keys bound to their owner, with project lists and a mandatory expiry, stored hashed. |
+| [Security audit trail](/features/security-audit/) | An append-only, signed record of sign-ins and of changes to identities, keys, access, data sources, delivery, settings, approvals and curation, read and verified by an Auditor and copied to the `Beacon.Audit` log stream. |
 | [Admin settings](/features/admin-settings/) | Runtime settings: the LLM provider, the base URL, and their change history. |
 
 For configuration keys see [Configuration](/getting-started/configuration/); to embed Beacon in your own application

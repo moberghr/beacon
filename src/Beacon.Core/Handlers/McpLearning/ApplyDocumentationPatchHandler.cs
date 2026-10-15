@@ -3,10 +3,11 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
-internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
     : IRequestHandler<ApplyDocumentationPatchCommand>
 {
     public async Task Handle(ApplyDocumentationPatchCommand request, CancellationToken cancellationToken)
@@ -38,6 +39,7 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
         patch.AppliedByUserId = request.AppliedByUserId;
         patch.AppliedAt = DateTime.UtcNow;
 
+        await securityAudit.StageAsync(context, DocumentationPatchAudit.Decided(SecurityAuditActions.DocumentationPatchApplied, patch), cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 

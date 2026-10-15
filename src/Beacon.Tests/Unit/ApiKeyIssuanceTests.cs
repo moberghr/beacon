@@ -557,6 +557,8 @@ public class ApiKeyIssuanceTests
             factory.Object,
             Options.Create(new ApiKeyOptions { MaxLifetimeDays = maxLifetimeDays }),
             new FakeTimeProvider(Now),
+            new RecordingSecurityAudit(),
+            TestProjectAccess.Actors(),
             NullLogger<ApiKeyService>.Instance);
 
         return (service, added);

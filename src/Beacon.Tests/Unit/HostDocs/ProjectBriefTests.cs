@@ -18,6 +18,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit.HostDocs;
 
@@ -228,7 +229,7 @@ public class ProjectBriefTests
     private static (GetContextTool Tool, Mock<IProjectBriefService> Brief, Mock<IDbContextFactory<BeaconContext>> AuditFactory) BuildTool()
     {
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
-        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+        var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var briefService = new Mock<IProjectBriefService>();
         var tool = new GetContextTool(
             new Mock<IKnowledgeGraphService>().Object,

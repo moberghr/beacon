@@ -6,6 +6,9 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Recipients;
 using Beacon.Core.Notifications;
+using Beacon.Core.SecurityAudit;
+using Beacon.Core.Authorization;
+using Beacon.Core.Handlers.Recipients;
 
 namespace Beacon.Core.Services;
 
@@ -32,7 +35,10 @@ public interface IRecipientService
 internal class RecipientService(
     IDbContextFactory<BeaconContext> contextFactory,
     RecipientSecretEditor secretEditor,
-    RecipientChangeApproval changeApproval) : IRecipientService
+    RecipientChangeApproval changeApproval,
+    IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider) : IRecipientService
 {
     public async Task<BaseResponse> CreateRecipient(RecipientData recipientData, CancellationToken cancellationToken)
     {
@@ -52,6 +58,7 @@ internal class RecipientService(
         }
 
         var requester = await changeApproval.RequesterAsync(null, cancellationToken);
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -63,13 +70,18 @@ internal class RecipientService(
             NotificationType = recipientData.NotificationType,
             HeadersJson = headersJson,
             BodyTemplate = recipientData.BodyTemplate,
-            ApprovedDestinationHash = RecipientChangeApproval.ApprovedHashOfNew(requester)
+            ApprovedDestinationHash = RecipientChangeApproval.ApprovedHashOfNew(requester),
+            CreatedByUserId = actor.UserId
         };
 
         if (requester == null)
         {
-            context.Recipients.Add(NewRecipient());
-            await context.SaveChangesAsync(cancellationToken);
+            var recipient = NewRecipient();
+            context.Recipients.Add(recipient);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [RecipientAuditEntries.Created(recipient.Id, recipient.NotificationType, null)],
+                cancellationToken);
         }
         else
         {
@@ -84,8 +96,11 @@ internal class RecipientService(
                 context.Recipients.Add(recipient);
                 await context.SaveChangesAsync(cancellationToken);
 
-                await changeApproval.SubmitNewAsync(context, requester, recipient, cancellationToken);
-                await context.SaveChangesAsync(cancellationToken);
+                var submission = await changeApproval.SubmitNewAsync(context, requester, recipient, cancellationToken);
+                await securityAudit.SaveWithEventsAsync(
+                    context,
+                    () => RecipientAuditEntries.With(RecipientAuditEntries.Created(recipient.Id, recipient.NotificationType, submission), submission),
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
             });
         }
@@ -125,6 +140,8 @@ internal class RecipientService(
         }
 
         recipient.Entity.Archive();
+        recipient.Entity.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.StageAsync(context, RecipientAuditEntries.Deleted(recipientId), cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 
@@ -243,6 +260,11 @@ internal class RecipientService(
             return (new BaseResponse { Success = false, Message = ex.Message }, null);
         }
 
+        var delivery = secretEditor.DeliveryChangeOf(recipientData.NotificationType, recipientData.Destination, recipientData.HeadersJson, stored);
+        var fields = new RecipientFieldChanges(
+            !string.Equals(recipient.Name, recipientData.Name, StringComparison.Ordinal),
+            !string.Equals(recipient.Description, recipientData.Description, StringComparison.Ordinal),
+            !string.Equals(recipient.BodyTemplate, recipientData.BodyTemplate, StringComparison.Ordinal));
         recipient.Name = recipientData.Name;
         recipient.NotificationType = recipientData.NotificationType;
         recipient.Destination = destination;
@@ -251,7 +273,20 @@ internal class RecipientService(
         recipient.BodyTemplate = recipientData.BodyTemplate;
 
         var submission = await changeApproval.SubmitUpdateAsync(context, requester, recipient, stored, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+        if (!delivery.Changed && !fields.Any)
+        {
+            await context.SaveChangesAsync(cancellationToken);
+
+            return (null, submission);
+        }
+
+        recipient.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => RecipientAuditEntries.With(
+                RecipientAuditEntries.Updated(recipient.Id, recipient.NotificationType, delivery, fields, submission),
+                submission),
+            cancellationToken);
 
         return (null, submission);
     }

@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Users;
 
@@ -12,7 +13,8 @@ internal sealed class SetUserRolesHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     UserAdministrationRules rules,
     IBeaconActorAccessor actorAccessor,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ISecurityAuditRecorder securityAudit)
     : IRequestHandler<SetUserRolesCommand>
 {
     public async Task Handle(SetUserRolesCommand request, CancellationToken cancellationToken)
@@ -88,6 +90,14 @@ internal sealed class SetUserRolesHandler(
             });
         }
 
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.RolesChanged)
+                .On(SecurityAuditResources.User, request.UserId)
+                .With(new SecurityAuditDetails()
+                    .Add("addedRoleIds", added)
+                    .Add("removedRoleIds", removed)),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         await rules.LogRolesChangedAsync(request.UserId, added, removed, cancellationToken);

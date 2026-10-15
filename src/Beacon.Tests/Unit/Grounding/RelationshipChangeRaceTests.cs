@@ -227,7 +227,7 @@ public class RelationshipChangeRaceTests
             store.Graph.Object,
             TestProjectAccess.Evaluator(scope),
             TestPermissions.None,
-            TestProjectAccess.Actors(beaconUserId: beaconUserId));
+            TestProjectAccess.Actors(beaconUserId: beaconUserId), new RecordingSecurityAudit());
     }
 
     private static DeleteSchemaRelationshipHandler DeleteHandler(Store store, ProjectAccessScope scope)
@@ -238,6 +238,7 @@ public class RelationshipChangeRaceTests
             TestProjectAccess.Evaluator(scope),
             TestPermissions.None,
             TestProjectAccess.Actors(beaconUserId: EditorUserId),
+            new RecordingSecurityAudit(),
             NullLogger<DeleteSchemaRelationshipHandler>.Instance);
     }
 
@@ -247,6 +248,7 @@ public class RelationshipChangeRaceTests
             store.Factory,
             store.Graph.Object,
             TestProjectAccess.Actors(beaconUserId: CuratorUserId),
+            new RecordingSecurityAudit(),
             NullLogger<VerifySchemaRelationshipHandler>.Instance);
     }
 

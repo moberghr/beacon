@@ -18,6 +18,7 @@ using Beacon.Core.Helpers.BulkHelpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
@@ -50,7 +51,10 @@ internal partial class MigrationService(
     MigrationBulkContextFactory bulkContextFactory,
     ILogger<MigrationService> logger,
     IOptions<MigrationOptions> migrationOptions,
-    ChangeApprovalSubmitter changeApprovals) : IMigrationService
+    ChangeApprovalSubmitter changeApprovals,
+    IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider timeProvider) : IMigrationService
 {
     /// <summary>Why a run of a job whose definition is not approved is refused (the failed run's message).</summary>
     internal const string NotApprovedMessage =
@@ -68,6 +72,7 @@ internal partial class MigrationService(
         // Before anything is validated or written: under the workflow the caller is the job's requester, and a caller
         // Beacon cannot name creates nothing (403).
         var requester = await changeApprovals.RequesterAsync(ChangeApprovalKind.MigrationJob, null, cancellationToken);
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
         try
         {
@@ -97,7 +102,8 @@ internal partial class MigrationService(
                 TransformationScript = request.TransformationScript,
                 ChangedBy = userContext.UserId ?? userContext.UserName ?? "system",
                 ChangedOn = DateTime.UtcNow,
-                ApprovedDefinitionHash = requester == null ? null : ChangeApprovalHashes.NothingApproved
+                ApprovedDefinitionHash = requester == null ? null : ChangeApprovalHashes.NothingApproved,
+                CreatedByUserId = actor.UserId
             };
 
             var migrationJob = requester == null
@@ -151,7 +157,7 @@ internal partial class MigrationService(
             {
                 logger.LogWarning("Migration job {MigrationJobId} was not run: its definition is not approved", migrationJob.Id);
 
-                return await RecordRefusedRunAsync(context, migrationJob, request, NotApprovedMessage, cancellationToken);
+                return await RecordRefusedRunAsync(context, migrationJob, request, NotApprovedMessage, "not_approved", cancellationToken);
             }
 
             // Writes only into a write target, from sources that are not one; a refused run never starts, and is recorded as a
@@ -161,7 +167,7 @@ internal partial class MigrationService(
             {
                 logger.LogWarning("Migration job {MigrationJobId} was not run: its destination is not a migration write target, or a source it reads is one", migrationJob.Id);
 
-                return await RecordRefusedRunAsync(context, migrationJob, request, targetRefusal, cancellationToken);
+                return await RecordRefusedRunAsync(context, migrationJob, request, targetRefusal, "write_target_refused", cancellationToken);
             }
 
             // Create execution record
@@ -174,8 +180,10 @@ internal partial class MigrationService(
                 QueryParameters = request.Parameters != null ? System.Text.Json.JsonSerializer.Serialize(request.Parameters) : null
             };
 
+            // The run is on record before it touches a data source: started (by the caller, or the system for a scheduled
+            // run) in the save that creates its history row, and ended in the save that completes it.
             context.MigrationExecutions.Add(execution);
-            await context.SaveChangesAsync(cancellationToken);
+            await securityAudit.SaveWithEventsAsync(context, () => [JobStarted(migrationJob, execution.Id, request)], cancellationToken);
 
             try
             {
@@ -191,6 +199,7 @@ internal partial class MigrationService(
                 execution.RowsFailed = migrationResult.RowsFailed;
                 execution.ErrorMessage = migrationResult.ErrorMessage;
 
+                await securityAudit.StageAsync(context, JobRunEnded(migrationJob, execution, null), cancellationToken);
                 await context.SaveChangesAsync(cancellationToken);
 
                 logger.LogInformation("Completed migration job {Name} execution {ExecutionId} with status {Status}",
@@ -213,6 +222,7 @@ internal partial class MigrationService(
                 execution.CompletedAt = DateTime.UtcNow;
                 execution.Status = MigrationStatus.Failed;
                 execution.ErrorMessage = GetFullExceptionMessage(ex);
+                await securityAudit.StageAsync(context, JobRunEnded(migrationJob, execution, null), cancellationToken);
                 await context.SaveChangesAsync(cancellationToken);
 
                 logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex));
@@ -398,8 +408,15 @@ internal partial class MigrationService(
             else
             {
                 migrationJob.Archive();
+                migrationJob.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
             }
 
+            await securityAudit.StageAsync(
+                context,
+                new SecurityAuditEntry(SecurityAuditActions.MigrationJobDeleted)
+                    .On(SecurityAuditResources.MigrationJob, id)
+                    .With(new SecurityAuditDetails().Add("forceDelete", forceDelete)),
+                cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
 
             logger.LogInformation("Deleted migration job {Id} (ForceDelete: {ForceDelete})", id, forceDelete);
@@ -413,11 +430,11 @@ internal partial class MigrationService(
         }
     }
 
-    private static async Task<MigrationJob> CreateAsync(BeaconContext context, Func<MigrationJob> newJob, CancellationToken cancellationToken)
+    private async Task<MigrationJob> CreateAsync(BeaconContext context, Func<MigrationJob> newJob, CancellationToken cancellationToken)
     {
         var migrationJob = newJob();
         context.MigrationJobs.Add(migrationJob);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(context, () => [JobCreated(migrationJob, null)], cancellationToken);
 
         return migrationJob;
     }
@@ -453,20 +470,70 @@ internal partial class MigrationService(
                 definition.View(),
                 Previous: null,
                 "Migration job created");
-            await changeApprovals.SubmitAsync(context, requester, proposal, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
+            var submission = await changeApprovals.SubmitAsync(context, requester, proposal, cancellationToken);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => new[] { JobCreated(migrationJob, submission) }.Concat(ChangeApprovalAuditEntries.Submitted(submission)),
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
             return migrationJob;
         });
     }
 
+    // The job's ids, mode and whether it is enabled, and the change request it waits on: never its query or destination table.
+    private static SecurityAuditEntry JobCreated(MigrationJob migrationJob, ChangeSubmission? submission)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.MigrationJobCreated)
+            .On(SecurityAuditResources.MigrationJob, migrationJob.Id)
+            .With(new SecurityAuditDetails()
+                .Add("sourceDataSourceId", migrationJob.DataSourceId)
+                .Add("destinationDataSourceId", migrationJob.DestinationDataSourceId)
+                .Add("mode", migrationJob.Mode)
+                .Add("isEnabled", migrationJob.IsEnabled)
+                .Add("changeApprovalId", submission?.Request?.Id));
+    }
+
+    // A run of the job begins: by whom it was started is the event's actor; manual or scheduled.
+    private static SecurityAuditEntry JobStarted(MigrationJob migrationJob, int executionId, ExecuteMigrationJobRequest request)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.MigrationJobStarted)
+            .On(SecurityAuditResources.MigrationJob, migrationJob.Id)
+            .With(new SecurityAuditDetails()
+                .Add("executionId", executionId)
+                .Add("manual", request.IsManualExecution)
+                .Add("sourceDataSourceId", migrationJob.DataSourceId)
+                .Add("destinationDataSourceId", migrationJob.DestinationDataSourceId));
+    }
+
+    // How a run ended: completed, failed (with its counts) or refused before it started (with a reason code).
+    private static SecurityAuditEntry JobRunEnded(MigrationJob migrationJob, MigrationExecutionHistory execution, string? refusalCode)
+    {
+        var outcome = refusalCode != null
+            ? SecurityAuditOutcomes.Refused
+            : execution.Status == MigrationStatus.Completed
+                ? SecurityAuditOutcomes.Success
+                : SecurityAuditOutcomes.Failure;
+
+        return new SecurityAuditEntry(SecurityAuditActions.MigrationJobRunEnded)
+            .On(SecurityAuditResources.MigrationJob, migrationJob.Id)
+            .Ending(outcome)
+            .With(new SecurityAuditDetails()
+                .Add("executionId", execution.Id)
+                .Add("status", execution.Status)
+                .Add("sourceRowsRead", execution.SourceRowsRead)
+                .Add("destinationRowsWritten", execution.DestinationRowsWritten)
+                .Add("rowsFailed", execution.RowsFailed)
+                .AddCode("reason", refusalCode));
+    }
+
     // A run refused before it started, recorded as a failed run so the job's history shows why it copied nothing.
-    private static async Task<ExecuteMigrationJobResponse> RecordRefusedRunAsync(
+    private async Task<ExecuteMigrationJobResponse> RecordRefusedRunAsync(
         BeaconContext context,
         MigrationJob migrationJob,
         ExecuteMigrationJobRequest request,
         string reason,
+        string reasonCode,
         CancellationToken cancellationToken)
     {
         var refusedAt = DateTime.UtcNow;
@@ -481,7 +548,7 @@ internal partial class MigrationService(
             ErrorMessage = reason
         };
         context.MigrationExecutions.Add(refused);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(context, () => [JobRunEnded(migrationJob, refused, reasonCode)], cancellationToken);
 
         return new ExecuteMigrationJobResponse(refused.Id, MigrationStatus.Failed, ErrorMessage: reason);
     }

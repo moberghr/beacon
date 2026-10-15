@@ -9,6 +9,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Authorization;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpSettings;
 
@@ -18,6 +19,7 @@ internal sealed class UpdateMcpSettingsHandler(
     IOptions<McpDeploymentOptions> deploymentOptions,
     IBeaconPermissionAccessor permissionAccessor,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<UpdateMcpSettingsHandler> logger)
     : IRequestHandler<UpdateMcpSettingsCommand>
 {
@@ -159,7 +161,10 @@ internal sealed class UpdateMcpSettingsHandler(
             context.AppSettingHistory.Add(change);
         }
 
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () => SettingsAuditEntries.Changed(SecurityAuditActions.McpSettingsChanged, null, changes),
+            cancellationToken);
         settingsProvider.InvalidateCache();
         McpSettingsChangeAudit.Log(logger, changes, actor.LogId, null);
     }

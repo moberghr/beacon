@@ -35,8 +35,10 @@ Admin, a contract that does not exist is refused (`403`) like one that is not th
 An Admin or a UserAdmin gives a contract a new owner with **Change owner** on its page
 (`PUT /beacon/api/data-quality/contracts/{id}/owner` with `{ "userId": <user id> }`). The new owner must be an existing,
 enabled user who may run saved SQL in a project that links the contract's data source; otherwise the request is refused
-(`409`) with a message saying so, because every scheduled evaluation would be skipped. Contract lists and details name the
-owner by display name, or as "User {id}" (`hasOwner`, `ownerDisplayName`), never by user name or external id.
+(`409`) with a message saying so, because every scheduled evaluation would be skipped. If someone else changed the owner,
+or archived the contract, since it was read, nothing is changed and the call answers `409`; choosing the owner the
+contract already has changes nothing. Contract lists and details name the owner by display name, or as "User {id}"
+(`hasOwner`, `ownerDisplayName`), never by user name or external id.
 
 A contract belongs to the projects that link its data source. It is listed, evaluated and changed only through such a
 project the caller may use (see [Security model](/features/security-model/)); in a restricted project an Editor deletes

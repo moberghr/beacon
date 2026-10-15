@@ -150,6 +150,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<McpAuditLog> McpAuditLogs => Set<McpAuditLog>();
 
+    public DbSet<McpAuditStatement> McpAuditStatements => Set<McpAuditStatement>();
+
     public DbSet<McpSettings> McpSettings => Set<McpSettings>();
     public DbSet<McpProjectSettings> McpProjectSettings => Set<McpProjectSettings>();
 
@@ -165,6 +167,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<McpEvalCase> McpEvalCases => Set<McpEvalCase>();
     public DbSet<McpEvalRun> McpEvalRuns => Set<McpEvalRun>();
     public DbSet<McpEvalResult> McpEvalResults => Set<McpEvalResult>();
+
+    // Security audit trail (append-only)
+    public DbSet<SecurityAuditEvent> SecurityAuditEvents => Set<SecurityAuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -202,6 +207,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureMcpDocChunkEntities(modelBuilder);
         ConfigureMcpGlossaryEntities(modelBuilder);
         ConfigureMcpEvalEntities(modelBuilder);
+        ConfigureSecurityAuditEntities(modelBuilder);
+        ConfigureAttributionColumns(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
 
@@ -1483,6 +1490,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.SpanId).HasMaxLength(16);
             entity.Property(e => e.McpSessionId).HasMaxLength(128);
             entity.Property(e => e.UpstreamRequestId).HasMaxLength(128);
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             entity.HasOne(e => e.Session)
                 .WithMany()
@@ -1498,6 +1506,24 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.CreatedTime);
             entity.HasIndex(e => e.Tool);
+        });
+
+        // One row per statement an audited call ran on a data source, deleted with its audit row (so the audit purge
+        // covers it). No key to the data source or the project: the audit outlives both.
+        modelBuilder.Entity<McpAuditStatement>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Purpose).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.SqlHash).HasMaxLength(64);
+            entity.Property(e => e.TablesJson).HasMaxLength(4000);
+            entity.Property(e => e.ErrorClass).HasMaxLength(64);
+
+            entity.HasOne(e => e.AuditLog)
+                .WithMany(e => e.Statements)
+                .HasForeignKey(e => e.McpAuditLogId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.McpAuditLogId);
         });
 
         modelBuilder.Entity<McpSettings>(entity =>
@@ -1639,6 +1665,48 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => new { e.ProjectId, e.IsActive });
         });
+    }
+
+    // The security audit trail: append-only rows (the interceptor refuses updates and deletes), no foreign keys (an event
+    // outlives the user, key or project it names). Read by time, by actor and by resource.
+    protected static void ConfigureSecurityAuditEntities(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SecurityAuditEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Category).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.Action).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Outcome).HasMaxLength(16).IsRequired();
+            entity.Property(e => e.ActorKind).HasMaxLength(16).IsRequired();
+            entity.Property(e => e.CallerHash).HasMaxLength(64);
+            entity.Property(e => e.ResourceType).HasMaxLength(32);
+            entity.Property(e => e.ResourceId).HasMaxLength(64);
+            entity.Property(e => e.DetailsJson).HasMaxLength(4000);
+            entity.Property(e => e.TraceId).HasMaxLength(32);
+            entity.Property(e => e.KeyId).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.Hmac).HasMaxLength(64).IsRequired();
+
+            entity.HasIndex(e => e.EventGuid).IsUnique();
+            entity.HasIndex(e => e.CreatedTime);
+            entity.HasIndex(e => new { e.ActorUserId, e.CreatedTime });
+            entity.HasIndex(e => new { e.ResourceType, e.ResourceId });
+        });
+    }
+
+    // Who created and who last changed an attributed resource: Users.ExternalId values, as long as an owner id.
+    protected static void ConfigureAttributionColumns(ModelBuilder modelBuilder)
+    {
+        var attributedEntities = typeof(IAttributedEntity).Assembly.GetTypes()
+            .Where(x => typeof(IAttributedEntity).IsAssignableFrom(x))
+            .Where(x => x.IsClass)
+            .Where(x => !x.IsAbstract);
+
+        foreach (var attributedEntity in attributedEntities)
+        {
+            var entity = modelBuilder.Entity(attributedEntity);
+            entity.Property(nameof(IAttributedEntity.CreatedByUserId)).HasMaxLength(200);
+            entity.Property(nameof(IAttributedEntity.ModifiedByUserId)).HasMaxLength(200);
+        }
     }
 
     protected static void ConfigureMcpEvalEntities(ModelBuilder modelBuilder)

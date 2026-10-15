@@ -14,6 +14,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit.HostDocs;
 
@@ -200,7 +201,7 @@ public class ImportedDocumentToolTests
     }
 
     private McpAuditService AuditService() =>
-        new(_auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+        new(_auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
     private static McpProjectContext ProjectContext() =>
         new() { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };

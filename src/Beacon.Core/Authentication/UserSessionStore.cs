@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Authentication;
 
@@ -48,7 +49,7 @@ internal static class SecurityStamps
     }
 }
 
-internal sealed class UserSessionStore(IDbContextFactory<BeaconContext> contextFactory) : IUserSessionStore
+internal sealed class UserSessionStore(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit) : IUserSessionStore
 {
     public async Task<SessionUser?> FindAsync(string externalId, CancellationToken cancellationToken)
     {
@@ -76,10 +77,17 @@ internal sealed class UserSessionStore(IDbContextFactory<BeaconContext> contextF
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var stamp = SecurityStamps.New();
 
-        var changed = await context.Users
-            .IgnoreQueryFilters()
-            .Where(x => x.Id == userId)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.SecurityStamp, stamp), cancellationToken);
+        // The new stamp and the event commit together; the event names the user, the caller is its actor.
+        var changed = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.Users
+                .IgnoreQueryFilters()
+                .Where(x => x.Id == userId)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.SecurityStamp, stamp), cancellationToken),
+            rows => rows > 0
+                ? [new SecurityAuditEntry(SecurityAuditActions.SignedOutEverywhere).On(SecurityAuditResources.User, userId)]
+                : [],
+            cancellationToken);
 
         return changed > 0;
     }

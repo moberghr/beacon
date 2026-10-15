@@ -17,6 +17,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.Authorization;
@@ -66,10 +67,12 @@ public class UserAdministrationRulesTests
     private List<BeaconUserRole> _userRoles = null!;
     private List<object> _saved = null!;
     private LogRecorder _logs = null!;
+    private RecordingSecurityAudit _audit = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _audit = new RecordingSecurityAudit(new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = CallerId, IsActiveUser = true });
         _roles =
         [
             Role(AdminRole, RoleService.RoleNames.Admin, RoleService.RoleLevels.Admin),
@@ -216,12 +219,22 @@ public class UserAdministrationRulesTests
     public async Task EachAddedRole_RecordsWhoAssignedItAndWhen()
     {
         var at = new DateTimeOffset(2026, 10, 12, 9, 30, 0, TimeSpan.Zero);
-        var handler = new SetUserRolesHandler(Factory(), Rules(Admin(), false), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(at));
+        var handler = new SetUserRolesHandler(Factory(), Rules(Admin(), false), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(at), _audit);
 
         await handler.Handle(new SetUserRolesCommand(BenId, [ViewerRole, EditorRole, ApproverRole]), CancellationToken.None);
 
         _saved.OfType<BeaconUserRole>().Should().HaveCount(2)
             .And.OnlyContain(x => x.UserId == BenId && x.AssignedByUserId == "ext-ana" && x.AssignedAt == at.UtcDateTime);
+        _audit.Single("ext-ana").Should().BeEquivalentTo(
+            new
+            {
+                Action = SecurityAuditActions.RolesChanged,
+                ActorUserId = (int?)CallerId,
+                ResourceId = BenId.ToString(),
+                DetailsJson = $"{{\"addedRoleIds\":[{EditorRole},{ApproverRole}],\"removedRoleIds\":[]}}"
+            },
+            x => x.ExcludingMissingMembers());
+        _audit.Ways.Should().Equal("staged");
     }
 
     [Test]
@@ -235,6 +248,9 @@ public class UserAdministrationRulesTests
         var entry = _logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("Every session of user", StringComparison.Ordinal)).Subject;
         entry.Message.Should().Be($"Every session of user {BenId} signed out, by user {CallerId}");
         _users.Where(x => x.Id != BenId).Should().OnlyContain(x => x.SecurityStamp == null, "only that user's sessions end");
+        _audit.Single("ext-ana").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.SignedOutEverywhere, ActorUserId = (int?)CallerId, ResourceId = BenId.ToString() },
+            x => x.ExcludingMissingMembers());
     }
 
     [TestCase(AdminUserId)]
@@ -313,7 +329,8 @@ public class UserAdministrationRulesTests
             Factory(),
             Rules(Admin(), false, withoutUserId),
             withoutUserId,
-            new FakeTimeProvider(DateTimeOffset.UtcNow));
+            new FakeTimeProvider(DateTimeOffset.UtcNow),
+            _audit);
 
         await handler.Handle(new SetUserRolesCommand(BenId, [ViewerRole, EditorRole]), CancellationToken.None);
 
@@ -552,7 +569,7 @@ public class UserAdministrationRulesTests
 
     private Task SetRoles(IBeaconPermissionAccessor permissions, int userId, int[] roleIds, bool separationOfDuties)
     {
-        var handler = new SetUserRolesHandler(Factory(), Rules(permissions, separationOfDuties), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var handler = new SetUserRolesHandler(Factory(), Rules(permissions, separationOfDuties), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(DateTimeOffset.UtcNow), _audit);
 
         return handler.Handle(new SetUserRolesCommand(userId, roleIds), CancellationToken.None);
     }
@@ -563,7 +580,7 @@ public class UserAdministrationRulesTests
         configuration.UserManagement.Enabled = userManagement;
         var handler = new SignUserOutEverywhereHandler(
             Rules(permissions, false),
-            new UserSessionStore(Factory()),
+            new UserSessionStore(Factory(), _audit),
             actors ?? TestProjectAccess.Actors(CallerId, "ext-ana"),
             configuration,
             _logs.For<SignUserOutEverywhereHandler>());

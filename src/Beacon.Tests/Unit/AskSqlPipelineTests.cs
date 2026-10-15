@@ -11,6 +11,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -63,6 +64,36 @@ public class AskSqlPipelineTests
         _executor
             .Setup(x => x.DryRunAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
+    }
+
+    // The executor records each statement on the call's audit row under the purpose the pipeline names: the first execution
+    // of the generated SQL, then its repair.
+    [Test]
+    public async Task RunAsync_TagsTheFirstExecutionInitial_AndItsRepairRepair()
+    {
+        var log = new McpStatementLog();
+        var purposes = new List<(string Sql, string? Purpose)>();
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["sales"]));
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .Callback(() => purposes.Add((GeneratedSql, log.CurrentPurpose)))
+            .ReturnsAsync(new AskExecutionResult(null, "column \"amount\" does not exist", 0, false));
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(RepairedSql);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, RepairedSql, 100, It.IsAny<CancellationToken>()))
+            .Callback(() => purposes.Add((RepairedSql, log.CurrentPurpose)))
+            .ReturnsAsync(new AskExecutionResult("### Results (12 rows)\n", null, 12, true));
+
+        await CreatePipeline(statementLog: log).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        purposes.Should().Equal((GeneratedSql, McpStatementPurposes.Initial), (RepairedSql, McpStatementPurposes.Repair));
+        log.CurrentPurpose.Should().BeNull("each purpose ends with its execution");
     }
 
     [Test]
@@ -401,7 +432,7 @@ public class AskSqlPipelineTests
         gate.Dialects.Should().NotBeEmpty().And.OnlyContain(x => x == dialect);
     }
 
-    private AskSqlPipeline CreatePipeline(Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null, ISqlExecutionGate? gate = null)
+    private AskSqlPipeline CreatePipeline(Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null, ISqlExecutionGate? gate = null, IMcpStatementLog? statementLog = null)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
@@ -409,6 +440,7 @@ public class AskSqlPipelineTests
             gate ?? TestSqlGate.Create(_guardrail.Object, hostGuard),
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
+            statementLog ?? new McpStatementLog(),
             NullLogger<AskSqlPipeline>.Instance);
     }
 }

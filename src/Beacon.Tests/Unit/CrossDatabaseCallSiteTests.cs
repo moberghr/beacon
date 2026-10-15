@@ -43,6 +43,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using ProviderValidationResult = Beacon.Core.Models.Providers.QueryValidationResult;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -259,7 +260,7 @@ public class CrossDatabaseCallSiteTests
             queryExecution.Object,
             SettingsProviderMock.Unshared(settings.Object),
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(store.Factory(), settings.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance),
+            new McpAuditService(store.Factory(), settings.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(store.Factory(), settings.Object, NullLogger<McpSignalService>.Instance),
             NullLogger<DryRunTool>.Instance);
 
@@ -352,7 +353,7 @@ public class CrossDatabaseCallSiteTests
         executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AskExecutionResult("### Results (1 row)\n", null, 1, true, [new Dictionary<string, object?> { ["id"] = 1 }]));
-        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), NullLogger<AskSqlPipeline>.Instance);
+        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), new McpStatementLog(), NullLogger<AskSqlPipeline>.Instance);
 
         Generates(generation, Foreign);
         var foreign = await pipeline.RunAsync(Mock.Of<ILlmProvider>(), DataSourceId, ProjectId, "orders?", new McpSettingsData(), executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
@@ -514,6 +515,7 @@ public class CrossDatabaseCallSiteTests
             generation.Object,
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
+            new McpStatementLog(),
             NullLoggerFactory.Instance,
             NullLogger<CrossSourceQueryService>.Instance);
     }

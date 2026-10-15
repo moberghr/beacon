@@ -355,7 +355,7 @@ public class RecipientApprovalTests
     {
         var store = new ChangeApprovalStore();
         var selfApproval = TestChangeApprovals.On(allowSelfApproval: true);
-        var create = new CreateRecipientHandler(store.Factory(), Editor(store), TestChangeApprovals.Recipients(store.Protector, selfApproval, TestChangeApprovals.Caller(null)));
+        var create = new CreateRecipientHandler(store.Factory(), Editor(store), TestChangeApprovals.Recipients(store.Protector, selfApproval, TestChangeApprovals.Caller(null)), TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
         var created = await create.Handle(Create(Destination), CancellationToken.None);
         store.Commit();
@@ -502,7 +502,7 @@ public class RecipientApprovalTests
     private static RecipientSecretEditor Editor(ChangeApprovalStore store) => new(NotificationTestKit.Policy(), store.Protector);
 
     private static CreateRecipientHandler CreateHandler(ChangeApprovalStore store, BeaconConfiguration configuration) =>
-        new(store.Factory(), Editor(store), TestChangeApprovals.Recipients(store.Protector, configuration, TestChangeApprovals.Caller(Ada)));
+        new(store.Factory(), Editor(store), TestChangeApprovals.Recipients(store.Protector, configuration, TestChangeApprovals.Caller(Ada)), TestProjectAccess.Actors(), new RecordingSecurityAudit());
 
     private static UpdateRecipientHandler UpdateHandler(
         ChangeApprovalStore store,
@@ -516,6 +516,7 @@ public class RecipientApprovalTests
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
             TestChangeApprovals.Recipients(store.Protector, configuration, caller ?? TestChangeApprovals.Caller(Ada), notifier),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateRecipientHandler>.Instance);
 
     private static UpdateRecipientHandler ReplacedKeyUpdateHandler(ChangeApprovalStore store, IBeaconActorAccessor caller, IApprovalNotifier? notifier = null) =>
@@ -526,6 +527,7 @@ public class RecipientApprovalTests
             TestProjectAccess.Actors(),
             TestPermissions.Admin,
             new RecipientChangeApproval(TestChangeApprovals.Submitter(TestChangeApprovals.On(), caller, notifier), store.Protector, ReplacedKeyHasher),
+            new RecordingSecurityAudit(), TimeProvider.System,
             NullLogger<UpdateRecipientHandler>.Instance);
 
     private static RecipientDeliveryApproval Deliveries(ChangeApprovalStore store) =>
@@ -539,6 +541,7 @@ public class RecipientApprovalTests
             store.Protector,
             TestChangeApprovals.Hasher,
             configuration ?? TestChangeApprovals.On(),
+            new RecordingSecurityAudit(),
             NullLogger<ChangeApprovalService>.Instance);
 
     private static RecipientDestinationView View(string json) =>

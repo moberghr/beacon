@@ -25,7 +25,8 @@ into whatever it already uses (OTLP to an ADOT collector, Phoenix, or another ba
       "Audit": {
         "Required": false,               // fail closed: withhold a result whose audit row could not be written
         "RetentionDays": null,           // null = keep forever (default); > 0 = purge older rows daily
-        "RequestIdHeader": "X-Request-Id" // upstream correlation header; null/empty = read none
+        "RequestIdHeader": "X-Request-Id", // upstream correlation header; null/empty = read none
+        "RequireContent": false          // pin content retention on, so audit content cannot be switched off at runtime
       }
     },
     "Telemetry": {
@@ -40,6 +41,7 @@ into whatever it already uses (OTLP to an ADOT collector, Phoenix, or another ba
 | `Beacon:Mcp:Audit:Required` | `false` | When `true`, a tool result whose audit row failed to write is replaced with an error instead of being returned. |
 | `Beacon:Mcp:Audit:RetentionDays` | `null` | Days audit rows are kept. `null` keeps them forever. Must be `> 0` when set; `0` or a negative value fails options validation at startup. |
 | `Beacon:Mcp:Audit:RequestIdHeader` | `X-Request-Id` | The upstream header read into `UpstreamRequestId`. Must be a valid HTTP header token, or startup fails. Set to `null`/empty to read none. |
+| `Beacon:Mcp:Audit:RequireContent` | `false` | When `true`, pins `RetainQueryContent` on globally and for every project, so nobody, an Admin included, can switch the audit's question and SQL text off at runtime. See [Keeping audit content](#keeping-audit-content-the-requirecontent-lock). |
 | `Beacon:Telemetry:CaptureContent` | `false` | Puts the tool input on the current span as `beacon.tool.input`, only where the project's own content retention also allows content (double opt-in, never from this setting alone). |
 
 ## What's on an audit row
@@ -54,6 +56,49 @@ project's retention decision) parameters/error:
 | `UpstreamRequestId` | The header named by `Beacon:Mcp:Audit:RequestIdHeader`, accepted only when it is at most 128 characters of `[A-Za-z0-9._:-]`; anything else is dropped, which blocks log injection. |
 | `ApiKeyId` | The `api_key_id` claim of an API-key caller. No foreign key: the audit must outlive a deleted key. |
 | `CallerKind` / `CallerHash` | Set for a mapped [Entra ID caller](/features/mcp-entra-callers/); `null` for API keys and cookie sessions. |
+| `ContentHash` | A keyed hash of the call's parameters as received, written **whether or not** the parameters themselves are kept, so calls with the same input can be matched (and a disclosed input checked against the trail) without keeping it. See [Keyed hashes](#keyed-hashes). |
+| `DataSourceId`, `ResultRowCount` | For `ask`: the data source and final row count of a single-source answer; `null` for a cross-source answer, whose sources and row counts are on its statements. |
+
+### The statements a call ran
+
+Each audit row also has one `McpAuditStatement` child row per statement the call sent to a data source, in the order
+they ran, on the success and the failure path alike, whatever the learning settings. The executors that reach a data
+source record them (the query execution service, the cross-source service and the value-grounding probes), and the
+pipeline that runs them names why:
+
+| Purpose | Statement |
+|---|---|
+| `initial` | The first execution of the SQL an `ask` generated. |
+| `repair` | An execution of a repaired statement, after an execution error or an empty result. |
+| `candidate` | A self-consistency candidate executed to vote on its result. |
+| `probe` | A value-grounding probe for a literal of the question. |
+| `dry_run` | A validation on the data source without running the statement (`EXPLAIN` and the like), by `dry_run` or before a cross-source step. |
+| `source_step` | One data source's statement of a cross-source answer (the in-memory join that combines them reaches no data source and is not a statement). |
+| `query` | A statement the `query` tool ran as asked, or one run outside any named purpose. |
+
+A statement row holds its data source, its purpose, `SqlHash` (a keyed hash of the statement text, **always** kept),
+`Sql` (the text: **content**, kept only while the call's project retains query content; the content-retention
+interceptor strips it otherwise), the tables it names, its row count, its duration and the class of the error it ended
+with (never the message; an empty error message counts as no error). Statement rows are deleted with their audit row, so
+the retention purge covers them.
+
+A row never reads as the whole of what a call ran when it is not:
+
+- **At most 100 statements a call.** Further ones are counted, not stored: the call's statements then end with a marker
+  row of purpose `truncated` (no data source and no text) whose `RowCount` is the number of statements not stored, and a
+  Warning names the tool and the count.
+- **Table lists.** A statement's table list holds as many names as fit its column; when not all fit, its last entry is
+  `[+n more]`. A statement whose tables could not be read from its text has the list `["[unparsed]"]`: unknown, not
+  empty. The tables a call's structural parameters name (kept when its content is not) leave these markers out.
+
+### Keyed hashes
+
+`ContentHash` and `SqlHash` are lowercase hex HMAC-SHA256 values under a key derived, for this purpose only (HMAC of a
+fixed label), from the secret the MCP caller hashes come from: `Beacon:Mcp:CallerHashKey`, else `Beacon:EncryptionKey`.
+An absent input has a hash of its own, apart from the empty text's.
+The secret itself is never the key, and nobody without it can test guesses against the stored hashes. The hashes stay
+comparable across an encryption-key change while `Beacon:Mcp:CallerHashKey` is set (see
+[Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 
 ## The `Beacon.Audit` log event catalogue
 
@@ -251,12 +296,40 @@ The Playground and the "run tool" REST path (`POST /beacon/api/mcp/tools/run`, `
 (`McpAuditCallToolFilter.ShouldWithhold`) against their own request scope: with `Required = true` they return the same
 withheld error, and log the same 9101 event, under the same conditions.
 
+## Keeping audit content: the RequireContent lock
+
+Whether the audit keeps question and SQL text follows each project's content retention (`RetainQueryContent`, see
+[Content retention](/features/mcp-server/#content-retention)), which an Admin or SecurityAdmin can switch off on the MCP
+Settings page. A deployment that must keep that evidence sets `Beacon:Mcp:Audit:RequireContent: true`: it pins
+`RetainQueryContent` on, globally and for every project, like the other
+[deployment locks](/getting-started/configuration/#deployment-locks).
+
+- A save that would switch content retention off, globally or as a project override, is refused with `409`
+  (`/errors/setting-locked`, naming `Audit:RequireContent`), an Admin's too. The MCP Settings page shows the switch
+  disabled with the reason, and `GET /beacon/api/mcp/settings/locks` lists the lock in `locks`
+  (`{ "fieldName": "RetainQueryContent", "lockName": "Audit:RequireContent" }`).
+- A stored value it overrides (retention switched off before the lock) is kept, has no effect, and is named in the
+  startup warning about overridden settings.
+- `RequireContent` and `Beacon:Mcp:ForceNoContentRetention` pin the same setting in opposite directions: with both on,
+  the host fails to start.
+
+With the lock on, every audited call keeps its question and the SQL of every statement it ran until the audit retention
+purges them. Plan the privacy review for that, and set `Beacon:Mcp:Audit:RetentionDays` accordingly. When a project's
+retention setting cannot be read while the lock is on, the call keeps its content (logged at Error); without the lock it
+is audited structurally, as before.
+
+The audit rows and their statements are **evidence, not sealed records**: they carry keyed hashes of their content
+(`ContentHash`, `SqlHash`) but no signature over the row, so an edit made at the database is not detected the way the
+[security audit trail](/features/security-audit/#what-the-trail-does-and-does-not-prove) detects one. Ship the
+`Beacon.Audit` events to a store you control for a copy the database cannot change.
+
 ## Retention
 
 Audit rows are kept forever by default. Set `Beacon:Mcp:Audit:RetentionDays` to a positive number to purge rows
 older than that window. The purge itself is `IMcpAuditRetentionService.PurgeExpiredAsync`
 (`src/Beacon.Core/Services/Retention/McpAuditRetentionService.cs`), a no-op while `RetentionDays` is `null`,
-otherwise one `ExecuteDeleteAsync` plus a `Beacon.Audit` 9102 event with the deleted count and cutoff.
+otherwise one `ExecuteDeleteAsync` plus a `Beacon.Audit` 9102 event with the deleted count and cutoff. A row's statements
+are deleted with it.
 
 The sample host schedules it as the Warp recurring job `mcp-audit-retention` (`30 3 * * *`,
 `PurgeExpiredMcpAuditLogsJob` / `PurgeExpiredMcpAuditLogsJobHandler` in
@@ -275,8 +348,10 @@ or by calling `IMcpAuditRetentionService.PurgeExpiredAsync(cancellationToken)` f
 [Auditor permission](/features/authorization/#functional-permissions)). Rows come back exactly as stored; any retention
 redaction was already applied at write time, so this endpoint never re-reads or reconstructs content. The rows are not
 filtered by project membership: an Auditor reads every project's tool calls, including the SQL and question text the
-retention settings keep, though the Auditor role grants no other project data. Reading the audit is itself audited
-(9103, above).
+retention settings keep, though the Auditor role grants no other project data. Reading the audit is itself audited:
+each read is recorded first in the [security audit trail](/features/security-audit/) (`audit.mcp_audit_read`, with the
+filters' shape and the page; an identical read by the same actor within 60 seconds once), and fails when that record
+cannot be written; 9103 (above) follows on the log stream.
 
 | Query parameter | Required | Notes |
 |---|---|---|
@@ -285,5 +360,11 @@ retention settings keep, though the Auditor role grants no other project data. R
 | `page` | No (default `1`) | Must be `≥ 1`. |
 | `pageSize` | No (default `100`) | Must be between `1` and `500`. |
 
+Each row carries its `contentHash` and its `statements` (`id`, `purpose`, `dataSourceId`, `rowCount`, `durationMs`,
+`errorClass`, `sqlHash`, and `sql`, which is `null` unless the call's project retained query content), in the order they
+ran.
+
 Any other caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI page for this endpoint;
 the generated TypeScript client exposes it as `getMcpAuditLogs`. It is an operational export, not a product surface.
+Security-relevant actions other than tool calls (sign-ins, users, keys, settings and the rest) are in the separate
+[security audit trail](/features/security-audit/).

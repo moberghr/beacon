@@ -21,6 +21,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit;
 
@@ -121,6 +122,45 @@ public class MigrationServiceWriteTargetTests
 
         connection.Should().BeSameAs(_destination);
         encryption.Verify(x => x.Decrypt(It.IsAny<string>()), Times.Once);
+    }
+
+    [Test]
+    public async Task ARun_IsRecordedAsStarted_BeforeItTouchesADataSource_AndAsEnded_WithItsCounts()
+    {
+        Job(ReadSource, WriteTarget);
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+
+        var result = await Service(audit: audit).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        audit.Events.Select(x => x.Action).Should().Equal(SecurityAuditActions.MigrationJobStarted, SecurityAuditActions.MigrationJobRunEnded);
+        audit.Ways.Should().Equal("saved", "staged");
+        var started = audit.Of(SecurityAuditActions.MigrationJobStarted).Single();
+        started.ActorUserId.Should().Be(3);
+        started.DetailsJson.Should().Contain($"\"sourceDataSourceId\":{ReadSource}").And.Contain($"\"destinationDataSourceId\":{WriteTarget}");
+        var ended = audit.Of(SecurityAuditActions.MigrationJobRunEnded).Single();
+        ended.Outcome.Should().Be(SecurityAuditOutcomes.Success);
+        ended.DetailsJson.Should().Contain("\"status\":\"Completed\"");
+        foreach (var auditEvent in audit.Events)
+        {
+            SecurityAuditTestKit.AssertNoPii(auditEvent, "Host=unused");
+        }
+    }
+
+    [Test]
+    public async Task ARefusedRun_IsRecordedAsRefused_WithItsReasonCode_NeverTheReasonsText()
+    {
+        Job(ReadSource, OrdinarySource);
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+
+        await Service(audit: audit).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        var refused = audit.Single("migration write target");
+        refused.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.MigrationJobRunEnded, Outcome = SecurityAuditOutcomes.Refused },
+            x => x.ExcludingMissingMembers());
+        refused.DetailsJson.Should().Contain("\"reason\":\"write_target_refused\"");
+        audit.Of(SecurityAuditActions.MigrationJobStarted).Should().BeEmpty("a refused run never starts");
     }
 
     [Test]
@@ -270,7 +310,11 @@ public class MigrationServiceWriteTargetTests
         _destination.ExecutedCommands.Should().BeEmpty();
     }
 
-    private MigrationService Service(bool enabled = true, int maxRows = MigrationOptions.DefaultMaxRows, Mock<IEncryptionService>? encryption = null)
+    private MigrationService Service(
+        bool enabled = true,
+        int maxRows = MigrationOptions.DefaultMaxRows,
+        Mock<IEncryptionService>? encryption = null,
+        ISecurityAuditRecorder? audit = null)
     {
         if (encryption == null)
         {
@@ -287,7 +331,7 @@ public class MigrationServiceWriteTargetTests
             new MigrationBulkContextFactory([]),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = enabled, MaxRows = maxRows }),
-            TestChangeApprovals.Submitter());
+            TestChangeApprovals.Submitter(), TestProjectAccess.Actors(), audit ?? new RecordingSecurityAudit(), TimeProvider.System);
     }
 
     private void Job(int source, int destination, string? queryText = null)

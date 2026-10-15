@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
@@ -11,9 +12,10 @@ namespace Beacon.Core.Handlers.McpGlossary;
 /// Creates an admin-managed business glossary term for a project (optionally scoped to a data source).
 /// The term is embedded on the next glossary re-index (the Warp doc-chunk/glossary job) and its definition
 /// is injected into the smart context when it is near a masked question (Tier-3 ⑪). Throws (§9.8) when the
-/// term or definition is blank — a blank term produces a useless embedding.
+/// term or definition is blank — a blank term produces a useless embedding. The creation is recorded in the security audit
+/// (ids only, never the term's text) in the same unit of work.
 /// </summary>
-internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
     : IRequestHandler<CreateGlossaryTermCommand, CreateGlossaryTermResult>
 {
     public async Task<CreateGlossaryTermResult> Handle(CreateGlossaryTermCommand request, CancellationToken cancellationToken)
@@ -47,7 +49,16 @@ internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext>
         };
 
         context.McpGlossaryTerms.Add(term);
-        await context.SaveChangesAsync(cancellationToken);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.GlossaryTermCreated)
+                    .On(SecurityAuditResources.GlossaryTerm, term.Id)
+                    .InProject(term.ProjectId)
+                    .With(new SecurityAuditDetails().Add("dataSourceId", term.DataSourceId))
+            ],
+            cancellationToken);
 
         return new CreateGlossaryTermResult(term.Id);
     }

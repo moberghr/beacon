@@ -54,6 +54,15 @@ public class BeaconAuthenticationService : IBeaconAuthenticationService
 
         if (!result.Success || result.User == null)
         {
+            if (result.PasswordChangeRequired)
+            {
+                await SignInAudit.PasswordChangeRequiredAsync(httpContext, result);
+            }
+            else
+            {
+                await SignInAudit.PasswordFailedAsync(httpContext, result, username);
+            }
+
             return result;
         }
 
@@ -69,6 +78,7 @@ public class BeaconAuthenticationService : IBeaconAuthenticationService
                 logger?.LogInformation(
                     ProjectAccessEvents.PasswordSignInRefused,
                     "Password sign-in refused: local login is off and the account is not a break-glass account");
+                await SignInAudit.PasswordRefusedAsync(httpContext, result);
 
                 return AuthenticationResult.Failed(InvalidCredentials);
             }
@@ -100,10 +110,15 @@ public class BeaconAuthenticationService : IBeaconAuthenticationService
             authProperties);
 
         // The user was disabled or archived, or their security stamp changed, between the password check and the sign-in:
-        // the cookie carries no session.
-        return BeaconSessionEvents.WasSignInRefused(httpContext)
-            ? AuthenticationResult.Failed(InvalidCredentials)
-            : result;
+        // the cookie carries no session (the session events recorded why).
+        if (BeaconSessionEvents.WasSignInRefused(httpContext))
+        {
+            return AuthenticationResult.Failed(InvalidCredentials);
+        }
+
+        await SignInAudit.SignedInAsync(httpContext, result, breakGlass: !localLogin.Enabled);
+
+        return result;
     }
 
     public async Task SignOutAsync(CancellationToken cancellationToken = default)
@@ -113,6 +128,8 @@ public class BeaconAuthenticationService : IBeaconAuthenticationService
         {
             return;
         }
+
+        await SignInAudit.SignedOutAsync(httpContext);
 
         // Call the provider's sign out (for any cleanup)
         await _authenticationProvider.SignOutAsync(cancellationToken);

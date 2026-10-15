@@ -1,8 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
+import { OwnedResourceKind } from '@/lib/enums';
+import type { PagedList } from '@/lib/paging';
 
 export interface UserRoleEntry {
   id: number;
@@ -58,6 +60,23 @@ export interface UpdateUserPayload {
   displayName: string | null;
   isEnabled: boolean;
 }
+
+/** A resource a user owns, created or changed last (times as ISO strings). */
+export interface OwnedResource {
+  id: number;
+  kind: OwnedResourceKind;
+  name: string;
+  /** Its owner: scheduled runs act with the owner's access. Recipients and migration jobs have no owner. */
+  isOwner: boolean;
+  isCreator: boolean;
+  isLastModifier: boolean;
+  /** True for a resource in a project the caller cannot read: listed by id and kind, its name empty. */
+  nameWithheld: boolean;
+  createdTime: string;
+  modifiedTime: string | null;
+}
+
+export const OWNED_RESOURCES_PAGE_SIZE = 10;
 
 const USERS_ALL_KEY = ['users'] as const;
 const ROLES_KEY = ['users', 'roles'] as const;
@@ -158,4 +177,20 @@ export function useSignUserOutEverywhere() {
       errorFallback: 'Signing the user out failed',
     }),
   );
+}
+
+/**
+ * One page of the live resources of `kind` the user owns, created or changed last (oldest first), for an Auditor or a
+ * UserAdmin; read only while `enabled`.
+ */
+export function useOwnedResources(userId: number, kind: OwnedResourceKind, page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...USERS_ALL_KEY, userId, 'owned-resources', kind, page],
+    queryFn: async () =>
+      unwrap<PagedList<OwnedResource>>(
+        await beaconApi().getUserOwnedResources(userId, kind, page, OWNED_RESOURCES_PAGE_SIZE, undefined),
+      ),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
 }

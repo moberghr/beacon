@@ -6,6 +6,7 @@ using Beacon.Core.Services.Metadata;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.Metadata;
 
@@ -23,6 +24,7 @@ internal sealed class DeleteSchemaRelationshipHandler(
     IProjectAccessEvaluator projectAccess,
     IBeaconPermissionAccessor permissionAccessor,
     IBeaconActorAccessor actorAccessor,
+    ISecurityAuditRecorder securityAudit,
     ILogger<DeleteSchemaRelationshipHandler> logger)
     : IRequestHandler<DeleteSchemaRelationshipCommand>
 {
@@ -57,13 +59,26 @@ internal sealed class DeleteSchemaRelationshipHandler(
         // Soft delete (§2.14) — the global query filter takes it out of the graph, and re-running sync
         // will not resurrect a foreign-key edge a user deliberately removed.
         var archivedTime = DateTime.UtcNow;
-        var archived = await context.SchemaRelationships
-            .Where(x => x.Id == request.Id)
-            .Where(x => x.DataSourceId == request.DataSourceId)
-            .Where(x => x.Label == relationship.Label)
-            .Where(x => x.Cardinality == relationship.Cardinality)
-            .Where(x => x.IsVerified == relationship.IsVerified)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.ArchivedTime, archivedTime), cancellationToken);
+        var archived = await securityAudit.SaveWithEventsAsync(
+            context,
+            () => context.SchemaRelationships
+                .Where(x => x.Id == request.Id)
+                .Where(x => x.DataSourceId == request.DataSourceId)
+                .Where(x => x.Label == relationship.Label)
+                .Where(x => x.Cardinality == relationship.Cardinality)
+                .Where(x => x.IsVerified == relationship.IsVerified)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ArchivedTime, archivedTime), cancellationToken),
+            changed => changed == 0
+                ? []
+                :
+                [
+                    new SecurityAuditEntry(SecurityAuditActions.RelationshipDeleted)
+                        .On(SecurityAuditResources.SchemaRelationship, request.Id)
+                        .With(new SecurityAuditDetails()
+                            .Add("dataSourceId", request.DataSourceId)
+                            .Add("wasVerified", relationship.IsVerified))
+                ],
+            cancellationToken);
         if (archived == 0)
         {
             throw new BeaconConflictException(UpdateSchemaRelationshipHandler.ChangedSinceLoadedMessage);

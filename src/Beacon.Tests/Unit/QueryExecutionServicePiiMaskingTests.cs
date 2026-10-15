@@ -12,6 +12,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.MCP.Services;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -296,7 +297,7 @@ public class QueryExecutionServicePiiMaskingTests
             providerFactory.Object,
             new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
-            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] });
+            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog());
     }
 
     private sealed class SeededDataSourceContext : BeaconContext

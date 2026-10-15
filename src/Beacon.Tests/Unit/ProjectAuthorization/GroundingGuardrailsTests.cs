@@ -27,6 +27,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit.ProjectAuthorization;
 
@@ -369,6 +370,7 @@ public class GroundingGuardrailsTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             new QueryGuardrailService(),
+            new McpStatementLog(),
             NullLogger<ValueGroundingService>.Instance);
 
         return new KnowledgeGraphService(
@@ -388,7 +390,7 @@ public class GroundingGuardrailsTests
     private GetQueryContextTool QueryContextTool(SettingsWorld settings)
     {
         var knowledgeGraph = Service(settings);
-        var audit = new McpAuditService(_factory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance);
+        var audit = new McpAuditService(_factory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var caller = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [] };
 
         return new GetQueryContextTool(knowledgeGraph, _factory, caller, audit, TestRowDataEgress.Discarding(), NullLogger<GetQueryContextTool>.Instance);

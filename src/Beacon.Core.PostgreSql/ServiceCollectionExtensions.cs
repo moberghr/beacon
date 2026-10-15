@@ -111,7 +111,7 @@ public static class ServiceCollectionExtensions
             options.UseNpgsql(dataSourceFactory(sp),
                     o => o.MigrationsHistoryTable("__EFMigrationsHistory", schema))
                    .UseSnakeCaseNamingConvention()
-                   .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>())
+                   .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>())
                    .UseBeaconSchema(schema)
                    .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>()
                    .ReplaceService<IModelCacheKeyFactory, BeaconSchemaModelCacheKeyFactory>();

@@ -433,6 +433,85 @@ describe('McpSettingsPage', () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
+  describe('query content retention', () => {
+    const requireContent = http.get('*/beacon/api/mcp/settings/locks', () =>
+      HttpResponse.json({
+        lockedFields: ['RetainQueryContent'],
+        locks: [{ fieldName: 'RetainQueryContent', lockName: 'Audit:RequireContent' }],
+      }));
+
+    it('stays on and disabled while the deployment requires audit content, saying which lock and where it is unlocked', async () => {
+      let body: { data: Record<string, unknown> } | undefined;
+      mswServer.use(
+        requireContent,
+        http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+          body = (await request.json()) as typeof body;
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      await waitFor(() => expect(screen.getByLabelText(/Retain question and SQL text/)).toBeDisabled());
+      expect(screen.getByLabelText(/Retain question and SQL text/)).toBeChecked();
+      expect(screen.getByText(/Kept on by the deployment/)).toHaveTextContent(/Beacon:Mcp:Audit:RequireContent/);
+      expect(screen.getByText(/Kept on by the deployment/)).toHaveTextContent(/only the host's configuration can/);
+      expect(screen.getByLabelText('Statement timeout (s)')).toBeEnabled();
+      fireEvent.click(screen.getByText('Save settings'));
+
+      await waitFor(() => expect(body).toBeDefined());
+      expect(body!.data).toMatchObject({ retainQueryContent: true });
+    });
+
+    it('says the deployment keeps it off while content retention is forbidden', async () => {
+      mswServer.use(
+        http.get('*/beacon/api/mcp/settings', () => HttpResponse.json({ ...GLOBAL, retainQueryContent: false })),
+        http.get('*/beacon/api/mcp/settings/locks', () =>
+          HttpResponse.json({
+            lockedFields: ['RetainQueryContent'],
+            locks: [{ fieldName: 'RetainQueryContent', lockName: 'ForceNoContentRetention' }],
+          })),
+      );
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      await waitFor(() => expect(screen.getByLabelText(/Retain question and SQL text/)).toBeDisabled());
+      expect(screen.getByLabelText(/Retain question and SQL text/)).not.toBeChecked();
+      expect(screen.getByText(/Off by the deployment/)).toHaveTextContent(/Beacon:Mcp:ForceNoContentRetention/);
+      expect(screen.queryByText(/Kept on by the deployment/)).not.toBeInTheDocument();
+    });
+
+    it('shows no lock note while nothing pins it', async () => {
+      await renderPage();
+      fireEvent.click(screen.getByText('Guardrails'));
+
+      expect(screen.getByLabelText(/Retain question and SQL text/)).toBeEnabled();
+      expect(screen.queryByText(/Kept on by the deployment|Off by the deployment \(/)).not.toBeInTheDocument();
+    });
+
+    it('a project under the audit content lock shows no switch, and the banner names the lock', async () => {
+      mswServer.use(
+        requireContent,
+        http.get('*/beacon/api/mcp/projects/1/settings', () =>
+          HttpResponse.json({
+            projectId: 1,
+            overrides: {},
+            effective: GLOBAL,
+            lockedFields: ['RetainQueryContent'],
+            clampedFields: [],
+          }),
+        ),
+      );
+      await renderPage();
+      await switchToProjectOne();
+
+      expect(screen.queryByLabelText(/Override Retain question and SQL text/)).toBeNull();
+      expect(await screen.findByText(/pinned by Beacon:Mcp/)).toHaveTextContent(
+        /Beacon:Mcp:Audit:RequireContent keeps the question and SQL text of every call in the audit/,
+      );
+    });
+  });
+
   describe('read-only enforcement and PII detection', () => {
     const securityAdmin = permissionsHandler({ permissions: ['SecurityAdmin'] });
 

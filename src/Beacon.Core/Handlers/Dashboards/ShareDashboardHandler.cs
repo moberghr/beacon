@@ -4,14 +4,21 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.ShareDashboard;
 
+/// <summary>
+/// Grants a user a permission level on a dashboard, or changes the level they hold; for the dashboard's owner or an admin
+/// of it. The grant is recorded in the security audit (the grantee by <c>Users.Id</c>, the level before and after) in the
+/// same save.
+/// </summary>
 internal sealed class ShareDashboardHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IDashboardService dashboardService,
-    IBeaconUserContext userContext) : IRequestHandler<ShareDashboardCommand, Unit>
+    IBeaconUserContext userContext,
+    ISecurityAuditRecorder securityAudit) : IRequestHandler<ShareDashboardCommand, Unit>
 {
     public async Task<Unit> Handle(ShareDashboardCommand request, CancellationToken cancellationToken)
     {
@@ -44,6 +51,7 @@ internal sealed class ShareDashboardHandler(
             .Where(p => p.DashboardId == request.DashboardId && p.UserId == request.UserId)
             .FirstOrDefaultAsync(cancellationToken);
 
+        var previousLevel = existingPermission?.PermissionLevel;
         if (existingPermission != null)
         {
             // Update existing permission
@@ -65,6 +73,15 @@ internal sealed class ShareDashboardHandler(
             context.DashboardPermissions.Add(permission);
         }
 
+        await securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.DashboardShared)
+                .On(SecurityAuditResources.Dashboard, request.DashboardId)
+                .With(new SecurityAuditDetails()
+                    .Add("level", request.PermissionLevel)
+                    .AddCode("previousLevel", previousLevel?.ToString()))
+                .Naming("granteeUserId", request.UserId),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         return Unit.Value;

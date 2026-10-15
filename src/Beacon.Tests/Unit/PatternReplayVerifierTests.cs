@@ -20,6 +20,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
+using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
 
@@ -415,6 +416,7 @@ public class PatternReplayVerifierTests
             TestSqlGate.Create(guardrail.Object),
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
+            new McpStatementLog(),
             NullLogger<AskSqlPipeline>.Instance);
 
         return new McpEvalService(
