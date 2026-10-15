@@ -14,16 +14,32 @@ namespace Beacon.Core.HostData;
 /// <see cref="IConfiguration"/> at call time, so no host secret is ever persisted (§1.1). A migration write target is
 /// refused here (<see cref="MigrationWriteTargets"/>): its login may write, and only the migration writer connects with it.
 /// The resolved string then passes <see cref="IDataSourceTransportPolicy.EnsureStoredConnectionAllowed"/>: a connection
-/// that does not authenticate the server over TLS is warned about once per data source, or refused.
+/// that does not authenticate the server over TLS is warned about once per data source, or refused. Every connector and
+/// service that connects with a data source's stored connection data goes through this resolver; nothing else decrypts it.
 /// </summary>
 public interface IDataSourceConnectionResolver
 {
+    /// <summary>The connection string of a database data source Beacon reads.</summary>
     string GetConnectionString(DataSource dataSource);
+
+    /// <summary>
+    /// The decrypted connection settings of a connector configured with a JSON document (API, Databricks, BigQuery,
+    /// CloudWatch), with the same checks as <see cref="GetConnectionString"/>; the connector parses the document itself.
+    /// </summary>
+    string GetConnectionData(DataSource dataSource);
+
+    /// <summary>
+    /// The connection string the migration writer connects to a migration write target with: the one connection made to
+    /// a write target, so the read refusal does not apply, but the transport check does. Refused, before anything is
+    /// decrypted, for a source that is not a write target (<see cref="MigrationWriteTargets.DestinationRefusal"/>).
+    /// </summary>
+    string GetWriteConnectionString(DataSource dataSource);
 
     /// <summary>
     /// Whether the data source's connection (a host-managed source's configured string) authenticates the server over TLS,
     /// without connecting, warning or refusing: the data-source pages' badge. Throws when the connection data cannot be
-    /// read (decrypted, or found in the host's configuration).
+    /// read (decrypted, or found in the host's configuration), and for a migration write target, whose connection data is
+    /// never decrypted for a reader.
     /// </summary>
     DataSourceTransportVerdict InspectTransport(DataSource dataSource);
 }
@@ -37,14 +53,31 @@ internal sealed class DataSourceConnectionResolver(
     {
         MigrationWriteTargets.EnsureReadable(dataSource);
 
-        var connectionString = Resolve(dataSource);
-        transportPolicy.EnsureStoredConnectionAllowed(dataSource, connectionString);
+        return Checked(dataSource);
+    }
 
-        return connectionString;
+    public string GetConnectionData(DataSource dataSource)
+    {
+        MigrationWriteTargets.EnsureReadable(dataSource);
+
+        return Checked(dataSource);
+    }
+
+    public string GetWriteConnectionString(DataSource dataSource)
+    {
+        var refusal = MigrationWriteTargets.DestinationRefusal(dataSource);
+        if (refusal != null)
+        {
+            throw new InvalidOperationException(refusal);
+        }
+
+        return Checked(dataSource);
     }
 
     public DataSourceTransportVerdict InspectTransport(DataSource dataSource)
     {
+        MigrationWriteTargets.EnsureReadable(dataSource);
+
         return transportPolicy.Inspect(dataSource.DataSourceType, dataSource.DatabaseEngineType, Resolve(dataSource));
     }
 
@@ -59,6 +92,14 @@ internal sealed class DataSourceConnectionResolver(
         }
 
         return connectionString;
+    }
+
+    private string Checked(DataSource dataSource)
+    {
+        var connectionData = Resolve(dataSource);
+        transportPolicy.EnsureStoredConnectionAllowed(dataSource, connectionData);
+
+        return connectionData;
     }
 
     private string Resolve(DataSource dataSource)

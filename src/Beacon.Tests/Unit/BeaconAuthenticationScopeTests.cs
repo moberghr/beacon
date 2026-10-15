@@ -29,6 +29,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
 using NUnit.Framework;
@@ -40,7 +41,9 @@ namespace Beacon.Tests.Unit;
 /// A minimal host wired with <c>UseBeaconAuthentication</c>, its own default authentication scheme and the login and
 /// first-run redirects: the host's own <c>RequireAuthorization()</c> routes refuse a Beacon API key, the <c>Beacon.Auth</c>
 /// cookie and a bearer token Beacon accepts, and are never redirected to Beacon's pages, while Beacon's routes and
-/// <c>/warp</c> still authenticate all three. No database (§4.7).
+/// <c>/warp</c> still authenticate all three. A host whose default scheme is Beacon's cookie (named, or the only scheme)
+/// still never has a host route authenticated by it: the cookie's own events refuse the session there without checking,
+/// renewing or deleting it. No database (§4.7).
 /// </summary>
 [TestFixture]
 public class BeaconAuthenticationScopeTests
@@ -59,6 +62,15 @@ public class BeaconAuthenticationScopeTests
         ApiKey,
         Cookie,
         Jwt
+    }
+
+    // Which scheme the host authenticates with by default: its own, or Beacon's cookie (named the default, or the only
+    // scheme registered).
+    public enum CookieDefault
+    {
+        None,
+        Named,
+        OnlyScheme
     }
 
     [Test]
@@ -134,7 +146,7 @@ public class BeaconAuthenticationScopeTests
     [Test]
     public void IsBeaconRequest_MatchesBeaconAndTheListedPrefixes_BySegment()
     {
-        string[] listed = ["/warp/", " /reports/admin", "warp-no-slash", "/", "//", "/a?b"];
+        string[] listed = ["/warp/", " /reports/admin", "warp-no-slash", "/", "//", "/a?b", "/c#d"];
 
         Matches("/beacon", listed).Should().BeTrue();
         Matches("/beacon/", listed).Should().BeTrue();
@@ -147,6 +159,8 @@ public class BeaconAuthenticationScopeTests
         Matches("/reports", listed).Should().BeFalse();
         Matches("/api/beacon", listed).Should().BeFalse();
         Matches("/warp-no-slash", listed).Should().BeFalse("an entry that is not a path prefix is never matched");
+        Matches("/a", listed).Should().BeFalse("an entry with a query is never matched");
+        Matches("/c", listed).Should().BeFalse("an entry with a fragment is never matched");
         Matches("/orders", listed).Should().BeFalse("'/' never hands the host's routes to Beacon");
         Matches("/", listed).Should().BeFalse();
         Matches(string.Empty, listed).Should().BeFalse();
@@ -173,6 +187,7 @@ public class BeaconAuthenticationScopeTests
     [TestCase("warp")]
     [TestCase("")]
     [TestCase("/warp?x=1")]
+    [TestCase("/warp#x")]
     public void AdditionalPaths_EntryThatIsNotAPathPrefix_FailsTheHostAtStartup(string entry)
     {
         using var provider = BuildBeaconProvider(new Dictionary<string, string?>
@@ -187,20 +202,45 @@ public class BeaconAuthenticationScopeTests
     }
 
     [Test]
-    public async Task CookieAsTheDefaultScheme_IsWarnedAboutOutsideDevelopment()
+    public async Task CookieAsTheHostsDefaultScheme_AuthenticatesNoHostRoute_AndLeavesTheSessionAsItIs([Values] bool namedDefault)
     {
-        var logs = await StartForWarningAsync("Production", hostDefaultScheme: false);
+        await using var host = await ScopeHost.StartAsync(cookieDefault: namedDefault ? CookieDefault.Named : CookieDefault.OnlyScheme);
+        var cookie = await host.SignInAsync();
 
-        logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning && x.Message.Contains("default authentication scheme"));
+        // Past half the session's window: a Beacon request renews the cookie now.
+        host.Time.Advance(TimeSpan.FromHours(7));
+        var lookupsBefore = host.SessionStore.Lookups;
+
+        var hostRoute = await host.SendWithCookieAsync("/api/orders", cookie);
+
+        hostRoute.StatusCode.Should().NotBe(HttpStatusCode.OK, "the Beacon.Auth cookie does not authenticate the host's route, even as the host's default scheme");
+        (await hostRoute.Content.ReadAsStringAsync()).Should().NotBe(CookieAuthenticationDefaults.AuthenticationScheme);
+        hostRoute.Headers.Contains("Set-Cookie").Should().BeFalse("a host route neither renews nor deletes the Beacon session");
+        host.SessionStore.Lookups.Should().Be(lookupsBefore, "a host route never checks the session against the user store");
+
+        foreach (var path in new[] { "/beacon/api/whoami", "/beacon/api/hub", "/warp/jobs" })
+        {
+            var beaconRoute = await host.SendWithCookieAsync(path, cookie);
+
+            beaconRoute.StatusCode.Should().Be(HttpStatusCode.OK, $"{path} is Beacon's, so the same cookie still authenticates it");
+            (await beaconRoute.Content.ReadAsStringAsync()).Should().Be(CookieAuthenticationDefaults.AuthenticationScheme);
+        }
+
+        host.SessionStore.Lookups.Should().BeGreaterThan(lookupsBefore, "a Beacon request checks the session against the user store");
+        (await host.SendWithCookieAsync("/beacon/api/whoami", cookie)).Headers.GetValues("Set-Cookie")
+            .Should().Contain(x => x.StartsWith("Beacon.Auth=", StringComparison.Ordinal), "the renewal was due, and a Beacon request makes it");
     }
 
-    [TestCase("Development", false)]
-    [TestCase("Production", true)]
-    public async Task CookieThatIsNotTheDefault_OrDevelopment_IsNotWarnedAbout(string environment, bool hostDefaultScheme)
+    [Test]
+    public void SampleHost_ListsTheWarpDashboard()
     {
-        var logs = await StartForWarningAsync(environment, hostDefaultScheme);
+        var settings = Path.Combine(RepositoryRoot(), "src", "Beacon.SampleProject", "appsettings.json");
+        var configuration = new ConfigurationBuilder().AddJsonFile(settings).Build();
+        var options = configuration.GetSection(AuthenticationPathOptions.SectionName).Get<AuthenticationPathOptions>();
 
-        logs.Entries.Should().NotContain(x => x.Message.Contains("default authentication scheme"));
+        options.Should().NotBeNull();
+        options!.AdditionalPaths.Should().Contain("/warp", "the sample serves the Warp dashboard with Beacon's admin check");
+        new AuthenticationPathPrefixes(Options.Create(options)).Matches("/warp/jobs").Should().BeTrue();
     }
 
     private static string AuthenticationTypeOf(Credential credential)
@@ -219,6 +259,7 @@ public class BeaconAuthenticationScopeTests
         if (additionalPaths != null)
         {
             services.AddSingleton(Options.Create(new AuthenticationPathOptions { AdditionalPaths = [.. additionalPaths] }));
+            services.AddSingleton<AuthenticationPathPrefixes>();
         }
 
         var context = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
@@ -239,39 +280,29 @@ public class BeaconAuthenticationScopeTests
         return services.BuildServiceProvider();
     }
 
-    private static async Task<LogRecorder> StartForWarningAsync(string environment, bool hostDefaultScheme)
+    private static string RepositoryRoot()
     {
-        var logs = new LogRecorder();
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment });
-        builder.WebHost.UseTestServer();
-
-        // Development validates every registration on build; this host registers the cookie scheme alone, not Beacon's stores.
-        builder.Host.UseDefaultServiceProvider(x => x.ValidateOnBuild = false);
-        builder.Logging.ClearProviders();
-        builder.Logging.AddProvider(logs);
-        builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
-        builder.Services.AddBeaconCookieAuthentication("/beacon");
-        if (hostDefaultScheme)
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Beacon.slnx")))
         {
-            builder.Services.AddAuthentication(HostScheme)
-                .AddScheme<AuthenticationSchemeOptions, HostAuthenticationHandler>(HostScheme, null);
+            directory = directory.Parent;
         }
 
-        await using var app = builder.Build();
-        await app.StartAsync();
-        await app.StopAsync();
+        directory.Should().NotBeNull("the tests run inside the repository");
 
-        return logs;
+        return directory!.FullName;
     }
 
     private sealed class ScopeHost : IAsyncDisposable
     {
         private readonly WebApplication _app;
 
-        private ScopeHost(WebApplication app, Mock<IUserManagementService> users)
+        private ScopeHost(WebApplication app, Mock<IUserManagementService> users, FakeTimeProvider time, CountingSessionStore sessionStore)
         {
             _app = app;
             Users = users;
+            Time = time;
+            SessionStore = sessionStore;
             Client = app.GetTestClient();
         }
 
@@ -279,7 +310,11 @@ public class BeaconAuthenticationScopeTests
 
         public Mock<IUserManagementService> Users { get; }
 
-        public static async Task<ScopeHost> StartAsync(string? pathBase = null, bool firstRun = false)
+        public FakeTimeProvider Time { get; }
+
+        public CountingSessionStore SessionStore { get; }
+
+        public static async Task<ScopeHost> StartAsync(string? pathBase = null, bool firstRun = false, CookieDefault cookieDefault = CookieDefault.None)
         {
             var configuration = new BeaconConfiguration();
             configuration.Authentication.EnableLoginForm = true;
@@ -297,8 +332,16 @@ public class BeaconAuthenticationScopeTests
             // As AddBeaconServices binds it.
             builder.Services.AddOptions<AuthenticationPathOptions>()
                 .Bind(builder.Configuration.GetSection(AuthenticationPathOptions.SectionName));
+            builder.Services.AddSingleton<AuthenticationPathPrefixes>();
             builder.Services.AddSingleton(configuration);
             builder.Services.AddSingleton(users.Object);
+
+            // The session is checked against the user store on every Beacon request, on a clock the test moves.
+            var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+            var sessionStore = new CountingSessionStore();
+            builder.Services.AddSingleton<TimeProvider>(time);
+            builder.Services.AddSingleton<IUserSessionStore>(sessionStore);
+            builder.Services.AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = 0, AbsoluteLifetimeHours = 12 }));
             builder.Services.AddSingleton(ApiKeys().Object);
             builder.Services.AddSingleton(Mock.Of<IMcpCallerMapper>());
             builder.Services.AddSingleton(new HttpClient());
@@ -312,14 +355,22 @@ public class BeaconAuthenticationScopeTests
                 x.Validation.ValidAudience = Audience;
             });
 
-            // The host's own sign-in: its default scheme, which accepts no Beacon credential.
-            builder.Services.AddAuthentication(x =>
-                {
-                    x.DefaultScheme = HostScheme;
-                    x.DefaultChallengeScheme = HostScheme;
-                    x.DefaultForbidScheme = HostScheme;
-                })
-                .AddScheme<AuthenticationSchemeOptions, HostAuthenticationHandler>(HostScheme, null);
+            switch (cookieDefault)
+            {
+                case CookieDefault.None:
+                    // The host's own sign-in: its default scheme, which accepts no Beacon credential.
+                    builder.Services.AddAuthentication(x =>
+                        {
+                            x.DefaultScheme = HostScheme;
+                            x.DefaultChallengeScheme = HostScheme;
+                            x.DefaultForbidScheme = HostScheme;
+                        })
+                        .AddScheme<AuthenticationSchemeOptions, HostAuthenticationHandler>(HostScheme, null);
+                    break;
+                case CookieDefault.Named:
+                    builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme);
+                    break;
+            }
             builder.Services.AddAuthorization();
 
             var app = builder.Build();
@@ -356,7 +407,15 @@ public class BeaconAuthenticationScopeTests
 
             await app.StartAsync();
 
-            return new ScopeHost(app, users);
+            return new ScopeHost(app, users, time, sessionStore);
+        }
+
+        public async Task<HttpResponseMessage> SendWithCookieAsync(string path, string cookie)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Add("Cookie", cookie);
+
+            return await Client.SendAsync(request);
         }
 
         public async Task<HttpResponseMessage> SendAsync(string path, Credential? credential)
@@ -460,6 +519,24 @@ public class BeaconAuthenticationScopeTests
                 expires: DateTime.UtcNow.AddMinutes(10));
 
             return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
+        }
+    }
+
+    // The user store a Beacon session is checked against: one active user, counting the lookups.
+    internal sealed class CountingSessionStore : IUserSessionStore
+    {
+        public int Lookups { get; private set; }
+
+        public Task<SessionUser?> FindAsync(string externalId, CancellationToken cancellationToken)
+        {
+            Lookups++;
+
+            return Task.FromResult<SessionUser?>(externalId == "ana" ? new SessionUser { Id = 7, IsActive = true } : null);
+        }
+
+        public Task<bool> RenewStampAsync(int userId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(false);
         }
     }
 

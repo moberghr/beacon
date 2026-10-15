@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -11,6 +12,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api;
+using Beacon.Api.Endpoints;
 using Beacon.Connector.Api;
 using Beacon.Connector.AzureSynapse;
 using Beacon.Connector.BigQuery;
@@ -253,15 +255,130 @@ public class DataSourceTransportEnforcementTests
     [Test]
     public async Task TheBadge_SaysWhetherEachSourcesConnectionIsVerified_AndUnknownWhenItCannotBeRead()
     {
+        var log = new LogRecorder();
         var unreadable = Stored(3, Verified);
         unreadable.EncryptedConnectionData = "not encrypted by this key";
-        var sources = new List<DataSource> { Stored(1, Verified), Stored(2, Insecure), unreadable, Stored(4, Insecure) };
-        var status = new DataSourceTransportStatus(Factory(sources, []), Resolver(TestTransport.Policy(enforceOnExisting: true)));
+        var writeTarget = Stored(5, Verified);
+        writeTarget.AllowMigrationWrites = true;
+        var sources = new List<DataSource> { Stored(1, Verified), Stored(2, Insecure), unreadable, Stored(4, Insecure), writeTarget };
+        var status = new DataSourceTransportStatus(
+            Factory(sources, []),
+            Resolver(TestTransport.Policy(enforceOnExisting: true)),
+            log.For<DataSourceTransportStatus>());
 
-        var verified = await status.VerifiedAsync([1, 2, 3], CancellationToken.None);
+        var verified = await status.VerifiedAsync([1, 2, 3, 5], CancellationToken.None);
 
-        verified.Should().BeEquivalentTo(new Dictionary<int, bool?> { [1] = true, [2] = false, [3] = null });
+        verified.Should().BeEquivalentTo(new Dictionary<int, bool?> { [1] = true, [2] = false, [3] = null, [5] = null });
         (await status.VerifiedAsync([], CancellationToken.None)).Should().BeEmpty();
+        log.Entries.Should().ContainSingle("a write target is skipped without reading its connection data, and only the unreadable source is logged")
+            .Which.Message.Should().Contain("data source 3").And.Contain(nameof(InvalidOperationException)).And.NotContain("not encrypted by this key");
+    }
+
+    [Test]
+    public void EnforceOnExisting_LogsEachRefusedSourceOnce_ByIdOnly_AndRefusesEveryTime()
+    {
+        var log = new LogRecorder();
+        var resolver = Resolver(TestTransport.Policy(enforceOnExisting: true, logger: log.For<DataSourceTransportPolicy>()));
+
+        var refusals = new[] { 5, 5, 6 }
+            .Select(x => (Action)(() => resolver.GetConnectionString(Stored(x, Insecure))))
+            .ToList();
+
+        foreach (var refusal in refusals)
+        {
+            refusal.Should().Throw<DataSourceTransportException>();
+        }
+
+        log.Entries.Select(x => x.Message).Should().SatisfyRespectively(
+            x => x.Should().Contain("Data source 5").And.Contain("refused").And.Contain("SSL Mode"),
+            x => x.Should().Contain("Data source 6"));
+        log.Entries.Should().OnlyContain(x => x.Level == LogLevel.Warning && !x.FullText.Contains(Host) && !x.FullText.Contains(Password));
+    }
+
+    [Test]
+    public void AStoredSourceWhoseConnectionDataCannotBeRead_IsWarnedAbout_AsUnreadable()
+    {
+        var log = new LogRecorder();
+        var resolver = Resolver(TestTransport.Policy(logger: log.For<DataSourceTransportPolicy>()));
+        var garbled = $"Host={Host};NoSuchOption={Password}";
+
+        resolver.GetConnectionString(Stored(5, garbled)).Should().Be(garbled, "a stored source keeps working until its connection is replaced");
+
+        var warning = log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which;
+        warning.Message.Should().Contain("Data source 5").And.Contain("could not be read");
+        log.Entries.Should().OnlyContain(x => !x.FullText.Contains(Host) && !x.FullText.Contains(Password) && !x.FullText.Contains("NoSuchOption"));
+        log.Entries.Should().Contain(x => x.Level == LogLevel.Debug && x.Message.Contains(nameof(ArgumentException)), "the parser's refusal is logged by its type");
+    }
+
+    [Test]
+    public void AnInspectorThatFailsUnexpectedly_IsLoggedAsAnError_AndNeverVerifies()
+    {
+        var log = new LogRecorder();
+        var policy = new DataSourceTransportPolicy(
+            [new ThrowingInspector(new NullReferenceException(Password))],
+            Options.Create(new DataSourceTransportOptions()),
+            log.For<DataSourceTransportPolicy>());
+
+        var verdict = policy.Inspect(DataSourceType.Database, DatabaseEngineType.PostgreSQL, Verified);
+
+        verdict.Should().BeEquivalentTo(new { Verified = false, Unreadable = true, Option = "connection string" }, x => x.ExcludingMissingMembers());
+        var error = log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Error).Which;
+        error.Message.Should().Contain(nameof(NullReferenceException)).And.Contain("PostgreSQL");
+        error.FullText.Should().NotContain(Password);
+    }
+
+    [Test]
+    public void TheLastInspectorRegisteredForAType_IsTheOneThatDecides()
+    {
+        var hostOverride = new DataSourceTransportPolicy(
+            [new PostgreSqlTransportInspector(), new ThrowingInspector(null)],
+            Options.Create(new DataSourceTransportOptions()),
+            NullLogger<DataSourceTransportPolicy>.Instance);
+
+        hostOverride.Inspect(DataSourceType.Database, DatabaseEngineType.PostgreSQL, Insecure).Verified
+            .Should().BeTrue("a host that registers its own inspector after the connector's replaces it");
+    }
+
+    [Test]
+    public async Task ChangingTheEngineOfAStoredConnection_ToSqlServer_ChecksItsEncryptOption()
+    {
+        var sqlServerShaped = $"Server={Host};Database=sales;Password={Password};Encrypt=False";
+        var stored = Stored(12, sqlServerShaped);
+        var service = Service([], [stored], TestTransport.Policy());
+
+        var act = () => service.UpdateDataSource(Data(sqlServerShaped, id: 12, engine: DatabaseEngineType.MSSQL), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DataSourceTransportException>()).Which.Message.Should().Contain("Encrypt=Mandatory").And.NotContainAny(Host, Password);
+    }
+
+    [Test]
+    public void TheOptions_AreBoundFromConfiguration_ByTheBeaconRegistration()
+    {
+        using var enforcing = Registered(new Dictionary<string, string?> { ["Beacon:DataSources:Transport:EnforceOnExisting"] = "true" });
+        using var lenient = Registered(new Dictionary<string, string?>());
+
+        var refused = () => enforcing.GetRequiredService<IDataSourceTransportPolicy>().EnsureStoredConnectionAllowed(Stored(5, Insecure), Insecure);
+        var warned = () => lenient.GetRequiredService<IDataSourceTransportPolicy>().EnsureStoredConnectionAllowed(Stored(5, Insecure), Insecure);
+
+        refused.Should().Throw<DataSourceTransportException>();
+        warned.Should().NotThrow();
+    }
+
+    [Test]
+    public void TheStartupWarning_IsRegisteredByTheApi_AndReadsTheBoundOptions()
+    {
+        var log = new LogRecorder();
+        var services = new ServiceCollection();
+        services.AddSingleton<ILoggerProvider>(log);
+        services.AddSingleton(Mock.Of<IHostEnvironment>(x => x.EnvironmentName == "Production"));
+        services.AddBeaconApiAuthorization();
+        using var provider = Registered(new Dictionary<string, string?> { ["Beacon:DataSources:Transport:AllowInsecure"] = "true" }, services);
+
+        var descriptor = services.Should().ContainSingle(x => x.ServiceType == typeof(IStartupFilter) && x.ImplementationType == typeof(DataSourceTransportStartupWarning)).Which;
+        var filter = (IStartupFilter)ActivatorUtilities.CreateInstance(provider, descriptor.ImplementationType!);
+        filter.Configure(_ => { })(Mock.Of<IApplicationBuilder>());
+
+        log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which.Message.Should().Contain("Beacon:DataSources:Transport:AllowInsecure");
     }
 
     [Test]
@@ -299,6 +416,20 @@ public class DataSourceTransportEnforcementTests
     }
 
     private static readonly PrefixEncryption Encryption = new();
+
+    // The Beacon registration a host makes (AddBeaconServices), with the given configuration and a throwaway key.
+    private static ServiceProvider Registered(Dictionary<string, string?> settings, ServiceCollection? services = null)
+    {
+        services ??= new ServiceCollection();
+        settings["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(settings)
+            .Build();
+        services.AddLogging();
+        services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
+
+        return services.BuildServiceProvider();
+    }
 
     private static DataSourceData Data(string connectionString, int id = 0, string name = "warehouse", DatabaseEngineType engine = DatabaseEngineType.PostgreSQL)
     {
@@ -359,6 +490,24 @@ public class DataSourceTransportEnforcementTests
             NullLogger<DataSourceService>.Instance);
     }
 
+    private sealed class ThrowingInspector(Exception? exception) : IDataSourceTransportInspector
+    {
+        public DataSourceType DataSourceType => DataSourceType.Database;
+
+        public DatabaseEngineType? DatabaseEngineType => Core.Data.Enums.DatabaseEngineType.PostgreSQL;
+
+        // With no exception it verifies everything: a host's own inspector.
+        public DataSourceTransportVerdict Inspect(string connectionData) =>
+            exception == null ? DataSourceTransportVerdict.Pass() : throw exception;
+    }
+
+    private sealed class NoOpScheduler : Core.Worker.IBeaconScheduler
+    {
+        public Task AddOrUpdate(int subscriptionId, string subscriptionName, string cron) => Task.CompletedTask;
+
+        public Task Remove(int subscriptionId, string subscriptionName) => Task.CompletedTask;
+    }
+
     private sealed class PrefixEncryption : IEncryptionService
     {
         private const string Prefix = "enc:";
@@ -369,5 +518,4 @@ public class DataSourceTransportEnforcementTests
             ? cipherText[Prefix.Length..]
             : throw new InvalidOperationException("Not encrypted with this key.");
     }
-
 }

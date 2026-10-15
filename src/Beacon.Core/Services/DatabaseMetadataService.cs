@@ -8,6 +8,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Metadata;
@@ -17,7 +18,7 @@ namespace Beacon.Core.Services;
 
 public class DatabaseMetadataService(
     IDbContextFactory<BeaconContext> contextFactory,
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
     IColumnValueSampler columnValueSampler,
     ISharedSourceSettings sharedSourceSettings,
@@ -72,10 +73,11 @@ public class DatabaseMetadataService(
             }
 
             // A migration write target is never read: its login may write, and only the migration writer connects with it.
+            // The resolver refuses it too, and applies the transport check.
             MigrationWriteTargets.EnsureReadable(dataSource);
 
             // Extract metadata based on database type using registered extractors
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
             var extractor = metadataExtractors.FirstOrDefault(e => e.SupportedEngineType == dataSource.DatabaseEngineType.Value)
                 ?? throw new NotSupportedException($"No metadata extractor registered for database type {dataSource.DatabaseEngineType}. Make sure to register the appropriate connector.");
             var tables = await extractor.ExtractMetadataAsync(connectionString, cancellationToken);

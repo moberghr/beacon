@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.Configuration;
@@ -34,6 +35,34 @@ public sealed class AuthenticationPathOptions
         return normalized.Length > 1
             && normalized[0] == '/'
             && normalized.IndexOfAny(['?', '#']) < 0;
+    }
+}
+
+/// <summary>
+/// The prefixes of <see cref="AuthenticationPathOptions.AdditionalPaths"/> as they are matched, normalized once when the
+/// singleton is created, so a request is matched without trimming or allocating. An entry that is not a path prefix is
+/// left out (startup validation refuses it), so it cannot widen the scope.
+/// </summary>
+public sealed class AuthenticationPathPrefixes(IOptions<AuthenticationPathOptions> options)
+{
+    private readonly PathString[] _prefixes = options.Value.AdditionalPaths
+        .Select(AuthenticationPathOptions.Normalize)
+        .Where(AuthenticationPathOptions.IsValidPrefix)
+        .Select(x => new PathString(x))
+        .ToArray();
+
+    /// <summary>Whether <paramref name="path"/> lies under a listed prefix: whole segments, ignoring case.</summary>
+    public bool Matches(PathString path)
+    {
+        foreach (var prefix in _prefixes)
+        {
+            if (path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 

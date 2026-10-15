@@ -2,6 +2,7 @@ using FluentAssertions;
 using NUnit.Framework;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
+using Beacon.Core.Services.Providers;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.DataSourceTransport;
@@ -34,6 +35,10 @@ public class DataSourceTransportInspectorTests
         yield return Case(DatabaseEngineType.PostgreSQL, $"Host={Host};Password={Password};sslmode=verifyca", "SSL Mode");
         yield return Case(DatabaseEngineType.PostgreSQL, $"Host={Host};Password={Password};SSL Mode=Disable", "SSL Mode");
         yield return Case(DatabaseEngineType.PostgreSQL, $"Host={Host};Password={Password};SSL Mode=Prefer", "SSL Mode");
+        // Npgsql still accepts the obsolete Trust Server Certificate option; the check reads SSL Mode, which stays VerifyFull.
+        yield return Case(DatabaseEngineType.PostgreSQL, $"Host={Host};Password={Password};SSL Mode=VerifyFull;Trust Server Certificate=true", null);
+        yield return Case(DatabaseEngineType.PostgreSQL, string.Empty, "connection string");
+        yield return Case(DatabaseEngineType.PostgreSQL, "   ", "connection string");
 
         // SQL Server and Synapse: Encrypt Mandatory or Strict, TrustServerCertificate false (SqlClient 6 defaults pass).
         foreach (var engine in new[] { DatabaseEngineType.MSSQL, DatabaseEngineType.AzureSynapse })
@@ -67,6 +72,11 @@ public class DataSourceTransportInspectorTests
         yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};INSECUREMODE=True", "insecureMode");
         yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};insecuremode={Database}", "insecureMode");
         yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};scheme=http", "scheme");
+        yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};certRevocationCheckMode=ENABLED", null);
+        yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};CERTREVOCATIONCHECKMODE=enabled", null);
+        yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};certRevocationCheckMode=ADVISORY", "certRevocationCheckMode");
+        yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};certrevocationcheckmode=disabled", "certRevocationCheckMode");
+        yield return Case(DatabaseEngineType.Snowflake, $"account={Host};password={Password};certRevocationCheckMode={Database}", "certRevocationCheckMode");
 
         // A database engine without an inspector is never verified.
         yield return Case(DatabaseEngineType.SQLite, $"Data Source={Database}.db;Password={Password}", "data source type");
@@ -80,11 +90,19 @@ public class DataSourceTransportInspectorTests
         yield return Document(DataSourceType.Api, Api($"http://{Host}/v1", $"https://{Host}/openapi.json"), "BaseUrl");
         yield return Document(DataSourceType.Api, Api($"https://{Host}/v1", $"http://{Host}/openapi.json"), "OpenApiSpecUrl");
         yield return Document(DataSourceType.Api, Api($"/{Database}", $"https://{Host}/openapi.json"), "BaseUrl");
+        yield return Document(DataSourceType.Api, Api($"ftp://{Host}/v1", $"https://{Host}/openapi.json"), "BaseUrl");
+        // OpenApiSpecUrl is a required member of the configuration: without it the document cannot be read at all.
+        yield return Document(DataSourceType.Api, $"{{\"baseUrl\":\"https://{Host}/v1\",\"auth\":{{\"token\":\"{Password}\"}}}}", "connection string");
+        yield return Document(DataSourceType.Api, "null", "connection string");
+        yield return Document(DataSourceType.Api, "{", "connection string");
+        yield return Document(DataSourceType.Api, " ", "connection string");
 
         // TLS-only SDKs pass whatever their configuration says.
         yield return Document(DataSourceType.Databricks, $"{{\"host\":\"{Host}\",\"token\":\"{Password}\"}}", null);
         yield return Document(DataSourceType.BigQuery, $"{{\"projectId\":\"{Database}\",\"credentialsJson\":\"{Password}\"}}", null);
         yield return Document(DataSourceType.CloudWatch, $"{{\"region\":\"eu-west-1\",\"secretAccessKey\":\"{Password}\"}}", null);
+        yield return Document(DataSourceType.Databricks, string.Empty, "connection string");
+        yield return Document(DataSourceType.Databricks, "\t ", "connection string");
 
         // A type without a connector is never verified.
         yield return Document(DataSourceType.Prometheus, $"{{\"url\":\"https://{Host}\"}}", "data source type");
@@ -136,11 +154,30 @@ public class DataSourceTransportInspectorTests
     [Test]
     public void TheVerdict_NamesTheTarget_ForTheCallerThatComparesIt()
     {
-        var postgres = TestTransport.Policy().Inspect(DataSourceType.Database, DatabaseEngineType.PostgreSQL, $"Host={Host};Port=6432;Database={Database};SSL Mode=VerifyFull");
-        var sqlServer = TestTransport.Policy().Inspect(DataSourceType.Database, DatabaseEngineType.MSSQL, $"Server=tcp:{Host},1433;Initial Catalog={Database}");
+        var policy = TestTransport.Policy();
 
-        postgres.Target.Should().Be(new Core.Services.Providers.DataSourceTransportTarget(Host, 6432, Database));
-        sqlServer.Target.Should().Be(new Core.Services.Providers.DataSourceTransportTarget(Host, 1433, Database));
+        policy.Inspect(DataSourceType.Database, DatabaseEngineType.PostgreSQL, $"Host={Host};Port=6432;Database={Database};SSL Mode=VerifyFull").Target
+            .Should().Be(new DataSourceTransportTarget(Host, 6432, Database));
+        policy.Inspect(DataSourceType.Database, DatabaseEngineType.MSSQL, $"Server=tcp:{Host},1433;Initial Catalog={Database}").Target
+            .Should().Be(new DataSourceTransportTarget(Host, 1433, Database));
+        policy.Inspect(DataSourceType.Database, DatabaseEngineType.AzureSynapse, $"Server={Host};Database={Database};Encrypt=False").Target
+            .Should().Be(new DataSourceTransportTarget(Host, null, Database), "a failing verdict names the target too");
+        policy.Inspect(DataSourceType.Database, DatabaseEngineType.MySQL, $"Server={Host};Port=3307;Database={Database};SslMode=VerifyFull").Target
+            .Should().Be(new DataSourceTransportTarget(Host, 3307, Database));
+        policy.Inspect(DataSourceType.Database, DatabaseEngineType.Snowflake, $"account={Host};port=8443;db={Database}").Target
+            .Should().Be(new DataSourceTransportTarget(Host, 8443, Database));
+        policy.Inspect(DataSourceType.Api, null, Api($"https://{Host}:8443/v1", $"https://{Host}/openapi.json")).Target
+            .Should().Be(new DataSourceTransportTarget(Host, 8443, null));
+        policy.Inspect(DataSourceType.Databricks, null, $"{{\"host\":\"{Host}\"}}").Target
+            .Should().BeNull("a TLS-only connector's check does not read its configuration");
+    }
+
+    [Test]
+    public void AnApiSource_IsCheckedAsAnApi_WhateverEngineItStillCarries()
+    {
+        var verdict = TestTransport.Policy().Inspect(DataSourceType.Api, DatabaseEngineType.PostgreSQL, Api($"https://{Host}/v1", $"https://{Host}/openapi.json"));
+
+        verdict.Verified.Should().BeTrue("the engine of a source that is not a database is ignored");
     }
 
     private static TestCaseData Case(DatabaseEngineType engine, string connectionString, string? failingOption)

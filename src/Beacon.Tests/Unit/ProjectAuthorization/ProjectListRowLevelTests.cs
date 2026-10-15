@@ -17,9 +17,13 @@ using Beacon.Core.Models.Ai;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Providers;
+using Beacon.Connector.PostgreSql;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
 using NUnit.Framework;
 
@@ -99,6 +103,28 @@ public class ProjectListRowLevelTests
 
         page.Items.Single(x => x.Id == 10).TransportVerified.Should().BeFalse("no connector is registered for an engine-less source, so nothing verifies it");
         page.Items.Single(x => x.Id == 11).TransportVerified.Should().BeNull("its stored value cannot be decrypted");
+    }
+
+    [Test]
+    public async Task DataSources_CarryAVerifiedBadge_WhenTheConnectorPassesTheConnection_AndNoneForAWriteTarget()
+    {
+        var world = new World();
+        var encryption = new EncryptionService(TestEncryptionKey.Value);
+        var verified = world.Source(10);
+        verified.DatabaseEngineType = DatabaseEngineType.PostgreSQL;
+        verified.EncryptedConnectionData = encryption.Encrypt("Host=db;SSL Mode=VerifyFull");
+        var writeTarget = world.Source(11);
+        writeTarget.DatabaseEngineType = DatabaseEngineType.PostgreSQL;
+        writeTarget.EncryptedConnectionData = encryption.Encrypt("Host=db;SSL Mode=VerifyFull");
+        writeTarget.AllowMigrationWrites = true;
+
+        var page = (PagedList<DataSourceEntry>)(await new ListHandlerHarness(Scope).AnswerAsync(
+            new GetDataSourcesQuery(),
+            world.Factory(),
+            x => x.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, PostgreSqlTransportInspector>())))!;
+
+        page.Items.Single(x => x.Id == 10).TransportVerified.Should().BeTrue();
+        page.Items.Single(x => x.Id == 11).TransportVerified.Should().BeNull("a write target's connection data is never decrypted for the badge");
     }
 
     [Test]

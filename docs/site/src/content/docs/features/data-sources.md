@@ -89,7 +89,7 @@ synonyms and case do not matter.
 | PostgreSQL | `SSL Mode=VerifyFull`. `Require` and `VerifyCA` do not check the host name, and the default (`Prefer`) may not encrypt at all. | `Root Certificate=/path/to/ca.pem` |
 | SQL Server, Azure Synapse | `Encrypt` set to `Mandatory` (`True`, the default) or `Strict`, and `TrustServerCertificate` left out or `false`. | Install the CA on the Beacon host, or pin it: `HostNameInCertificate=<name in the certificate>` when it differs from the server name, `ServerCertificate=/path/to/server.cer` to accept exactly that certificate. |
 | MySQL | `SslMode=VerifyFull`. `Required` and `VerifyCA` do not check the host name, and the default (`Preferred`) may not encrypt at all. | `SslCa=/path/to/ca.pem` |
-| Snowflake | Nothing to set. `insecureMode=true` and a `scheme` other than `https` are refused. | Not applicable |
+| Snowflake | Nothing to set. `insecureMode=true`, a `certRevocationCheckMode` other than `ENABLED` and a `scheme` other than `https` are refused. | Not applicable |
 | API (OpenAPI) | **Base URL** and **OpenAPI spec URL** are absolute `https://` URLs. | Install the CA on the Beacon host. |
 | Databricks, BigQuery, AWS CloudWatch | Nothing to set: their clients always connect over HTTPS and check the certificate. | Not applicable |
 
@@ -105,7 +105,12 @@ How Beacon applies the rule:
   source per process, naming it by id. Replace its connection with one that meets the rule. A host that sets
   `Beacon:DataSources:Transport:EnforceOnExisting` to `true` refuses such a source every time it connects.
 - **Host-managed data sources** follow the same rules, applied to the connection string the host configures, which is
-  read each time the source connects.
+  read each time the source connects. That string is never refused as a new connection, since no Admin enters it in
+  Beacon: it is checked each time the source connects, with the Warning (or, under `EnforceOnExisting`, the refusal)
+  of a stored source. A host that changes the string to one that does not meet the rule therefore gets the Warning,
+  not a refusal, unless it sets `EnforceOnExisting`.
+- **A migration write target** has no badge: Beacon never decrypts its connection to show one. The migration writer
+  applies the same rule each time it connects to it.
 - **`Beacon:DataSources:Transport:AllowInsecure`** lifts the rule for development hosts whose local databases have no
   TLS (the sample host sets it in its Development configuration). Outside Development the host logs a Warning at
   startup while it is set. See [Configuration](/getting-started/configuration/#data-source-transport-security).

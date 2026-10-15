@@ -26,7 +26,7 @@ public sealed class ApiTransportInspector : IDataSourceTransportInspector
         var config = JsonSerializer.Deserialize<ApiConnectionConfig>(connectionData, JsonOptions);
         if (config == null)
         {
-            return DataSourceTransportVerdict.Unreadable();
+            return DataSourceTransportVerdict.NotReadable();
         }
 
         var baseUrl = Https(config.BaseUrl);

@@ -8,6 +8,7 @@ using Beacon.Connector.Api.Services;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
+using Beacon.Core.HostData;
 
 namespace Beacon.Tests.Unit;
 
@@ -29,7 +30,7 @@ public class ApiProviderReadOnlyValidationTests
         var tabularizer = new JsonResponseTabularizer();
 
         _provider = new ApiProvider(
-            Mock.Of<IEncryptionService>(),
+            Mock.Of<IDataSourceConnectionResolver>(),
             httpClientFactory.Object,
             openApiImport,
             tabularizer,

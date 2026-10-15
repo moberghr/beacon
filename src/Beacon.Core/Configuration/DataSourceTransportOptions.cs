@@ -5,7 +5,9 @@ namespace Beacon.Core.Configuration;
 /// <c>Beacon:DataSources:Transport</c>. A connection is checked by its connector's
 /// <see cref="Services.Providers.IDataSourceTransportInspector"/>: a new or changed connection that fails the check is
 /// refused; a stored one keeps working, with one Warning per data source per process, unless
-/// <see cref="EnforceOnExisting"/> is set.
+/// <see cref="EnforceOnExisting"/> is set. A host-managed source's connection string comes from the host's configuration,
+/// not from an Admin, so it is never refused as a new connection: it is checked each time the source connects, as a
+/// stored one (the Warning, or the refusal under <see cref="EnforceOnExisting"/>).
 /// </summary>
 public sealed class DataSourceTransportOptions
 {

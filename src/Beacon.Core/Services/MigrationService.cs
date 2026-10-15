@@ -13,6 +13,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
 using Beacon.Core.Helpers.BulkHelpers;
 using Beacon.Core.Models;
@@ -44,7 +45,7 @@ public interface IMigrationService
 /// </summary>
 internal partial class MigrationService(
     IDbContextFactory<BeaconContext> contextFactory,
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     IQueryService queryService,
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,

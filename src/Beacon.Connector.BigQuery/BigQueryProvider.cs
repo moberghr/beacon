@@ -5,6 +5,7 @@ using Google.Cloud.BigQuery.V2;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -15,7 +16,7 @@ using Beacon.Core.Services.Validation;
 namespace Beacon.Connector.BigQuery;
 
 public class BigQueryProvider(
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
     ILogger<BigQueryProvider> logger) : IDataSourceProvider
 {
@@ -268,7 +269,7 @@ public class BigQueryProvider(
 
     private BigQueryConfiguration ParseConfiguration(DataSource dataSource)
     {
-        var decryptedJson = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+        var decryptedJson = connectionResolver.GetConnectionData(dataSource);
         return JsonSerializer.Deserialize<BigQueryConfiguration>(decryptedJson)
             ?? throw new BeaconException("Failed to parse BigQuery configuration");
     }

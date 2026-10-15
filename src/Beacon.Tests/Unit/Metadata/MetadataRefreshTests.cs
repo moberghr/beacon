@@ -557,7 +557,7 @@ public class MetadataRefreshTests
 
             return new DatabaseMetadataService(
                 Factory(),
-                Encryption(),
+                TestTransport.Resolver(Encryption()),
                 [extractor.Object],
                 sampler ?? Mock.Of<IColumnValueSampler>(),
                 SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData { EnableSampleValueCollection = false }).Object),

@@ -7,8 +7,9 @@ namespace Beacon.Connector.Snowflake;
 
 /// <summary>
 /// The Snowflake driver always connects over HTTPS and checks the server's certificate, unless the connection string
-/// turns a check off: <c>insecureMode=true</c> (the certificate revocation check) or a <c>scheme</c> other than https.
-/// Neither is accepted. Read with the driver's own builder (option names in any case).
+/// turns a check off: <c>insecureMode=true</c> (the certificate revocation check), a <c>certRevocationCheckMode</c> other
+/// than <c>ENABLED</c> (a revocation check that does not refuse a revoked certificate), or a <c>scheme</c> other than
+/// https. None is accepted. Read with the driver's own builder (option names in any case).
 /// </summary>
 public sealed class SnowflakeTransportInspector : IDataSourceTransportInspector
 {
@@ -25,6 +26,12 @@ public sealed class SnowflakeTransportInspector : IDataSourceTransportInspector
         if (insecureMode != null && !(bool.TryParse(insecureMode, out var insecure) && !insecure))
         {
             return DataSourceTransportVerdict.Fail("insecureMode", "Remove insecureMode, or set insecureMode=false", target);
+        }
+
+        var revocationCheck = Value(builder, "certRevocationCheckMode");
+        if (revocationCheck != null && !string.Equals(revocationCheck, "ENABLED", StringComparison.OrdinalIgnoreCase))
+        {
+            return DataSourceTransportVerdict.Fail("certRevocationCheckMode", "Remove certRevocationCheckMode, or set certRevocationCheckMode=ENABLED", target);
         }
 
         var scheme = Value(builder, "scheme");

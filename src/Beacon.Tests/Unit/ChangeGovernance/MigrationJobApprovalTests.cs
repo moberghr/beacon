@@ -16,6 +16,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.HostData;
 
 namespace Beacon.Tests.Unit.ChangeGovernance;
 
@@ -291,7 +292,7 @@ public class MigrationJobApprovalTests
     private static MigrationService Service(ChangeApprovalStore store, BeaconConfiguration configuration, IBeaconActorAccessor? caller = null) =>
         new(
             store.Factory(),
-            Mock.Of<IEncryptionService>(),
+            Mock.Of<IDataSourceConnectionResolver>(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<IQueryExecutionPreviewService>(MockBehavior.Strict),
             Mock.Of<IBeaconUserContext>(),

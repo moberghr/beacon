@@ -37,7 +37,7 @@ internal partial class MigrationService
                 throw new InvalidOperationException(refusal);
             }
 
-            var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var connectionString = connectionResolver.GetWriteConnectionString(dataSource);
             return DbConnectionFactory.CreateConnection(dataSource.DatabaseEngineType.Value, connectionString);
         }
         catch (Exception ex)
