@@ -74,6 +74,8 @@ export default defineConfig({
         ThemeSelect: './src/components/overrides/ThemeSelect.astro',
         // "Copy as Markdown" / "View .md" beneath every page title.
         PageTitle: './src/components/overrides/PageTitle.astro',
+        // Top navigation bar on every page (the landing and Explore pages have no sidebar).
+        Header: './src/components/overrides/Header.astro',
       },
       head: [
         {

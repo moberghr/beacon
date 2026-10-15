@@ -74,7 +74,7 @@ Settings are cached in memory for one hour; a save clears the cache.
 | `Mcp.{Setting}`, `Mcp.Project.{projectId}.{Setting}` | an MCP setting changes, globally or for a project |
 | `DataSource.{id}.AllowMigrationWrites` | an Admin marks or unmarks a data source as a [migration write target](/features/data-migration/) |
 
-Security-relevant actions outside settings (role changes, membership changes, sign-ins refused) are structured log events, not history rows; see [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
+Every save that changes settings is also recorded in the [security audit trail](/features/security-audit/) (`settings.admin_settings_changed`, `settings.mcp_settings_changed`, `settings.mcp_project_settings_changed`), naming the keys that changed and the history rows that hold their values, with a keyed digest of each value before and after; the values themselves stay in the history. Security-relevant actions outside settings (sign-ins, role changes, membership changes and the rest) are recorded in the security audit trail, not as history rows; see [Security model](/features/security-model/#12-audit-and-security-events).
 
 ## Programmatic access
 

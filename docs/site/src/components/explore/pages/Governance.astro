@@ -31,9 +31,9 @@ const INITIAL: Record<string, string> = { Read: 'yes', Run: 'yes', Query: 'yes',
 
 const PERMISSIONS = [
 	{ name: 'Approver', grants: 'Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own. Reads every project\'s approval requests.', conflicts: ['SecurityAdmin', 'UserAdmin'] },
-	{ name: 'Auditor', grants: 'Reads the MCP audit, the MCP and project settings, the admin settings (secrets masked) and every user\'s API keys.', conflicts: ['SecurityAdmin', 'UserAdmin'] },
+	{ name: 'Auditor', grants: 'Reads and verifies the security audit trail; reads the MCP audit, the MCP and project settings, the admin settings (secrets masked), every user\'s API keys and what a user owns, created or changed last.', conflicts: ['SecurityAdmin', 'UserAdmin'] },
 	{ name: 'SecurityAdmin', grants: 'Changes the MCP settings and the admin settings except the LLM connection and base URL, manages recipients, publishes saved queries as MCP tools, sets repository tokens.', conflicts: ['Approver', 'Auditor'] },
-	{ name: 'UserAdmin', grants: 'Manages external users, their roles and sessions, revokes API keys, changes the owner of scheduled work, manages project members, restricts projects.', conflicts: ['Auditor', 'Approver', 'MigrationOperator'] },
+	{ name: 'UserAdmin', grants: 'Manages external users, their roles and sessions, sees what a user owns, created or changed last, revokes API keys, changes the owner of scheduled work, manages project members, restricts projects.', conflicts: ['Auditor', 'Approver', 'MigrationOperator'] },
 	{ name: 'DataSourceAdmin', grants: 'Creates, tests and deletes data sources, links a source no open project holds into a project it administers, changes shared data-source state.', conflicts: [] },
 	{ name: 'MigrationOperator', grants: 'Runs data migration for the jobs whose data sources it may query and write. Mapped only while migrations are enabled.', conflicts: ['UserAdmin'] },
 ];
@@ -145,6 +145,7 @@ const LOCKS = [
 	{ name: 'Data migration', key: 'Beacon:Migrations:Enabled', value: 'false', state: 'off', pins: 'The only write path. Off: no migration endpoints, no jobs, for anyone.' },
 	{ name: 'No content retention', key: 'Beacon:Mcp:ForceNoContentRetention', value: 'false', state: 'optin', pins: 'Set to true: no question, SQL or error text stored with MCP audit rows.' },
 	{ name: 'No row data to the LLM', key: 'Beacon:Mcp:ForbidRowDataToLlm', value: 'false', state: 'optin', pins: 'Set to true: no row values (samples, value grounding, eval judging) reach the LLM provider.' },
+	{ name: 'Audit content kept', key: 'Beacon:Mcp:Audit:RequireContent', value: 'false', state: 'optin', pins: 'Set to true: MCP audit rows keep the question and the SQL of every statement a call ran; nobody can switch retention off.' },
 	{ name: 'MCP row limit ceiling', key: 'Beacon:Mcp:Ceilings:MaxRowLimit', value: 'none', state: 'optin', pins: 'Set a number: the upper bound for every project\'s MCP row limit.' },
 ];
 
@@ -152,12 +153,14 @@ const EVENTS = [
 	{ t: '08:59:41', id: '9100', name: 'McpToolAudited', note: 'Tool=query ProjectId=12 Rows=48 DurationMs=212' },
 	{ t: '09:02:13', id: '7108', name: 'AccessRefused', note: 'a 403: ids, reason, principal kind' },
 	{ t: '09:05:20', id: '7101', name: 'MemberAdded', note: 'project and user ids only' },
+	{ t: '09:05:20', id: '9104', name: 'SecurityAuditRecorded', note: 'Action=access.member_added, committed and signed' },
 	{ t: '09:11:02', id: '7113', name: 'UserRolesChanged', note: 'sessions of the user end', alert: true },
 	{ t: '09:14:37', id: '7115', name: 'MigrationWritesChanged', note: 'write-target flag changed', alert: true },
 	{ t: '09:20:05', id: '7111', name: 'ScheduledWorkSkipped', note: 'owner not authorized' },
 	{ t: '09:31:44', id: '7119', name: 'BreakGlassSignIn', note: 'logged as a warning', alert: true },
 	{ t: '09:40:10', id: '7123', name: 'RowDataSentToLlm', note: 'Categories=sample-values' },
-	{ t: '09:46:58', id: '9103', name: 'McpAuditRead', note: 'reading the audit is audited' },
+	{ t: '09:46:58', id: '9103', name: 'McpAuditRead', note: 'recorded first as audit.mcp_audit_read' },
+	{ t: '10:15:02', id: '9109', name: 'SecurityAuditCheckpoint', note: 'hourly verification: Checked=212 Failed=0' },
 ];
 
 const APPROVE_BODY = `{
@@ -469,24 +472,28 @@ const APPROVE_BODY = `{
 		<p class="note">Values shown are the defaults. The first three are pinned out of the box; the others pin their setting once the host sets them. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Every MCP setting change is recorded in the settings history with who changed it.</p>
 	</Section>
 
-	<Section num="07" label="Audit and security events" title="Every layer leaves a record." lede="Beacon keeps two audit tables and writes security-relevant actions as structured log events with identifiers only. The log events are not stored by Beacon: ship them to your log pipeline and alert on them.">
+	<Section num="07" label="Audit and security events" title="Every layer leaves a record." lede="Beacon keeps three audit records in its own database: an append-only, signed security audit trail, the MCP audit log and the settings history. It also writes a copy of every committed trail event, and security-relevant log events with identifiers only, to the log stream: ship them to your SIEM and alert on them.">
 		<div class="audit">
 			<div class="stack">
 				<div class="card rec">
+					<h3>Security audit trail</h3>
+					<p>One append-only event per security-relevant action: sign-ins, users and roles, API keys, project access, data sources, delivery, settings, approvals, ownership, curation, data quality, migrations and every read of audit data. Each event is signed and verified on a schedule and before a purge. Auditors read and verify it on the Security Audit page.</p>
+				</div>
+				<div class="card rec">
 					<h3>MCP audit log</h3>
-					<p>One row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id. Optional fail-closed mode withholds a result whose row could not be written. Auditors read it.</p>
+					<p>One row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id, and every statement the call ran (its SQL where content is retained). Optional fail-closed mode withholds a result whose row could not be written. Auditors read it.</p>
 				</div>
 				<div class="card rec">
 					<h3>Settings history</h3>
 					<p>Admin settings, MCP settings and migration write-target changes, with the old and new value (secrets as <code>***</code>) and who made the change.</p>
 				</div>
 				<div class="card rec">
-					<h3>Security events</h3>
-					<p>Structured log events 7101 to 7123, ids only, no personal data. Alert at least on 7119, 7113, 7114, 7115 and 7116.</p>
+					<h3>Log stream</h3>
+					<p>Security log events 7101 to 7123 and the <code>Beacon.Audit</code> events, ids only, no personal data. Alert at least on 7119, 7113, 7114, 7115 and 7116, and on audit write or verification failures (9107, 9108).</p>
 				</div>
 			</div>
 			<div class="terminal stream">
-				<div class="terminalBar"><i /><i /><i /><span class="terminalLabel">log pipeline · Beacon.Audit and security events</span></div>
+				<div class="terminalBar"><i /><i /><i /><span class="terminalLabel">log stream · Beacon.Audit and security events</span></div>
 				<ol class="events">
 					{
 						EVENTS.map((x, i) => (

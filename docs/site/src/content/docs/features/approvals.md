@@ -104,6 +104,8 @@ While the workflow is on, whoever requested or approved the version a saved-quer
 
 The reviewer is always the signed-in caller, never an id in the request. Decisions push an `ApprovalUpdated` event to the requester and reviewer over the realtime hub.
 
+Every submission and decision is recorded in the [security audit trail](/features/security-audit/#event-catalogue): `approvals.query_change_*` for query versions, `approvals.change_*` for change requests (with the kind, the resource id and the requests a submission supersedes) and `approvals.ai_plan_*` for AI actor plans. The reviewer is the event's actor, and a decision commits together with its event; a decision on a query change or a change request also names its requester by user id. Neither the proposed content nor a comment is stored in the event.
+
 ## Turning it on in an existing installation
 
 1. Make sure at least two people hold Approver.

@@ -148,8 +148,9 @@ See [Configuration](/getting-started/configuration/) and [Admin settings](/featu
 
 ## Audit
 
-- **MCP audit log**: one row per MCP tool call, including refusals and errors. Readable by Auditors and Admins.
+- **MCP audit log**: one row per MCP tool call, including refusals and errors, with every statement the call ran on a data source. Readable by Auditors and Admins.
 - **Setting history**: every admin setting, MCP setting and migration-write-target change, with old value, new value and who changed it.
-- **Security events**: structured log events (event ids 7101–7123) for membership changes, refused access, sign-in events and more. They go to the host's log pipeline.
+- **Security audit trail**: one append-only, signed event per security-relevant action (sign-ins, users and roles, API keys, project access, data sources, delivery, settings, approvals, ownership, curation, data quality, migrations and reads of audit data), by id only. Auditors read and verify it on the **Security Audit** page.
+- **Security log events**: structured log events (event ids 7101 to 7123) for membership changes, refused access, sign-in events and more. They go to the host's log pipeline.
 
-See [MCP observability & audit](/features/mcp-observability-and-audit/).
+See [Security audit trail](/features/security-audit/) and [MCP observability & audit](/features/mcp-observability-and-audit/).
