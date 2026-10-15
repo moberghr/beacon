@@ -17,10 +17,299 @@ namespace Beacon.SampleProject.Warp.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.AdapterCallLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AdapterName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("adapter_name");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("correlation_id");
+
+                    b.Property<double>("DurationMs")
+                        .HasColumnType("double precision")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ExceptionMessage")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("exception_message");
+
+                    b.Property<string>("ExceptionType")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("exception_type");
+
+                    b.Property<DateTime?>("ExpireAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expire_at");
+
+                    b.Property<string>("GroupName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("group_name");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("machine_name");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("operation");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("RequestBody")
+                        .HasColumnType("text")
+                        .HasColumnName("request_body");
+
+                    b.Property<string>("RequestHeaders")
+                        .HasColumnType("text")
+                        .HasColumnName("request_headers");
+
+                    b.Property<string>("RequestSummary")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("request_summary");
+
+                    b.Property<string>("ResponseBody")
+                        .HasColumnType("text")
+                        .HasColumnName("response_body");
+
+                    b.Property<string>("ResponseHeaders")
+                        .HasColumnType("text")
+                        .HasColumnName("response_headers");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("status_code");
+
+                    b.Property<string>("TagsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("tags_json");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("trace_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_adapter_call_log");
+
+                    b.HasIndex("ExpireAt")
+                        .HasDatabaseName("ix_adapter_call_log_expire_at");
+
+                    b.HasIndex("AdapterName", "CorrelationId")
+                        .HasDatabaseName("ix_adapter_call_log_adapter_name_correlation_id");
+
+                    b.HasIndex("AdapterName", "Timestamp")
+                        .HasDatabaseName("ix_adapter_call_log_adapter_name_timestamp");
+
+                    b.HasIndex("AdapterName", "GroupName", "Timestamp")
+                        .HasDatabaseName("ix_adapter_call_log_adapter_name_group_name_timestamp");
+
+                    b.ToTable("adapter_call_log", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.AdapterDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int?>("CallLogRetentionCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("call_log_retention_count");
+
+                    b.Property<string>("ConfigSummary")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("config_summary");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_seen_at");
+
+                    b.Property<string>("GroupLabel")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("group_label");
+
+                    b.Property<bool>("HasPolicyConflict")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_policy_conflict");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("SharedPolicyHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("shared_policy_hash");
+
+                    b.Property<string>("SharedPolicyJson")
+                        .HasColumnType("text")
+                        .HasColumnName("shared_policy_json");
+
+                    b.HasKey("Id")
+                        .HasName("pk_adapter_definition");
+
+                    b.HasIndex("LastSeenAt")
+                        .HasDatabaseName("ix_adapter_definition_last_seen_at");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_adapter_definition_name");
+
+                    b.ToTable("adapter_definition", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.ApplicationInstance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application_name");
+
+                    b.Property<double?>("CpuUsagePercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("cpu_usage_percent");
+
+                    b.Property<string>("Environment")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("environment");
+
+                    b.Property<DateTime>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("machine_name");
+
+                    b.Property<long?>("MemoryWorkingSetBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("memory_working_set_bytes");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_application_instance");
+
+                    b.HasIndex("ApplicationName")
+                        .HasDatabaseName("ix_application_instance_application_name");
+
+                    b.HasIndex("LastHeartbeatAt")
+                        .HasDatabaseName("ix_application_instance_last_heartbeat_at");
+
+                    b.ToTable("application_instance", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.ApplicationInstanceLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application_name");
+
+                    b.Property<int>("EventType")
+                        .HasColumnType("integer")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTime?>("ExpireAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expire_at");
+
+                    b.Property<Guid>("InstanceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("instance_id");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("message");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.HasKey("Id")
+                        .HasName("pk_application_instance_log");
+
+                    b.HasIndex("ExpireAt")
+                        .HasDatabaseName("ix_application_instance_log_expire_at");
+
+                    b.HasIndex("ApplicationName", "Timestamp")
+                        .HasDatabaseName("ix_application_instance_log_application_name_timestamp");
+
+                    b.HasIndex("InstanceId", "Timestamp")
+                        .HasDatabaseName("ix_application_instance_log_instance_id_timestamp");
+
+                    b.ToTable("application_instance_log", "warp");
+                });
 
             modelBuilder.Entity("Warp.Core.Data.Entities.BackgroundServiceDefinition", b =>
                 {
@@ -215,6 +504,112 @@ namespace Beacon.SampleProject.Warp.Migrations
                     b.ToTable("circuit_breaker_state", "warp");
                 });
 
+            modelBuilder.Entity("Warp.Core.Data.Entities.ClientEventLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<string>("Breadcrumbs")
+                        .HasColumnType("text")
+                        .HasColumnName("breadcrumbs");
+
+                    b.Property<DateTime?>("ExpireAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expire_at");
+
+                    b.Property<string>("Level")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("level");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("message");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Properties")
+                        .HasColumnType("text")
+                        .HasColumnName("properties");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Release")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("release");
+
+                    b.Property<string>("RemoteIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("remote_ip");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("Stack")
+                        .HasColumnType("text")
+                        .HasColumnName("stack");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<Guid?>("TraceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("trace_id");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer")
+                        .HasColumnName("type");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("url");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("user_agent");
+
+                    b.Property<double?>("Value")
+                        .HasColumnType("double precision")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_client_event_log");
+
+                    b.HasIndex("ExpireAt")
+                        .HasDatabaseName("ix_client_event_log_expire_at");
+
+                    b.HasIndex("Application", "Timestamp")
+                        .HasDatabaseName("ix_client_event_log_application_timestamp");
+
+                    b.HasIndex("SessionId", "Timestamp")
+                        .HasDatabaseName("ix_client_event_log_session_id_timestamp");
+
+                    b.HasIndex("Type", "Timestamp")
+                        .HasDatabaseName("ix_client_event_log_type_timestamp");
+
+                    b.ToTable("client_event_log", "warp");
+                });
+
             modelBuilder.Entity("Warp.Core.Data.Entities.ConcurrencyLimit", b =>
                 {
                     b.Property<string>("Name")
@@ -261,6 +656,326 @@ namespace Beacon.SampleProject.Warp.Migrations
                         .HasDatabaseName("ix_counter_key");
 
                     b.ToTable("counter", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.EndpointCallLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<double>("DurationMs")
+                        .HasColumnType("double precision")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("ExceptionMessage")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("exception_message");
+
+                    b.Property<string>("ExceptionType")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("exception_type");
+
+                    b.Property<DateTime?>("ExpireAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expire_at");
+
+                    b.Property<string>("GroupName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("group_name");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("machine_name");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("method");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("operation");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("RemoteIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("remote_ip");
+
+                    b.Property<string>("RequestBody")
+                        .HasColumnType("text")
+                        .HasColumnName("request_body");
+
+                    b.Property<string>("RequestHeaders")
+                        .HasColumnType("text")
+                        .HasColumnName("request_headers");
+
+                    b.Property<string>("ResponseBody")
+                        .HasColumnType("text")
+                        .HasColumnName("response_body");
+
+                    b.Property<string>("ResponseHeaders")
+                        .HasColumnType("text")
+                        .HasColumnName("response_headers");
+
+                    b.Property<string>("RouteTemplate")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("route_template");
+
+                    b.Property<string>("Session")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("session");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("status_code");
+
+                    b.Property<string>("TagsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("tags_json");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<Guid?>("TraceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("trace_id");
+
+                    b.Property<string>("User")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("user");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("user_agent");
+
+                    b.HasKey("Id")
+                        .HasName("pk_endpoint_call_log");
+
+                    b.HasIndex("ExpireAt")
+                        .HasDatabaseName("ix_endpoint_call_log_expire_at");
+
+                    b.HasIndex("TraceId")
+                        .HasDatabaseName("ix_endpoint_call_log_trace_id");
+
+                    b.HasIndex("Session", "Timestamp")
+                        .HasDatabaseName("ix_endpoint_call_log_session_timestamp");
+
+                    b.HasIndex("Method", "RouteTemplate", "Timestamp")
+                        .HasDatabaseName("ix_endpoint_call_log_method_route_template_timestamp");
+
+                    b.ToTable("endpoint_call_log", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.ErrorGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<long>("Count")
+                        .HasColumnType("bigint")
+                        .HasColumnName("count");
+
+                    b.Property<string>("Culprit")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("culprit");
+
+                    b.Property<string>("Environment")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("environment");
+
+                    b.Property<string>("ExceptionType")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("exception_type");
+
+                    b.Property<DateTime?>("ExpireAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expire_at");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_seen_at");
+
+                    b.Property<string>("FirstSeenVersion")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("first_seen_version");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("LastSample")
+                        .HasColumnType("text")
+                        .HasColumnName("last_sample");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("LastSeenVersion")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("last_seen_version");
+
+                    b.Property<string>("RecentSamples")
+                        .HasColumnType("text")
+                        .HasColumnName("recent_samples");
+
+                    b.Property<Guid?>("SampleTraceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sample_trace_id");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime?>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("status_changed_at");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("status_code");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_error_group");
+
+                    b.HasIndex("ExpireAt")
+                        .HasDatabaseName("ix_error_group_expire_at");
+
+                    b.HasIndex("Fingerprint")
+                        .IsUnique()
+                        .HasDatabaseName("ix_error_group_fingerprint");
+
+                    b.HasIndex("Source", "Status", "LastSeenAt")
+                        .HasDatabaseName("ix_error_group_source_status_last_seen_at");
+
+                    b.ToTable("error_group", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.ErrorOccurrence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<string>("Culprit")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("culprit");
+
+                    b.Property<string>("Environment")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("environment");
+
+                    b.Property<string>("ExceptionType")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("exception_type");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("message");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Stack")
+                        .HasColumnType("text")
+                        .HasColumnName("stack");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("status_code");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("timestamp");
+
+                    b.Property<Guid?>("TraceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("trace_id");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_error_occurrence");
+
+                    b.HasIndex("Timestamp")
+                        .HasDatabaseName("ix_error_occurrence_timestamp");
+
+                    b.ToTable("error_occurrence", "warp");
                 });
 
             modelBuilder.Entity("Warp.Core.Data.Entities.JobLog", b =>
@@ -559,9 +1274,19 @@ namespace Beacon.SampleProject.Warp.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
                     b.Property<double?>("CpuUsagePercent")
                         .HasColumnType("double precision")
                         .HasColumnName("cpu_usage_percent");
+
+                    b.Property<string>("Environment")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("environment");
 
                     b.Property<DateTime>("LastHeartbeatTime")
                         .HasColumnType("timestamp with time zone")
@@ -587,6 +1312,11 @@ namespace Beacon.SampleProject.Warp.Migrations
                     b.Property<DateTime>("StartedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_time");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("version");
 
                     b.HasKey("Id")
                         .HasName("pk_server");
@@ -690,6 +1420,109 @@ namespace Beacon.SampleProject.Warp.Migrations
                     b.ToTable("server_task", "warp");
                 });
 
+            modelBuilder.Entity("Warp.Core.Data.Entities.SloDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Dimension")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("dimension");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int?>("Percentile")
+                        .HasColumnType("integer")
+                        .HasColumnName("percentile");
+
+                    b.Property<double>("TargetValue")
+                        .HasColumnType("double precision")
+                        .HasColumnName("target_value");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int>("WindowSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("window_seconds");
+
+                    b.HasKey("Id")
+                        .HasName("pk_slo_definition");
+
+                    b.HasIndex("Kind", "Dimension", "Application")
+                        .HasDatabaseName("ix_slo_definition_kind_dimension_application");
+
+                    b.ToTable("slo_definition", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.SloEvaluation", b =>
+                {
+                    b.Property<int>("SloDefinitionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("slo_definition_id");
+
+                    b.Property<DateTime?>("AcknowledgedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acknowledged_until");
+
+                    b.Property<double>("Attainment")
+                        .HasColumnType("double precision")
+                        .HasColumnName("attainment");
+
+                    b.Property<double>("BudgetRemaining")
+                        .HasColumnType("double precision")
+                        .HasColumnName("budget_remaining");
+
+                    b.Property<double>("BurnRateLong")
+                        .HasColumnType("double precision")
+                        .HasColumnName("burn_rate_long");
+
+                    b.Property<double>("BurnRateShort")
+                        .HasColumnType("double precision")
+                        .HasColumnName("burn_rate_short");
+
+                    b.Property<DateTime>("LastEvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_evaluated_at");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.HasKey("SloDefinitionId")
+                        .HasName("pk_slo_evaluation");
+
+                    b.ToTable("slo_evaluation", "warp");
+                });
+
             modelBuilder.Entity("Warp.Core.Data.Entities.Statistic", b =>
                 {
                     b.Property<string>("Key")
@@ -704,6 +1537,118 @@ namespace Beacon.SampleProject.Warp.Migrations
                         .HasName("pk_statistic");
 
                     b.ToTable("statistic", "warp");
+                });
+
+            modelBuilder.Entity("Warp.Core.Data.Entities.WebhookDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EventId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("event_type");
+
+                    b.Property<bool>("ExhaustedCallbackPending")
+                        .HasColumnType("boolean")
+                        .HasColumnName("exhausted_callback_pending");
+
+                    b.Property<DateTime?>("ExpireAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expire_at");
+
+                    b.Property<string>("GroupName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("group_name");
+
+                    b.Property<string>("HeadersJson")
+                        .HasColumnType("text")
+                        .HasColumnName("headers_json");
+
+                    b.Property<DateTime?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reference");
+
+                    b.Property<string>("RetrySchedule")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("retry_schedule");
+
+                    b.Property<string>("Secret")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("secret");
+
+                    b.Property<int>("SigningMode")
+                        .HasColumnType("integer")
+                        .HasColumnName("signing_mode");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("SuccessCodesJson")
+                        .HasColumnType("text")
+                        .HasColumnName("success_codes_json");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_delivery");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_webhook_delivery_created_at");
+
+                    b.HasIndex("ExpireAt")
+                        .HasDatabaseName("ix_webhook_delivery_expire_at");
+
+                    b.HasIndex("Reference")
+                        .HasDatabaseName("ix_webhook_delivery_reference");
+
+                    b.HasIndex("EventType", "CreatedAt")
+                        .HasDatabaseName("ix_webhook_delivery_event_type_created_at");
+
+                    b.HasIndex("Status", "NextAttemptAt")
+                        .HasDatabaseName("ix_webhook_delivery_status_next_attempt_at");
+
+                    b.ToTable("webhook_delivery", "warp");
                 });
 
             modelBuilder.Entity("Warp.Core.Data.Entities.Worker", b =>
@@ -785,6 +1730,11 @@ namespace Beacon.SampleProject.Warp.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Application")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("application");
+
                     b.Property<int>("CancellationMode")
                         .HasColumnType("integer")
                         .HasColumnName("cancellation_mode");
@@ -825,10 +1775,6 @@ namespace Beacon.SampleProject.Warp.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_keep_alive");
 
-                    b.Property<int>("MaxRetries")
-                        .HasColumnType("integer")
-                        .HasColumnName("max_retries");
-
                     b.Property<string>("Message")
                         .HasColumnType("text")
                         .HasColumnName("message");
@@ -849,10 +1795,6 @@ namespace Beacon.SampleProject.Warp.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("queue");
-
-                    b.Property<int>("RetriedTimes")
-                        .HasColumnType("integer")
-                        .HasColumnName("retried_times");
 
                     b.Property<DateTime>("ScheduleTime")
                         .HasColumnType("timestamp with time zone")
@@ -878,6 +1820,9 @@ namespace Beacon.SampleProject.Warp.Migrations
 
                     b.HasIndex("TraceId")
                         .HasDatabaseName("ix_job_trace_id");
+
+                    b.HasIndex("CurrentState", "ScheduleTime")
+                        .HasDatabaseName("ix_job_current_state_schedule_time");
 
                     b.HasIndex("ParentJobId", "CurrentState")
                         .HasDatabaseName("ix_job_parent_job_id_current_state");
