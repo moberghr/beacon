@@ -23,6 +23,7 @@ using Beacon.Core.Services;
 using Beacon.Tests.Common;
 using Beacon.Tests.Unit.ChangeGovernance;
 using Beacon.Core.Authorization;
+using Beacon.Core.HostData;
 
 namespace Beacon.Tests.Unit.SecurityAudit;
 
@@ -259,7 +260,7 @@ public class GovernanceEventTests
     private static MigrationService Migrations(ChangeApprovalStore store, ISecurityAuditRecorder audit) =>
         new(
             store.Factory(),
-            Mock.Of<IEncryptionService>(),
+            Mock.Of<IDataSourceConnectionResolver>(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<IQueryExecutionPreviewService>(MockBehavior.Strict),
             Mock.Of<IBeaconUserContext>(),

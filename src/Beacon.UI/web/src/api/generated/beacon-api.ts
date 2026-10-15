@@ -18604,6 +18604,7 @@ export interface DataSourceEntry {
   projects?: DataSourceProjectChip[];
   otherProjectCount?: number;
   databaseReadOnlyEnforced?: boolean | null;
+  transportVerified?: boolean | null;
 
   [key: string]: any;
 }

@@ -2,6 +2,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.HostData;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Services.Providers;
 
@@ -9,11 +10,12 @@ namespace Beacon.Core.Services.Providers;
 /// The "transport not verified" badge of the data-source pages: whether each data source's connection authenticates the
 /// server over TLS (<see cref="IDataSourceConnectionResolver.InspectTransport"/>), without connecting. Null for a source
 /// whose connection data cannot be read (encrypted under a key no longer configured, or a host connection string that is
-/// missing).
+/// missing), and for a migration write target, whose connection data is never decrypted to show a badge.
 /// </summary>
 internal sealed class DataSourceTransportStatus(
     IDbContextFactory<BeaconContext> contextFactory,
-    IDataSourceConnectionResolver connectionResolver)
+    IDataSourceConnectionResolver connectionResolver,
+    ILogger<DataSourceTransportStatus> logger)
 {
     public async Task<Dictionary<int, bool?>> VerifiedAsync(IReadOnlyCollection<int> dataSourceIds, CancellationToken cancellationToken)
     {
@@ -34,7 +36,8 @@ internal sealed class DataSourceTransportStatus(
                     DataSourceType = x.DataSourceType,
                     DatabaseEngineType = x.DatabaseEngineType,
                     EncryptedConnectionData = x.EncryptedConnectionData,
-                    HostManagedKey = x.HostManagedKey
+                    HostManagedKey = x.HostManagedKey,
+                    AllowMigrationWrites = x.AllowMigrationWrites
                 })
             .ToListAsync(cancellationToken);
 
@@ -49,13 +52,24 @@ internal sealed class DataSourceTransportStatus(
 
     private bool? Verified(DataSource dataSource)
     {
+        if (dataSource.AllowMigrationWrites)
+        {
+            return null;
+        }
+
         try
         {
             return connectionResolver.InspectTransport(dataSource).Verified;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // The connection data cannot be read: the badge says unknown, and the source's connections fail on the same read.
+            // The exception's message can quote the connection data, so only its type is logged.
+            logger.LogWarning(
+                "The transport badge of data source {DataSourceId} is unknown: its connection data could not be read ({ExceptionType})",
+                dataSource.Id,
+                ex.GetType().Name);
+
             return null;
         }
     }

@@ -9,7 +9,10 @@ using Beacon.Connector.Snowflake;
 using Beacon.Connector.SqlServer;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -44,5 +47,11 @@ internal static class TestTransport
             Inspectors(),
             Options.Create(new DataSourceTransportOptions { AllowInsecure = allowInsecure, EnforceOnExisting = enforceOnExisting }),
             logger ?? NullLogger<DataSourceTransportPolicy>.Instance);
+    }
+
+    /// <summary>The connection resolver over <paramref name="encryption"/>, with no host connection strings configured.</summary>
+    public static IDataSourceConnectionResolver Resolver(IEncryptionService encryption, IDataSourceTransportPolicy? policy = null)
+    {
+        return new DataSourceConnectionResolver(encryption, new ConfigurationBuilder().Build(), policy ?? Policy());
     }
 }

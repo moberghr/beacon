@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 
 namespace Beacon.Api.Authentication;
@@ -7,8 +6,10 @@ namespace Beacon.Api.Authentication;
 /// The requests Beacon's authentication middlewares handle: <c>/beacon</c> and the prefixes in
 /// <c>Beacon:Authentication:AdditionalPaths</c> (<see cref="AuthenticationPathOptions"/>), matched by whole segments and
 /// ignoring case against <see cref="HttpRequest.Path"/>, which excludes the host's path base. The API-key, bearer JWT and
-/// cookie middlewares and the login and first-run redirects pass every other request on untouched, so a Beacon credential
-/// never authenticates a host route.
+/// cookie middlewares and the login and first-run redirects pass every other request on untouched, and the cookie
+/// scheme's own events (<see cref="BeaconSessionEvents"/>) refuse the <c>Beacon.Auth</c> session there, also when the
+/// host's <c>UseAuthentication</c> or policies authenticate with the cookie scheme: a Beacon credential never
+/// authenticates a host route.
 /// </summary>
 public static class BeaconRequestPaths
 {
@@ -20,23 +21,9 @@ public static class BeaconRequestPaths
             return true;
         }
 
-        var options = context.RequestServices?.GetService<IOptions<AuthenticationPathOptions>>()?.Value;
-        if (options == null)
-        {
-            return false;
-        }
+        // The listed prefixes, normalized once (AuthenticationPathPrefixes); without them only /beacon is Beacon's.
+        var prefixes = context.RequestServices?.GetService<AuthenticationPathPrefixes>();
 
-        foreach (var entry in options.AdditionalPaths)
-        {
-            // Validated at startup; an entry that is not a path prefix is never matched, so it cannot widen the scope.
-            var prefix = AuthenticationPathOptions.Normalize(entry);
-            if (AuthenticationPathOptions.IsValidPrefix(prefix)
-                && path.StartsWithSegments(new PathString(prefix), StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return prefixes != null && prefixes.Matches(path);
     }
 }

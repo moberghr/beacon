@@ -32,6 +32,10 @@ namespace Beacon.Api.Authentication;
 /// keeps the security stamp its password was verified with (<see cref="SessionStampExpectation"/>): a user whose stamp
 /// changed meanwhile gets no session. A host without Beacon user management keeps its own principals: only the lifetime
 /// applies.
+/// The session belongs to Beacon's routes (<see cref="BeaconRequestPaths"/>): on any other route the cookie scheme
+/// authenticates nothing, whoever asks it (the host's <c>UseAuthentication</c> with the cookie as its default scheme, or a
+/// policy naming the scheme). The session is refused there before anything else: no check against the user store, no
+/// renewal, and the cookie is left as it is.
 /// Runs inside the cookie handler, so <see cref="BeaconCookieAuthMiddleware"/> and every other cookie authentication
 /// of the request see its outcome (§1.9 order unchanged). Ids only in logs (§1.11).
 /// </summary>
@@ -123,11 +127,12 @@ internal static class BeaconSessionEvents
 
     /// <summary>
     /// The cookie scheme's own sliding renewal, decided from the ticket as stored before
-    /// <see cref="ValidatePrincipalAsync"/> runs: a realtime hub request never renews the cookie, so none is made for it.
+    /// <see cref="ValidatePrincipalAsync"/> runs: a realtime hub request never renews the cookie, so none is made for it,
+    /// and neither does a request outside Beacon's routes, where the session is refused.
     /// </summary>
     public static Task CheckSlidingExpirationAsync(CookieSlidingExpirationContext context)
     {
-        if (IsHubRequest(context.HttpContext))
+        if (IsHubRequest(context.HttpContext) || !BeaconRequestPaths.IsBeaconRequest(context.HttpContext))
         {
             context.ShouldRenew = false;
         }
@@ -135,9 +140,19 @@ internal static class BeaconSessionEvents
         return Task.CompletedTask;
     }
 
-    /// <summary>Checks the session as the class describes; a refused session is rejected and its cookie deleted.</summary>
+    /// <summary>
+    /// Checks the session as the class describes; a refused session is rejected and its cookie deleted. Outside Beacon's
+    /// routes the session is rejected without a check, and its cookie is kept.
+    /// </summary>
     public static async Task ValidatePrincipalAsync(CookieValidatePrincipalContext context)
     {
+        // Outside Beacon's routes the session authenticates nothing; it is not checked, renewed or signed out there.
+        if (!BeaconRequestPaths.IsBeaconRequest(context.HttpContext))
+        {
+            context.RejectPrincipal();
+            return;
+        }
+
         var services = context.HttpContext.RequestServices;
         var lifetime = LifetimeOptions(services);
         var now = (context.Options.TimeProvider ?? TimeProvider.System).GetUtcNow();

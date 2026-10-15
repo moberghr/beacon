@@ -13,6 +13,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Providers;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
@@ -110,6 +111,22 @@ public class MigrationServiceWriteTargetTests
         act.Should().Throw<InvalidOperationException>().WithMessage(reason);
         encryption.Verify(x => x.Decrypt(It.IsAny<string>()), Times.Never);
         _connectionsOpened.Should().Be(0);
+    }
+
+    [Test]
+    public async Task TheWritersConnection_PassesTheTransportCheck_BeforeItOpens()
+    {
+        Job(ReadSource, WriteTarget);
+        var service = Service(transport: TestTransport.Policy(enforceOnExisting: true));
+
+        var connect = () => service.CreateDatabaseConnection(_world.DataSources.First(x => x.Id == WriteTarget));
+        var run = await service.ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        connect.Should().Throw<InvalidOperationException>().WithInnerException<DataSourceTransportException>();
+        run.Status.Should().Be(MigrationStatus.Failed);
+        run.ErrorMessage.Should().Contain("authenticates the server over TLS");
+        _connectionsOpened.Should().Be(0, "the destination's connection does not authenticate the server, so it is never opened");
+        _destination.ExecutedCommands.Should().BeEmpty();
     }
 
     [Test]
@@ -362,7 +379,8 @@ public class MigrationServiceWriteTargetTests
         bool enabled = true,
         int maxRows = MigrationOptions.DefaultMaxRows,
         Mock<IEncryptionService>? encryption = null,
-        ISecurityAuditRecorder? audit = null)
+        ISecurityAuditRecorder? audit = null,
+        IDataSourceTransportPolicy? transport = null)
     {
         if (encryption == null)
         {
@@ -372,7 +390,7 @@ public class MigrationServiceWriteTargetTests
 
         return new MigrationService(
             _world.Factory(),
-            encryption.Object,
+            TestTransport.Resolver(encryption.Object, transport),
             Mock.Of<IQueryService>(),
             _preview.Object,
             Mock.Of<IBeaconUserContext>(),

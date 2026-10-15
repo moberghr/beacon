@@ -32,6 +32,7 @@ using Beacon.Tests.Common;
 using Beacon.Tests.Unit.ChangeGovernance;
 using Beacon.Tests.Unit.Notifications;
 using Beacon.Core.Models;
+using Beacon.Core.HostData;
 
 namespace Beacon.Tests.Unit.SecurityAudit;
 
@@ -410,7 +411,7 @@ public class DataResourceEventTests
     private MigrationService Migrations(ChangeApprovalStore store, BeaconConfiguration configuration) =>
         new(
             store.Factory(),
-            Mock.Of<IEncryptionService>(),
+            Mock.Of<IDataSourceConnectionResolver>(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<IQueryExecutionPreviewService>(MockBehavior.Strict),
             Mock.Of<IBeaconUserContext>(),

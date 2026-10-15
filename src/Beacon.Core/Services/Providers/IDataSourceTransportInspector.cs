@@ -33,6 +33,9 @@ public sealed record DataSourceTransportVerdict
 
     public DataSourceTransportTarget? Target { get; private init; }
 
+    /// <summary>The connection data could not be read at all (empty, or rejected by the connector's parser).</summary>
+    public bool Unreadable { get; private init; }
+
     public static DataSourceTransportVerdict Pass(DataSourceTransportTarget? target = null)
     {
         return new DataSourceTransportVerdict { Verified = true, Target = target };
@@ -44,9 +47,9 @@ public sealed record DataSourceTransportVerdict
     }
 
     /// <summary>The connection data could not be parsed: nothing can be verified. The parser's message is not kept.</summary>
-    public static DataSourceTransportVerdict Unreadable()
+    public static DataSourceTransportVerdict NotReadable()
     {
-        return Fail("connection string", "Enter a connection string the engine's driver can read");
+        return Fail("connection string", "Enter a connection string the engine's driver can read") with { Unreadable = true };
     }
 }
 

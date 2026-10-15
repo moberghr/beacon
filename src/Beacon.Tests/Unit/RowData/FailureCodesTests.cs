@@ -128,7 +128,7 @@ public class FailureCodesTests
         encryption
             .Setup(x => x.Decrypt(It.IsAny<string>()))
             .Throws(new AmazonCloudWatchLogsException(Secret) { ErrorCode = "AccessDeniedException" });
-        var provider = new CloudWatchProvider(encryption.Object, log.For<CloudWatchProvider>());
+        var provider = new CloudWatchProvider(TestTransport.Resolver(encryption.Object), log.For<CloudWatchProvider>());
         var source = new DataSource { Id = 9, Name = "logs", DataSourceType = DataSourceType.CloudWatch, EncryptedConnectionData = "encrypted" };
 
         var result = await provider.ExecuteQueryAsync(source, "fields @message", [], CancellationToken.None);

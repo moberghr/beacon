@@ -208,11 +208,11 @@ public class ConnectorReadOnlyBindingTests
             .Setup(x => x.CreateClient(It.IsAny<string>()))
             .Returns(() => new HttpClient(handler, disposeHandler: false));
 
-        return new DatabricksProvider(clients.Object, encryption.Object, new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<DatabricksProvider>.Instance);
+        return new DatabricksProvider(clients.Object, TestTransport.Resolver(encryption.Object), new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<DatabricksProvider>.Instance);
     }
 
     private sealed class FixedClientBigQueryProvider(BigQueryClient client, IEncryptionService encryption)
-        : BigQueryProvider(encryption, new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<BigQueryProvider>.Instance)
+        : BigQueryProvider(TestTransport.Resolver(encryption), new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<BigQueryProvider>.Instance)
     {
         protected override BigQueryClient CreateClient(BigQueryConfiguration config) => client;
     }
