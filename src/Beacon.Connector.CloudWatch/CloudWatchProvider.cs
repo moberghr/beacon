@@ -105,7 +105,11 @@ public class CloudWatchProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Query execution failed for CloudWatch data source {DataSourceId}", dataSource.Id);
+            // The type and code only (§1.11): a CloudWatch error message can quote the query and log content.
+            logger.LogError(
+                "Query execution failed for CloudWatch data source {DataSourceId} with {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
 
             stopwatch.Stop();
 
@@ -239,7 +243,10 @@ public class CloudWatchProvider(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Query validation failed for CloudWatch data source {DataSourceId}", dataSource.Id);
+            logger.LogWarning(
+                "Query validation failed for CloudWatch data source {DataSourceId} with {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
 
             return Task.FromResult(new QueryValidationResult
             {
@@ -297,17 +304,17 @@ public class CloudWatchProvider(
         }
         catch (Amazon.CloudWatchLogs.Model.InvalidParameterException ex)
         {
-            logger.LogError(ex, "Invalid parameter in CloudWatch query");
+            logger.LogError("Invalid parameter in CloudWatch query: {Failure}", FailureCodes.Describe(ex));
             throw new BeaconException($"Invalid CloudWatch query parameter: {ex.Message}", ex);
         }
         catch (Amazon.CloudWatchLogs.Model.ResourceNotFoundException ex)
         {
-            logger.LogError(ex, "CloudWatch resource not found");
+            logger.LogError("CloudWatch resource not found: {Failure}", FailureCodes.Describe(ex));
             throw new BeaconException($"CloudWatch log group not found: {ex.Message}", ex);
         }
         catch (AmazonCloudWatchLogsException ex)
         {
-            logger.LogError(ex, "AWS CloudWatch service error");
+            logger.LogError("AWS CloudWatch service error: {Failure}", FailureCodes.Describe(ex));
             throw new BeaconException($"CloudWatch service error: {ex.Message}", ex);
         }
 
@@ -389,7 +396,10 @@ public class CloudWatchProvider(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to stop CloudWatch query {QueryId}", queryId);
+            logger.LogWarning(
+                "Failed to stop CloudWatch query {QueryId} with {Failure}",
+                queryId,
+                FailureCodes.Describe(ex));
         }
     }
 

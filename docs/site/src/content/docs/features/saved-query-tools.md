@@ -13,11 +13,18 @@ cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `a
 1. Write the query as usual. Parameters are `{name}` placeholders in the step SQL, with a type (Number, DateTime,
    String) and a description — the description becomes the argument's description in the tool schema.
 2. Get a version **approved** (see [the approval rule](#which-version-runs)). With the approval workflow enabled,
-   saving SQL changes submits a version for approval; an admin approves it on the Approvals page.
-3. On the query's detail page, an **admin** opens the **MCP tool** card, ticks *Expose as MCP tool*, sets a name
-   and (optionally) a description, and saves. The card shows which approved version calls run, or why none can.
+   saving SQL changes submits a version for approval; an Approver (or an Admin) other than the requester approves it on
+   the Approvals page (see [Queries → Approval workflow](/features/queries/#approval-workflow)).
+3. On the query's detail page, a **SecurityAdmin** (or an Admin) opens the **MCP tool** card, ticks *Expose as MCP
+   tool*, sets a name and (optionally) a description, and saves. The card shows which approved version calls run, or why
+   none can. While the approval workflow is on, publishing is a third pair of eyes: whoever requested or approved the
+   version the tool runs cannot enable the tool, nor can a caller Beacon cannot name (an API key without an active
+   owner), who could be either (`403`), unless the host allows self-approval (`ApprovalWorkflow.AllowSelfApproval`).
+   The check is made when the tool is enabled: once published, the tool serves whichever version is approved next,
+   whoever requested or approved that one. With the workflow off nobody approves a change, and enabling is not checked
+   against approvals.
 
-The same through the API (Admin policy):
+The same through the API (the SecurityAdmin policy, see [Functional permissions](/features/authorization/#functional-permissions); anyone but an Admin publishes only a query they can read, `404` otherwise):
 
 ```http
 PUT /beacon/api/queries/42/mcp-tool
@@ -32,7 +39,7 @@ Rules the endpoint enforces:
 | --- | --- |
 | `name` | `^[a-z][a-z0-9_]{2,40}$`; the MCP tool is `q_<name>`. Unique across live (non-archived) queries — so it is unique in every project and always names one query. Required to enable. Two concurrent saves of the same name get the same "already used" error (`400`), never a `500`. |
 | `description` | Optional, at most 1000 characters. Falls back to the approved version's description, then its name. |
-| `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below). Disabling is always allowed; the name stays reserved while it is set. Disabling with a name another query already uses succeeds and keeps the query's stored name. |
+| `enabled: true` | Requires a runnable approved version whose parameters make a valid tool (see below), and, while the approval workflow is on, a signed-in caller with a user id who neither requested nor approved that version (`403` otherwise, unless the host allows self-approval; checked when enabling, not again when a later version is approved). Disabling is always allowed, by anyone who may publish; the name stays reserved while it is set. Disabling with a name another query already uses succeeds and keeps the query's stored name. |
 
 The query detail DTO (`GET /beacon/api/queries/{id}`) carries `mcpToolEnabled`, `mcpToolName`,
 `mcpToolDescription`, `mcpToolRunnableVersionNumber` and `mcpToolIssue`. `mcpToolIssue` explains why the query is not
@@ -44,20 +51,30 @@ not silently stay invisible.
 ## Which version runs
 
 A tool runs **only** the query's active version, and only when an approval request for **exactly that version** was
-approved. Nothing else is callable:
+approved. In the workflow's strict mode (`ApprovalWorkflow.RequireApprovedVersionToRun`) the approval must also have
+recorded the version's content hash, which binds it to exactly the content the reviewer approved: an approval recorded
+before Beacon kept content hashes names the version but not what it approved, so strict mode does not run that tool until
+the version is approved again (restore it and approve the submission). Outside strict mode such an
+approval still counts, and with the workflow on the host logs a startup Warning naming those tools (at most 20, with
+their count). In strict mode the startup Warning counts instead the queries with a tool or a subscription whose active
+version is not approved for its content hash. Nothing else is callable:
 
 | Version state | Callable? |
 | --- | --- |
-| Active, its approval request Approved | **Yes** — this is the only runnable version |
+| Active, its approval request Approved (in strict mode: for the version's content hash) | **Yes** — this is the only runnable version |
+| Active, approved before Beacon kept content hashes | Outside strict mode only (named in the startup Warning) |
 | Pending approval (a later edit) | No — the tool keeps running the approved version until the edit is approved |
-| Rejected | No |
-| Active without an approval (edited while the approval workflow was off, or restored from history) | No |
+| Rejected, or superseded by a newer submission | No |
+| Active without an approval (edited while the approval workflow was off, or restored from history while it was off) | No |
 | Draft / no version | No |
 
 A query with no runnable version is **not listed** as a tool at all, even when enabled. The tool executes the
 approved version's **snapshot** (its stored steps and final query), not the live step rows, so an unreviewed change
 to the live query can never change what the tool runs. In practice: enable the approval workflow
-(`options.ApprovalWorkflow.Enabled = true`) on hosts that use saved-query tools.
+(`options.ApprovalWorkflow.Enabled = true`) on hosts that use saved-query tools. With the workflow on, a version restore is
+submitted for approval like an edit, so restoring an older version never makes it callable without a new approval.
+Subscriptions follow the same rule in the workflow's strict mode
+(`ApprovalWorkflow.RequireApprovedVersionToRun`, see [Queries → Approval workflow](/features/queries/#approval-workflow)).
 
 A version is also not callable when its parameters cannot form a tool: a parameter without a placeholder, a name
 that is not a plain identifier, the reserved name `project_id`, or the same parameter declared with different types
@@ -139,17 +156,23 @@ When the approved SQL changes, the routine picks up the new version on its next 
 ## Security model
 
 - **Authorization is the caller's projects.** A tool is visible in a project only when that project contains
-  **every** data source the approved version reads. Listing and calling hard-filter on the caller's authorized
-  projects (the API key's `allowed_projects` or the mapped caller's projects): a query over a data source shared by
-  projects A and B shows in both only if each contains all of its sources, and a caller of A never sees a query that
-  needs a B-only source. A tool outside your projects answers exactly like one that does not exist. A caller with no
-  project access sees no tools (fail closed). When your credentials reach the same tool through several projects,
-  the schema offers `project_id` and the call requires it.
+  **every** data source the approved version reads, and only in the caller's projects where its
+  [project access](/features/authorization/#project-access) lets it run saved SQL (`Run`; the projects an API key or
+  mapped caller reaches are described in the [MCP Server guide](/features/mcp-server/#overview)): a query over a
+  data source shared by projects A and B shows in both only if each contains all of its sources, and a caller of A
+  never sees a query that needs a B-only source. A tool outside your projects answers exactly like one that does not
+  exist. A caller with no project access sees no tools (fail closed). When your credentials reach the same tool
+  through several projects, the schema offers `project_id` and the call requires it.
+- **Re-checked before it runs.** Right before any SQL runs, the call checks the steps it is about to run again: the
+  caller may still run saved SQL in the project, and the project still links every data source those steps read.
+  Otherwise the call fails ("not available in project N for your credentials") without running anything, and is
+  audited.
 - **Execute scope.** `/beacon/mcp` requires the Execute scope, so a Read-scoped API key cannot call saved-query
   tools; project-restricted API keys work and are held to their project list.
 - **Read-only execution (§1.5).** Every step's SQL, with its arguments bound, goes through the shared execution
   gate (regex guardrail → AST read-only validator → row limit) and runs through the provider's read-only variant — a
-  `READ ONLY` transaction on PostgreSQL. A final query joins the steps in in-memory SQLite behind the same gate.
+  `READ ONLY` transaction on PostgreSQL and MySQL. A final query joins the steps in in-memory SQLite behind the same
+  gate.
 - **Parameters, never interpolation (§1.10).** Each `{placeholder}` is replaced by a generated database parameter
   (`@p0`, `@p1`, …) and the value is sent as a parameter; argument text never reaches the SQL.
 - **Host-managed sources.** When a step reads a [host DbContext](/features/host-dbcontext/) data source, the host's

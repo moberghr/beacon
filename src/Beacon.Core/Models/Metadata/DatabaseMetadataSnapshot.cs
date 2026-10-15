@@ -7,7 +7,14 @@ public record DatabaseMetadataSnapshot(
     DatabaseEngineType? DatabaseEngineType,
     IReadOnlyList<TableMetadataDto> Tables,
     DateTime RefreshedAt
-);
+)
+{
+    /// <summary>
+    /// The table and column names the refresh that read this snapshot left out because they carry a quote, bracket,
+    /// semicolon or control character (logged by name); 0 for a snapshot read from storage.
+    /// </summary>
+    public int SkippedNameCount { get; init; }
+}
 
 public record TableMetadataDto(
     string SchemaName,

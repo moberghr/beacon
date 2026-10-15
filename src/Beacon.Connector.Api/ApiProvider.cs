@@ -113,7 +113,8 @@ public class ApiProvider(
 
             var request = ApiHttpClientHelper.CreateRequest(config, queryDef);
 
-            logger.LogInformation("Executing API query: {Method} {Path}", queryDef.Method, queryDef.Path);
+            // The data source only (§1.11): the path can carry identifiers or a credential in its query string.
+            logger.LogInformation("Executing API query on data source {DataSourceId}", dataSource.Id);
 
             using var response = await client.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -144,7 +145,11 @@ public class ApiProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Query execution failed for API data source {DataSourceId}", dataSource.Id);
+            // The type and status code only (§1.11): the message can quote the request URL or response content.
+            logger.LogError(
+                "Query execution failed for API data source {DataSourceId} with {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
             stopwatch.Stop();
 
             return new ProviderQueryResult

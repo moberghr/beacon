@@ -180,8 +180,8 @@ public class McpBearerChallengeHostTests
         var card = await host.GetJsonAsync("/.well-known/mcp/server-card.json");
 
         metadata.ContainsKey("authorization_servers").Should().BeFalse("no Beacon OIDC and nothing configured");
-        Strings(metadata["scopes_supported"]).Should().Equal("Execute", "Admin");
-        Strings(card["authentication"]!["scopes_supported"]).Should().Equal("Execute", "Admin");
+        Strings(metadata["scopes_supported"]).Should().Equal("Execute");
+        Strings(card["authentication"]!["scopes_supported"]).Should().Equal("Execute");
         metadata["resource"]!.GetValue<string>().Should().Be(card["endpoint"]!.GetValue<string>());
     }
 

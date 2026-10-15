@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using ModelContextProtocol.Protocol;
+using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -13,9 +14,10 @@ namespace Beacon.MCP.HostEndpoints;
 
 /// <summary>
 /// Lists and calls the host endpoint tools for one MCP request: fails closed unless the caller is a mapped
-/// (Entra user or system) caller authorized for the tools' project, builds the host principal, dispatches, maps the
-/// response to a tool result, and writes an audit row for every outcome (§1.7). Write tools
-/// (<see cref="HostEndpointToolOptions.AllowWriteTools"/>) are listed to and run for user callers only.
+/// (Entra user or system) caller configured for the tools' project and allowed to read it by its project access
+/// (<see cref="IProjectAccessEvaluator"/>), builds the host principal, dispatches, maps the response to a tool result,
+/// and writes an audit row for every outcome (§1.7). Write tools (<see cref="HostEndpointToolOptions.AllowWriteTools"/>)
+/// are listed to and run for user callers only.
 /// </summary>
 internal sealed class HostEndpointToolService(
     HostEndpointToolRegistry registry,
@@ -23,6 +25,7 @@ internal sealed class HostEndpointToolService(
     IHostEndpointProjectResolver projectResolver,
     IMcpHostPrincipalFactory principalFactory,
     IProjectContext projectContext,
+    IProjectAccessEvaluator projectAccess,
     IHttpContextAccessor httpContextAccessor,
     McpAuditService auditService,
     HostEndpointToolOptions options)
@@ -400,9 +403,12 @@ internal sealed class HostEndpointToolService(
             return new HostEndpointAccess(null, null, null, $"Host endpoint tools are unavailable: project '{options.ProjectName}' does not exist in Beacon.");
         }
 
+        // The caller's configured projects, and its project access: a user caller reads the project only as its user
+        // may (a member of a restricted project), a system caller where it is configured.
         var allowedByCaller = caller.AllowedProjectIds.Contains(projectId.Value);
-        var allowedByContext = projectContext.AllowedProjectIds?.Contains(projectId.Value) == true;
-        if (!allowedByCaller || !allowedByContext)
+        var allowedByAccess = allowedByCaller
+            && (await projectAccess.GetScopeAsync(cancellationToken)).Allows(projectId.Value, ProjectAction.Read);
+        if (!allowedByAccess)
         {
             return new HostEndpointAccess(projectId, null, null, $"Access denied: you do not have access to project {projectId.Value}.");
         }

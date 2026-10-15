@@ -1,11 +1,18 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.Projects;
 
-internal sealed class UpdateRepositoryTokenHandler(IDbContextFactory<BeaconContext> contextFactory, IEncryptionService encryptionService)
+internal sealed class UpdateRepositoryTokenHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IEncryptionService encryptionService,
+    IBeaconActorAccessor actorAccessor,
+    ILogger<UpdateRepositoryTokenHandler> logger)
     : IRequestHandler<UpdateRepositoryTokenCommand>
 {
     public async Task Handle(UpdateRepositoryTokenCommand request, CancellationToken cancellationToken)
@@ -17,12 +24,24 @@ internal sealed class UpdateRepositoryTokenHandler(IDbContextFactory<BeaconConte
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Repository {request.RepositoryId} not found");
 
-        repo.EncryptedAccessToken = !string.IsNullOrWhiteSpace(request.AccessToken)
-            ? encryptionService.Encrypt(request.AccessToken)
+        var isSet = !string.IsNullOrWhiteSpace(request.AccessToken);
+        repo.EncryptedAccessToken = isSet
+            ? encryptionService.Encrypt(request.AccessToken!)
             : null;
 
         await context.SaveChangesAsync(cancellationToken);
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        logger.LogInformation(
+            ProjectAccessEvents.RepositoryTokenChanged,
+            "Repository access token {Change}: repository {RepositoryId}, project {ProjectId}, by user {ActorId}",
+            isSet ? "set" : "cleared",
+            repo.Id,
+            repo.ProjectId,
+            actor.LogId);
     }
 }
 
+/// <summary>Sets, replaces or (with no token) clears a repository's access token. For an Admin or a SecurityAdmin.</summary>
+[ProjectScopeExempt("gated by the SecurityAdmin permission: a repository's access token is a credential decision", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateRepositoryTokenCommand(int RepositoryId, string? AccessToken) : IRequest;

@@ -17,5 +17,11 @@ public class ApiKeyCredential : BaseEntity
     public bool IsRevoked { get; set; }
     public DateTime? RevokedAt { get; set; }
 
+    /// <summary>
+    /// The owner's <see cref="BeaconUser.ApiKeyGeneration"/> read with the checks that approved this key; the key
+    /// works only while it is still the owner's.
+    /// </summary>
+    public int OwnerGeneration { get; set; }
+
     public BeaconUser? User { get; set; }
 }

@@ -3,6 +3,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Tools;
 
 namespace Beacon.MCP.Services;
@@ -11,7 +12,7 @@ internal sealed class QueryExecutionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
-    IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
@@ -22,37 +23,43 @@ internal sealed class QueryExecutionService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
-        var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, dataSource.DatabaseEngineType?.ToString());
+        var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, DataSourceSqlDialect.Of(dataSource));
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-        // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL-only
+        // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL and MySQL
         // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
         // non-database providers forward to normal execution and rely on the parser gates upstream.
         var result = await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+
+        // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId); 0 falls
+        // back to the global effective settings — with the strictest guardrails of the live projects that link the source.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
 
         if (result.Success && result.Rows?.Count > 0)
         {
             // Mask PII column values before returning to the MCP client (§1.6/§1.11). Read-only was
             // already enforced upstream, so here we only need PII detection. Mirrors SemanticSearchService.
-            var rows = result.Rows;
-            // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId);
-            // 0 falls back to the global effective settings.
-            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, ct);
-            if (settings.EnablePiiDetection)
-            {
-                var piiColumns = guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
+            var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
+            var sqlPiiColumns = settings.EnablePiiDetection
+                ? guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
                 {
                     ReadOnly = false,
                     DetectPii = true,
-                    CustomPiiPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null
-                }).PiiColumns;
+                    CustomPiiPatterns = customPatterns,
+                    Dialect = DataSourceSqlDialect.Of(dataSource)
+                }).PiiColumns ?? []
+                : [];
 
-                if (piiColumns is { Count: > 0 } piiCols)
-                {
-                    rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
-                }
-            }
+            // The executed SQL resolves the names it aliases PII columns to (email AS contact).
+            var rows = PiiRowMasker.Mask(
+                guardrailService,
+                result.Rows,
+                sqlPiiColumns,
+                settings.EnablePiiDetection,
+                customPatterns,
+                limitedSql,
+                DataSourceSqlDialect.Of(dataSource));
 
             var text = $"### Results ({rows.Count} rows)\n\n";
             text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
@@ -62,7 +69,13 @@ internal sealed class QueryExecutionService(
 
         if (!result.Success)
         {
-            return new QueryExecutionResult(null, result.ErrorMessage, 0, false);
+            // A database error can quote row values: while PII detection is on the caller gets it redacted (a host data
+            // source's error is already Beacon's own generic text).
+            var error = result.ErrorMessage == null
+                ? null
+                : DatabaseErrorRedactor.ForCaller(result.ErrorMessage, sql, settings.EnablePiiDetection && dataSource.HostManagedKey == null);
+
+            return new QueryExecutionResult(null, error, 0, false);
         }
 
         return new QueryExecutionResult("No results returned.\n", null, 0, true);
@@ -90,6 +103,14 @@ internal sealed class QueryExecutionService(
 
         // Skipped = the engine has no dry-run strategy; the message carries the skip reason so callers
         // can surface it, but it is NOT a validation failure.
-        return new ProviderDryRunOutcome(message, result.Skipped);
+        if (result.Skipped || dataSource.HostManagedKey != null)
+        {
+            return new ProviderDryRunOutcome(message, result.Skipped);
+        }
+
+        // A dry-run failure is the database's own error, which can quote row values: redacted while PII detection is on.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
+
+        return new ProviderDryRunOutcome(DatabaseErrorRedactor.ForCaller(message, sql, settings.EnablePiiDetection), false);
     }
 }

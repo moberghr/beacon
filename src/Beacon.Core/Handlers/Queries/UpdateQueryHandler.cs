@@ -1,5 +1,6 @@
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Queries;
@@ -33,11 +34,21 @@ internal sealed class UpdateQueryHandler(IQueryService queryService)
     }
 }
 
-public record UpdateQueryCommand : IRequest<UpdateQueryResult>
+public record UpdateQueryCommand : IRequest<UpdateQueryResult>, IProjectAuthorizedRequest
 {
     public required int QueryId { get; init; }
 
     public required QueryData Query { get; init; }
+
+    // The stored query, and the data sources of the steps it is saved with: one project must let the caller write to all.
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+        Query?.Steps is { Count: > 0 } steps
+            ?
+            [
+                new(ProjectResource.Query(QueryId), ProjectAction.Write),
+                new(ProjectResource.DataSources(steps.Select(x => x.DataSourceId)), ProjectAction.Write)
+            ]
+            : [new(ProjectResource.Query(QueryId), ProjectAction.Write)];
 }
 
 public record UpdateQueryResult

@@ -1,18 +1,32 @@
 using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Handlers.Home;
 
-internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetHomeTrendsQuery, GetHomeTrendsResult>
 {
     public async Task<GetHomeTrendsResult> Handle(GetHomeTrendsQuery request, CancellationToken cancellationToken)
     {
-        // Clamp sub-day windows to 1 day server-side
-        var days = Math.Max(1, request.Days);
+        var days = request.WindowDays;
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
+        var runScope = StoredRunScope.From(readable);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Every section counts only what the caller may read: subscriptions as their query, runs and their notifications
+        // by the run rule, anomalies by their subscription, data sources by their projects. Recipients are project-less.
+        var subscriptions = context.Subscriptions
+            .WhereAllSourcesInOneProject(context, readable, x => x.Query.Steps.Select(y => y.DataSourceId), x => x.Query.OwnerUserId);
+        var runs = context.QueryExecutionHistory.WhereReadableWithin(context, runScope);
+        var notifications = context.Notifications.WhereRunReadableWithin(context, runScope);
+        var anomalies = readable.Ids == null
+            ? context.AnomalyEvents
+            : context.AnomalyEvents.Where(x => subscriptions.Any(y => y.Id == x.SubscriptionId));
 
         var now = DateTime.UtcNow;
         var windowStart = now.AddDays(-days);
@@ -20,17 +34,17 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         // ── Subscriptions ──────────────────────────────────────────────
         // Global query filter on ArchivableBaseEntity already excludes archived rows.
-        var totalSubscriptions = await context.Subscriptions
+        var totalSubscriptions = await subscriptions
             .CountAsync(cancellationToken);
 
-        var subscriptionsDaysAgo = await context.Subscriptions
+        var subscriptionsDaysAgo = await subscriptions
             .Where(x => x.CreatedTime <= windowStart)
             .CountAsync(cancellationToken);
 
         var subscriptionDelta = totalSubscriptions - subscriptionsDaysAgo;
 
         // Subscriptions created per day over the last 14 days (for sparkline)
-        var subDates = await context.Subscriptions
+        var subDates = await subscriptions
             .Where(x => x.CreatedTime >= now.AddDays(-14))
             .Select(x => x.CreatedTime.Date)
             .ToListAsync(cancellationToken);
@@ -38,12 +52,12 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         var subscriptionsSpark = HomeTrendsBuilders.BuildDailyCounts(subDates, 14, now);
 
         // ── Query executions ───────────────────────────────────────────
-        var execsCurrent = await context.QueryExecutionHistory
+        var execsCurrent = await runs
             .Where(x => x.CreatedTime >= windowStart)
             .Select(x => new { x.CreatedTime, x.ExecutionTimeMs, x.NotificationStatus, SubscriptionId = x.SubscriptionId })
             .ToListAsync(cancellationToken);
 
-        var execsPrior = await context.QueryExecutionHistory
+        var execsPrior = await runs
             .Where(x => x.CreatedTime >= priorStart)
             .Where(x => x.CreatedTime < windowStart)
             .CountAsync(cancellationToken);
@@ -54,7 +68,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             : 0m;
 
         // Sparkline: daily counts over last 14 days, aggregated server-side
-        var execDaily14 = await context.QueryExecutionHistory
+        var execDaily14 = await runs
             .Where(x => x.CreatedTime >= now.AddDays(-14))
             .GroupBy(x => x.CreatedTime.Date)
             .Select(x =>
@@ -80,7 +94,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             ? (decimal)execsCurrent.Average(x => x.ExecutionTimeMs)
             : 0m;
 
-        var priorExecs = await context.QueryExecutionHistory
+        var priorExecs = await runs
             .Where(x => x.CreatedTime >= priorStart)
             .Where(x => x.CreatedTime < windowStart)
             .Select(x => x.ExecutionTimeMs)
@@ -120,7 +134,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         if (fastestSubId.HasValue)
         {
-            fastestQueryName = await context.Subscriptions
+            fastestQueryName = await subscriptions
                 .Where(x => x.Id == fastestSubId.Value)
                 .Select(x => x.Query.Name)
                 .FirstOrDefaultAsync(cancellationToken);
@@ -128,7 +142,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         if (slowestSubId.HasValue)
         {
-            slowestQueryName = await context.Subscriptions
+            slowestQueryName = await subscriptions
                 .Where(x => x.Id == slowestSubId.Value)
                 .Select(x => x.Query.Name)
                 .FirstOrDefaultAsync(cancellationToken);
@@ -143,7 +157,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         // ── Notifications ──────────────────────────────────────────────
         // Per-day counts aggregated server-side; the window total derives from them.
-        var notifDaily = await context.Notifications
+        var notifDaily = await notifications
             .Where(x => x.SentAt >= windowStart)
             .GroupBy(x => x.SentAt.Date)
             .Select(x =>
@@ -154,7 +168,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
                 })
             .ToListAsync(cancellationToken);
 
-        var notificationsPrior = await context.Notifications
+        var notificationsPrior = await notifications
             .Where(x => x.SentAt >= priorStart)
             .Where(x => x.SentAt < windowStart)
             .CountAsync(cancellationToken);
@@ -162,7 +176,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         var notificationsSent30d = notifDaily.Sum(x => x.Count);
         var notificationsDelta = notificationsSent30d - notificationsPrior;
 
-        var notifDaily14 = await context.Notifications
+        var notifDaily14 = await notifications
             .Where(x => x.SentAt >= now.AddDays(-14))
             .GroupBy(x => x.SentAt.Date)
             .Select(x =>
@@ -181,28 +195,28 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         // ── Anomalies ──────────────────────────────────────────────────
         // Using AnomalyEvent: open = not Acknowledged, acknowledged = Acknowledged
-        var anomaliesOpen = await context.AnomalyEvents
+        var anomaliesOpen = await anomalies
             .Where(x => !x.Acknowledged)
             .CountAsync(cancellationToken);
 
-        var anomaliesAcknowledged = await context.AnomalyEvents
+        var anomaliesAcknowledged = await anomalies
             .Where(x => x.Acknowledged)
             .Where(x => x.DetectedTime >= windowStart)
             .CountAsync(cancellationToken);
 
-        var anomaliesPrior = await context.AnomalyEvents
+        var anomaliesPrior = await anomalies
             .Where(x => x.DetectedTime >= priorStart)
             .Where(x => x.DetectedTime < windowStart)
             .CountAsync(cancellationToken);
 
-        var anomaliesCurrent = await context.AnomalyEvents
+        var anomaliesCurrent = await anomalies
             .Where(x => x.DetectedTime >= windowStart)
             .Select(x => x.DetectedTime.Date)
             .ToListAsync(cancellationToken);
 
         var anomaliesDelta = anomaliesCurrent.Count - anomaliesPrior;
 
-        var anomaliesDates14 = await context.AnomalyEvents
+        var anomaliesDates14 = await anomalies
             .Where(x => x.DetectedTime >= now.AddDays(-14))
             .Select(x => x.DetectedTime.Date)
             .ToListAsync(cancellationToken);
@@ -212,6 +226,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         // ── System overview counts ─────────────────────────────────────
         // Global query filter on ArchivableBaseEntity already excludes archived rows.
         var dataSourcesOnline = await context.DataSources
+            .WhereSourceAccessible(context, readable, x => x.Id)
             .CountAsync(cancellationToken);
 
         var recipientsCount = await context.Recipients
@@ -257,7 +272,16 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
 }
 
-public record GetHomeTrendsQuery(int Days = 30) : IRequest<GetHomeTrendsResult>;
+/// <summary>Trends over the last <c>Days</c> days (1 to 90; a value outside that range is clamped).</summary>
+public record GetHomeTrendsQuery(int Days = 30) : IRequest<GetHomeTrendsResult>, IProjectFilteredRequest
+{
+    public const int MinDays = 1;
+
+    public const int MaxDays = 90;
+
+    /// <summary>The window the trends cover: <see cref="Days"/> clamped to 1 to 90 days.</summary>
+    public int WindowDays => Math.Clamp(Days, MinDays, MaxDays);
+}
 
 public record GetHomeTrendsResult(
     int TotalSubscriptions,

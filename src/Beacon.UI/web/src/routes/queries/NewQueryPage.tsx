@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  Banner,
   PageHeader,
   Card,
   CardHead,
@@ -29,6 +30,7 @@ import {
   Kbd,
 } from '@/components/beacon';
 import { InputPromptDialog } from '@/components/ui/InputPromptDialog';
+import { describeError } from '@/lib/api';
 import { StepEditorWithExplorer } from './parts/StepEditorWithExplorer';
 import { InfoRow, CheckRow, type CheckTone } from './new/atoms';
 import { DataSourcePicker } from '@/routes/data-sources/DataSourcePicker';
@@ -107,6 +109,7 @@ export default function NewQueryPage() {
   const defaultDataSource = useDefaultDataSource().data ?? null;
   const create = useCreateQuery();
   const [createdId, setCreatedId] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Takes the target id from the payload, so updating the just-created query
   // works in the same render pass (no stale-closure id).
   const update = useUpdateQueryMutation();
@@ -256,6 +259,7 @@ export default function NewQueryPage() {
 
   const saveQuery = async (): Promise<number | null> => {
     if (!canSave) return null;
+    setSaveError(null);
     try {
       // A previous attempt may have created the query but failed on the
       // follow-up step update — reuse the created id instead of duplicating.
@@ -281,8 +285,9 @@ export default function NewQueryPage() {
         });
       }
       return newId;
-    } catch {
-      // Toasts already raised by the mutation hooks.
+    } catch (err) {
+      // The banner is where the server's reason is shown (the mutations do not toast it).
+      setSaveError(describeError(err, 'Save failed'));
       return null;
     }
   };
@@ -368,6 +373,10 @@ export default function NewQueryPage() {
           </>
         }
       />
+
+      {saveError && (
+        <Banner tone="crit" icon={<Info />} role="alert" title="The query was not saved" sub={saveError} />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
         <div className="flex flex-col gap-5 min-w-0">

@@ -363,7 +363,6 @@ var decryptedCs = encryptionService.Decrypt(dataSource.ConnectionString);
 | Method | Purpose |
 |--------|---------|
 | `CreateMigrationJob(MigrationJobData)` | Create migration job |
-| `UpdateMigrationJob(MigrationJobData)` | Update migration job |
 | `DeleteMigrationJob(int)` | Archive migration job |
 | `ExecuteMigration(int)` | Run migration job |
 | `GetMigrationJobs()` | List migration jobs |

@@ -2,6 +2,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,28 +14,102 @@ namespace Beacon.Core.Services;
 /// every row — while a preview reads one page and a count. Intermediate steps of a multi-step query still
 /// run in full, because the final query joins them; only their first rows travel to the client.
 /// </summary>
-internal partial class QueryService
+internal partial class QueryService : IStoredQueryPreview
 {
     private const int IntermediatePreviewRows = 10;
 
     public async Task<QueryPreviewResult> PreviewQuery(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
-        List<QueryStep> steps;
-        string? finalQuery;
         if (draft == null)
         {
-            var query = await GetQueryWithSteps(queryId, cancellationToken);
-            steps = query.Steps
-                .OrderBy(x => x.StepOrder)
-                .ToList();
-            finalQuery = query.FinalQuery;
-        }
-        else
-        {
-            steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
-            finalQuery = draft.FinalQuery;
+            var snapshot = await LoadSnapshot(queryId, cancellationToken);
+
+            return await PreviewSnapshot(snapshot, paging, cancellationToken);
         }
 
+        var steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
+
+        return await PreviewSteps(steps, draft.FinalQuery, paging, cancellationToken);
+    }
+
+    public async Task<QueryPreviewResult> PreviewQueryStepPaged(
+        int queryId,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        QueryDraft? draft,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        if (draft != null)
+        {
+            var draftStep = draft.Steps
+                .Where(x => x.StepOrder == stepOrder)
+                .ToList();
+
+            if (draftStep.Count == 0)
+            {
+                throw new InvalidOperationException($"The draft of query #{queryId} has no step {stepOrder}.");
+            }
+
+            var steps = await BuildDraftSteps(queryId, draftStep, cancellationToken);
+            return await PreviewSingleStep(steps[0], parameters, paging, cancellationToken);
+        }
+
+        var snapshot = await LoadSnapshot(queryId, cancellationToken);
+
+        return await PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, cancellationToken);
+    }
+
+    public async Task<StoredQuerySnapshot> LoadSnapshot(int queryId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var query = await context.Queries
+            .AsNoTracking()
+            .Include(x => x.Steps)
+                .ThenInclude(x => x.DataSource)
+            .Include(x => x.Steps)
+                .ThenInclude(x => x.Parameters)
+            .Where(x => x.Id == queryId)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Query #{queryId} not found.");
+
+        return new StoredQuerySnapshot
+        {
+            QueryId = query.Id,
+            Steps = query.Steps
+                .OrderBy(x => x.StepOrder)
+                .ToList(),
+            FinalQuery = query.FinalQuery
+        };
+    }
+
+    public Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, CancellationToken cancellationToken)
+    {
+        return PreviewSteps(snapshot.Steps.ToList(), snapshot.FinalQuery, paging, cancellationToken);
+    }
+
+    public Task<QueryPreviewResult> PreviewSnapshotStep(
+        StoredQuerySnapshot snapshot,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        var step = snapshot.Steps
+            .Where(x => x.StepOrder == stepOrder)
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"Query #{snapshot.QueryId} has no step {stepOrder}.");
+
+        return PreviewSingleStep(step, parameters, paging, cancellationToken);
+    }
+
+    private async Task<QueryPreviewResult> PreviewSteps(
+        List<QueryStep> steps,
+        string? finalQuery,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
         QueryPreviewResult result;
         if (steps.Count == 1 && string.IsNullOrEmpty(finalQuery))
         {
@@ -61,42 +136,6 @@ internal partial class QueryService
         return result;
     }
 
-    public async Task<QueryPreviewResult> PreviewQueryStepPaged(
-        int queryId,
-        int stepOrder,
-        List<ParameterValue>? parameters,
-        QueryDraft? draft,
-        ListRequest paging,
-        CancellationToken cancellationToken)
-    {
-        if (draft != null)
-        {
-            var draftStep = draft.Steps
-                .Where(x => x.StepOrder == stepOrder)
-                .ToList();
-
-            if (draftStep.Count == 0)
-            {
-                throw new InvalidOperationException($"The draft of query #{queryId} has no step {stepOrder}.");
-            }
-
-            var steps = await BuildDraftSteps(queryId, draftStep, cancellationToken);
-            return await PreviewSingleStep(steps[0], parameters, paging, cancellationToken);
-        }
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var step = await context.QuerySteps
-            .Include(x => x.DataSource)
-            .Include(x => x.Parameters)
-            .Where(x => x.QueryId == queryId)
-            .Where(x => x.StepOrder == stepOrder)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException($"Query #{queryId} has no step {stepOrder}.");
-
-        return await PreviewSingleStep(step, parameters, paging, cancellationToken);
-    }
-
     /// <summary>
     /// The editor's unsaved steps as detached entities, checked the way <see cref="UpdateQuery"/> checks a
     /// save. They are never attached to a context, so running a draft cannot persist it; execution then goes
@@ -106,7 +145,7 @@ internal partial class QueryService
     {
         foreach (var x in stepData)
         {
-            QueryValidator.CheckForFlaggedWords(x.SqlValue);
+            QueryValidator.CheckForFlaggedWords(x.SqlValue, readOnlyAstValidator.MaxSqlChars);
         }
 
         var dataSourceIds = stepData
@@ -176,7 +215,7 @@ internal partial class QueryService
 
         foreach (var step in steps)
         {
-            var stepResult = await ExecuteStep(step, null);
+            var (stepResult, _) = await ExecuteStep(step, null, null, null, cancellationToken);
             totalExecutionTime += stepResult.ExecutionTimeMs;
             summaries.Add(ToSummary(stepResult, stepResult.PreviewResults.Take(IntermediatePreviewRows).ToList()));
 
@@ -203,6 +242,7 @@ internal partial class QueryService
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var page = await virtualTableManager.ExecuteFinalQueryPagedAsync(
                 finalQuery,
+                x => gate.Evaluate(JoinGateRequest(x, null) with { MaxRows = null }),
                 loggerFactory.CreateLogger<InMemoryDatabaseManager>(),
                 paging,
                 cancellationToken);
@@ -225,9 +265,10 @@ internal partial class QueryService
     }
 
     /// <summary>
-    /// <see cref="ExecuteStep"/>'s gates (read-only AST validation, host policy, masking) around one page. The
-    /// rewritten page and count statements are re-validated too; a rejected rewrite falls back to streaming
-    /// the original, already-approved statement.
+    /// One page of a step, every statement through <see cref="GatedSqlRunner"/> (the execution gate, then the provider's
+    /// read-only path): the page and count rewrites when the SQL shape allows them and they pass the gate too; otherwise
+    /// the original statement capped at <see cref="ExecutionRowCeiling"/> + 1 rows in the SQL, paged in memory — a result
+    /// above the ceiling then cannot be previewed. The original must pass the gate before anything runs.
     /// </summary>
     private async Task<(QueryPreviewStep Summary, SqlResultPage? Page)> ExecuteStepPaged(
         QueryStep step,
@@ -240,47 +281,31 @@ internal partial class QueryService
             throw new BeaconException($"Data source {step.DataSourceId} is not a database type");
         }
 
-        var engine = step.DataSource.DatabaseEngineType.Value;
-        var dialect = engine.ToString();
+        var dialect = DataSourceSqlDialect.Of(step.DataSource);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, ExtractStepParameters(step, parameters));
-        var executedSql = FlattenSql(parameterizedSql);
+        var executedSql = StoredSql.Flatten(parameterizedSql, dialect);
 
-        var rejection = readOnlyAstValidator.Validate(executedSql, dialect);
-        if (rejection != null)
+        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1);
+        var report = sqlRunner.Evaluate(original);
+        if (report.Blocked)
         {
-            throw new InvalidOperationException(rejection);
+            throw new InvalidOperationException(report.BlockReason ?? "The SQL was rejected.");
         }
 
-        var hostCheck = hostGuard.Check(step.DataSource, executedSql);
-        var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(sqlParameters) : hostCheck.Error;
-        if (hostError != null)
-        {
-            throw new InvalidOperationException(hostError);
-        }
-
-        // Ordering by a masked column would leak the order of the values it hides.
+        // Ordering by a masked column would leak the order of the values it hides; on this path the gate reports only the
+        // host data source's masked columns.
         var sort = paging.SortCriteria().FirstOrDefault();
-        if (sort != null && hostCheck.MaskedOutputColumns.Contains(sort.SortColumn, StringComparer.OrdinalIgnoreCase))
+        if (sort != null && report.PiiColumns.Contains(sort.SortColumn, StringComparer.OrdinalIgnoreCase))
         {
             paging = new PreviewPaging { Page = paging.Page, PageSize = paging.PageSize };
+            sort = null;
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        await using var connection = DbConnectionFactory.CreateConnection(engine, connectionResolver.GetConnectionString(step.DataSource));
-        await connection.OpenAsync(cancellationToken);
-
         SqlResultPage page;
         try
         {
-            page = await SqlPageExecutor.ExecuteAsync(
-                connection,
-                executedSql,
-                sqlParameters,
-                dialect,
-                paging,
-                x => readOnlyAstValidator.Validate(x, dialect) == null && hostGuard.Check(step.DataSource, x).Allowed,
-                null,
-                cancellationToken);
+            page = await ReadPageAsync(step, original, dialect, paging, sort, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -290,21 +315,63 @@ internal partial class QueryService
 
         stopwatch.Stop();
 
-        if (hostCheck.MaskedOutputColumns.Count > 0)
+        return (StepSummary(step, true, null, stopwatch.Elapsed.TotalMilliseconds, page.TotalCount, page.Rows), page);
+    }
+
+    private async Task<SqlResultPage> ReadPageAsync(
+        QueryStep step,
+        GatedSqlRequest original,
+        string? dialect,
+        ListRequest paging,
+        SortCriterion? sort,
+        CancellationToken cancellationToken)
+    {
+        var limit = paging.PageSizeOrDefault;
+        var offset = paging.PageOrDefault * limit;
+        var plan = SqlPageRewriter.Plan(original.Sql, dialect, offset, limit, sort);
+        // The page carries its own LIMIT / FETCH of one page and the count returns one row; each is capped one row past
+        // that, so the read ends on its own instead of being cancelled at the cap.
+        var pageRequest = plan.PageSql == null ? null : original with { Sql = plan.PageSql, MaxRows = limit + 1 };
+        var countRequest = plan.CountSql == null ? null : original with { Sql = plan.CountSql, MaxRows = 2 };
+
+        if (pageRequest != null && countRequest != null && !sqlRunner.Evaluate(pageRequest).Blocked && !sqlRunner.Evaluate(countRequest).Blocked)
         {
-            page = page with
+            var pageRun = await sqlRunner.RunAsync(pageRequest, cancellationToken);
+            var countRun = await sqlRunner.RunAsync(countRequest, cancellationToken);
+            if (pageRun.TimedOut || countRun.TimedOut)
             {
-                Rows = hostGuard.Mask(
-                        page.Rows
-                            .Select(x => new Dictionary<string, object?>(x))
-                            .ToList(),
-                        hostCheck.MaskedOutputColumns)
+                throw new TimeoutException("Step execution timed out");
+            }
+
+            var count = countRun.Rows.FirstOrDefault()?.Values.FirstOrDefault();
+
+            return new SqlResultPage(
+                pageRun.Rows
                     .Select(x => (IDictionary<string, object?>)x)
-                    .ToList()
-            };
+                    .ToList(),
+                (int)Math.Min(Convert.ToInt64(count ?? 0L), int.MaxValue),
+                plan.SortApplied);
         }
 
-        return (StepSummary(step, true, null, stopwatch.Elapsed.TotalMilliseconds, page.TotalCount, page.Rows), page);
+        var run = await sqlRunner.RunAsync(original, cancellationToken);
+        if (run.TimedOut)
+        {
+            throw new TimeoutException("Step execution timed out");
+        }
+
+        if (run.Rows.Count > ExecutionRowCeiling)
+        {
+            throw new BeaconException($"Step {step.StepOrder} returned more than {ExecutionRowCeiling} rows (the {RowLimitSetting(null)} limit) and its SQL cannot be paged; filter or aggregate it to preview it.");
+        }
+
+        return new SqlResultPage(
+            run.Rows
+                .Skip(offset)
+                .Take(limit)
+                .Select(x => (IDictionary<string, object?>)x)
+                .ToList(),
+            run.Rows.Count,
+            false);
     }
 
     private static QueryPreviewStep StepSummary(

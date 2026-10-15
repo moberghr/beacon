@@ -4,6 +4,7 @@ import { usePagedList } from '@/lib/usePagedList';
 import { beaconApi } from '@/api/client';
 import type { MigrationStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import type { ChangeApprovalOutcome } from '@/routes/approvals/queries';
 
 export interface MigrationJobListItem {
   id: number;
@@ -18,6 +19,12 @@ export interface MigrationJobListItem {
   isEnabled: boolean;
   schedule: string | null;
   createdTime: string;
+  /** With the approval workflow on: the job's definition waits for a second person's approval, so it does not run. */
+  awaitingApproval?: boolean;
+  /** The pending change request of the job, if one waits. */
+  pendingApprovalRequestId?: number | null;
+  /** While the job waits and no request of it is pending: the last decision on it (a rejection: delete and recreate it). */
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 }
 
 const MIGRATION_JOBS_KEY = ['migration-jobs'] as const;

@@ -1,16 +1,27 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Projects;
 
-internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetProjectDetailHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess,
+    IProjectMembershipSource membershipSource,
+    IMcpSettingsProvider settingsProvider,
+    IOptions<ProjectAuthorizationOptions> options)
     : IRequestHandler<GetProjectDetailQuery, GetProjectDetailResult>
 {
     public async Task<GetProjectDetailResult> Handle(
         GetProjectDetailQuery request,
         CancellationToken cancellationToken)
     {
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var project = await context.Projects
@@ -20,7 +31,8 @@ internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> c
                 p.Id,
                 p.Name,
                 p.Description,
-                p.CreatedTime
+                p.CreatedTime,
+                p.RequiresMembership
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -31,6 +43,7 @@ internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> c
             .Where(pds => pds.ProjectId == request.ProjectId)
             .Select(pds => new
             {
+                pds.DataSourceId,
                 pds.DataSource.Name,
                 pds.DataSource.DataSourceType,
                 TableCount = context.DatabaseMetadata
@@ -39,6 +52,7 @@ internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> c
             .ToListAsync(cancellationToken);
 
         var dsEntries = dataSources.Select(d => new ProjectDataSourceEntry(
+            d.DataSourceId,
             d.Name,
             d.DataSourceType.ToString(),
             d.TableCount,
@@ -82,6 +96,19 @@ internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> c
             .OrderByDescending(d => d)
             .FirstOrDefault();
 
+        var mayManageMembers = scope.Allows(project.Id, ProjectAction.ManageMembers);
+        var openlyReachable = mayManageMembers
+            ? await OpenlyReachableDataSourceIdsAsync(context, project.Id, cancellationToken)
+            : [];
+
+        // Who else reaches this project's data sources names other (possibly restricted) projects: an Admin's view only.
+        var sharedSourceProjects = scope.IsUnrestricted
+            ? await SharedSourceProjects.ReadAsync(context, project.Id, options.Value.RequireProjectMembership, cancellationToken)
+            : [];
+        var sharedSourceGuardrails = scope.IsUnrestricted && sharedSourceProjects.Count > 0
+            ? await SharedSourceGuardrails.ReadAsync(context, settingsProvider, project.Id, cancellationToken)
+            : [];
+
         var detail = new ProjectDetailEntry(
             project.Id,
             project.Name,
@@ -92,9 +119,37 @@ internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> c
             lastScan,
             dsEntries,
             repoEntries,
-            hasDocumentation);
+            hasDocumentation,
+            project.RequiresMembership || options.Value.RequireProjectMembership,
+            scope.RoleIn(project.Id),
+            mayManageMembers && ProjectMembershipRules.IsManagedByBeacon(membershipSource),
+            openlyReachable,
+            sharedSourceProjects,
+            sharedSourceGuardrails,
+            ProjectMembershipRules.ManagementOf(membershipSource));
 
         return new GetProjectDetailResult(detail);
+    }
+
+    // The project's data sources that another live open project also links: restricting this project leaves them
+    // reachable through that one. None while every project is restricted.
+    private async Task<List<int>> OpenlyReachableDataSourceIdsAsync(BeaconContext context, int projectId, CancellationToken cancellationToken)
+    {
+        if (options.Value.RequireProjectMembership)
+        {
+            return [];
+        }
+
+        return await context.ProjectDataSources
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => context.ProjectDataSources
+                .Where(y => y.DataSourceId == x.DataSourceId)
+                .Where(y => y.ProjectId != projectId)
+                .Where(y => !y.Project.RequiresMembership)
+                .Any(y => y.Project.ArchivedTime == null))
+            .Select(x => x.DataSourceId)
+            .OrderBy(x => x)
+            .ToListAsync(cancellationToken);
     }
 
     private static string ExtractRepoName(string url)
@@ -105,10 +160,27 @@ internal sealed class GetProjectDetailHandler(IDbContextFactory<BeaconContext> c
     }
 }
 
-public record GetProjectDetailQuery(int ProjectId) : IRequest<GetProjectDetailResult>;
+public record GetProjectDetailQuery(int ProjectId) : IRequest<GetProjectDetailResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Project(ProjectId), ProjectAction.Read)
+    ];
+}
 
 public record GetProjectDetailResult(ProjectDetailEntry? Project);
 
+/// <summary>
+/// A project's detail. <c>RequiresMembership</c>: restricted; <c>MyRole</c>: the caller's effective role in it;
+/// <c>CanManageMembers</c>: the caller may manage its members and Beacon (not the host) manages membership;
+/// <c>OpenlyReachableDataSourceIds</c>: for a caller who may manage its members, its data sources another live open
+/// project also links (they stay reachable when this one is restricted); <c>SharedSourceProjects</c>: for an Admin, every
+/// other live project (open or restricted) linking any of its data sources, with their ProjectAdmins (empty for anyone
+/// else); <c>SharedSourceGuardrails</c>: for an Admin, per data source another live project links too, the guardrails
+/// that apply to it — the strictest of the linking projects' settings — and the project that sets each (empty for anyone
+/// else); <c>MembershipManagement</c>: who manages project memberships in this deployment (Beacon, the host, or nobody
+/// because membership is unavailable).
+/// </summary>
 public record ProjectDetailEntry(
     int Id,
     string Name,
@@ -119,8 +191,15 @@ public record ProjectDetailEntry(
     DateTime? LastScanAt,
     List<ProjectDataSourceEntry> DataSources,
     List<ProjectRepositoryEntry> Repositories,
-    bool HasDocumentation);
+    bool HasDocumentation,
+    bool RequiresMembership,
+    ProjectRole? MyRole,
+    bool CanManageMembers,
+    List<int> OpenlyReachableDataSourceIds,
+    List<SharedSourceProjectEntry> SharedSourceProjects,
+    List<SharedSourceGuardrailsEntry> SharedSourceGuardrails,
+    ProjectMembershipManagement MembershipManagement);
 
-public record ProjectDataSourceEntry(string Name, string Type, int TableCount, double? QualityScore);
+public record ProjectDataSourceEntry(int Id, string Name, string Type, int TableCount, double? QualityScore);
 
 public record ProjectRepositoryEntry(int Id, string Name, string Url, string? ScanStatus, DateTime? LastScanAt, int ReferenceCount, bool HasAccessToken);

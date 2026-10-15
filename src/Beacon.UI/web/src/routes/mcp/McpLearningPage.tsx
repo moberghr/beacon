@@ -13,21 +13,35 @@ import {
 } from '@/components/beacon';
 import { Pager } from '@/components/data/Pager';
 import { EmptyState } from '@/components/data/EmptyState';
-import { Tabs } from '@/components/Tabs';
+import { Tabs, type TabDef } from '@/components/Tabs';
+import { useIsAdmin } from '@/auth/useAuth';
 import { McpDocPatchStatus, McpPatternStatus } from '@/lib/enums';
+import { GoldenCandidatesTab, GoldenCasesTab } from './GoldenTabs';
+import { GroundingRecheckTab } from './GroundingRecheckTab';
+import { PatchDetailModal, PatternDetailModal, UNKNOWN_REVIEWER } from './LearningDetailModals';
 import {
   PATCH_STATUS_LABEL,
+  PATCH_TARGET_LABEL,
+  PATTERN_CURATE_REASON,
+  PATTERN_REVIEW_ACTIONS,
   PATTERN_STATUS_LABEL,
   PATTERN_TYPE_LABEL,
+  isChangedSinceReviewed,
+  patchCurateReason,
+  patternWithheldReasons,
   useApplyPatch,
   useDocumentationPatchesList,
   useLearnedPatternsList,
   useLearningStats,
   useRejectPatch,
   useUpdatePatternStatus,
+  type DocumentationPatchEntry,
+  type LearnedPatternEntry,
 } from './queries';
 
-type TabKey = 'patterns' | 'patches' | 'problems';
+type TabKey = 'patterns' | 'patches' | 'problems' | 'candidates' | 'golden' | 'recheck';
+
+const ADMIN_TABS: TabKey[] = ['candidates', 'golden', 'recheck'];
 
 export default function McpLearningPage() {
   const statsQ = useLearningStats();
@@ -36,8 +50,11 @@ export default function McpLearningPage() {
   const updatePattern = useUpdatePatternStatus();
   const applyPatch = useApplyPatch();
   const rejectPatch = useRejectPatch();
+  const isAdmin = useIsAdmin() === true;
 
   const [tab, setTab] = useState<TabKey>('patterns');
+  const [viewingPattern, setViewingPattern] = useState<LearnedPatternEntry | null>(null);
+  const [viewingPatch, setViewingPatch] = useState<DocumentationPatchEntry | null>(null);
   const statusFilter = patternsQ.filters.status;
   const typeFilter = patternsQ.filters.patternType;
 
@@ -45,28 +62,61 @@ export default function McpLearningPage() {
   const filteredPatterns = patternsQ.items;
   const patches = patchesQ.items;
 
-
-  // Error toasts come from createSimpleMutation — no onError here (single-toast rule).
-  function handleUpdatePattern(id: number, status: number) {
+  // Error toasts come from the mutation hook (single-toast rule); a pattern that changed since it was reviewed is read
+  // again, so its detail view closes rather than offer a decision on what the reviewer no longer sees.
+  function handleReviewPattern(pattern: LearnedPatternEntry, status: number) {
+    const done = PATTERN_REVIEW_ACTIONS.find(x => x.status === status)?.done ?? 'Pattern updated.';
     updatePattern.mutate(
-      { patternId: id, newStatus: status },
+      { patternId: pattern.id, newStatus: status, reviewedContentHash: pattern.contentHash },
       {
-        onSuccess: () => toast.success(status === McpPatternStatus.Approved ? 'Pattern approved.' : 'Pattern rejected.'),
+        onSuccess: () => {
+          setViewingPattern(null);
+          toast.success(done);
+        },
+        onError: err => {
+          if (isChangedSinceReviewed(err)) {
+            setViewingPattern(null);
+          }
+        },
       },
     );
   }
 
-  function handleApply(id: number) {
-    applyPatch.mutate(id, {
-      onSuccess: () => toast.success('Patch applied.'),
+  function handleApply(patch: DocumentationPatchEntry) {
+    applyPatch.mutate(patch.id, {
+      onSuccess: () => {
+        setViewingPatch(null);
+        toast.success('Patch applied.');
+      },
     });
   }
 
-  function handleReject(id: number) {
-    rejectPatch.mutate(id, {
-      onSuccess: () => toast.success('Patch rejected.'),
+  function handleReject(patch: DocumentationPatchEntry) {
+    rejectPatch.mutate(patch.id, {
+      onSuccess: () => {
+        setViewingPatch(null);
+        toast.success('Patch rejected.');
+      },
     });
   }
+
+  const tabs: TabDef<TabKey>[] = [
+    {
+      key: 'patterns',
+      label: 'Learned patterns',
+      count: stats?.patternsPending,
+    },
+    { key: 'patches', label: 'Doc patches', count: stats?.patchesProposed },
+    { key: 'problems', label: 'Problem tables' },
+  ];
+  if (isAdmin) {
+    tabs.push(
+      { key: 'candidates', label: 'Golden candidates' },
+      { key: 'golden', label: 'Golden examples' },
+      { key: 'recheck', label: 'Grounding recheck' },
+    );
+  }
+  const activeTab: TabKey = !isAdmin && ADMIN_TABS.includes(tab) ? 'patterns' : tab;
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -114,22 +164,10 @@ export default function McpLearningPage() {
         </KPIGrid>
       )}
 
-      <Tabs<TabKey>
-        active={tab}
-        onChange={setTab}
-        tabs={[
-          {
-            key: 'patterns',
-            label: 'Learned patterns',
-            count: stats?.patternsPending,
-          },
-          { key: 'patches', label: 'Doc patches', count: stats?.patchesProposed },
-          { key: 'problems', label: 'Problem tables' },
-        ]}
-      />
+      <Tabs<TabKey> active={activeTab} onChange={setTab} tabs={tabs} />
 
       <Card className="p-4">
-        {tab === 'patterns' && (
+        {activeTab === 'patterns' && (
           <>
             <div className="flex gap-2 mb-3">
               <Select value={statusFilter} onChange={e => patternsQ.setFilter('status', e.target.value)}>
@@ -176,41 +214,41 @@ export default function McpLearningPage() {
                       <td className="px-2 py-2">{(p.confidence * 100).toFixed(0)}%</td>
                       <td className="px-2 py-2">{p.signalCount}</td>
                       <td className="px-2 py-2">
-                        <Pill tone={patternTone(p.status)}>
-                          {PATTERN_STATUS_LABEL[p.status] ?? p.status}
-                        </Pill>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Pill tone={patternTone(p.status)}>
+                            {PATTERN_STATUS_LABEL[p.status] ?? p.status}
+                          </Pill>
+                          {patternWithheldReasons(p).length > 0 && (
+                            <span title={patternWithheldReasons(p).join(' ')}>
+                              <Pill tone="crit">Example left out of prompts</Pill>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-2 py-2">
-                        {p.status === McpPatternStatus.Pending && (
-                          <div className="flex gap-1">
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              type="button"
-                              onClick={() => handleUpdatePattern(p.id, McpPatternStatus.Approved)}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              type="button"
-                              onClick={() => handleUpdatePattern(p.id, McpPatternStatus.Rejected)}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        )}
-                        {p.status === McpPatternStatus.AutoApproved && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            type="button"
-                            onClick={() => handleUpdatePattern(p.id, McpPatternStatus.Rejected)}
-                          >
-                            Reject
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Button size="sm" type="button" onClick={() => setViewingPattern(p)}>
+                            View
                           </Button>
-                        )}
+                          {p.canCurate ? (
+                            PATTERN_REVIEW_ACTIONS.filter(x => x.status !== p.status).map(x => (
+                              <Button
+                                key={x.status}
+                                variant={x.status === McpPatternStatus.Approved ? 'primary' : x.status === McpPatternStatus.Rejected ? 'danger' : 'secondary'}
+                                size="sm"
+                                type="button"
+                                disabled={updatePattern.isPending}
+                                onClick={() => handleReviewPattern(p, x.status)}
+                              >
+                                {x.label}
+                              </Button>
+                            ))
+                          ) : (
+                            <span className="text-2xs text-text-muted" title={PATTERN_CURATE_REASON}>
+                              Project admins review
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -222,7 +260,7 @@ export default function McpLearningPage() {
           </>
         )}
 
-        {tab === 'patches' && (
+        {activeTab === 'patches' && (
           patchesQ.isLoading ? (
             <p className="text-text-muted">Loading patches…</p>
           ) : patches.length === 0 ? (
@@ -244,12 +282,12 @@ export default function McpLearningPage() {
               <tbody>
                 {patches.map(p => (
                   <tr key={p.id} className="border-b border-border last:border-b-0">
-                    <td className="px-2 py-2">{p.targetType}</td>
+                    <td className="px-2 py-2">{PATCH_TARGET_LABEL[p.targetType] ?? p.targetType}</td>
                     <td className="px-2 py-2">{p.targetIdentifier}</td>
-                    <td className="px-2 py-2 text-text-muted max-w-[220px] truncate">
+                    <td className="px-2 py-2 text-text-muted max-w-[220px] truncate" title={p.currentContent ?? undefined}>
                       {p.currentContent ?? '—'}
                     </td>
-                    <td className="px-2 py-2 max-w-[220px] truncate">
+                    <td className="px-2 py-2 max-w-[220px] truncate" title={p.proposedContent}>
                       {p.proposedContent}
                     </td>
                     <td className="px-2 py-2">{p.supportingSignalCount}</td>
@@ -257,18 +295,44 @@ export default function McpLearningPage() {
                       <Pill tone={patchTone(p.status)}>
                         {PATCH_STATUS_LABEL[p.status] ?? p.status}
                       </Pill>
+                      {p.status !== McpDocPatchStatus.Proposed && (p.appliedByName || p.appliedAt) && (
+                        <div className="mt-0.5 text-2xs text-text-muted">by {p.appliedByName ?? UNKNOWN_REVIEWER}</div>
+                      )}
                     </td>
                     <td className="px-2 py-2">
-                      {p.status === McpDocPatchStatus.Proposed && (
-                        <div className="flex gap-1">
-                          <Button variant="primary" size="sm" type="button" onClick={() => handleApply(p.id)}>
-                            Apply
-                          </Button>
-                          <Button variant="danger" size="sm" type="button" onClick={() => handleReject(p.id)}>
-                            Reject
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Button size="sm" type="button" onClick={() => setViewingPatch(p)}>
+                          View
+                        </Button>
+                        {p.status === McpDocPatchStatus.Proposed && (
+                          p.canCurate ? (
+                            <>
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                type="button"
+                                disabled={applyPatch.isPending || rejectPatch.isPending}
+                                onClick={() => handleApply(p)}
+                              >
+                                Apply
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                type="button"
+                                disabled={applyPatch.isPending || rejectPatch.isPending}
+                                onClick={() => handleReject(p)}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-2xs text-text-muted" title={patchCurateReason(p.targetType)}>
+                              Curators apply
+                            </span>
+                          )
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -279,7 +343,7 @@ export default function McpLearningPage() {
           )
         )}
 
-        {tab === 'problems' && (
+        {activeTab === 'problems' && (
           statsQ.isLoading ? (
             <p className="text-text-muted">Loading problem tables…</p>
           ) : !stats ? (
@@ -314,14 +378,32 @@ export default function McpLearningPage() {
             </table>
           )
         )}
+
+        {activeTab === 'candidates' && <GoldenCandidatesTab />}
+        {activeTab === 'golden' && <GoldenCasesTab />}
+        {activeTab === 'recheck' && <GroundingRecheckTab />}
       </Card>
+
+      <PatternDetailModal
+        pattern={viewingPattern}
+        onClose={() => setViewingPattern(null)}
+        onReview={handleReviewPattern}
+        isBusy={updatePattern.isPending}
+      />
+      <PatchDetailModal
+        patch={viewingPatch}
+        onClose={() => setViewingPatch(null)}
+        onApply={handleApply}
+        onReject={handleReject}
+        isBusy={applyPatch.isPending || rejectPatch.isPending}
+      />
     </div>
   );
 }
 
 function patternTone(status: number): PillProps['tone'] {
   if (status === McpPatternStatus.Approved || status === McpPatternStatus.AutoApproved) return 'ok';
-  if (status === McpPatternStatus.Pending) return 'warn';
+  if (status === McpPatternStatus.Pending || status === McpPatternStatus.NeedsEvidence) return 'warn';
   return 'crit';
 }
 

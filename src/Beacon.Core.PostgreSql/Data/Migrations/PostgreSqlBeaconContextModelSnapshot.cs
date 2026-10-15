@@ -902,6 +902,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<int>("OwnerGeneration")
+                        .HasColumnType("integer")
+                        .HasColumnName("owner_generation");
+
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
@@ -1082,6 +1086,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("ApiKeyGeneration")
+                        .HasColumnType("integer")
+                        .HasColumnName("api_key_generation");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
@@ -1127,6 +1135,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");
 
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("boolean")
+                        .HasColumnName("must_change_password");
+
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -1136,6 +1148,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("password_salt");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("security_stamp");
 
                     b.Property<string>("UserName")
                         .IsRequired()
@@ -1223,6 +1240,104 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_user_roles_user_id_role_id");
 
                     b.ToTable("user_roles", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.ChangeApprovalRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeSummary")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("change_summary");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("DefinitionHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("definition_hash");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<string>("PreviousJson")
+                        .HasColumnType("text")
+                        .HasColumnName("previous_json");
+
+                    b.Property<string>("ProposedJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("proposed_json");
+
+                    b.Property<string>("RequestedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<string>("RequestedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("requested_by_user_name");
+
+                    b.Property<int>("ResourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("resource_id");
+
+                    b.Property<string>("ResourceName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("resource_name");
+
+                    b.Property<string>("ReviewComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("review_comment");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<string>("ReviewedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<string>("ReviewedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reviewed_by_user_name");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_change_approval_requests");
+
+                    b.HasIndex("Status", "CreatedTime")
+                        .HasDatabaseName("ix_change_approval_requests_status_created_time");
+
+                    b.HasIndex("Kind", "ResourceId", "Status")
+                        .HasDatabaseName("ix_change_approval_requests_kind_resource_id_status");
+
+                    b.ToTable("change_approval_requests", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Comment", b =>
@@ -1575,6 +1690,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedDefinitionHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_definition_hash");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
@@ -1716,6 +1836,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<DateTime?>("OwnerNotAuthorizedSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("owner_not_authorized_since");
+
                     b.Property<string>("OwnerUserId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -1759,6 +1883,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApprovedSqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_sql_hash");
 
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
@@ -1823,6 +1952,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AwaitingApprovalRules")
+                        .HasColumnType("integer")
+                        .HasColumnName("awaiting_approval_rules");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -1838,6 +1971,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("FailedRules")
                         .HasColumnType("integer")
                         .HasColumnName("failed_rules");
+
+                    b.Property<int>("HeldAlertRecipients")
+                        .HasColumnType("integer")
+                        .HasColumnName("held_alert_recipients");
 
                     b.Property<double>("OverallScore")
                         .HasColumnType("double precision")
@@ -1990,6 +2127,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowMigrationWrites")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_migration_writes");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("archived_time");
@@ -2053,6 +2194,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("name");
+
+                    b.Property<bool>("OpenWhenUnlinked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("open_when_unlinked");
 
                     b.Property<bool>("UseReadOnlyIntent")
                         .HasColumnType("boolean")
@@ -2469,6 +2614,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<int?>("ModifiedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("modified_by_user_id");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
@@ -2477,6 +2626,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
+
+                    b.Property<int?>("PromotedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("promoted_by_user_id");
 
                     b.Property<string>("Question")
                         .IsRequired()
@@ -2731,6 +2884,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<double>("Confidence")
                         .HasColumnType("double precision")
                         .HasColumnName("confidence");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
@@ -2993,6 +3151,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("caller_hash");
 
+                    b.Property<string>("CandidateSqlHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("candidate_sql_hash");
+
                     b.Property<string>("ColumnsUsed")
                         .HasColumnType("text")
                         .HasColumnName("columns_used");
@@ -3035,6 +3198,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("execution_time_ms");
 
+                    b.Property<int?>("FeedbackByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("feedback_by_user_id");
+
+                    b.Property<bool>("FeedbackFromCurator")
+                        .HasColumnType("boolean")
+                        .HasColumnName("feedback_from_curator");
+
                     b.Property<string>("FeedbackNote")
                         .HasColumnType("text")
                         .HasColumnName("feedback_note");
@@ -3055,6 +3226,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
+
+                    b.Property<DateTime?>("PromotedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("promoted_at");
+
+                    b.Property<int?>("PromotedEvalCaseId")
+                        .HasColumnType("integer")
+                        .HasColumnName("promoted_eval_case_id");
 
                     b.Property<string>("Question")
                         .IsRequired()
@@ -3272,7 +3451,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("EnableSampleValueCollection")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
-                        .HasDefaultValue(true)
+                        .HasDefaultValue(false)
                         .HasColumnName("enable_sample_value_collection");
 
                     b.Property<bool>("EnableSelfConsistency")
@@ -3947,6 +4126,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("RequiresMembership")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_membership");
+
                     b.HasKey("Id")
                         .HasName("pk_projects");
 
@@ -3976,6 +4159,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("DataSourceId")
                         .HasColumnType("integer")
                         .HasColumnName("data_source_id");
+
+                    b.Property<int?>("LinkedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("linked_by_user_id");
 
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
@@ -4179,6 +4366,52 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("project_imported_documents", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectMember", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AddedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("added_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer")
+                        .HasColumnName("role");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_project_members");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_project_members_user_id");
+
+                    b.HasIndex("ProjectId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_project_members_project_id_user_id");
+
+                    b.ToTable("project_members", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
                 {
                     b.Property<int>("Id")
@@ -4248,6 +4481,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("owner_user_id");
+
                     b.HasKey("Id")
                         .HasName("pk_queries");
 
@@ -4280,10 +4518,23 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ApprovedContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_content_hash");
+
+                    b.Property<int?>("BaseVersionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("base_version_id");
+
                     b.Property<string>("ChangeSummary")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("change_summary");
+
+                    b.PrimitiveCollection<string[]>("ContributorUserIds")
+                        .HasColumnType("text[]")
+                        .HasColumnName("contributor_user_ids");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
@@ -4369,6 +4620,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
+
+                    b.PrimitiveCollection<int[]>("DataSourceIds")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("data_source_ids");
 
                     b.Property<double>("ExecutionTimeMs")
                         .HasColumnType("double precision")
@@ -4606,6 +4861,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.Property<int?>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
                     b.Property<string>("NewSql")
                         .IsRequired()
                         .HasColumnType("text")
@@ -4797,6 +5056,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("change_source");
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
                     b.Property<string>("CreatedByUserId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -4810,6 +5074,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
+
+                    b.PrimitiveCollection<int[]>("DataSourceIds")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("data_source_ids");
 
                     b.Property<string>("Description")
                         .HasColumnType("text")
@@ -4868,6 +5136,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApprovedDestinationHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("approved_destination_hash");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")
@@ -4955,6 +5228,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("notification_trigger");
 
+                    b.Property<string>("OwnerUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("owner_user_id");
+
                     b.Property<int>("QueryId")
                         .HasColumnType("integer")
                         .HasColumnName("query_id");
@@ -4984,6 +5262,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("AiActorId")
                         .HasDatabaseName("ix_subscriptions_ai_actor_id");
+
+                    b.HasIndex("OwnerUserId")
+                        .HasDatabaseName("ix_subscriptions_owner_user_id");
 
                     b.HasIndex("QueryId")
                         .HasDatabaseName("ix_subscriptions_query_id");
@@ -5685,6 +5966,27 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.Projects.ProjectMember", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany("Members")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_members_projects_project_id");
+
+                    b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_project_members_users_user_id");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Query", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.QueryVersion", "ActiveVersion")
@@ -6022,6 +6324,8 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("DataSources");
 
                     b.Navigation("Documentations");
+
+                    b.Navigation("Members");
 
                     b.Navigation("Repositories");
                 });

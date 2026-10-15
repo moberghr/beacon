@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using NUnit.Framework;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
+using Beacon.Core.Services;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Integration;
@@ -103,8 +104,39 @@ public class QueryTranslationTests : QueryTranslationTestBase
                     x.Id,
                     x.Title,
                     x.Content,
+                    x.SectionType,
+                    x.Documentation.ProjectId
+                }));
+    }
+
+    // The section types of retrieved doc chunks (KnowledgeGraphService.GetRelevantDocChunksAsync).
+    [Test]
+    public void DocChunkSectionTypes_Translates()
+    {
+        var sectionIds = new List<int> { 1, 2 };
+
+        AssertQueryTranslates(ctx => ctx.ProjectDocumentationSections
+            .Where(x => sectionIds.Contains(x.Id))
+            .Select(x =>
+                new
+                {
+                    x.Id,
                     x.SectionType
                 }));
+    }
+
+    // The projects whose stored documentation holds sections that can list discovered values (the row-data lock's
+    // startup warning).
+    [Test]
+    public void ProjectsWithValueListingDocumentation_Translates()
+    {
+        var listingValues = ProjectDocSectionTypes.ListingValues.ToList();
+
+        AssertQueryTranslates(ctx => ctx.ProjectDocumentationSections
+            .Where(x => listingValues.Contains(x.SectionType))
+            .Select(x => x.Documentation.ProjectId)
+            .Distinct()
+            .OrderBy(x => x));
     }
 
     // ─── User management / SSO ───────────────────────────────────────
@@ -394,6 +426,21 @@ public class QueryTranslationTests : QueryTranslationTestBase
                 s.PreviousScore,
                 s.Id
             }));
+    }
+
+    // ─── Data-contract CustomSql checks (Create/Update/DeleteDataContractHandler) ───
+
+    /// <summary>
+    /// Mirrors the CustomSql check in <c>UpdateDataContractHandler</c> (before its transaction) and
+    /// <c>DeleteDataContractHandler</c> (<c>AnyAsync</c> over the contract's CustomSql rules): the enum comparison must
+    /// translate.
+    /// </summary>
+    [Test]
+    public void UpdateDataContract_ExistingCustomSqlRules_Translates()
+    {
+        AssertQueryTranslates(ctx => ctx.DataContractRules
+            .Where(x => x.DataContractId == 1)
+            .Where(x => x.RuleType == DataContractRuleType.CustomSql));
     }
 
     // ─── Project search (KnowledgeGraphService.SearchProjectAsync) ───

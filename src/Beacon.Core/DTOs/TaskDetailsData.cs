@@ -14,6 +14,8 @@ public record TaskDetailsData
     public required bool Resolved { get; init; }
     public DateTime? ResolvedAt { get; init; }
     public string? ResolvedByUserId { get; init; }
+
+    /// <summary>The resolver's display name, or "User {id}" without one (never the user name or external id).</summary>
     public string? ResolvedByUserName { get; init; }
     public string? ResolutionNotes { get; init; }
     public required int QueryId { get; init; }
@@ -43,6 +45,7 @@ public record TaskDetailsData
 
     public string? AssigneeUserId { get; init; }
 
+    /// <summary>The assignee's display name, or "User {id}" without one (never the user name or external id).</summary>
     public string? AssigneeUserName { get; init; }
 
     public DateTime? SnoozedUntil { get; init; }
@@ -53,14 +56,19 @@ public record TaskDetailsData
 
     public bool IsWatching { get; init; }
 
-    public string? OwnerUserId { get; init; }
+    /// <summary>The task's subscription is managed by an AI actor with a recorded creator.</summary>
+    public bool HasOwner { get; init; }
 
-    public string? OwnerUserName { get; init; }
+    /// <summary>
+    /// The AI actor creator's display name, or a neutral "User {id}" label without one (never the user name or external
+    /// id); null when there is no creator or no matching user.
+    /// </summary>
+    public string? OwnerDisplayName { get; init; }
 }
 
 public record SubscriptionSummary(int Id, string Name, string? Description);
 public record QueryExecutionSummary(int Id, DateTime ExecutedAt, double ExecutionTimeMs, NotificationStatus Status, int ResultCount);
-public record NotificationSummary(int Id, DateTime SentAt, int ResultCount, string? StoredResults);
+public record NotificationSummary(int Id, DateTime SentAt, int ResultCount);
 public record CommentData(int Id, string Content, string? UserName, DateTime CreatedAt);
 public record RelatedTaskSummary(int Id, DateTime CreatedAt, int LatestResultCount, bool Resolved, DateTime? ResolvedAt);
 public record ResultCountDataPoint(DateTime Date, int ResultCount);

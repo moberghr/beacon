@@ -35,7 +35,33 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
 
-Other routes (`/beacon/api/*`) keep their existing JWT behaviour: token claims pass through, apart from the reserved ones listed above, and they are not scope-gated.
+### What a caller reaches
+
+The configured projects are what a caller is mapped to. What it reaches in them is decided on every call by Beacon's [project access](/features/authorization/#project-access), as for API keys and signed-in users:
+
+| Caller | Reaches |
+|--------|---------|
+| System | its configured projects, restricted or not |
+| User with a Beacon user (`AutoProvision`) | its configured projects within its Beacon user's access: open projects, and a restricted project only while the user is a member of it, at the lower of its membership role and its Beacon roles |
+| User with a disabled or archived Beacon user | nothing |
+| User without a Beacon user (user management off, or `AutoProvision` off) | its configured **open** projects only |
+
+A membership granted or revoked, a project restricted, or a user disabled takes effect on the caller's next call. Provisioned users get no membership automatically: add them as members of the restricted projects they are configured for (`DefaultRoleName` gives them their global role, `Viewer` by default).
+
+What a user caller with a Beacon user may **do** in a project follows that user's role there, capped by the caller's scope: the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) need Read; `ask`, `query`, `dry_run` and `feedback` work ad hoc and need an Editor role there — the user's global role Editor or above and, in a restricted project, an Editor membership (or project admin). A user provisioned with the default `Viewer` role therefore reads the catalog and runs saved-query tools, but its SQL tools answer "Access denied: you may read project N but not run ad-hoc queries in it." (audited). Raise `DefaultRoleName`, or the user's role, to let it run SQL. System callers, and user callers without a Beacon user, are capped by their scope only (`Execute`: SQL tools allowed).
+
+Provisioning therefore changes what the same person can do. A user caller **without** a Beacon user acts within its configured open projects with the SQL tools (its `Execute` scope allows them); once provisioned, it gets its stored role instead — with the default `Viewer`, the catalog only. Both are in the administrator's hands: the caller configuration (its projects and scope) decides the first, `DefaultRoleName` and the user's roles the second. When user callers are configured and `DefaultRoleName` is `Viewer`, Beacon logs this once at startup (Information).
+
+Other routes (`/beacon/api/*`) accept a bearer token only when it names an **existing, enabled, external Beacon
+user** by its subject (`sub`) and issuer, or a pre-registered user's subject when only one issuer is configured. A user
+that MCP user provisioning created (keyed on `oid` within the tenant) gets **no** REST session from a token. The
+session is that user, with the user's **Beacon roles**; no token claim (roles included) reaches it. Any other token gets
+`401` with `WWW-Authenticate: Bearer error="invalid_token"`. A configured system identity therefore reaches only
+`/beacon/mcp`, where its projects and scope apply.
+
+On `/beacon/mcp` the principal carries only the caller's name, e-mail and display name from the token, plus what the
+mapper decides: token roles, groups, `beacon:*` claims and the token's own subject never reach it. Until first-run
+setup has created the super admin, `AutoProvision` creates no user and such a caller is rejected.
 
 ### Token classification
 
@@ -130,10 +156,10 @@ The callers are configured under `Beacon:Mcp:Callers`:
 | `Users:Enabled` | `false` | Accept delegated user tokens at all |
 | `Users:RequiredRoles` / `RequiredGroups` | empty | Any-of across both lists. Both empty fails startup unless `AllowAnyTenantUser` is `true` |
 | `Users:AllowAnyTenantUser` | `false` | Explicit opt-in to admit **every** user of the allowed tenants when no role or group is required |
-| `Users:ProjectIds` | empty | Projects every accepted user can reach |
-| `Users:GroupProjects` | empty | Additional projects per group object id or app role, added together |
+| `Users:ProjectIds` | empty | Projects every accepted user is configured for; a restricted one is reached only by its members (see [What a caller reaches](#what-a-caller-reaches)) |
+| `Users:GroupProjects` | empty | Additional configured projects per group object id or app role, added together |
 | `Users:Scope` | `Execute` | `Read` callers cannot reach `/beacon/mcp` |
-| `Users:AutoProvision` | `true` | Create or find a Beacon user (`ExternalId` = `oid`, provider `entra:{tid}`) so audit rows carry a user. A disabled or archived Beacon user is rejected. This needs user management to be enabled; without it the caller is accepted with no Beacon user |
+| `Users:AutoProvision` | `true` | Create or find a Beacon user (`ExternalId` = `oid`, provider `entra:{tid}`) so audit rows carry a user and project memberships apply. A disabled or archived Beacon user is rejected; within the one minute a caller's user is cached, its calls reach no project instead. This needs user management to be enabled; without it the caller is accepted with no Beacon user |
 | `Systems[]:ClientId` / `ObjectId` | none | **Set exactly one per entry.** The host refuses to start otherwise |
 | `Systems[]:HostClaims` | empty | The permission set this identity gets inside the host application. It is carried on the caller for in-process API dispatch |
 
@@ -273,7 +299,7 @@ Things to check when the connection fails, none of which Beacon can see:
 Every MCP tool call writes an audit row, as before. For a JWT caller, the row also records:
 
 - `CallerKind`: `User` or `System`.
-- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{oid}` (or of `{tid}:{appid}` when there is no `oid`). It is stable per identity and never the raw value. The HMAC key is derived from `Beacon:EncryptionKey` for this purpose only, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Rotating the encryption key changes every caller's hash, so rows written before and after a rotation no longer group together.
+- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{oid}` (or of `{tid}:{appid}` when there is no `oid`). It is stable per identity and never the raw value. The HMAC key is derived for this purpose only from `Beacon:Mcp:CallerHashKey` when it is set, else from `Beacon:EncryptionKey`, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Without `CallerHashKey`, changing the encryption key changes every caller's hash, so rows written before and after the change no longer group together: before changing the encryption key, set `Beacon:Mcp:CallerHashKey` (a secret) to the key in use now, and the hashes stay the same (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 - `UserId`: the provisioned Beacon user, in user mode.
 
 Logs carry only the caller hash, never the raw `oid`, email or token.
@@ -287,6 +313,16 @@ builder.Services.AddScoped<IMcpCallerMapper, NetgiroMcpCallerMapper>();
 ```
 
 The mapper receives the raw token claims (`oid`, `tid`, `groups`, and so on) and returns an `McpCaller`, or `null` to reject the caller. `ConfiguredMcpCallerMapper` is public, so a custom mapper can delegate to it and adjust the result. Inject `McpCallerSubjectHasher`, which `AddBeaconServices` registers as a singleton, to produce the same audit hash.
+
+## Upgrading from 4.5: project access
+
+- **User callers need membership on restricted projects.** A user caller reaches a configured project that is restricted only while its Beacon user is a member of it; open configured projects are reached as before. Add the provisioned users as members of the restricted projects they are configured for.
+- **User callers without a Beacon user reach only their configured open projects** (before: every configured project).
+- **A disabled or archived user's caller reaches nothing from its next call**, also within the minute its mapping is cached.
+- **System callers are unchanged**: they reach their configured projects, restricted or not.
+- **User callers with a Beacon user need Editor to run SQL tools.** `ask`, `query`, `dry_run` and `feedback` need the user's role in the project to be Editor or above (global role, and membership on a restricted project); the catalog tools need Read only. Users provisioned with the default `DefaultRoleName` `Viewer` now read the catalog but are refused the SQL tools: give them the Editor role (and Editor membership on restricted projects) if they should run SQL.
+- **Host endpoint and saved-query tools** follow the same access: host endpoint tools need the caller to reach the host's project, and saved-query tools are listed only where the caller may run saved SQL.
+- **New projects are restricted.** A project created after the upgrade by an active Beacon user is restricted, so a user caller configured for it reaches it only once its provisioned Beacon user is a member — with an Editor membership to run SQL tools. Checklist for provisioned users: the default `Viewer` role reads the catalog only; restricted configured projects need membership; the SQL tools need Editor (global role and membership).
 
 ## Upgrading from 4.3
 

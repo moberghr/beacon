@@ -24,4 +24,9 @@ public class CreateInternalUserRequest
     /// Role IDs to assign to the user.
     /// </summary>
     public List<int> RoleIds { get; set; } = new();
+
+    /// <summary>
+    /// External ID of the user creating this one, recorded on each role assignment as who assigned it.
+    /// </summary>
+    public string? AssignedByUserId { get; set; }
 }

@@ -26,6 +26,12 @@ public class QueryExecutionHistory : BaseEntity, IExecutionHistory
     /// </summary>
     public string? Comment { get; set; }
 
+    /// <summary>
+    /// The data sources the run read, recorded when it ran. Null for runs recorded before Beacon kept them: such a run is
+    /// not readable by a project-restricted caller.
+    /// </summary>
+    public int[]? DataSourceIds { get; set; }
+
     public List<Notification> Notifications { get; set; } = new();
 
     public Subscription Subscription { get; set; } = null!;

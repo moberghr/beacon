@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -38,6 +39,7 @@ internal sealed class GetEvalRunsHandler(IDbContextFactory<BeaconContext> contex
     }
 }
 
+[ProjectScopeExempt("admin-gated curation (the eval harness)", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetEvalRunsQuery : IRequest<List<EvalRunListItem>>
 {
     public int? ProjectId { get; init; }

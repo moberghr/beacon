@@ -1,3 +1,5 @@
+using Beacon.Api.Authentication;
+using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Subscriptions;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -13,8 +15,13 @@ internal static class SubscriptionsEndpoints
         subs.MapGet("/", ([AsParameters] GetSubscriptionsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetSubscriptions");
 
+        // Every mutating route needs the Execute scope (§1.4) on top of the write permission the group's permission
+        // filter enforces: a subscription runs its query on a schedule and delivers the rows to its recipients, and
+        // /execute runs and delivers at once. Attaching existing recipients is allowed to the same callers; only Admins
+        // create or re-point recipients themselves (RecipientsEndpoints).
         subs.MapPost("/", (CreateSubscriptionCommand cmd, IMediator m, CancellationToken ct) => m.Send(cmd, ct))
-            .WithName("CreateSubscription");
+            .WithName("CreateSubscription")
+            .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapGet("/{id:int}", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetSubscriptionDetailQuery(id), ct))
@@ -24,41 +31,49 @@ internal static class SubscriptionsEndpoints
         {
             await m.Send(new DeleteSubscriptionCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("DeleteSubscription");
+        }).WithName("DeleteSubscription").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapPost("/{id:int}/reactivate", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new ReactivateSubscriptionCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("ReactivateSubscription");
+        }).WithName("ReactivateSubscription").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapPost("/{id:int}/sla", async (int id, [FromBody] SetSubscriptionSlaBody body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new SetSubscriptionSlaCommand(id, body.SlaHours), ct);
             return TypedResults.NoContent();
-        }).WithName("SetSubscriptionSla");
+        }).WithName("SetSubscriptionSla").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapPost("/{id:int}/execute", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new TestSubscriptionCommand(id), ct);
             return TypedResults.NoContent();
-        }).WithName("TestSubscription");
+        }).WithName("TestSubscription").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapPost("/{id:int}/recipients", async (int id, [FromBody] AddSubscriptionRecipientsBody body, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new AddSubscriptionRecipientsCommand(id, body.RecipientIds), ct);
             return TypedResults.NoContent();
-        }).WithName("AddSubscriptionRecipients");
+        }).WithName("AddSubscriptionRecipients").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapDelete("/{id:int}/recipients/{recipientId:int}", async (int id, int recipientId, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new RemoveSubscriptionRecipientCommand(id, recipientId), ct);
             return TypedResults.NoContent();
-        }).WithName("RemoveSubscriptionRecipient");
+        }).WithName("RemoveSubscriptionRecipient").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         subs.MapGet("/{id:int}/anomaly-chart", (int id, [FromQuery] int? days, IMediator m, CancellationToken ct) =>
                 m.Send(new GetSubscriptionAnomalyChartQuery(id, days ?? 30), ct))
             .WithName("GetSubscriptionAnomalyChart");
+
+        // Making a user the owner a subscription's scheduled runs run as (for instance one created before owners were
+        // recorded) is a UserAdmin's; the new owner must be able to run the subscription's query (409 otherwise).
+        subs.MapPut("/{id:int}/owner", async (int id, SetSubscriptionOwnerBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new SetSubscriptionOwnerCommand(id, body.UserId), ct);
+            return TypedResults.NoContent();
+        }).WithName("SetSubscriptionOwner").RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         return group;
     }
@@ -66,3 +81,4 @@ internal static class SubscriptionsEndpoints
 
 internal sealed record SetSubscriptionSlaBody(int? SlaHours);
 internal sealed record AddSubscriptionRecipientsBody(List<int> RecipientIds);
+internal sealed record SetSubscriptionOwnerBody(int UserId);

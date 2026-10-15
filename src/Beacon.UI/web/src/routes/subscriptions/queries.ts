@@ -10,6 +10,7 @@ import {
   NotificationStatus,
   NotificationTrigger,
 } from '@/lib/enums';
+import type { ChangeApprovalOutcome } from '@/routes/approvals/queries';
 import { createSimpleMutation } from '@/lib/mutations';
 
 export interface SubscriptionEntry {
@@ -106,8 +107,15 @@ export interface SubscriptionDetailRecipient {
   id: number;
   name: string;
   description: string | null;
-  destination: string;
+  /** Always null: destinations are secrets, shown masked to admins on the recipients page only. */
+  destination: string | null;
   notificationType: number;
+  /** With the approval workflow on: where it delivers waits for approval, so this subscription's deliveries skip it. */
+  awaitingApproval?: boolean;
+  /** The pending change request of where it delivers, if one waits (an Approver opens it). */
+  pendingApprovalRequestId?: number | null;
+  /** While it waits and no request of it is pending: the last decision on it (a rejection: change it and save again). */
+  lastApprovalDecision?: ChangeApprovalOutcome | null;
 }
 
 export interface SubscriptionDetailParameter {
@@ -159,6 +167,16 @@ export interface SubscriptionDetail {
   parameters: SubscriptionDetailParameter[];
   recipients: SubscriptionDetailRecipient[];
   anomalyConfig: SubscriptionDetailAnomalyConfig | null;
+  /** An owner is recorded: scheduled runs are checked against the owner's access. False for subscriptions created before owners. */
+  hasOwner: boolean;
+  /** The owner's display name, or a neutral "User {id}" label; null when no owner or no matching user exists. Never an id. */
+  ownerDisplayName: string | null;
+  /** The owner may no longer run the query, so scheduled runs are skipped until an Admin assigns another owner. */
+  ownerNotAuthorized: boolean;
+  /**
+   * The last run was skipped because, with the approval workflow on, the query's stored SQL is not its approved version.
+   */
+  notApproved?: boolean;
 }
 
 interface GetSubscriptionDetailResult {
@@ -302,6 +320,23 @@ export function useReactivateSubscription(id: number | undefined) {
   );
 }
 
+/**
+ * Admin only: makes a Beacon user the subscription's owner, the user its scheduled runs run as. The server answers 409
+ * with the reason when that user may not run the subscription's query; the hook toasts it.
+ */
+export function useSetSubscriptionOwner(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<number, void>({
+      qc,
+      mutationFn: (userId) => beaconApi().setSubscriptionOwner(id, { userId }),
+      invalidate: [...subscriptionMutationKeys(id), ['control-tower']],
+      successMsg: 'Owner updated',
+      errorFallback: 'Changing the owner failed',
+    }),
+  );
+}
+
 export function useAddSubscriptionRecipients(id: number | undefined) {
   const qc = useQueryClient();
   return useMutation(
@@ -346,6 +381,7 @@ export const NOTIFICATION_STATUS_LABEL: Record<number, string> = {
   [NotificationStatus.Timeout]: 'Timeout',
   [NotificationStatus.BelowThreshold]: 'Below threshold',
   [NotificationStatus.Failed]: 'Failed',
+  [NotificationStatus.Skipped]: 'Skipped',
 };
 
 export const FILE_TYPE_LABEL: Record<number, string> = {

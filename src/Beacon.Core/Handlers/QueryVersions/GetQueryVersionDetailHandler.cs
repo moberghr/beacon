@@ -1,6 +1,7 @@
 using MediatR;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.QueryVersions;
 
@@ -13,7 +14,12 @@ internal sealed class GetQueryVersionDetailHandler(IQueryVersionService versionS
     }
 }
 
-public record GetQueryVersionDetailQuery : IRequest<QueryVersionDetail?>
+public record GetQueryVersionDetailQuery : IRequest<QueryVersionDetail?>, IProjectAuthorizedRequest
 {
     public required int VersionId { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.QueryVersion(VersionId), ProjectAction.Read)
+    ];
 }

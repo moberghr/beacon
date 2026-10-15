@@ -9,6 +9,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 
@@ -18,9 +19,10 @@ namespace Beacon.MCP.Tools;
 internal sealed class DryRunTool(
     IDbContextFactory<BeaconContext> contextFactory,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IKnowledgeGraphService knowledgeGraph,
     IQueryExecutionService queryExecutionService,
-    IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
     McpAuditService auditService,
     McpSignalService signalService,
@@ -66,7 +68,7 @@ internal sealed class DryRunTool(
         // carry the SQL without tables; the gate's AST-resolved tables are recorded once it has run.
         signal.SetGeneratedSql(sql);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "dry_run", project_id, out var projectId);
         if (resolveError != null)
         {
             return await FailAsync(signal, sw, null, datasource_id, sql, resolveError, cancellationToken);
@@ -112,9 +114,10 @@ internal sealed class DryRunTool(
                     "dry_run validates SQL only — API data sources are not supported.", cancellationToken);
             }
 
-            var dialect = dataSource.DatabaseEngineType?.ToString();
-            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
-            var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
+            var dialect = DataSourceSqlDialect.Of(dataSource);
+            // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
+            var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
+            var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
 
             // Gates 1-3 (read-only, schema, row limit) run through the one shared gate (§1.5). The schema
@@ -123,7 +126,8 @@ internal sealed class DryRunTool(
             {
                 Catalog = catalog,
                 MaxRows = maxRows,
-                HostManagedKey = dataSource.HostManagedKey
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
             });
             signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
 
@@ -187,7 +191,7 @@ internal sealed class DryRunTool(
             // Signal fields mirror the ask flow's failure taxonomy: schema-gate issues → schema
             // validation failure, provider gate → dry-run failure, read-only gate → execution
             // validation failure. IsSuccessful is the verdict itself.
-            RecordGateFailuresOnSignal(signal, issues, providerGateSkipped);
+            RecordGateFailuresOnSignal(signal, issues, providerGateSkipped, sql);
             sw.Stop();
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, valid);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
@@ -199,7 +203,7 @@ internal sealed class DryRunTool(
         catch (Exception ex)
         {
             sw.Stop();
-            signal.SetExecutionFailed(ex.Message);
+            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, sql, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
                 sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
@@ -301,9 +305,10 @@ internal sealed class DryRunTool(
     // rows in the learning loop. A SKIPPED provider gate is NOT a dry-run failure: the query was never
     // presented to the provider, so the dry-run failure fields stay unset (the advisory issue still
     // makes the verdict invalid; recording it as DryRunFailed would poison the learning loop with a
-    // failure that never happened).
+    // failure that never happened). The provider's error is the database's own and can quote row values, so the stored
+    // signal gets it redacted whatever the PII setting.
     private static void RecordGateFailuresOnSignal(
-        McpSignalBuilder signal, IReadOnlyList<GateIssue> issues, bool providerGateSkipped)
+        McpSignalBuilder signal, IReadOnlyList<GateIssue> issues, bool providerGateSkipped, string sql)
     {
         foreach (var issue in issues)
         {
@@ -315,7 +320,7 @@ internal sealed class DryRunTool(
                 case ProviderGate:
                     if (!providerGateSkipped)
                     {
-                        signal.SetDryRunFailed(issue.Error);
+                        signal.SetDryRunFailed(DatabaseErrorRedactor.ForCaller(issue.Error, sql, redact: true));
                     }
 
                     break;

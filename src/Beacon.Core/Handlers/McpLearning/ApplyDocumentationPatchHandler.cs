@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
@@ -122,8 +123,16 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
     }
 }
 
-public record ApplyDocumentationPatchCommand : IRequest
+public record ApplyDocumentationPatchCommand : IRequest, IProjectAuthorizedRequest
 {
     public required int PatchId { get; init; }
+    [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public int? AppliedByUserId { get; init; }
+
+    // A patch to a documentation section: Curate in the patch's project. A patch to a column or table description: Write in
+    // the patch's project and Curate in every live project linking its data source, or a DataSourceAdmin.
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.CurateShared(ProjectResource.DocumentationPatch(PatchId))
+    ];
 }

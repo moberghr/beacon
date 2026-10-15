@@ -39,6 +39,15 @@ public class MigrationJob : ArchivableBaseEntity, IScheduledJob, IMultiStepWorkf
     public string? ChangedBy { get; set; }
     public DateTime? ChangedOn { get; set; }
 
+    /// <summary>
+    /// While the change approval workflow governs the job: the hash of the definition a second person approved
+    /// (<see cref="ChangeApprovals.MigrationJobDefinition"/>), and the job runs only while its definition hashes to it;
+    /// <see cref="ChangeApprovals.ChangeApprovalHashes.NothingApproved"/> for a job created under the workflow and not
+    /// approved yet. Null for a job the workflow does not govern (stored before Beacon reviewed migration jobs, or last
+    /// saved with the workflow off), which runs as before.
+    /// </summary>
+    public string? ApprovedDefinitionHash { get; set; }
+
     // IMultiStepWorkflow implementation
     private List<QueryStepData>? _parsedSteps;
     private List<QueryStepData> ParsedSteps

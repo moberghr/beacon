@@ -4,6 +4,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.Dashboards.AddWidget;
@@ -25,7 +26,7 @@ internal sealed class AddWidgetHandler(
 
         if (!hasPermission)
         {
-            throw new UnauthorizedAccessException("Insufficient permissions to add widgets to this dashboard");
+            throw new BeaconForbiddenException("Insufficient permissions to add widgets to this dashboard");
         }
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -57,6 +58,7 @@ internal sealed class AddWidgetHandler(
     }
 }
 
+[ProjectScopeExempt("dashboards are project-less and carry their own access list")]
 public record AddWidgetCommand(
     int DashboardId,
     string Title,

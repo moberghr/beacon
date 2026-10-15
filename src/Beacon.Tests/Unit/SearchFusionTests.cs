@@ -9,6 +9,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
+using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -227,11 +228,14 @@ public class SearchFusionTests
         return new KnowledgeGraphService(
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             settings.Object,
+            SettingsProviderMock.Unshared(settings.Object),
             embedder,
             Mock.Of<ISchemaGraphService>(),
             Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
                 == Task.FromResult("")),
+            TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
             NullLogger<KnowledgeGraphService>.Instance);
     }
 

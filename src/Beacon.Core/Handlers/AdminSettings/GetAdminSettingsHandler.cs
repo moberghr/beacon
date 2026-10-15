@@ -1,6 +1,7 @@
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.AdminSettings;
 
@@ -44,6 +45,8 @@ internal sealed class GetAdminSettingsHandler(IAppSettingsService settingsServic
     }
 }
 
+/// <summary>The admin settings, secrets masked (whether each is set), and their change history. For an Auditor or a SecurityAdmin.</summary>
+[ProjectScopeExempt("gated by the Auditor and SecurityAdmin permissions: settings with secrets masked, no project data", Policy = BeaconPermissions.AuditorOrSecurityAdminPolicy)]
 public record GetAdminSettingsQuery : IRequest<GetAdminSettingsResult>;
 
 public record GetAdminSettingsResult(AdminSettingsView Settings, List<AdminSettingHistoryEntry> History);

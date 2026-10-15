@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { RefreshCw, RotateCcw, Zap } from 'lucide-react';
+import { RefreshCw, RotateCcw, UserCog, Zap } from 'lucide-react';
 import { Button, PageHeader, Pill } from '@/components/beacon';
 import { formatDateTime } from '@/lib/format';
 import { SubscriptionStatus, type SubscriptionDetail } from '../queries';
@@ -14,6 +14,8 @@ interface SubscriptionHeroProps {
   onTest: () => void;
   onArchive: () => void;
   onReactivate: () => void;
+  /** Admin only: opens the owner picker. Omitted, the action is not shown. */
+  onChangeOwner?: () => void;
 }
 
 export function SubscriptionHero({
@@ -26,6 +28,7 @@ export function SubscriptionHero({
   onTest,
   onArchive,
   onReactivate,
+  onChangeOwner,
 }: SubscriptionHeroProps) {
   const isActive = subscription.status === SubscriptionStatus.Active;
 
@@ -70,6 +73,11 @@ export function SubscriptionHero({
       }
       actions={
         <>
+          {onChangeOwner && (
+            <Button icon={<UserCog />} onClick={onChangeOwner}>
+              Change owner
+            </Button>
+          )}
           {isActive ? (
             <Button
               icon={<RefreshCw />}

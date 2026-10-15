@@ -76,9 +76,12 @@ const PROVIDER_CARDS: Array<{
 export function ProviderPicker({
   value,
   onChange,
+  disabled = false,
 }: {
   value: AiProvider;
   onChange: (id: AiProvider) => void;
+  /** Only an Admin changes the provider. */
+  disabled?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -90,9 +93,10 @@ export function ProviderPicker({
             type="button"
             key={card.id}
             onClick={() => onChange(card.id)}
+            disabled={disabled}
             className={cn(
               'flex items-start gap-3 p-3 rounded-md border text-left transition',
-              'focus:outline-none focus:shadow-ring',
+              'focus:outline-none focus:shadow-ring disabled:cursor-not-allowed disabled:opacity-70',
               selected
                 ? 'border-brand-500 bg-brand-50/40 shadow-ring'
                 : 'border-border-strong bg-surface hover:border-brand-300 hover:bg-surface-2',
@@ -129,12 +133,15 @@ export function OpenAiFields({
   modelKnown,
   control,
   setValue,
+  locked = false,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
   modelKnown: boolean;
   control: ControlObj;
   setValue: SetValueFn;
+  /** The credentials are an Admin's to change: shown disabled to anyone else. */
+  locked?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -144,6 +151,7 @@ export function OpenAiFields({
           autoComplete="new-password"
           placeholder={modelKnown ? 'Set — leave blank to keep' : 'sk-…'}
           {...register('llmApiKey')}
+          disabled={locked}
         />
       </Field>
       <ModelPickerField
@@ -175,12 +183,15 @@ export function AnthropicFields({
   apiKeySet,
   control,
   setValue,
+  locked = false,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
   apiKeySet: boolean;
   control: ControlObj;
   setValue: SetValueFn;
+  /** The credentials are an Admin's to change: shown disabled to anyone else. */
+  locked?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -190,6 +201,7 @@ export function AnthropicFields({
           autoComplete="new-password"
           placeholder={apiKeySet ? 'Set — leave blank to keep' : 'sk-ant-…'}
           {...register('llmApiKey')}
+          disabled={locked}
         />
       </Field>
       <ModelPickerField
@@ -219,11 +231,14 @@ export function AzureFields({
   errors,
   apiKeySet,
   endpointSet,
+  locked = false,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
   apiKeySet: boolean;
   endpointSet: boolean;
+  /** The endpoint and credentials are an Admin's to change: shown disabled to anyone else. */
+  locked?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -237,6 +252,7 @@ export function AzureFields({
           autoComplete="new-password"
           placeholder={endpointSet ? 'Set — leave blank to keep' : 'https://…openai.azure.com'}
           {...register('llmEndpoint')}
+          disabled={locked}
         />
       </Field>
       <Field label="API key" className="md:col-span-2">
@@ -245,6 +261,7 @@ export function AzureFields({
           autoComplete="new-password"
           placeholder={apiKeySet ? 'Set — leave blank to keep' : 'Azure API key'}
           {...register('llmApiKey')}
+          disabled={locked}
         />
       </Field>
       <Field
@@ -272,6 +289,7 @@ export function BedrockFields({
   accessKeySet,
   secretKeySet,
   sessionTokenSet,
+  locked = false,
 }: {
   register: RegisterFn;
   errors: ErrorsObj;
@@ -281,11 +299,19 @@ export function BedrockFields({
   accessKeySet: boolean;
   secretKeySet: boolean;
   sessionTokenSet: boolean;
+  /** The region, authentication mode and credentials are an Admin's to change: shown disabled to anyone else. */
+  locked?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <RegionPickerField register={register} setValue={setValue} control={control} errorMsg={errors.llmRegion?.message} />
+        <RegionPickerField
+          register={register}
+          setValue={setValue}
+          control={control}
+          errorMsg={errors.llmRegion?.message}
+          disabled={locked}
+        />
         <ModelPickerField
           label="Model"
           options={modelsForProvider(AiProvider.Bedrock)}
@@ -310,6 +336,7 @@ export function BedrockFields({
       <div className="border-t border-border my-1" />
 
       <Field label="Credentials">
+        <fieldset disabled={locked} className="m-0 p-0 border-0 min-w-0">
         <Controller
           control={control}
           name="llmBedrockAuthMode"
@@ -325,6 +352,7 @@ export function BedrockFields({
             />
           )}
         />
+        </fieldset>
       </Field>
 
       {authMode === BedrockAuthMode.IamRole && (
@@ -343,6 +371,7 @@ export function BedrockFields({
               autoComplete="new-password"
               placeholder={accessKeySet ? 'Set — leave blank to keep' : 'AKIA…'}
               {...register('llmAwsAccessKeyId')}
+              disabled={locked}
             />
           </Field>
           <Field label="Secret access key">
@@ -351,6 +380,7 @@ export function BedrockFields({
               autoComplete="new-password"
               placeholder={secretKeySet ? 'Set — leave blank to keep' : 'Secret'}
               {...register('llmAwsSecretAccessKey')}
+              disabled={locked}
             />
           </Field>
           {authMode === BedrockAuthMode.TemporaryCredentials && (
@@ -360,6 +390,7 @@ export function BedrockFields({
                 autoComplete="new-password"
                 placeholder={sessionTokenSet ? 'Set — leave blank to keep' : 'STS session token'}
                 {...register('llmSessionToken')}
+                disabled={locked}
               />
             </Field>
           )}
@@ -390,6 +421,7 @@ export function ModelPickerField({
   className,
   placeholder = 'Select a model…',
   customPlaceholder = 'Custom model id',
+  disabled = false,
 }: {
   label: string;
   options: ModelOption[];
@@ -402,6 +434,7 @@ export function ModelPickerField({
   className?: string;
   placeholder?: string;
   customPlaceholder?: string;
+  disabled?: boolean;
 }) {
   const formValue = (useWatch({ control, name: registerName }) as string | undefined) ?? '';
   const isPreset = options.some(x => x.id === formValue);
@@ -431,6 +464,7 @@ export function ModelPickerField({
           <Select
             className="mono flex-1"
             value={formValue}
+            disabled={disabled}
             onChange={e => setValue(registerName, e.currentTarget.value as never, { shouldDirty: true, shouldValidate: true })}
           >
             {!isPreset && (
@@ -444,12 +478,18 @@ export function ModelPickerField({
               </option>
             ))}
           </Select>
-          <Button type="button" onClick={() => setMode('custom')}>Custom…</Button>
+          <Button type="button" onClick={() => setMode('custom')} disabled={disabled}>Custom…</Button>
         </div>
       ) : (
         <div className="flex gap-2">
-          <Input className="mono flex-1" type="text" placeholder={customPlaceholder} {...register(registerName)} />
-          <Button type="button" onClick={() => setMode('preset')}>Presets</Button>
+          <Input
+            className="mono flex-1"
+            type="text"
+            placeholder={customPlaceholder}
+            {...register(registerName)}
+            disabled={disabled}
+          />
+          <Button type="button" onClick={() => setMode('preset')} disabled={disabled}>Presets</Button>
         </div>
       )}
     </Field>
@@ -461,11 +501,13 @@ export function RegionPickerField({
   setValue,
   control,
   errorMsg,
+  disabled = false,
 }: {
   register: RegisterFn;
   setValue: SetValueFn;
   control: ControlObj;
   errorMsg?: string;
+  disabled?: boolean;
 }) {
   return (
     <ModelPickerField
@@ -478,6 +520,7 @@ export function RegionPickerField({
       errorMsg={errorMsg}
       placeholder="Select a region…"
       customPlaceholder="custom-region-1"
+      disabled={disabled}
     />
   );
 }
@@ -489,9 +532,11 @@ export function TestConnectionRow({
   pending,
   result,
   error,
+  hint = 'Sends a 1-token ping with the values on this form (without saving).',
 }: {
   onTest: () => void;
   pending: boolean;
+  hint?: string;
   result:
     | { ok: boolean; latencyMs: number | null; model: string | null; error: string | null; sample: string | null }
     | undefined;
@@ -509,9 +554,7 @@ export function TestConnectionRow({
             'Test connection'
           )}
         </Button>
-        <span className="text-xs text-text-muted">
-          Sends a 1-token ping with the values on this form (without saving).
-        </span>
+        <span className="text-xs text-text-muted">{hint}</span>
       </div>
 
       {result && (

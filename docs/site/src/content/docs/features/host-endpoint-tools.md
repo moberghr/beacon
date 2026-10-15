@@ -177,8 +177,11 @@ interface keeps compiling and behaves as `false` for both.
 ## Who the call runs as
 
 Endpoint tools need a **mapped MCP caller** — an Entra user or system identity from
-[Entra ID callers](/features/mcp-entra-callers/) — authorized for the tools' project. API-key callers and callers
-outside the project neither see nor can call them (fail closed); neither can anyone while the project does not exist.
+[Entra ID callers](/features/mcp-entra-callers/) — configured for the tools' project and allowed to read it by its
+[project access](/features/authorization/#project-access): a user caller reaches a restricted project only while its
+Beacon user is a member (see [What a caller reaches](/features/mcp-entra-callers/#what-a-caller-reaches)). API-key
+callers and callers outside the project neither see nor can call them (fail closed); neither can anyone while the
+project does not exist.
 
 `IMcpHostPrincipalFactory` builds the host principal from the caller:
 

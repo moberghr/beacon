@@ -29,6 +29,129 @@ Beacon supports four notification channels:
 Email is the only channel that delivers complete query results as attachments. This makes it suited to scheduled reporting where stakeholders need full datasets for analysis in Excel or other tools.
 :::
 
+:::caution[Upgrading]
+Recipients and deliveries are locked down in this version; read the [upgrade notes](/getting-started/configuration/#notification-destinations-optional) before upgrading. In short: recipients outside the destination policy (plain `http://` webhooks, private hosts, an on-premises Jira, retired Office 365 connector URLs, unlisted webhook headers, email display names) stop delivering until they are allowed or re-saved; the system proxy is ignored unless `UseSystemProxy` is on; recipients saved on this version cannot be read by an earlier one, so a rollback means re-entering their secrets; stored secrets are encrypted only when you run `IRecipientSecretEncryptionService` yourself, once every node runs this version (nothing runs it automatically); only Admins and SecurityAdmins manage recipients; changing subscriptions needs the Execute scope; failures show a generic reason; API responses no longer contain destinations.
+:::
+
+:::note[Who manages recipients]
+Only Admins and SecurityAdmins create, change or delete recipients. A SecurityAdmin changes where a recipient delivers (its type, destination or headers) only when it can read every subscription and data contract the recipient is attached to (`403` otherwise); renaming it is always allowed. Other users can attach existing recipients to subscriptions and data contracts (with write permission and, for API keys, the Execute scope), but never see their destinations; Admins and SecurityAdmins see them masked. Destinations must use `https` and, for Slack, Teams and Jira, the vendor's own hosts; see [Notification Destinations](/getting-started/configuration/#notification-destinations-optional).
+
+Notification calls connect directly by default, and Beacon connects only to an address it has checked. Hosts whose outbound traffic must go through a corporate proxy set `Beacon:Notifications:UseSystemProxy` to `true`. Beacon then checks each destination's addresses before sending, but the proxy resolves the name again and connects wherever its own answer points: in proxy mode the destination guarantee is enforced by the proxy's resolution and egress policy, not pinned by Beacon.
+
+A failed delivery shows a generic reason in the notification history, never the destination's response; a run that fails for some recipients still notifies the others and names the failed recipient ids. Failures recorded by earlier versions may still show the old detail.
+:::
+
+### Approval of new and changed destinations
+
+While the [change approval workflow](/features/queries/#approval-workflow) is on and covers recipients
+(`ApprovalWorkflow.CoversRecipientDestinations`, on by default — see
+[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)), where a recipient delivers is a
+reviewed change:
+
+- **A recipient created, or whose type, destination or custom headers change, receives nothing until a second person
+  approves exactly where it now delivers.** The save is stored and submits a change request (its saver is the
+  requester); a create answers with `awaitingApproval: true` and the message *"Submitted for approval: the recipient
+  receives no deliveries until a second person approves where it delivers."*, which the recipient dialog shows. An
+  Approver (or an Admin) other than the requester approves it on the **Approvals** page under **Recipients**. Approving
+  binds to the request the reviewer opened and to the destination the recipient holds then: a recipient changed again
+  since is not approved (`409`).
+- **Deliveries skip a recipient that waits.** Subscription runs and data-quality alerts deliver to every other recipient;
+  the skipped one gets no notification, each skip is logged as a Warning with ids only, and the recipients list and the
+  subscription page mark it **Awaiting approval**. A **governed** recipient (one created or changed under the workflow)
+  whose stored destination cannot be decrypted is skipped too; a recipient that is not governed fails at send time with
+  the "stored destination could not be read" reason, as before.
+- **Saves that change nothing where it delivers** (its name, description, body template) submit nothing. Putting back the
+  approved destination needs no approval and withdraws the requester's own pending change. A change made while another
+  person's change of the same recipient waits is refused (`409`) until that one is approved or rejected; the requester's
+  own earlier change is superseded (and they are told). No save supersedes another person's pending change: one that
+  would is refused (`409`).
+- **A rejected change** leaves the recipient skipped until it is changed back to its approved destination, or saved again
+  (which submits it again). The recipients list and the subscription's **Recipients** tab say **Rejected — change it and
+  save again**, with the reviewer's comment (`lastApprovalDecision` while no request of it is pending).
+- **Attaching an existing recipient** to a subscription or data contract is not reviewed: Editors attach recipients an
+  Admin or SecurityAdmin created and a second person approved.
+- `IRecipientService.CreateRecipient` and `UpdateRecipient` follow the same rules, with the request's caller as the
+  requester: a caller Beacon cannot name is refused (`BeaconForbiddenException`) and nothing is written, and a change
+  made while another person's change of the recipient waits comes back unsuccessful (`Success = false`, the reason in
+  `Message`) with nothing written. A create submitted for approval says so in its `Message`.
+
+#### What reviewers see
+
+A reviewer must see where data will go without seeing any credential. The change request shows, before and after:
+
+- the **type**, and what **identifies the destination**: a webhook's scheme, host and port, with each path segment
+  shown as a mask (so the path's shape is visible) and user info, query values (their names are kept) and a fragment
+  masked. Only the parts a known provider documents as not secret are shown: Slack's workspace and webhook ids
+  (`hooks.slack.com/services/T…/B…/…`, the token masked); a Teams workflow's (Logic Apps or Power Automate) fixed path
+  words and workflow id, its signature (in the query) masked; a legacy Teams connector's group and tenant ids, every
+  segment after them masked. Email addresses are shown as they are; a Jira destination shows its site, project and email;
+- the **custom header names**, each with a **fingerprint** of its value (12 hex characters), never the value;
+- a **fingerprint of the whole definition** (type, destination and headers).
+
+A fingerprint is a short keyed digest (an HMAC under a key derived from `Beacon:EncryptionKey`): equal fingerprints mean
+equal values, and without the key it reveals nothing about them. Admins and SecurityAdmins see the same fingerprints for
+each recipient on the **Recipients** page, so the requester and the reviewer can compare them out of band (by phone,
+say) before the approval.
+
+When the before and after look the same — same type, same destination as shown, same header names — but the
+fingerprints differ, the change lies only in a masked part (a new path, token or signature, a new header value). The approval
+page says so prominently, and **approving it requires a comment** saying how the reviewer checked the change (`400`
+without one; the page requires it too). A request whose proposed destination cannot be read cannot be approved
+(`mayApprove: false` with the reason); reject it and submit the change again. Recipient requests are visible to
+Approvers (and Admins) only: recipients belong to no project.
+
+#### When a delivery is checked
+
+The check sits in `INotificationService.SendNotification`, the single path to every channel adapter: the very copy of
+the destination and headers about to be sent is decrypted, hashed and compared with the recipient's approved hash read
+at that moment (archived recipients included). A recipient changed or archived after a run loaded it is therefore never
+sent the unapproved copy, and a recipient that no longer exists receives nothing. This also covers a host that calls
+`SendNotification` itself with a `RecipientId`: a recipient that waits fails with *"Skipped: where the recipient
+delivers waits for approval. Approve its change on the Approvals page, or put back its approved destination."*
+(`NotificationFailureReasons.AwaitingApproval`). A delivery without a `RecipientId` — an address no stored recipient
+holds — is not a governed recipient's and is not checked, by design.
+
+The approved hash is keyed: an HMAC-SHA256 under a key derived for this purpose from `Beacon:EncryptionKey` (stored with
+a version prefix), never a plain hash of the destination, so reading the database does not let anyone test guesses of a
+destination or header value. **Replacing the encryption key holds no recipient**: a hash written under a key listed in
+`Beacon:PreviousEncryptionKeys` still matches, and the re-encryption run (`IStoredValueReEncryptionService`, see
+[Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)) recomputes the approved hashes of
+governed recipients, and those of their pending requests, under the current key — remove the previous key only after it
+reports nothing left. A pending request whose hash was written under a previous key still proposes the destination it
+names: a save that leaves where the recipient delivers as it is keeps that request and its requester. A hash of a
+destination the recipient no longer holds (an approved destination it has moved away from while a change waits) cannot
+be recomputed, as its plaintext is not stored, and nothing tells which key wrote it: it keeps matching only while the
+previous key is configured, so the run counts it as an **unresolved key dependency** (logged with the recipient's id)
+and does not report the previous keys removable while one remains. Resolve it by deciding the recipient's pending change
+— an approval writes the approved hash under the current key — or by saving the recipient back to its approved
+destination, then run the re-encryption again. Rotating a recipient's own credential (a new
+webhook token, a new header value) is a change of where it delivers: it waits for approval like any other.
+
+#### Runs that notified nobody
+
+A subscription run whose every recipient waits for approval notifies nobody: it is recorded as **Skipped** with *"Skipped:
+every recipient waits for approval of where it delivers, so nobody was notified. Approve the recipients' changes on the
+Approvals page."* (`NotificationFailureReasons.AllRecipientsAwaitApproval`), a Warning is logged, and a test delivery
+answers `409` with that reason. A run that notified some recipients records each skipped one in its comment (`Recipient
+7: Skipped: where the recipient delivers waits for approval. …`); the subscription's execution history shows these
+reasons readably, naming the held recipients.
+
+A skipped run is **not a baseline**: the result-count trigger (`OnResultCountChange`, `OnResultCountIncrease`) compares a
+run with the last run that was not skipped, and a run that notified nobody stores no anomaly-detection baseline. This
+holds for every skipped run — also those skipped because the owner was not authorized or because the query's change was
+not approved, which run no SQL and store nothing — so a run nobody was told about never hides the next change.
+
+:::caution[Upgrading]
+Recipients that exist when you upgrade are not governed: they keep delivering where they do, with no approval and no data
+change. Once the workflow is on, a new recipient, or a new destination of an existing one, waits for a second person's
+approval before anything is delivered to it — plan for an Approver who is not the Admin or SecurityAdmin making the
+change, and for credential rotation (a new token or header value waits too). A change made while the workflow is off is
+not reviewed later. Turning `CoversRecipientDestinations` (or the workflow) off again lets the recipients that wait — and
+the rejected ones — receive deliveries as they are; startup warns with their count (see
+[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)). The result-count trigger no
+longer compares a run with a skipped one, on any host.
+:::
+
 ## Email Notifications
 
 ### Prerequisites
@@ -462,11 +585,24 @@ Filter by:
 ### Notification Details
 
 Click any notification to see:
-- Complete query results
+- The stored query results (when the subscription stores results)
 - Execution metrics (time, row count)
 - Recipient delivery status per channel
-- Error messages (if delivery failed)
-- Query execution plan
+- A generic reason when delivery failed (the details are in the server log)
+
+### Who sees a run
+
+The notification list and details show stored runs, including their result rows; the Home activity feed, the Control Tower detail, a task's executions and result history (`GET /tasks/{id}/executions`, `/result-history`) and a subscription's anomaly chart (`GET /subscriptions/{id}/anomaly-chart`) list the same runs. Each run records the data sources it read when it ran. An API key or MCP caller restricted to projects sees a run only when **one** of its projects holds every data source the run read (by the projects' current data sources, the rule [saved-query tools](/features/saved-query-tools/) follow); other runs are not listed, and their details read as not found. Signed-in users with read permission see every run. An API key or MCP caller without a project restriction, like an anonymous request, sees none.
+
+A failed run's comment is shown only when it is a recorded failure reason (for example `Recipient 7: Notification delivery failed: the destination did not respond in time.`); any other stored text is shown as the generic reason, and the details are in the server log.
+
+:::caution[Upgrading]
+- A new nullable column records the data sources a run read: `data_source_ids` (`integer[]`) on PostgreSQL, `DataSourceIds` (`nvarchar(max)`, JSON) on SQL Server, added by the `AddRunDataSourceIds` migration. Existing rows are not rewritten.
+- Runs recorded before this version have no recorded data sources and are **hidden from project-restricted callers**. Signed-in users still see them.
+- API keys and MCP callers without a project restriction no longer see any run (they get an empty list and 404 on the details), as they are already denied every project.
+- A run is now visible to a restricted caller when one allowed project holds all of its data sources; a run over a data source shared by several projects is visible from each of them that holds all of the run's sources.
+- `INotificationService.GetNotificationDetails` takes a `StoredRunScope`, `GetQueryExecutionHistoryRequest.Scope` is required, and `GetQueryExecutionHistoryDetails` was removed with `QueryExecutionHistoryDetailsData`. `IControlTowerService.GetSubscriptionDetail`, `ITaskService.GetTaskExecutionHistory`, `ITaskService.GetResultCountHistory` and `IAnomalyDetectionService.GetAnomalyChartDataAsync` take a `StoredRunScope` too. Subscription runs carry `QueryResult.DataSourceIds`.
+:::
 
 ## Result Formatting
 

@@ -8,6 +8,7 @@ using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -22,8 +23,9 @@ internal sealed class ProjectQueryTool(
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IKnowledgeGraphService knowledgeGraph,
-    IMcpSettingsProvider settingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
     McpAuditService auditService,
     McpSignalService signalService,
@@ -53,7 +55,7 @@ internal sealed class ProjectQueryTool(
             .SetQuestion(sql ?? api_query ?? "")
             .SetUserId(projectContext.UserId);
 
-        var resolveError = ToolHelper.ResolveProjectId(projectContext, project_id, out var projectId);
+        var resolveError = ToolHelper.ResolveProjectId(projectContext, "query", project_id, out var projectId);
         if (resolveError != null)
             return await FailAsync(signal, sw, null, null, sql ?? api_query, resolveError, cancellationToken);
 
@@ -77,7 +79,8 @@ internal sealed class ProjectQueryTool(
         if (projectError != null)
             return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, projectError, cancellationToken);
 
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
+        // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
         var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
 
         try
@@ -110,13 +113,14 @@ internal sealed class ProjectQueryTool(
                 // One shared gate (§1.5): regex guardrail → AST read-only → schema catalog (blocking here — a
                 // hallucinated column is refused before it reaches the warehouse) → row limit. Tables come
                 // from the AST walk (aliases resolved, CTEs excluded), not from a regex over the text.
-                var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, cancellationToken);
-                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dataSource.DatabaseEngineType?.ToString(), settings) with
+                var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
+                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings) with
                 {
                     Catalog = catalog,
                     BlockOnSchemaFailure = true,
                     MaxRows = maxRows,
-                    HostManagedKey = dataSource.HostManagedKey
+                    HostManagedKey = dataSource.HostManagedKey,
+                    ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
                 });
                 signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
 
@@ -141,7 +145,7 @@ internal sealed class ProjectQueryTool(
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
             // §1.5 backstop — SQL executes through the read-only path. The database-level guarantee
-            // is PostgreSQL-only today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
+            // is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above. API
             // sources have no SQL engine, so they stay on the normal execution path.
             var result = isApi
@@ -150,28 +154,42 @@ internal sealed class ProjectQueryTool(
 
             if (!result.Success)
             {
+                // The database's error can quote row values: the stored signal always gets it redacted, the caller and the
+                // audit trail while PII detection is on (a host data source's error is already Beacon's generic text).
+                var rawError = result.ErrorMessage ?? "Unknown error";
+                var callerError = DatabaseErrorRedactor.ForCaller(rawError, queryText, settings.EnablePiiDetection && dataSource.HostManagedKey == null, logger);
                 sw.Stop();
-                signal.SetExecutionFailed(result.ErrorMessage ?? "Unknown error");
+                signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(rawError, queryText, redact: true, logger));
                 signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
                 await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-                    sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, result.ErrorMessage,
+                    sql ?? api_query, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, callerError,
                     tables: report?.TablesUsed.ToList(), ct: cancellationToken);
                 await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-                return ToolHelper.Error($"Query execution failed: {result.ErrorMessage}");
+                return ToolHelper.Error($"Query execution failed: {callerError}");
             }
 
             var text = $"# Query Results\n\n**Data Source:** {dataSource.Name}\n**Rows:** {result.Rows?.Count ?? 0}\n\n";
             JsonNode? structured = null;
 
+            if (result.Metadata.TryGetValue(HostResultMetadata.RenamedMaskedColumns, out var renamed) && renamed is int renamedCount and > 0)
+            {
+                text += $"*{renamedCount} column(s) of this host data source result were masked because the database named them differently than the host policy checked them.*\n\n";
+            }
+
             if (result.Rows != null && result.Rows.Count > 0)
             {
-                // Mask PII column values before returning to the MCP client (§1.6/§1.11). Mirrors
-                // SemanticSearchService; no-op when detection is off or no PII column was selected.
-                var rows = result.Rows;
-                if (piiColumns is { Count: > 0 } piiCols)
-                {
-                    rows = rows.Select(x => guardrailService.MaskPiiValues(x, piiCols)).ToList();
-                }
+                // Mask PII column values before returning to the MCP client (§1.6/§1.11): the SQL-text
+                // matches (incl. host-masked columns), every result column whose name is PII, and the names
+                // the executed SQL aliases PII columns to — so SELECT *, customer_email and email AS contact
+                // are covered. API sources have no SQL to resolve aliases from.
+                var rows = PiiRowMasker.Mask(
+                    guardrailService,
+                    result.Rows,
+                    piiColumns ?? [],
+                    settings.EnablePiiDetection,
+                    settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null,
+                    isApi ? null : queryText,
+                    DataSourceSqlDialect.Of(dataSource));
 
                 text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
                 structured = ToolHelper.BuildStructuredPayload(rows, maxRows);
@@ -188,7 +206,7 @@ internal sealed class ProjectQueryTool(
         catch (Exception ex)
         {
             sw.Stop();
-            signal.SetExecutionFailed(ex.Message);
+            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, sql ?? api_query, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
             await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
                 sql ?? api_query, datasource_id, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);

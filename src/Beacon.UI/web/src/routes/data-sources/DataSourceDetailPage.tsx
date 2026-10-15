@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, Database, GitFork, Key, Layers, RefreshCw, X } from 'lucide-react';
 import {
   PageHeader,
+  Banner,
   Button,
   Card,
   CardBody,
@@ -15,7 +16,11 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { describeError } from '@/lib/api';
+import { describeError, httpErrorInfo, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
+import { useAccess } from '@/auth/useAuth';
+import { ProjectChips } from './ProjectChips';
+import { ENGINE_READ_ONLY_HINT, READ_ONLY_LOGIN_HINT, ReadOnlyEnforcementBadge, WRITE_TARGET_HINT } from './ReadOnlyEnforcementBadge';
+import { MigrationWritesControl } from './MigrationWritesControl';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourceQuery,
@@ -23,6 +28,7 @@ import {
   useDeleteDataSource,
   useRefreshDataSourceMetadata,
   type ColumnMetadataDto,
+  type DataSourceEntry,
   type TableMetadataDto,
 } from './queries';
 
@@ -39,6 +45,8 @@ export default function DataSourceDetailPage() {
   const refreshMetadata = useRefreshDataSourceMetadata();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
+  // Deleting a data source is a DataSourceAdmin's (an Admin holds it).
+  const canDelete = useAccess().hasPermission('DataSourceAdmin');
 
   const entry = listQuery.data ?? null;
 
@@ -63,6 +71,24 @@ export default function DataSourceDetailPage() {
     );
   }
 
+  if (listQuery.isError && !isNotFound(listQuery.error)) {
+    return (
+      <div className="flex flex-col gap-5 p-7">
+        <PageHeader
+          variant="nodes"
+          emphasis={`Data source #${numericId}`}
+          sub={<Link to="/data-sources" className="text-text-muted">← back to data sources</Link>}
+        />
+        <EmptyState
+          icon={<AlertTriangle />}
+          title="Failed to load data source"
+          description={listQuery.error instanceof Error ? listQuery.error.message : 'Unknown error'}
+        />
+      </div>
+    );
+  }
+
+  // A data source the caller may not read answers 404, like a missing one: both show the not-found state.
   if (!entry) {
     return (
       <div className="flex flex-col gap-5 p-7">
@@ -71,7 +97,11 @@ export default function DataSourceDetailPage() {
           emphasis={`Data source #${numericId}`}
           sub={<Link to="/data-sources" className="text-text-muted">← back to data sources</Link>}
         />
-        <EmptyState icon={<Database />} title="Data source not found" />
+        <EmptyState
+          icon={<Database />}
+          title="Data source not found"
+          description={NOT_FOUND_DETAIL}
+        />
       </div>
     );
   }
@@ -118,29 +148,45 @@ export default function DataSourceDetailPage() {
             >
               Relationships
             </Button>
-            <Button
+            {/* A migration write target is never read, so it has no catalog to refresh. */}
+            {!entry.allowMigrationWrites && <Button
               type="button"
               onClick={async () => {
                 try {
-                  await refreshMetadata.mutateAsync(entry.id);
-                  toast.success('Metadata refreshed from source');
+                  const snapshot = await refreshMetadata.mutateAsync(entry.id);
+                  const skipped = snapshot.skippedNameCount ?? 0;
+                  if (skipped > 0) {
+                    // Names with quote, bracket, semicolon or control characters are not stored; the server logs them.
+                    toast.warning(
+                      `Metadata refreshed from source; ${skipped} table or column ${skipped === 1 ? 'name was' : 'names were'} left out because ${skipped === 1 ? 'it carries' : 'they carry'} quote, bracket, semicolon or control characters (listed in the server log).`,
+                    );
+                  } else {
+                    toast.success('Metadata refreshed from source');
+                  }
                 } catch (err) {
-                                    toast.error(describeError(err, 'Refresh failed'));
+                  // 429: refreshed within the cooldown; the server says how long it is.
+                  if (httpErrorInfo(err)?.status === 429) {
+                    toast.warning(describeError(err, 'Metadata was refreshed recently; try again later.'));
+                  } else {
+                    toast.error(describeError(err, 'Refresh failed'));
+                  }
                 }
               }}
               disabled={refreshMetadata.isPending || metadataQuery.isFetching}
               icon={<RefreshCw />}
             >
               Refresh metadata
-            </Button>
-            <Button
-              variant="danger"
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              icon={<X />}
-            >
-              Delete
-            </Button>
+            </Button>}
+            {canDelete && (
+              <Button
+                variant="danger"
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                icon={<X />}
+              >
+                Delete
+              </Button>
+            )}
           </>
         }
       />
@@ -177,13 +223,32 @@ export default function DataSourceDetailPage() {
 }
 
 interface OverviewProps {
-  entry: { id: number; name: string; dataSourceType: string; databaseEngineType: string | null; queryCount: number; migrationJobsCount: number; metadataLoadingEnabled: boolean };
+  entry: DataSourceEntry;
   metadataLoading: boolean;
 }
 
 function OverviewTab({ entry, metadataLoading }: OverviewProps) {
+  const isWriteTarget = entry.allowMigrationWrites === true;
   return (
     <CardBody>
+      {isWriteTarget && (
+        <Banner
+          tone="info"
+          icon={<Database />}
+          title="Migration write target"
+          sub={WRITE_TARGET_HINT}
+          className="mb-4"
+        />
+      )}
+      {!isWriteTarget && entry.databaseReadOnlyEnforced === false && (
+        <Banner
+          tone="warn"
+          icon={<AlertTriangle />}
+          title="No database-level read-only enforcement"
+          sub={READ_ONLY_LOGIN_HINT}
+          className="mb-4"
+        />
+      )}
       <dl className="grid grid-cols-[180px_1fr] gap-x-3 gap-y-2 m-0 text-sm">
         <dt className="text-text-muted">Identifier</dt>
         <dd className="mono">#{entry.id}</dd>
@@ -197,10 +262,30 @@ function OverviewTab({ entry, metadataLoading }: OverviewProps) {
             ? <span className="mono">{entry.databaseEngineType}</span>
             : <span className="text-text-muted">—</span>}
         </dd>
+        <dt className="text-text-muted">Read-only</dt>
+        <dd>
+          {isWriteTarget && <span className="text-text-muted">Not read by Beacon</span>}
+          {!isWriteTarget && entry.databaseReadOnlyEnforced === true && (
+            <Pill tone="ok" title={ENGINE_READ_ONLY_HINT}>Enforced by the engine — still use a read-only login</Pill>
+          )}
+          {!isWriteTarget && entry.databaseReadOnlyEnforced === false && <ReadOnlyEnforcementBadge enforced={false} />}
+          {!isWriteTarget && entry.databaseReadOnlyEnforced == null && <span className="text-text-muted">—</span>}
+        </dd>
+        <dt className="text-text-muted">Migration writes</dt>
+        <dd><MigrationWritesControl entry={entry} /></dd>
         <dt className="text-text-muted">Metadata loading</dt>
         <dd>{entry.metadataLoadingEnabled
           ? <Pill tone="ok">Enabled</Pill>
           : <span className="text-text-muted">Disabled</span>}</dd>
+        <dt className="text-text-muted">Projects</dt>
+        <dd>
+          <ProjectChips
+            projects={entry.projects ?? []}
+            otherProjectCount={entry.otherProjectCount ?? 0}
+            openWhenUnlinked={entry.openWhenUnlinked ?? true}
+            linked
+          />
+        </dd>
         <dt className="text-text-muted">Queries</dt>
         <dd>{formatNumber(entry.queryCount)}</dd>
         <dt className="text-text-muted">Migration jobs</dt>

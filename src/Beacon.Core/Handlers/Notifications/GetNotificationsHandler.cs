@@ -1,12 +1,16 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Helpers;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.QueryExecutionHistory;
+using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Notifications;
 
-internal sealed class GetNotificationsHandler(INotificationService notificationService)
+internal sealed class GetNotificationsHandler(
+    INotificationService notificationService,
+    IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetNotificationsQuery, PagedList<NotificationEntry>>
 {
     public async Task<PagedList<NotificationEntry>> Handle(GetNotificationsQuery request, CancellationToken cancellationToken)
@@ -18,6 +22,7 @@ internal sealed class GetNotificationsHandler(INotificationService notificationS
             Sort = request.Sort,
             NotificationStatus = request.Status,
             SubscriptionId = request.SubscriptionId,
+            Scope = await StoredRunAccess.ScopeOfAsync(projectAccess, cancellationToken),
         };
 
         var data = await notificationService.GetQueryExecutionHistory(serviceRequest, cancellationToken);
@@ -41,13 +46,19 @@ internal sealed class GetNotificationsHandler(INotificationService notificationS
 }
 
 /// <summary>Newest first unless <c>sort</c> says otherwise; sortable by any scalar column of the row.</summary>
-public record GetNotificationsQuery : ListRequest, IRequest<PagedList<NotificationEntry>>
+public record GetNotificationsQuery : ListRequest, IRequest<PagedList<NotificationEntry>>, IProjectFilteredRequest
 {
     public NotificationStatus? Status { get; init; }
+
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
 
     public int? SubscriptionId { get; init; }
 }
 
+/// <summary>
+/// A run in the notifications list. <c>Comment</c> is the recorded failure reason (<c>NotificationFailureReasons</c>), or
+/// the generic reason in place of any other stored detail.
+/// </summary>
 public record NotificationEntry(
     int Id,
     int SubscriptionId,

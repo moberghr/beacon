@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -108,7 +109,7 @@ public class DatabricksProvider(
 
             if (result?.Status?.State == "FAILED")
             {
-                throw new BeaconException($"Databricks query failed: {result.Status.Error?.Message}");
+                throw new DataSourceServiceException($"Databricks query failed: {result.Status.Error?.Message}", result.Status.Error?.ErrorCode);
             }
 
             // Poll if pending, with an overall timeout and gentle backoff (500ms growing to 5s).
@@ -135,7 +136,7 @@ public class DatabricksProvider(
             {
                 var errorDetail = result?.Status?.Error?.Message;
                 var stateMessage = $"Databricks query ended with state: {result?.Status?.State}";
-                throw new BeaconException(errorDetail == null ? stateMessage : $"{stateMessage} — {errorDetail}");
+                throw new DataSourceServiceException(errorDetail == null ? stateMessage : $"{stateMessage} — {errorDetail}", result?.Status?.Error?.ErrorCode);
             }
 
             var (rows, truncated) = await ConvertResultToRowsAsync(client, config, result, cancellationToken);
@@ -158,7 +159,11 @@ public class DatabricksProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Query execution failed for Databricks data source {DataSourceId}", dataSource.Id);
+            // The type and status code only (§1.11): a Databricks error message can quote the query and row values.
+            logger.LogError(
+                "Query execution failed for Databricks data source {DataSourceId} with {Failure}",
+                dataSource.Id,
+                FailureCodes.Describe(ex));
             stopwatch.Stop();
             return new ProviderQueryResult
             {
@@ -169,6 +174,30 @@ public class DatabricksProvider(
                 ErrorMessage = ex.Message
             };
         }
+    }
+
+    /// <summary>
+    /// The Statement Execution API offers no read-only session, so the connector's own verdict binds before anything is sent:
+    /// <see cref="ValidateQueryAsync"/> (the Databricks-dialect read-only parser and the configured-catalog rule) must pass,
+    /// which leaves a single SELECT, or the statement is refused without reaching the warehouse.
+    /// <see cref="SupportsDatabaseReadOnlyEnforcement"/> stays false: the token's Unity Catalog grants remain the
+    /// workspace's own boundary.
+    /// </summary>
+    public async Task<ProviderQueryResult> ExecuteReadOnlyQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    {
+        var validation = await ValidateQueryAsync(dataSource, query, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return new ProviderQueryResult
+            {
+                Rows = [],
+                TotalRows = 0,
+                Success = false,
+                ErrorMessage = string.Join("; ", validation.Errors)
+            };
+        }
+
+        return await ExecuteQueryAsync(dataSource, query, parameters, cancellationToken);
     }
 
     public Task<DataSourceMetadata> GetMetadataAsync(DataSource dataSource, CancellationToken cancellationToken = default)
@@ -189,8 +218,10 @@ public class DatabricksProvider(
             errors.Add("Query cannot be empty");
         }
 
-        // Read-only enforcement (§1.5): reject anything that is not a single SELECT.
-        var readOnlyError = readOnlyValidator.Validate(query, "databricks");
+        // Read-only enforcement (§1.5): reject anything that is not a single SELECT, or that names another catalog than
+        // the one the source is configured for.
+        var readOnlyError = readOnlyValidator.Validate(query, "databricks")
+            ?? SqlCrossDatabaseRule.Validate(query, "databricks", ConfiguredCatalogOf(dataSource));
         if (readOnlyError != null)
         {
             errors.Add(readOnlyError);
@@ -201,6 +232,20 @@ public class DatabricksProvider(
             IsValid = errors.Count == 0,
             Errors = errors
         });
+    }
+
+    // The catalog the source is configured for; null (no catalog may be named) when none is set, undetermined (no catalog either) when its settings cannot be read.
+    private string? ConfiguredCatalogOf(DataSource dataSource)
+    {
+        try
+        {
+            return ParseConfiguration(dataSource).Catalog;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Databricks settings of data source {DataSourceId} could not be read ({ExceptionType})", dataSource.Id, ex.GetType().Name);
+            return DataSourceConfiguredDatabase.Undetermined;
+        }
     }
 
     private DatabricksConfiguration ParseConfiguration(DataSource dataSource)
@@ -241,7 +286,10 @@ public class DatabricksProvider(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to cancel Databricks statement {StatementId}", statementId);
+            logger.LogWarning(
+                "Failed to cancel Databricks statement {StatementId} with {Failure}",
+                statementId,
+                FailureCodes.Describe(ex));
         }
     }
 
@@ -327,6 +375,9 @@ public class DatabricksProvider(
 
     private class DatabricksError
     {
+        [JsonPropertyName("error_code")]
+        public string? ErrorCode { get; set; }
+
         [JsonPropertyName("message")]
         public string? Message { get; set; }
     }

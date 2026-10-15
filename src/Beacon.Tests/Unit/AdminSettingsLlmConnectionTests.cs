@@ -1,0 +1,191 @@
+using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using NUnit.Framework;
+using Beacon.Core.Authorization;
+using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.AdminSettings;
+using Beacon.Core.Models;
+using Beacon.Core.Models.Settings;
+using Beacon.Core.Services;
+using Beacon.Tests.Common;
+
+namespace Beacon.Tests.Unit;
+
+/// <summary>
+/// A SecurityAdmin changes the admin settings and tests the stored LLM connection, but the LLM provider, endpoint,
+/// region, Bedrock authentication mode and credentials stay an Admin's: changing them, or testing with other values, is
+/// refused (403) before anything is saved or dialled, so the stored credentials never follow an endpoint a SecurityAdmin
+/// chose.
+/// </summary>
+[TestFixture]
+public class AdminSettingsLlmConnectionTests
+{
+    private Mock<IAppSettingsService> _settings = null!;
+    private Mock<ILlmConnectionTester> _tester = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        _settings = new Mock<IAppSettingsService>();
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData
+            {
+                BaseUrl = "https://beacon.example",
+                LlmProvider = AiProvider.AzureOpenAI,
+                LlmModel = "gpt",
+                LlmEndpoint = "https://llm.example",
+                LlmApiKey = "stored-key",
+                LlmRegion = "westeurope",
+                LlmBedrockAuthMode = BedrockAuthMode.IamRole
+            });
+        _tester = new Mock<ILlmConnectionTester>();
+        _tester
+            .Setup(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmConnectionTestResult(true, 5, "gpt", null));
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_ChangesTheOtherSettings_KeepingTheConnection()
+    {
+        await Update(SecurityAdmin()).Handle(Command(model: "gpt-next", budget: 50), CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(
+                It.Is<AppSettingsData>(y => y.LlmModel == "gpt-next" && y.LlmMonthlyBudget == 50 && y.LlmEndpoint == "https://llm.example" && y.LlmApiKey == "stored-key"),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestCase("provider")]
+    [TestCase("endpoint")]
+    [TestCase("apiKey")]
+    [TestCase("region")]
+    [TestCase("authMode")]
+    [TestCase("sessionToken")]
+    [TestCase("awsAccessKeyId")]
+    [TestCase("awsSecret")]
+    [TestCase("providerCleared")]
+    [TestCase("regionCleared")]
+    public async Task ASecurityAdmin_ChangingTheLlmConnection_IsForbidden_AndNothingIsSaved(string field)
+    {
+        var act = () => Update(SecurityAdmin()).Handle(Changing(field), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(LlmConnectionSettings.AdminOnlyMessage);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task AnAdmin_ChangesTheLlmConnection()
+    {
+        await Update(TestPermissions.Admin).Handle(Changing("endpoint"), CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "https://elsewhere.example"), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestCase("https://phish.example")]
+    [TestCase(null)]
+    public async Task ASecurityAdmin_ChangingTheBaseUrl_IsForbidden_AndNothingIsSaved(string? baseUrl)
+    {
+        var act = () => Update(SecurityAdmin()).Handle(Command() with { BaseUrl = baseUrl }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UpdateAdminSettingsHandler.BaseUrlAdminOnlyMessage);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_SendingTheStoredBaseUrlBack_ChangesNothing_AndAnAdminChangesIt()
+    {
+        await Update(SecurityAdmin()).Handle(Command() with { BaseUrl = " https://beacon.example " }, CancellationToken.None);
+        await Update(TestPermissions.Admin).Handle(Command() with { BaseUrl = "https://beacon.example.org" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.BaseUrl == "https://beacon.example.org"), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_TestsTheStoredConnection_ButNotAnotherEndpointWithTheStoredKey()
+    {
+        var stored = await Test(SecurityAdmin()).Handle(
+            new TestLlmConnectionCommand(null, "gpt", null, BedrockAuthMode.IamRole, null, null, null, null, null),
+            CancellationToken.None);
+        var elsewhere = () => Test(SecurityAdmin()).Handle(
+            new TestLlmConnectionCommand(null, "gpt", null, BedrockAuthMode.IamRole, null, "https://other-endpoint.example", null, null, null),
+            CancellationToken.None);
+
+        stored.Ok.Should().BeTrue();
+        await elsewhere.Should().ThrowAsync<BeaconForbiddenException>();
+        _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Endpoint == "https://other-endpoint.example"), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private UpdateAdminSettingsHandler Update(IBeaconPermissionAccessor permissions)
+    {
+        return new UpdateAdminSettingsHandler(
+            _settings.Object,
+            Mock.Of<IBeaconUserContext>(),
+            TestProjectAccess.Actors(),
+            permissions,
+            NullLogger<UpdateAdminSettingsHandler>.Instance);
+    }
+
+    private TestLlmConnectionHandler Test(IBeaconPermissionAccessor permissions)
+    {
+        return new TestLlmConnectionHandler(
+            _settings.Object,
+            _tester.Object,
+            TestProjectAccess.Actors(),
+            permissions,
+            NullLogger<TestLlmConnectionHandler>.Instance);
+    }
+
+    private static IBeaconPermissionAccessor SecurityAdmin() => TestPermissions.Holding(BeaconPermissions.SecurityAdmin);
+
+    // What the settings page sends when only the named connection field changes.
+    private static UpdateAdminSettingsCommand Changing(string field)
+    {
+        return Command() with
+        {
+            // Saving clears a provider or a region sent as null: unlike a test, an update does not keep the stored one.
+            LlmProvider = field switch
+            {
+                "provider" => AiProvider.OpenAI,
+                "providerCleared" => null,
+                _ => AiProvider.AzureOpenAI
+            },
+            LlmEndpoint = field == "endpoint" ? "https://elsewhere.example" : null,
+            LlmApiKey = field == "apiKey" ? "new-key" : null,
+            LlmRegion = field switch
+            {
+                "region" => "eastus",
+                "regionCleared" => null,
+                _ => "westeurope"
+            },
+            LlmBedrockAuthMode = field == "authMode" ? BedrockAuthMode.AccessKey : BedrockAuthMode.IamRole,
+            LlmSessionToken = field == "sessionToken" ? "token" : null,
+            LlmAwsAccessKeyId = field == "awsAccessKeyId" ? "AKIAEXAMPLE" : null,
+            LlmAwsSecretAccessKey = field == "awsSecret" ? "secret" : null
+        };
+    }
+
+    private static UpdateAdminSettingsCommand Command(string model = "gpt", decimal budget = 10)
+    {
+        return new UpdateAdminSettingsCommand(
+            "https://beacon.example",
+            AiProvider.AzureOpenAI,
+            model,
+            null,
+            "westeurope",
+            BedrockAuthMode.IamRole,
+            null,
+            null,
+            null,
+            null,
+            null,
+            4,
+            1000,
+            60,
+            budget);
+    }
+}

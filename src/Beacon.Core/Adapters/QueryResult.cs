@@ -28,6 +28,9 @@ public class QueryResult
 
     public required int? SubscriptionId { get; init; }
 
+    /// <summary>The data sources a subscription run read; recorded on its execution history.</summary>
+    public IReadOnlyList<int> DataSourceIds { get; init; } = [];
+
     public double ExecutionTimeMs { get; set; }
 
     public bool SaveResults { get; set; }
@@ -49,6 +52,9 @@ public class RecipientQueryResult
     public QueryResultFile? QueryResultFile { get; init; }
 
     public int? NotificationId { get; init; }
+
+    /// <summary>The recipient being notified, for delivery logs.</summary>
+    public int? RecipientId { get; init; }
 
     public AnomalyEvaluationResult? AnomalyEvaluation { get; init; }
 

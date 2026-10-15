@@ -1,22 +1,28 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.Core.Handlers.AiActors;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetailsQuery, GetAiActorDetailsResult?>
 {
     private readonly IAiActorServiceExtended _aiActorService;
+    private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly ILogger<GetAiActorDetailsHandler> _logger;
 
     public GetAiActorDetailsHandler(
         IAiActorServiceExtended aiActorService,
+        IDbContextFactory<BeaconContext> contextFactory,
         ILogger<GetAiActorDetailsHandler> logger)
     {
         _aiActorService = aiActorService;
+        _contextFactory = contextFactory;
         _logger = logger;
     }
 
@@ -32,6 +38,9 @@ internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetai
         var subscriptions = await _aiActorService.GetActorSubscriptionsAsync(request.ActorId, cancellationToken);
         var executions = await _aiActorService.GetExecutionHistoryAsync(request.ActorId, request.ExecutionHistoryLimit, cancellationToken);
         var pendingPlans = await _aiActorService.GetPendingPlansAsync(request.ActorId, cancellationToken);
+        var ownerDisplayName = actor.CreatedByUserId == null
+            ? null
+            : await OwnerDisplayNameAsync(actor.CreatedByUserId, cancellationToken);
 
         return new GetAiActorDetailsResult
         {
@@ -45,7 +54,8 @@ internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetai
             MaxQueries = actor.MaxQueries,
             MaxSubscriptionsPerQuery = actor.MaxSubscriptionsPerQuery,
             RequiresApproval = actor.RequiresApproval,
-            CreatedByUserId = actor.CreatedByUserId,
+            HasOwner = actor.CreatedByUserId != null,
+            OwnerDisplayName = ownerDisplayName,
             TotalTokensUsed = actor.TotalTokensUsed,
             TotalCost = actor.TotalCost,
             LastThinkTime = actor.LastThinkTime,
@@ -88,5 +98,15 @@ internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetai
             }).ToList()
         };
     }
-}
 
+    // The creator is named by display name, or "User {id}" without one: never by user name or external id.
+    private async Task<string?> OwnerDisplayNameAsync(string ownerUserId, CancellationToken cancellationToken)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.Users
+            .Where(x => x.ExternalId == ownerUserId)
+            .Select(UserLabel.OfUser)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+}

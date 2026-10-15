@@ -3,17 +3,23 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 
 internal sealed class GetDataQualityOverviewHandler(
-    IDbContextFactory<BeaconContext> contextFactory) : IRequestHandler<GetDataQualityOverviewQuery, List<DataQualityOverviewData>>
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess) : IRequestHandler<GetDataQualityOverviewQuery, List<DataQualityOverviewData>>
 {
     public async Task<List<DataQualityOverviewData>> Handle(GetDataQualityOverviewQuery request, CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var scoresQuery = context.DataQualityScores.AsQueryable();
+        // Scores and contract counts only for the data sources the caller may read.
+        var scoresQuery = context.DataQualityScores
+            .WhereSourceAccessible(context, readable, x => x.DataSourceId);
 
         if (request.DataSourceId.HasValue)
             scoresQuery = scoresQuery.Where(s => s.DataSourceId == request.DataSourceId.Value);
@@ -34,9 +40,16 @@ internal sealed class GetDataQualityOverviewHandler(
             .ToListAsync(cancellationToken);
 
         var contractCounts = await context.DataContracts
+            .WhereSourceAccessible(context, readable, x => x.DataSourceId)
             .Where(c => c.IsEnabled)
             .GroupBy(c => c.DataSourceId)
-            .Select(g => new { DataSourceId = g.Key, Count = g.Count() })
+            .Select(g =>
+                new
+                {
+                    DataSourceId = g.Key,
+                    Count = g.Count(),
+                    OwnerNotAuthorized = g.Count(x => x.OwnerNotAuthorizedSince != null)
+                })
             .ToListAsync(cancellationToken);
 
         var grouped = scores
@@ -64,6 +77,10 @@ internal sealed class GetDataQualityOverviewHandler(
                     HealthyTables = tableScores.Count(t => t.Score >= 80),
                     DegradingTables = tableScores.Count(t => t.TrendDirection == DataQualityTrendDirection.Degrading),
                     ActiveContracts = contractCounts.FirstOrDefault(c => c.DataSourceId == g.Key.DataSourceId)?.Count ?? 0,
+                    OwnerNotAuthorizedContracts = contractCounts
+                        .Where(x => x.DataSourceId == g.Key.DataSourceId)
+                        .Select(x => x.OwnerNotAuthorized)
+                        .FirstOrDefault(),
                     TableScores = tableScores
                 };
             })
@@ -73,4 +90,4 @@ internal sealed class GetDataQualityOverviewHandler(
     }
 }
 
-public record GetDataQualityOverviewQuery(int? DataSourceId = null) : IRequest<List<DataQualityOverviewData>>;
+public record GetDataQualityOverviewQuery([property: ProjectScopeExempt("filter only: the list is scope-filtered")] int? DataSourceId = null) : IRequest<List<DataQualityOverviewData>>, IProjectFilteredRequest;

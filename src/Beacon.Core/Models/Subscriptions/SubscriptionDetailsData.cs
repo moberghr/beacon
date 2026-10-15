@@ -66,6 +66,27 @@ public class SubscriptionDetailsData
     public List<RecipientData> Recipients { get; set; } = new();
 
     /// <summary>
+    /// The owner's <c>Users.ExternalId</c>, whose access the scheduled runs are checked against; null for subscriptions
+    /// created before owners were recorded.
+    /// </summary>
+    public string? OwnerUserId { get; set; }
+
+    /// <summary>
+    /// The owner's display name, or a neutral "User {id}" label without one (never the user name or external id); null
+    /// when there is no owner or no matching user.
+    /// </summary>
+    public string? OwnerDisplayName { get; set; }
+
+    /// <summary>The last scheduled run was skipped because the owner may no longer run the subscription's query.</summary>
+    public bool OwnerNotAuthorized { get; set; }
+
+    /// <summary>
+    /// The last run was skipped because, with the approval workflow on, the query's stored SQL is not its approved version
+    /// (save the query to submit it for approval, or restore a version and approve it).
+    /// </summary>
+    public bool NotApproved { get; set; }
+
+    /// <summary>
     /// Anomaly detection configuration for this subscription
     /// </summary>
     public AnomalyConfigData? AnomalyConfig { get; set; }

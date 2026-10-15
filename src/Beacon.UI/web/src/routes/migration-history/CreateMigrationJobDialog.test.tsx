@@ -7,33 +7,37 @@ import { CreateMigrationJobDialog } from './CreateMigrationJobDialog';
 
 describe('CreateMigrationJobDialog (multi-step)', () => {
   it('walks through the steps and POSTs the new migration job', async () => {
+    // The source picker offers the sources Beacon reads, the destination picker the migration write targets only.
+    const sources = [
+      {
+        id: 1,
+        name: 'Warehouse',
+        dataSourceType: 'Database',
+        databaseEngineType: 'PostgreSQL',
+        queryCount: 0,
+        migrationJobsCount: 0,
+        metadataLoadingEnabled: true,
+        allowMigrationWrites: false,
+      },
+      {
+        id: 2,
+        name: 'Reporting',
+        dataSourceType: 'Database',
+        databaseEngineType: 'MSSQL',
+        queryCount: 0,
+        migrationJobsCount: 0,
+        metadataLoadingEnabled: true,
+        allowMigrationWrites: true,
+      },
+    ];
+    const asked: (string | null)[] = [];
     mswServer.use(
-      http.get('*/beacon/api/data-sources', () =>
-        HttpResponse.json({
-          totalCount: 2,
-          pageCount: 1,
-          items: [
-            {
-              id: 1,
-              name: 'Warehouse',
-              dataSourceType: 'Database',
-              databaseEngineType: 'PostgreSQL',
-              queryCount: 0,
-              migrationJobsCount: 0,
-              metadataLoadingEnabled: true,
-            },
-            {
-              id: 2,
-              name: 'Reporting',
-              dataSourceType: 'Database',
-              databaseEngineType: 'MSSQL',
-              queryCount: 0,
-              migrationJobsCount: 0,
-              metadataLoadingEnabled: true,
-            },
-          ],
-        }),
-      ),
+      http.get('*/beacon/api/data-sources', ({ request }) => {
+        const targets = new URL(request.url).searchParams.get('migrationTargets');
+        asked.push(targets);
+        const items = sources.filter(x => targets === null || String(x.allowMigrationWrites) === targets);
+        return HttpResponse.json({ totalCount: items.length, pageCount: 1, items });
+      }),
     );
 
     let captured: unknown = null;
@@ -60,15 +64,21 @@ describe('CreateMigrationJobDialog (multi-step)', () => {
 
     // Step 2 — Source: pick source DS, write SQL.
     fireEvent.click(await screen.findByRole('button', { name: 'Source data source' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Warehouse/ }));
+    const warehouse = await screen.findByRole('option', { name: /Warehouse/ });
+    expect(screen.queryByRole('option', { name: /Reporting/ })).not.toBeInTheDocument();
+    fireEvent.click(warehouse);
     fireEvent.input(screen.getByLabelText(/Source SQL/), {
       target: { value: 'SELECT id, email FROM users' },
     });
     fireEvent.click(screen.getByTestId('stepper-next'));
 
-    // Step 3 — Destination.
+    // Step 3 — Destination: write targets only.
     fireEvent.click(await screen.findByRole('button', { name: 'Destination data source' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Reporting/ }));
+    const reporting = await screen.findByRole('option', { name: /Reporting/ });
+    expect(screen.queryByRole('option', { name: /Warehouse/ })).not.toBeInTheDocument();
+    fireEvent.click(reporting);
+    expect(asked).toContain('false');
+    expect(asked).toContain('true');
     fireEvent.input(screen.getByLabelText(/Destination table/), {
       target: { value: 'reporting.users' },
     });

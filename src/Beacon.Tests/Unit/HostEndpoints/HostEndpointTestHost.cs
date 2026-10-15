@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -64,7 +65,8 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
         bool withMcpServer = false,
         Action<WebApplication>? beforeMcp = null,
         bool retainContent = true,
-        bool fallbackPolicy = false)
+        bool fallbackPolicy = false,
+        bool requireAuthorizationOnMcp = false)
     {
         var auditLogs = new List<McpAuditLog>();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -116,6 +118,11 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             builder.Services.AddScoped<McpAuditOutcome>();
         }
 
+        // Project access without a database: the request's caller reads its configured projects; the actor is the
+        // Beacon user the caller's NameIdentifier names. A test registers its own to decide otherwise.
+        builder.Services.AddScoped(x => TestProjectAccess.ForPrincipal(x.GetRequiredService<IHttpContextAccessor>().HttpContext?.User));
+        builder.Services.AddScoped<IBeaconActorAccessor>(x => new PrincipalActorAccessor(x.GetRequiredService<IHttpContextAccessor>()));
+
         services?.Invoke(builder.Services);
         builder.Services.AddHostEndpointTools(x =>
         {
@@ -152,7 +159,12 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
 
         if (withMcpServer)
         {
-            app.MapMcp("/beacon/mcp");
+            // A host that maps the route itself: with no policy, or the bare default policy, not MapBeaconMcp().
+            var mcp = app.MapMcp("/beacon/mcp");
+            if (requireAuthorizationOnMcp)
+            {
+                mcp.RequireAuthorization();
+            }
         }
 
         await app.StartAsync();
@@ -183,7 +195,8 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
                 new Claim(McpCallerClaimTypes.AllowedProjects, JsonSerializer.Serialize(caller.AllowedProjectIds)),
                 new Claim(McpCallerClaimTypes.Scope, caller.Scope.ToString()),
                 new Claim(McpCallerClaimTypes.CallerKind, caller.Kind.ToString()),
-                new Claim(McpCallerClaimTypes.CallerHash, caller.SubjectHash)
+                new Claim(McpCallerClaimTypes.CallerHash, caller.SubjectHash),
+                new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod)
             ],
             "Bearer"));
 
@@ -228,6 +241,7 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             projectResolver ?? App.Services.GetRequiredService<IHostEndpointProjectResolver>(),
             principalFactory ?? App.Services.GetRequiredService<IMcpHostPrincipalFactory>(),
             projectContext,
+            TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn([.. contextProjects ?? [ProjectId]])),
             accessor,
             audit,
             App.Services.GetRequiredService<HostEndpointToolOptions>());
@@ -237,6 +251,23 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
     {
         await App.StopAsync();
         await App.DisposeAsync();
+    }
+
+    /// <summary>The request's caller as the Beacon user its NameIdentifier names (a mapped caller's provisioned user).</summary>
+    private sealed class PrincipalActorAccessor(IHttpContextAccessor httpContextAccessor) : IBeaconActorAccessor
+    {
+        public Task<BeaconActor> GetCurrentAsync(CancellationToken cancellationToken)
+        {
+            var nameIdentifier = httpContextAccessor.HttpContext?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var actor = int.TryParse(nameIdentifier, out var userId)
+                ? new BeaconActor(nameIdentifier, false) { Kind = BeaconPrincipalKind.McpCaller, BeaconUserId = userId, IsActiveUser = true }
+                : BeaconActor.Nobody;
+
+            return Task.FromResult(actor);
+        }
+
+        public Task<BeaconActor> ResolveOwnerAsync(string? ownerUserId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ExplicitControllerProvider(Type[] controllers) : IApplicationFeatureProvider<ControllerFeature>

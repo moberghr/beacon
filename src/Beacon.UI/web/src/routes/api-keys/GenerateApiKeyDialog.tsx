@@ -6,21 +6,41 @@ import { toast } from 'sonner';
 import { AlertTriangle } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Banner, Field, Input } from '@/components/beacon';
+import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
+import { usePermissions } from '@/auth/useAuth';
 import { useCreateApiKey } from './queries';
 
-const SCOPES = ['Read', 'Execute', 'Admin'] as const;
+/**
+ * A project the key may use: the picker lists only projects the signed-in user reads without the Admin bypass (open
+ * projects, and restricted ones they are a member of), because keys never carry that bypass.
+ */
+interface KeyProject {
+  id: number;
+  name: string;
+}
+
+const SCOPES = ['Read', 'Execute'] as const;
 type Scope = (typeof SCOPES)[number];
+
+/** Server default for a key created without an expiry date (`Beacon:ApiKeys`). */
+const DEFAULT_LIFETIME_DAYS = 90;
 
 const SCHEMA = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   scopeRead: z.boolean().optional(),
   scopeExecute: z.boolean().optional(),
-  scopeAdmin: z.boolean().optional(),
   expiresAt: z.string().optional(),
 }).refine(
-  v => Boolean(v.scopeRead || v.scopeExecute || v.scopeAdmin),
+  v => Boolean(v.scopeRead || v.scopeExecute),
   { message: 'Pick at least one scope', path: ['scopeRead'] },
 );
+
+/** Tomorrow as a `yyyy-mm-dd` date-input value: the earliest expiry the server accepts. */
+function tomorrow(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
 
 type FormValues = z.infer<typeof SCHEMA>;
 
@@ -31,27 +51,44 @@ interface GenerateApiKeyDialogProps {
 
 export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProps) {
   const create = useCreateApiKey();
+  // Execute keys need write permission (Editor or above); a Viewer issues Read keys only. Execute stays disabled
+  // until the permissions have loaded, and if they cannot be loaded (the server decides either way).
+  const permissions = usePermissions(open);
+  const canIssueExecute = permissions.data?.canWrite === true;
+  const executeHint = permissions.data
+    ? (canIssueExecute ? null : ' (requires the Editor role)')
+    : (permissions.isError ? ' (could not check your permissions)' : ' (checking your permissions…)');
 
   // The plaintext key lives in component state ONLY for the lifetime of this
   // dialog (CLAUDE.md §1.3 — never persist or log it).
   const [plainKey, setPlainKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Every key names its projects; the server refuses a key without one and never lets it exceed its owner.
+  const [projects, setProjects] = useState<KeyProject[]>([]);
+  const [projectsError, setProjectsError] = useState(false);
 
   const {
     register,
     handleSubmit,
     reset,
+    setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(SCHEMA),
-    defaultValues: { name: '', scopeRead: true, scopeExecute: false, scopeAdmin: false, expiresAt: '' },
+    defaultValues: { name: '', scopeRead: true, scopeExecute: false, expiresAt: '' },
   });
+
+  // A box checked before the permissions said no stays enabled, so it can be unchecked.
+  const executeChecked = watch('scopeExecute') === true;
 
   useEffect(() => {
     if (open) {
       setPlainKey(null);
       setCopied(false);
-      reset({ name: '', scopeRead: true, scopeExecute: false, scopeAdmin: false, expiresAt: '' });
+      setProjects([]);
+      setProjectsError(false);
+      reset({ name: '', scopeRead: true, scopeExecute: false, expiresAt: '' });
     }
   }, [open, reset]);
 
@@ -65,10 +102,26 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
   };
 
   const onSubmit = handleSubmit(async values => {
+    // Never turn a requested Execute key into a Read key silently: say why it cannot be issued instead.
+    if (values.scopeExecute && !canIssueExecute) {
+      setError('scopeExecute', {
+        message: 'Execute keys need the Editor role. Uncheck Execute to create a Read key.',
+      });
+      return;
+    }
+
     const scopes: Scope[] = [];
     if (values.scopeRead) scopes.push('Read');
     if (values.scopeExecute) scopes.push('Execute');
-    if (values.scopeAdmin) scopes.push('Admin');
+    if (scopes.length === 0) {
+      setError('scopeRead', { message: 'Pick at least one scope' });
+      return;
+    }
+
+    if (projects.length === 0) {
+      setProjectsError(true);
+      return;
+    }
 
     const expiresAt = values.expiresAt?.trim() ? new Date(values.expiresAt) : null;
     if (expiresAt && Number.isNaN(expiresAt.getTime())) {
@@ -80,7 +133,7 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
       const result = await create.mutateAsync({
         name: values.name,
         scopes,
-        allowedProjectIds: null,
+        allowedProjectIds: projects.map(x => x.id),
         expiresAt,
       });
       setPlainKey(result.plainTextKey);
@@ -161,24 +214,52 @@ export function GenerateApiKeyDialog({ open, onClose }: GenerateApiKeyDialogProp
             <div className="flex flex-col">
               <label className="flex items-center gap-2 py-1.5">
                 <input type="checkbox" {...register('scopeRead')} />
-                <span><strong>Read</strong> — query data, read configs and reports</span>
+                <span><strong>Read</strong> — read-only access: lists, configs, reports and stored results</span>
               </label>
               <label className="flex items-center gap-2 py-1.5">
-                <input type="checkbox" {...register('scopeExecute')} />
-                <span><strong>Execute</strong> — trigger scans and run jobs</span>
-              </label>
-              <label className="flex items-center gap-2 py-1.5">
-                <input type="checkbox" {...register('scopeAdmin')} />
-                <span><strong>Admin</strong> — full access including user management</span>
+                <input type="checkbox" disabled={!canIssueExecute && !executeChecked} {...register('scopeExecute')} />
+                <span>
+                  <strong>Execute</strong> — run queries and MCP tools, change data, trigger scans and jobs
+                  {executeHint && <span className="text-text-muted">{executeHint}</span>}
+                </span>
               </label>
             </div>
             {errors.scopeRead && <span className="text-xs text-crit">{errors.scopeRead.message}</span>}
+            {errors.scopeExecute && <span className="text-xs text-crit">{errors.scopeExecute.message}</span>}
           </Field>
 
-          <Field label="Expiration date" hint="Leave empty for a key that does not expire.">
+          {/* Not a <Field>: that wraps its children in a <label>, and the picker holds its own checkboxes. */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted">
+              Projects <span className="text-crit">*</span>
+            </span>
+            <SearchMultiSelect<KeyProject>
+              path="/beacon/api/projects"
+              params={{ forApiKey: true }}
+              queryKey={['projects']}
+              selected={projects}
+              onChange={x => {
+                setProjects(x);
+                setProjectsError(false);
+              }}
+              getId={x => x.id}
+              getLabel={x => x.name}
+              noun="projects"
+              hasError={projectsError}
+            />
+            {projectsError
+              ? <span className="text-xs text-crit">Pick at least one project</span>
+              : <span className="text-xs text-text-subtle">The key works only in these projects, and only while you can use them.</span>}
+          </div>
+
+          <Field
+            label="Expiration date"
+            hint={`Leave empty for ${DEFAULT_LIFETIME_DAYS} days. Every key expires; the server caps the lifetime (365 days unless configured otherwise).`}
+          >
             <Input
               id="apikey-expires"
               type="date"
+              min={tomorrow()}
               {...register('expiresAt')}
             />
           </Field>

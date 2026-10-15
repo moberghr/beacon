@@ -11,7 +11,8 @@ namespace Beacon.Core.Services;
 public interface IMcpEvalService
 {
     /// <summary>
-    /// Creates a new eval run row (status "Running") scoped to the optional project and returns its id.
+    /// Creates a new eval run row (status "Running") for the project and returns its id; a null
+    /// <paramref name="projectId"/> is refused (<see cref="InvalidOperationException"/>) and creates nothing.
     /// The actual case-by-case execution happens in <see cref="RunAsync"/>, typically enqueued as a
     /// background job so the API call returns immediately.
     /// </summary>

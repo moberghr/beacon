@@ -11,6 +11,10 @@ namespace Beacon.Core.HostData;
 /// <item>Whole-word match on the camelCase / snake_case words of the name: pin, salt, hash, otp, refresh — so
 /// <c>PasswordHash</c>, <c>pin_code</c>, <c>OtpSeed</c>, <c>RefreshToken</c> match, but <c>Shipping</c> does not.</item>
 /// </list>
+/// <para>
+/// <see cref="IsSecretLikeForValues"/> is the wider net for the values Beacon reads to describe a column (sample values,
+/// value grounding, documentation enum discovery), where a false positive only costs the column its examples.
+/// </para>
 /// </summary>
 public static class SecretLikeColumnNames
 {
@@ -33,6 +37,62 @@ public static class SecretLikeColumnNames
         "hash",
         "otp",
         "refresh"
+    };
+
+    // Value-side additions: names that hold credentials or key material, matched anywhere in the name.
+    private static readonly string[] ValueSubstringMarkers =
+    [
+        "credential",
+        "cookie",
+        "passcode",
+        "passphrase",
+        "accesskey",
+        "access_key",
+        "secretkey",
+        "signingkey",
+        "signing_key",
+        "authkey",
+        "auth_key",
+        "sessionid",
+        "sessionkey",
+        "connectionstring",
+        "connection_string",
+        "webhookurl",
+        "webhook_url"
+    ];
+
+    // Value-side additions matched as whole name segments, so turnkey_id, monkey, pinned, hashtag or signatory stay sampled.
+    private static readonly HashSet<string> ValueWordMarkers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "session",
+        "pwd",
+        "totp",
+        "hotp",
+        "signature",
+        "dsn",
+        "bearer",
+        "jwt",
+        "hmac"
+    };
+
+    // A "key" segment names key material only beside one of these: a surrogate key (ProductKey, CurrencyKey, ClientKey)
+    // does not.
+    private static readonly HashSet<string> KeyQualifiers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "api",
+        "access",
+        "secret",
+        "private",
+        "signing",
+        "encryption",
+        "master",
+        "license",
+        "hmac",
+        "aes",
+        "rsa",
+        "pgp",
+        "gpg",
+        "ssh"
     };
 
     private static readonly Regex WordSplitter = new(
@@ -58,5 +118,48 @@ public static class SecretLikeColumnNames
         return WordSplitter.Matches(name)
             .Select(x => x.Value)
             .Any(x => WordMarkers.Contains(x));
+    }
+
+    /// <summary>
+    /// True when the values of <paramref name="name"/> must not be read to describe the column: everything
+    /// <see cref="IsSecretLike"/> matches, plus the names of credentials, sessions, cookies, signatures, connection strings
+    /// and key material (<c>client_credential</c>, <c>session_id</c>, <c>request_signature</c>, <c>dsn</c>,
+    /// <c>encryption_key</c>, <c>hmac_key</c>). Words such as session, pwd, signature, dsn or hmac match as name segments
+    /// (camelCase or snake_case), never inside a longer word; a <c>key</c> segment only beside api, access, secret, private,
+    /// signing, encryption, master, license, hmac, aes, rsa, pgp, gpg or ssh, or as the whole name (<c>key</c>,
+    /// <c>apikey</c>) — a surrogate key such as <c>ProductKey</c> or <c>ClientKey</c> keeps its samples, and so does a name
+    /// that is only <c>private</c>. Anything holding <c>secret</c> (<c>client_secret</c>, <c>hmac_secret</c>) is excluded.
+    /// </summary>
+    public static bool IsSecretLikeForValues(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        if (IsSecretLike(name))
+        {
+            return true;
+        }
+
+        foreach (var marker in ValueSubstringMarkers)
+        {
+            if (name.Contains(marker, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        if (name.Equals("key", StringComparison.OrdinalIgnoreCase) || name.Equals("apikey", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var segments = WordSplitter.Matches(name)
+            .Select(x => x.Value)
+            .ToList();
+
+        return segments.Any(x => ValueWordMarkers.Contains(x))
+            || (segments.Any(x => x.Equals("key", StringComparison.OrdinalIgnoreCase)) && segments.Any(x => KeyQualifiers.Contains(x)));
     }
 }

@@ -16,6 +16,14 @@ public class McpLearnedPattern : BaseEntity
     public string? ExampleQuestion { get; set; }
     public string? ExampleSql { get; set; }
 
+    /// <summary>
+    /// The SHA-256 (lowercase hex) of what a reviewer decides on — <see cref="PatternContent"/>, <see cref="ExampleQuestion"/>
+    /// and <see cref="ExampleSql"/>, as <c>GroundingContentHash.OfPattern</c> hashes them — written with every change to them,
+    /// so a decision's and an auto-approval's conditional writes compare digests, exactly under any collation. Null for a
+    /// pattern stored before Beacon kept it (the first decision or auto-approval stores it).
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     public int SignalCount { get; set; }
     public double Confidence { get; set; }
 

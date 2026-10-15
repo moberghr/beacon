@@ -13,7 +13,8 @@ public class McpSettingsData
     public bool EnforceReadOnly { get; set; } = true;
     public bool EnablePiiDetection { get; set; } = true;
     public List<string> CustomPiiPatterns { get; set; } = [];
-    public bool EnableSampleValueCollection { get; set; } = true;
+    // Off by default: sample values are row data a prompt carries to the LLM provider. An existing settings row keeps its value.
+    public bool EnableSampleValueCollection { get; set; }
 
     // Learning settings
     public bool EnableLearning { get; set; } = true;
@@ -46,7 +47,8 @@ public class McpSettingsData
     public int GoldenExemplarBudgetChars { get; set; } = 2000;
 
     // Ask-correctness grounding settings
-    public bool EnableValueGrounding { get; set; } = true;
+    // Off by default: value grounding probes live rows and puts the matches in the prompt.
+    public bool EnableValueGrounding { get; set; }
     public int ValueGroundingMaxProbes { get; set; } = 12;
     public bool EnableSemanticLint { get; set; } = true;
     public int SelfConsistencyMinTables { get; set; } = 2;
@@ -59,8 +61,17 @@ public class McpSettingsData
     public int MaxConcurrentQueriesPerKey { get; set; } = 4;
     public bool AllowExplicitFeedbackContent { get; set; } = true;
 
-    /// <summary>Shallow copy with an independent pattern list — the effective-settings resolver mutates the copy, never the cached row.</summary>
-    internal McpSettingsData Clone()
+    /// <summary>
+    /// True when the deployment lock <c>Beacon:Mcp:ForceReadOnly</c> turned <see cref="EnforceReadOnly"/> on over a stored
+    /// value that had it off, so a refusal can name the lock. Set at resolution; never serialized.
+    /// </summary>
+    internal bool ReadOnlyPinnedByLock { get; set; }
+
+    /// <summary>
+    /// Shallow copy with an independent pattern list — the effective-settings resolver and grounding mutate the copy, never
+    /// the cached row.
+    /// </summary>
+    public McpSettingsData Clone()
     {
         var copy = (McpSettingsData)MemberwiseClone();
         copy.CustomPiiPatterns = [.. CustomPiiPatterns];

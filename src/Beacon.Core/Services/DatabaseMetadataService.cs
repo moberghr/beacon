@@ -20,12 +20,14 @@ public class DatabaseMetadataService(
     IEncryptionService encryptionService,
     IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
     IColumnValueSampler columnValueSampler,
-    IMcpSettingsProvider mcpSettingsProvider,
+    ISharedSourceSettings sharedSourceSettings,
     IMemoryCache cache,
+    ISchemaGraphService schemaGraphService,
     ILogger<DatabaseMetadataService> logger)
     : IDatabaseMetadataService
 {
     private const string CacheKeyPrefix = "DbMetadata_";
+    private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
     // Lock per data source to prevent concurrent refresh operations
@@ -52,9 +54,10 @@ public class DatabaseMetadataService(
 
             await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+            // An archived data source is not found (the soft-delete filter), so it is never scanned.
             var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
             if (dataSource == null)
-                throw new BeaconException($"Data source {dataSourceId} not found");
+                throw new BeaconNotFoundException($"Data source {dataSourceId} not found");
 
             // Only database type data sources have metadata
             if (!dataSource.DatabaseEngineType.HasValue)
@@ -68,6 +71,9 @@ public class DatabaseMetadataService(
                     "Metadata for a host data source comes from the host's EF model and is refreshed when the host starts (SyncBeaconHostDataSourcesAsync).");
             }
 
+            // A migration write target is never read: its login may write, and only the migration writer connects with it.
+            MigrationWriteTargets.EnsureReadable(dataSource);
+
             // Extract metadata based on database type using registered extractors
             var connectionString = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
             var extractor = metadataExtractors.FirstOrDefault(e => e.SupportedEngineType == dataSource.DatabaseEngineType.Value)
@@ -76,25 +82,30 @@ public class DatabaseMetadataService(
 
             // Apply per-datasource filters
             tables = ApplyMetadataFilters(tables, dataSource);
+            (tables, var skippedNames) = SkipUnsafeNames(tables, dataSourceId);
 
-            // Enrich with representative sample values for LLM grounding (failure-tolerant)
-            var mcpSettings = await mcpSettingsProvider.GetSettingsAsync(cancellationToken);
+            // Enrich with representative sample values for LLM grounding (failure-tolerant): only while every live project
+            // that links the source allows it, screened with every such project's custom PII patterns.
+            var mcpSettings = await sharedSourceSettings.GetDataSourceSettingsAsync(dataSourceId, cancellationToken);
             if (mcpSettings.EnableSampleValueCollection)
             {
                 tables = await columnValueSampler.EnrichWithSampleValuesAsync(
-                    dataSource.DatabaseEngineType.Value,
-                    connectionString,
+                    dataSource,
                     tables,
                     mcpSettings.CustomPiiPatterns,
                     cancellationToken);
             }
 
             // Store in database
-            await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
+            var stored = await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
-            // Update cache
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, tables, DateTime.UtcNow);
+            // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, stored, DateTime.UtcNow)
+            {
+                SkippedNameCount = skippedNames
+            };
             cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            schemaGraphService.Invalidate(dataSourceId);
 
             logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
 
@@ -116,10 +127,11 @@ public class DatabaseMetadataService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Get the data source to know the database type and metadata loading options
+        // Get the data source to know the database type and metadata loading options. An archived data source is not
+        // found (the soft-delete filter); archiving evicts its cached snapshot.
         var dataSource = await context.DataSources.FirstOrDefaultAsync(ds => ds.Id == dataSourceId, cancellationToken);
         if (dataSource == null)
-            throw new BeaconException($"Data source {dataSourceId} not found");
+            throw new BeaconNotFoundException($"Data source {dataSourceId} not found");
 
         // For API data sources, load stored endpoint metadata directly
         if (dataSource.DataSourceType == Data.Enums.DataSourceType.Api)
@@ -130,8 +142,9 @@ public class DatabaseMetadataService(
         if (!dataSource.DatabaseEngineType.HasValue)
             throw new BeaconException($"Data source {dataSourceId} is not a database type");
 
-        // Check if metadata loading is disabled for this data source
-        if (!dataSource.MetadataLoadingEnabled)
+        // Check if metadata loading is disabled for this data source; a migration write target has no catalog in Beacon
+        // (it is never read, so neither its stored tables nor a scan are offered to anyone).
+        if (!dataSource.MetadataLoadingEnabled || dataSource.AllowMigrationWrites)
         {
             logger.LogDebug("Metadata loading is disabled for data source {DataSourceId}", dataSourceId);
             return new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, new List<TableMetadataDto>(), DateTime.UtcNow);
@@ -257,14 +270,20 @@ public class DatabaseMetadataService(
         return table?.Columns ?? Enumerable.Empty<ColumnMetadataDto>();
     }
 
-    private async Task StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
+    // Replaces the data source's stored metadata with the extracted tables, keeping the curated descriptions (those a person
+    // set by applying a documentation patch) over the extracted ones. Returns the tables as stored.
+    private async Task<IReadOnlyList<TableMetadataDto>> StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // Remove existing metadata for this data source
         var existingMetadata = await context.DatabaseMetadata
+            .Include(m => m.Columns)
             .Where(m => m.DataSourceId == dataSourceId)
             .ToListAsync(cancellationToken);
+
+        var curated = await CuratedDescriptions.LoadAsync(context, dataSourceId, existingMetadata, cancellationToken);
+        var merged = curated.ApplyTo(tables);
 
         context.DatabaseMetadata.RemoveRange(existingMetadata);
 
@@ -273,7 +292,7 @@ public class DatabaseMetadataService(
         await context.SaveChangesAsync(cancellationToken);
 
         // Add new metadata
-        foreach (var table in tables)
+        foreach (var table in merged)
         {
             var metadata = new DatabaseMetadata
             {
@@ -321,6 +340,58 @@ public class DatabaseMetadataService(
         }
 
         await context.SaveChangesAsync(cancellationToken);
+
+        if (curated.Count > 0)
+        {
+            logger.LogInformation("Kept {CuratedCount} curated descriptions for data source {DataSourceId} on refresh", curated.Count, dataSourceId);
+        }
+
+        return merged;
+    }
+
+    /// <summary>
+    /// Leaves out every table, and every column, whose name carries a quote, bracket, semicolon or control character
+    /// (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>). Beacon builds SQL from catalog names (documentation enum
+    /// discovery, value probes, sampling), and such a name could end its quoting in some dialect, so it is never stored —
+    /// nor its description, a curated one included. The names left out are logged (identifiers only, made safe for the log
+    /// by <see cref="SqlIdentifierGuard.ForLog"/>, at most <see cref="MaxLoggedSkippedNames"/> of them) and counted.
+    /// </summary>
+    private (IReadOnlyList<TableMetadataDto> Kept, int SkippedNames) SkipUnsafeNames(IReadOnlyList<TableMetadataDto> tables, int dataSourceId)
+    {
+        var kept = new List<TableMetadataDto>(tables.Count);
+        var skippedTables = new List<string>();
+        var skippedColumns = new List<string>();
+        foreach (var table in tables)
+        {
+            if (SqlIdentifierGuard.HasUnsafeCharacters(table.SchemaName) || SqlIdentifierGuard.HasUnsafeCharacters(table.TableName))
+            {
+                skippedTables.Add(SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}"));
+                continue;
+            }
+
+            var columns = table.Columns
+                .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
+                .ToList();
+            skippedColumns.AddRange(table.Columns
+                .Where(x => SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
+                .Select(x => SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{x.ColumnName}")));
+            kept.Add(columns.Count == table.Columns.Count ? table : table with { Columns = columns });
+        }
+
+        if (skippedTables.Count > 0 || skippedColumns.Count > 0)
+        {
+            logger.LogWarning(
+                "Metadata refresh of data source {DataSourceId} left out {TableCount} tables and {ColumnCount} columns whose names carry quote, bracket, semicolon or control characters: {SkippedNames}",
+                dataSourceId,
+                skippedTables.Count,
+                skippedColumns.Count,
+                skippedTables
+                    .Concat(skippedColumns)
+                    .Take(MaxLoggedSkippedNames)
+                    .ToList());
+        }
+
+        return (kept, skippedTables.Count + skippedColumns.Count);
     }
 
     /// <summary>
@@ -443,6 +514,25 @@ public class DatabaseMetadataService(
         {
             // Invalid JSON — treat as no samples
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Clears the sample values stored for <paramref name="dataSourceId"/>'s columns, the columns of its archived tables
+    /// included (the soft-delete filter on the tables is ignored): an archived data source, or one marked as a migration
+    /// write target, is never read again, so nothing keeps a copy of its rows. The caller saves the change.
+    /// </summary>
+    internal static async Task ClearStoredSampleValuesAsync(BeaconContext context, int dataSourceId, CancellationToken cancellationToken)
+    {
+        var sampledColumns = await context.ColumnMetadata
+            .IgnoreQueryFilters()
+            .Where(x => x.DatabaseMetadata.DataSourceId == dataSourceId)
+            .Where(x => x.SampleValues != null || x.SampleValuesComplete)
+            .ToListAsync(cancellationToken);
+        foreach (var column in sampledColumns)
+        {
+            column.SampleValues = null;
+            column.SampleValuesComplete = false;
         }
     }
 

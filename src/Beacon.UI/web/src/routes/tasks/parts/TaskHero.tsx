@@ -10,9 +10,11 @@ import {
   Users,
 } from 'lucide-react';
 import { Button, Input, PageHeader, Pill, type PillProps } from '@/components/beacon';
-import { useAuth } from '@/auth/useAuth';
+import { useAuth, useIsAdmin } from '@/auth/useAuth';
 import { TaskPriority } from '@/lib/enums';
 import {
+  canClaimTask,
+  canWorkTask,
   useAssignTask,
   useSnoozeTask,
   type TaskDetail,
@@ -59,10 +61,11 @@ export function TaskHero({
   const [assignOpen, setAssignOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
-  const assignedToMe =
-    currentUser?.userId != null &&
-    task.assigneeUserId != null &&
-    task.assigneeUserId === currentUser.userId;
+  const isAdmin = useIsAdmin();
+  const assignedToMe = task.assignedToCaller;
+  const canWork = canWorkTask(task, isAdmin);
+  const canClaim = currentUser?.userId != null && canClaimTask(task, isAdmin);
+  const canUnassign = task.hasAssignee && canWork;
 
   const snoozedNow =
     task.snoozedUntil != null && new Date(task.snoozedUntil).getTime() > Date.now();
@@ -109,7 +112,7 @@ export function TaskHero({
       }
       actions={
         <>
-          {!task.resolved && (
+          {!task.resolved && (canClaim || canUnassign) && (
             <Popover
               open={assignOpen}
               onOpenChange={setAssignOpen}
@@ -120,11 +123,11 @@ export function TaskHero({
                   aria-expanded={assignOpen}
                   onClick={() => setAssignOpen(o => !o)}
                 >
-                  {assignedToMe ? 'Unassign me' : task.assigneeUserName ? 'Reassign' : 'Assign'}
+                  {assignedToMe ? 'Unassign me' : task.hasAssignee ? 'Reassign' : 'Assign'}
                 </Button>
               }
             >
-              {currentUser?.userId && !assignedToMe && (
+              {canClaim && currentUser?.userId && (
                 <PopItem
                   onClick={() => {
                     setAssignOpen(false);
@@ -135,7 +138,7 @@ export function TaskHero({
                   label="Assign to me"
                 />
               )}
-              {task.assigneeUserId && (
+              {canUnassign && (
                 <PopItem
                   onClick={() => {
                     setAssignOpen(false);
@@ -143,13 +146,13 @@ export function TaskHero({
                   }}
                   disabled={assign.isPending}
                   icon={<AlertTriangle className="size-3" />}
-                  label={assignedToMe ? 'Unassign me' : `Unassign ${task.assigneeUserName ?? task.assigneeUserId}`}
+                  label={assignedToMe ? 'Unassign me' : task.assigneeUserName ? `Unassign ${task.assigneeUserName}` : 'Unassign'}
                 />
               )}
             </Popover>
           )}
 
-          {!task.resolved && (
+          {!task.resolved && canWork && (
             <Popover
               open={snoozeOpen}
               onOpenChange={setSnoozeOpen}

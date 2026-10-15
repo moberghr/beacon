@@ -1,10 +1,28 @@
 import { http, HttpResponse } from 'msw';
+import { permissionsHandler } from './permissions';
 
 /**
  * Default MSW handlers for component tests. Override per-test with
  * `mswServer.use(...)` from vitest.setup.ts.
  */
 export const handlers = [
+  // A signed-in Editor: pages ask who the user is and what they may do (permissions, see ./permissions).
+  http.get('*/beacon/api/auth/me', () =>
+    HttpResponse.json({
+      userId: 'u1',
+      userName: 'tester',
+      displayName: 'Tester',
+      email: null,
+      isAuthenticated: true,
+      roles: ['Editor'],
+      realtimeEnabled: false,
+      externalLogin: null,
+    }),
+  ),
+  // A user with a role can read and write, and holds no functional permission.
+  permissionsHandler(),
+  // No MCP setting pinned by the deployment unless a test says so.
+  http.get('*/beacon/api/mcp/settings/locks', () => HttpResponse.json({ lockedFields: [] })),
   // Match any origin so we don't have to mirror jsdom's default (currently 'http://localhost:3000').
   http.get('*/beacon/api/projects', () =>
     HttpResponse.json({

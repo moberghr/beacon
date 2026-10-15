@@ -16,6 +16,8 @@ const STATUS_LABELS: Record<number, { label: string; tone: PillProps['tone'] }> 
   [NotificationStatus.Timeout]: { label: 'Timeout', tone: 'crit' },
   [NotificationStatus.BelowThreshold]: { label: 'Below threshold', tone: 'neutral' },
   [NotificationStatus.Failed]: { label: 'Failed', tone: 'crit' },
+  // Not run: the owner it runs as may not run its query.
+  [NotificationStatus.Skipped]: { label: 'Skipped', tone: 'warn' },
 };
 
 interface ParsedResults {

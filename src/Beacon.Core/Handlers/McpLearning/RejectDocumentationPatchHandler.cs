@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
@@ -25,8 +26,15 @@ internal sealed class RejectDocumentationPatchHandler(IDbContextFactory<BeaconCo
     }
 }
 
-public record RejectDocumentationPatchCommand : IRequest
+public record RejectDocumentationPatchCommand : IRequest, IProjectAuthorizedRequest
 {
     public required int PatchId { get; init; }
+    [ProjectScopeExempt("the caller, set by the endpoint; not a project resource")]
     public int? RejectedByUserId { get; init; }
+
+    // Who may apply a patch may reject it (ApplyDocumentationPatchCommand).
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        ProjectCheck.CurateShared(ProjectResource.DocumentationPatch(PatchId))
+    ];
 }

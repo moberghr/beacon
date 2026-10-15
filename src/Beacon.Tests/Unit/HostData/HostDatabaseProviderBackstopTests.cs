@@ -118,7 +118,9 @@ public class HostDatabaseProviderBackstopTests
             resolver.Object,
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             new HostDataSourceGuard(registry),
-            NullLogger<DatabaseProvider>.Instance);
+            new ConfiguredDatabaseResolver(resolver.Object, NullLogger<ConfiguredDatabaseResolver>.Instance),
+            NullLogger<DatabaseProvider>.Instance,
+            Beacon.Tests.Common.TestQueryServices.QueryOptions);
     }
 
     private sealed class SingleSnapshotRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry

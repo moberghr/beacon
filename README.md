@@ -81,17 +81,12 @@ It ships in two forms: a **self-hostable application** (clone and run) and **NuG
 
 ## 🚀 Quick Start
 
-**Prerequisites:** .NET 10 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and a 32-character encryption key in `src/Beacon.SampleProject/appsettings.json` (or user-secrets / environment variables):
+**Prerequisites:** .NET 10 SDK, Node.js 18+, and a PostgreSQL database. Set a connection string and an encryption key (base64 of 32 random bytes, never committed) with user-secrets (or the `Beacon__EncryptionKey` environment variable):
 
-```json
-{
-  "ConnectionStrings": {
-    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-  },
-  "Beacon": {
-    "EncryptionKey": "your-secure-32-character-key-here"
-  }
-}
+```bash
+dotnet user-secrets --project src/Beacon.SampleProject set "ConnectionStrings:BeaconContext" \
+  "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
+dotnet user-secrets --project src/Beacon.SampleProject set "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
 ```
 
 ```bash
@@ -132,7 +127,7 @@ Beacon ships a **Model Context Protocol** server over Streamable HTTP at `/beaco
 | `query` | Direct SQL (SELECT-only, enforced) against a specific data source |
 | `search` | Keyword + semantic search over schemas and documentation |
 | `get_documentation` | AI-generated documentation at project / data-source / table level |
-| `feedback` | Rate an answer — a `correct` verdict becomes a verified example that grounds future generation |
+| `feedback` | Rate an answer — a `correct` verdict waits for an Admin, who may promote it to a verified example that grounds future generation |
 
 — and every call passes through the same guardrail stack:
 
@@ -298,7 +293,7 @@ sequenceDiagram
 | Layer | Mechanism |
 |---|---|
 | Secrets at rest | Connection strings encrypted with **AES-256-GCM** (authenticated, per-value nonce); mandatory `Beacon:EncryptionKey` |
-| API keys | **SHA256-hashed**, scoped (`Read` / `Execute` / `Admin`), optional per-project restriction, expiry — raw key shown exactly once |
+| API keys | **SHA256-hashed**, scoped (`Read` / `Execute`) on every route, optional per-project restriction, mandatory expiry, revoked with their owner's account — raw key shown exactly once |
 | Sessions | `HttpOnly`, `SameSite` cookies; antiforgery tokens on state-changing requests; login rate limiting |
 | SSO | OIDC (any compliant provider) with configurable role mapping; JWT bearer for MCP clients |
 | MCP execution | Read-only enforced at the connector **and** AST level; PII detection & masking; row limits; complete audit trail |
@@ -373,6 +368,7 @@ builder.Services.AddBeaconCookieAuthentication("/");
 
 // 3. REST API + real-time. SignalR is wired for you — you add nothing.
 builder.Services.AddBeaconApiServices();
+builder.Services.AddBeaconApiAuthorization();        // the API, Admin and Execute-scope policies
 
 // 4. AI + MCP + OpenAPI (optional layers)
 builder.Services.AddBeaconAI(builder.Configuration);
@@ -389,7 +385,7 @@ app.UseAuthorization();
 
 app.MapOpenApi();                                    // /openapi/v1.json
 app.MapBeaconApi();                                  // /beacon/api/* + the SignalR hub
-app.MapMcp("/beacon/mcp").RequireAuthorization();    // MCP server
+app.MapBeaconMcp();                                  // MCP server at /beacon/mcp, Execute scope required
 app.MapBeaconUi();                                   // React SPA at root /
 
 app.Run();
@@ -458,7 +454,7 @@ openssl rand -base64 32
 
 - **.NET 10 SDK** and **Node.js 18+** (for building the React UI)
 - **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database — on PostgreSQL the **pgvector** extension must be available on the server (a migration runs `CREATE EXTENSION IF NOT EXISTS vector`)
-- **32-character encryption key** (`Beacon:EncryptionKey`) — required
+- **Encryption key** (`Beacon:EncryptionKey`) — required: base64 of at least 32 random bytes (`openssl rand -base64 32`), checked at startup
 - *(Optional)* LLM API key for AI features · SMTP provider for email notifications · a local ONNX embedding model for semantic retrieval
 
 ## 🤝 Support & contributing

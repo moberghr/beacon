@@ -20,11 +20,12 @@ internal sealed class GitHubScannerService(
         ".cs", ".py", ".java", ".ts", ".js", ".go", ".rb", ".rs", ".sql"
     };
 
-    public async Task ScanRepositoryAsync(int repositoryId, CancellationToken cancellationToken = default)
+    public async Task ScanRepositoryAsync(int projectId, int repositoryId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var repo = await context.GitHubRepositories
-            .Where(r => r.Id == repositoryId)
+            .Where(x => x.Id == repositoryId)
+            .Where(x => x.ProjectId == projectId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Repository {repositoryId} not found");
 
@@ -126,11 +127,12 @@ internal sealed class GitHubScannerService(
         }
     }
 
-    public async Task<ScanProgressInfo> GetScanProgressAsync(int repositoryId, CancellationToken cancellationToken = default)
+    public async Task<ScanProgressInfo> GetScanProgressAsync(int projectId, int repositoryId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var repo = await context.GitHubRepositories
-            .Where(r => r.Id == repositoryId)
+            .Where(x => x.Id == repositoryId)
+            .Where(x => x.ProjectId == projectId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Repository {repositoryId} not found");
 

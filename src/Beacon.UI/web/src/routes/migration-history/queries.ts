@@ -68,6 +68,9 @@ export interface CreateMigrationJobResponse {
   migrationJobId: number;
   success: boolean;
   errorMessage: string | null;
+  /** The job was submitted for approval: it does not run until a second person approves it (`message` says so). */
+  awaitingApproval?: boolean;
+  message?: string | null;
 }
 
 export function useCreateMigrationJob() {
@@ -81,6 +84,8 @@ export function useCreateMigrationJob() {
           migrationJobId: r.migrationJobId ?? 0,
           success: r.success ?? false,
           errorMessage: r.errorMessage ?? null,
+          awaitingApproval: r.awaitingApproval ?? false,
+          message: r.message ?? null,
         };
       },
       invalidate: [MIGRATION_EXECUTIONS_KEY, ['migration-jobs']],

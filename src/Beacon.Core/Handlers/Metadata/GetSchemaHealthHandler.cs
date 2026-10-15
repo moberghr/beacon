@@ -1,5 +1,6 @@
 using Beacon.Core.Services.Metadata;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Metadata;
 
@@ -34,7 +35,13 @@ internal sealed class GetSchemaHealthHandler(ISchemaGraphService schemaGraphServ
     }
 }
 
-public record GetSchemaHealthQuery(int DataSourceId) : IRequest<GetSchemaHealthResult>;
+public record GetSchemaHealthQuery(int DataSourceId) : IRequest<GetSchemaHealthResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.DataSource(DataSourceId), ProjectAction.Read)
+    ];
+}
 
 public record GetSchemaHealthResult
 {

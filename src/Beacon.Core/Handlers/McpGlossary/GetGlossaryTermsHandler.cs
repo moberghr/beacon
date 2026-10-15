@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
@@ -51,6 +52,7 @@ internal sealed class GetGlossaryTermsHandler(IDbContextFactory<BeaconContext> c
     }
 }
 
+[ProjectScopeExempt("admin-gated curation (the glossary)", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record GetGlossaryTermsQuery : IRequest<List<GlossaryTermItem>>
 {
     public required int ProjectId { get; init; }

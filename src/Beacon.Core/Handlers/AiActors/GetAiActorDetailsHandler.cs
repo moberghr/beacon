@@ -2,15 +2,21 @@ using MediatR;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Authorization;
 
 
 
 namespace Beacon.Core.Handlers.AiActors;
 
-public record GetAiActorDetailsQuery : IRequest<GetAiActorDetailsResult?>
+public record GetAiActorDetailsQuery : IRequest<GetAiActorDetailsResult?>, IProjectAuthorizedRequest
 {
     public required int ActorId { get; init; }
     public int? ExecutionHistoryLimit { get; init; } = 10;
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.AiActor(ActorId), ProjectAction.Read)
+    ];
 }
 
 public record GetAiActorDetailsResult
@@ -25,7 +31,16 @@ public record GetAiActorDetailsResult
     public int MaxQueries { get; init; }
     public int MaxSubscriptionsPerQuery { get; init; }
     public bool RequiresApproval { get; init; }
-    public string? CreatedByUserId { get; init; }
+
+    /// <summary>A creator is recorded: the actor's background think cycles run as the creator, checked at every cycle.</summary>
+    public bool HasOwner { get; init; }
+
+    /// <summary>
+    /// The creator's display name, or a neutral "User {id}" label without one (never the user name or external id); null
+    /// when there is no creator or no matching user.
+    /// </summary>
+    public string? OwnerDisplayName { get; init; }
+
     public int TotalTokensUsed { get; init; }
     public decimal TotalCost { get; init; }
     public DateTime? LastThinkTime { get; init; }

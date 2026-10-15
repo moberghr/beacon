@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
@@ -13,7 +13,7 @@ using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
-using Beacon.Core.Data;
+using Beacon.Core.Configuration;
 
 namespace Beacon.Api.Authentication;
 
@@ -22,6 +22,12 @@ namespace Beacon.Api.Authentication;
 /// </summary>
 public static class AuthServiceExtensions
 {
+    // A problem body without the members it does not carry (a plain refusal has no detail).
+    private static readonly System.Text.Json.JsonSerializerOptions ProblemJson = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
     /// <summary>
     /// Adds cookie authentication for Beacon login form.
     /// </summary>
@@ -59,6 +65,13 @@ public static class AuthServiceExtensions
                 options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                 options.Cookie.SameSite = SameSiteMode.Lax;
                 options.SlidingExpiration = true;
+
+                // Session lifecycle: the start, the security stamp and the absolute lifetime recorded at sign-in, and the
+                // session checked against the user store (Beacon:Authentication:Session); a realtime hub request never
+                // renews the cookie.
+                options.Events.OnSigningIn = BeaconSessionEvents.SigningInAsync;
+                options.Events.OnValidatePrincipal = BeaconSessionEvents.ValidatePrincipalAsync;
+                options.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
                 options.Events.OnRedirectToLogin = context =>
                 {
                     if (IsApiRequest(context))
@@ -73,7 +86,7 @@ public static class AuthServiceExtensions
                 {
                     if (IsApiRequest(context))
                     {
-                        return WriteJsonStatusAsync(context, StatusCodes.Status403Forbidden, "Forbidden");
+                        return WriteJsonStatusAsync(context, StatusCodes.Status403Forbidden, "Forbidden", ApiKeyRefusalDetail(context.HttpContext));
                     }
 
                     context.Response.Redirect(context.RedirectUri);
@@ -81,10 +94,14 @@ public static class AuthServiceExtensions
                 };
             });
 
-        // Persist Data Protection keys to the database so cookies survive app restarts
-        services.AddDataProtection()
-            .SetApplicationName("Beacon")
-            .PersistKeysToDbContext<BeaconContext>();
+        // Data Protection, which protects the session cookie, is the host's: Beacon sets no application name and no key
+        // storage here (AddBeaconDataProtection is Beacon's default, for a host that asks for it). Outside Development the
+        // host fails to start when it persists the key ring without key encryption, keys stored without encryption are
+        // revoked and replaced at startup, and a host with no key repository is warned.
+        services.AddDataProtectionKeyEncryptionCheck();
+
+        // With local login off, startup fails when nobody could sign in, and warns about break-glass names no user has.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, LocalLoginStartupCheck>());
 
         return services;
     }
@@ -103,13 +120,19 @@ public static class AuthServiceExtensions
             return services;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Authority)
-            || string.IsNullOrWhiteSpace(options.ClientId)
-            || string.IsNullOrWhiteSpace(options.ClientSecret))
+        // Fails startup without Authority/ClientId/ClientSecret, or without a tenant admission rule.
+        options.Validate();
+
+        // Every user provisioned at a first sign-in gets the default role: never the Admin role or a functional role.
+        var roleMapping = configuration.GetSection(RoleMappingOptions.SectionName).Get<RoleMappingOptions>() ?? new RoleMappingOptions();
+        if (roleMapping.IsPrivilegedRoleName(options.DefaultRoleName))
         {
             throw new InvalidOperationException(
-                "Beacon:Authentication:Oidc is Enabled but Authority, ClientId, or ClientSecret is missing.");
+                "Beacon:Authentication:Oidc:DefaultRoleName cannot be the Admin role or the role of a functional permission: every user signing in for the first time would administer Beacon.");
         }
+
+        // Warns at startup when the tenant check is skipped for an Entra authority.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, OidcStartupWarnings>());
 
         services.AddAuthentication()
             .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, oidc =>
@@ -125,6 +148,12 @@ public static class AuthServiceExtensions
                 oidc.SaveTokens = false;
                 oidc.GetClaimsFromUserInfoEndpoint = true;
                 oidc.MapInboundClaims = false;
+
+                // Front-channel sign-out is an anonymous GET that ends the Beacon session; served only on opt-in.
+                if (!options.EnableFrontChannelLogout)
+                {
+                    oidc.RemoteSignOutPath = PathString.Empty;
+                }
 
                 oidc.Scope.Clear();
                 foreach (var scope in options.Scopes)
@@ -151,6 +180,9 @@ public static class AuthServiceExtensions
     {
         var options = new JwtAuthenticationOptions();
         configure(options);
+
+        // Validated on the instance that is registered and used: no signing key, issuer or audience fails startup.
+        options.Validate();
 
         services.AddSingleton(options);
 
@@ -209,19 +241,34 @@ public static class AuthServiceExtensions
         return false;
     }
 
+    // An API key refused by a route that requires a functional permission (its policy names roles a key never carries)
+    // is told why; every other refusal keeps the plain body.
+    internal static string? ApiKeyRefusalDetail(HttpContext httpContext)
+    {
+        var functional = httpContext.GetEndpoint()?.Metadata.GetMetadata<BeaconFunctionalPermissionMetadata>();
+
+        return functional is { IsRequired: true } && BeaconUserLookup.IsApiKey(httpContext.User)
+            ? BeaconPermissionEndpointFilter.RequiredPermissionDetail(httpContext.User, functional.Permissions)
+            : null;
+    }
+
     private static async Task WriteJsonStatusAsync(
         Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context,
         int statusCode,
-        string title)
+        string title,
+        string? detail = null)
     {
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/problem+json";
-        var payload = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            type = "about:blank",
-            title,
-            status = statusCode
-        });
+        var payload = System.Text.Json.JsonSerializer.Serialize(
+            new
+            {
+                type = "about:blank",
+                title,
+                status = statusCode,
+                detail
+            },
+            ProblemJson);
         await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
     }
 }

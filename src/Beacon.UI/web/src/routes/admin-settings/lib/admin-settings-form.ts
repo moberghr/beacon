@@ -146,3 +146,25 @@ export function formToTestPayload(values: AdminSettingsFormValues): TestLlmConne
     llmAwsSecretAccessKey: secretToNull(values.llmAwsSecretAccessKey),
   };
 }
+
+/**
+ * A save or a test by someone who is not an Admin keeps the stored LLM connection: the provider, region and Bedrock
+ * authentication mode go back as stored, the endpoint and every credential as `null` ("leave as is"). Only an Admin
+ * changes them; the server refuses (403) a request from anyone else that would.
+ */
+export function keepStoredConnection<T extends UpdateAdminSettingsPayload | TestLlmConnectionPayload>(
+  payload: T,
+  stored: AdminSettingsView | undefined,
+): T {
+  return {
+    ...payload,
+    llmProvider: stored?.llmProvider ?? null,
+    llmRegion: stored?.llmRegion ?? null,
+    llmBedrockAuthMode: stored?.llmBedrockAuthMode ?? payload.llmBedrockAuthMode,
+    llmApiKey: null,
+    llmEndpoint: null,
+    llmSessionToken: null,
+    llmAwsAccessKeyId: null,
+    llmAwsSecretAccessKey: null,
+  };
+}

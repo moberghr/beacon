@@ -8,15 +8,32 @@ namespace Beacon.Tests.Common;
 /// A <see cref="BeaconContext"/> for service tests without a database (§4.7: no in-memory provider). The sets in
 /// <c>sets</c> are served from in-memory lists that support EF's async operators; every other set is the real EF
 /// set, which only tracks. SaveChanges records the added entities in <c>saved</c> instead of writing them, and
-/// changes to served entities land on the list's objects, so later contexts see them.
+/// changes to served entities land on the list's objects, so later contexts see them. With an <c>offline</c> capture
+/// it never opens a connection, and transactions are stand-ins. <c>onSave</c> is told about every SaveChanges, for tests
+/// that count units of work.
 /// </summary>
-internal sealed class RecordingBeaconContext(IReadOnlyDictionary<Type, object> sets, List<object> saved)
-    : BeaconContext(Options, "beacon")
+internal sealed class RecordingBeaconContext(
+    IReadOnlyDictionary<Type, object> sets,
+    List<object> saved,
+    SqlCapture? offline = null,
+    Action? onSave = null)
+    : BeaconContext(offline == null ? Options : OfflineOptions(offline), "beacon")
 {
+    // An unserved set is the real EF set: it never connects (SqlCapture.NeverConnects), so reading one fails at once.
     private static readonly DbContextOptions<RecordingBeaconContext> Options =
         new DbContextOptionsBuilder<RecordingBeaconContext>()
             .UseNpgsql("Host=localhost;Database=unused")
             .UseSnakeCaseNamingConvention()
+            .AddInterceptors(SqlCapture.NeverConnects)
+            .Options;
+
+    // For code that opens a transaction: the connection is never opened and the transaction is a stand-in the capture
+    // records.
+    private static DbContextOptions<RecordingBeaconContext> OfflineOptions(SqlCapture offline) =>
+        new DbContextOptionsBuilder<RecordingBeaconContext>()
+            .UseNpgsql("Host=localhost;Database=unused")
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(offline.OfflineInterceptors())
             .Options;
 
     public override DbSet<TEntity> Set<TEntity>() where TEntity : class =>
@@ -29,10 +46,15 @@ internal sealed class RecordingBeaconContext(IReadOnlyDictionary<Type, object> s
             .Select(x => x.Entity)
             .ToList();
         saved.AddRange(added);
+        onSave?.Invoke();
         return Task.FromResult(added.Count);
     }
 
-    /// <summary>An async-capable set over <paramref name="rows"/>; <c>Add</c> records into <paramref name="saved"/>.</summary>
+    /// <summary>
+    /// An async-capable set over <paramref name="rows"/>; <c>Add</c> records into <paramref name="saved"/>.
+    /// <c>ExecuteUpdateAsync</c> writes onto the matching rows, and <c>ExecuteDeleteAsync</c> and <c>Remove</c> take them
+    /// out of <paramref name="rows"/>, as the database would. <c>FindAsync</c> finds a row by its <c>Id</c>.
+    /// </summary>
     public static DbSet<T> MemorySet<T>(List<T> rows, List<object> saved) where T : class
     {
         var data = rows.AsQueryable();
@@ -42,11 +64,33 @@ internal sealed class RecordingBeaconContext(IReadOnlyDictionary<Type, object> s
             .Returns(() => new TestAsyncEnumerator<T>(data.GetEnumerator()));
         set.As<IQueryable<T>>()
             .Setup(x => x.Provider)
-            .Returns(new TestAsyncQueryProvider<T>(data.Provider));
+            .Returns(new TestAsyncQueryProvider<T>(data.Provider, matched =>
+            {
+                foreach (var row in matched)
+                {
+                    rows.Remove(row);
+                }
+
+                return matched.Count;
+            }));
         set.As<IQueryable<T>>().Setup(x => x.Expression).Returns(data.Expression);
         set.As<IQueryable<T>>().Setup(x => x.ElementType).Returns(data.ElementType);
         set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());
         set.Setup(x => x.Add(It.IsAny<T>())).Callback<T>(saved.Add);
+        set.Setup(x => x.Remove(It.IsAny<T>())).Callback<T>(x => rows.Remove(x));
+
+        // As EF's own set: a query started with AsQueryable() is the set itself.
+        set.Setup(x => x.AsQueryable()).Returns(() => set.Object);
+
+        // FindAsync by the entity's Id, its primary key.
+        var id = typeof(T).GetProperty("Id");
+        if (id != null)
+        {
+            set.Setup(x => x.FindAsync(It.IsAny<object?[]?>(), It.IsAny<CancellationToken>()))
+                .Returns((object?[]? keys, CancellationToken _) => ValueTask.FromResult<T?>(
+                    rows.FirstOrDefault(x => keys is { Length: 1 } && Equals(id.GetValue(x), keys[0]))));
+        }
+
         return set.Object;
     }
 }

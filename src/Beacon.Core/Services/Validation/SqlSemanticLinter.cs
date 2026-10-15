@@ -1,6 +1,5 @@
 using SqlParser;
 using SqlParser.Ast;
-using SqlParser.Dialects;
 using Beacon.Core.Models.Metadata;
 
 namespace Beacon.Core.Services.Validation;
@@ -25,34 +24,45 @@ public sealed class SqlSemanticLinter
     /// lowercase <c>schema.table</c>).</param>
     public IReadOnlyList<SqlLintFinding> Lint(string sql, string? dialect, SchemaLintContext context)
     {
+        TryLint(sql, dialect, context, out var findings);
+
+        return findings;
+    }
+
+    /// <summary>
+    /// <see cref="Lint"/>, reporting whether the SQL parsed. False means "no semantic opinion", not "no findings": the
+    /// gate records the lint stage as skipped. The AST read-only validator owns parse-failure rejection (§1.5).
+    /// </summary>
+    public bool TryLint(string sql, string? dialect, SchemaLintContext context, out IReadOnlyList<SqlLintFinding> findings)
+    {
+        findings = [];
         if (string.IsNullOrWhiteSpace(sql))
         {
-            return [];
+            return true;
         }
 
         Sequence<Statement> statements;
         try
         {
-            statements = new Parser().ParseSql(sql, ResolveDialect(dialect));
+            statements = SqlAst.Parse(sql, dialect);
         }
         catch (Exception)
         {
-            // Fail-closed toward silence, not toward blocking: the AST read-only validator already
-            // owns parse-failure rejection (§1.5), so an unparseable statement here just means "no
-            // semantic opinion", not "reject".
-            return [];
+            return false;
         }
 
-        var findings = new List<SqlLintFinding>();
+        var collected = new List<SqlLintFinding>();
         foreach (var statement in statements)
         {
             if (statement is Statement.Select select)
             {
-                LintQuery(select.Query, context, findings);
+                LintQuery(select.Query, context, collected);
             }
         }
 
-        return findings;
+        findings = collected;
+
+        return true;
     }
 
     private static void LintQuery(Query query, SchemaLintContext context, List<SqlLintFinding> findings, IReadOnlySet<string>? ambientOpaque = null)
@@ -713,21 +723,6 @@ public sealed class SqlSemanticLinter
         return string.Equals(stepQualifiedName, table, StringComparison.OrdinalIgnoreCase)
             || stepQualifiedName.EndsWith($".{table}", StringComparison.OrdinalIgnoreCase)
             || table.EndsWith($".{stepQualifiedName}", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static Dialect ResolveDialect(string? dialect)
-    {
-        return (dialect ?? "").ToLowerInvariant() switch
-        {
-            "postgresql" or "postgres" => new PostgreSqlDialect(),
-            "sqlserver" or "mssql" or "microsoftsqlserver" => new MsSqlDialect(),
-            "mysql" or "mariadb" => new MySqlDialect(),
-            "bigquery" => new BigQueryDialect(),
-            "snowflake" => new SnowflakeDialect(),
-            "databricks" => new DatabricksDialect(),
-            "duckdb" => new DuckDbDialect(),
-            _ => new GenericDialect()
-        };
     }
 
     private sealed class QueryScope

@@ -41,6 +41,19 @@ public class SsoChallengeReturnUrlTests
         LoginEndpoints.IsSafeReturnUrl(url, BasePath).Should().BeFalse();
     }
 
+    // Browsers drop tabs and newlines and read a backslash as "/", turning each of these into a protocol-relative URL.
+    [TestCase("/\t/evil.example")]
+    [TestCase("/\n/evil.example")]
+    [TestCase("/\r\n/evil.example")]
+    [TestCase("/ /evil.example")]
+    [TestCase("/projects\\..\\/evil.example")]
+    [TestCase("/projects\u0000")]
+    [TestCase("/projects\u00a0x")]
+    public void IsSafeReturnUrl_ControlWhitespaceOrBackslash_IsRejected(string url)
+    {
+        LoginEndpoints.IsSafeReturnUrl(url, BasePath).Should().BeFalse();
+    }
+
     [Test]
     public void IsSafeReturnUrl_EmptyBasePath_AcceptsAnyRelativePath()
     {

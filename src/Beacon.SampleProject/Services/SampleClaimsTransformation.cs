@@ -7,8 +7,10 @@ namespace Beacon.SampleProject.Services;
 
 /// <summary>
 /// Transforms claims after authentication to add Beacon role claims.
-/// The role is resolved from the Beacon user store by username — never inferred
-/// from the username string itself — so self-registration cannot grant privileges.
+/// The role is resolved from the Beacon user store by the session's user id (<see cref="ClaimTypes.NameIdentifier"/>,
+/// the user's external id) — never by a display name and never inferred from the username string — so neither
+/// self-registration nor a look-alike name can grant privileges. A user without any role, or with functional roles only,
+/// gets no role claim.
 /// </summary>
 public class SampleClaimsTransformation(IUserManagementService userService) : IClaimsTransformation
 {
@@ -31,31 +33,40 @@ public class SampleClaimsTransformation(IUserManagementService userService) : IC
             identity.AddClaim(new Claim(BeaconClaims.UserName, username ?? "unknown"));
         }
 
-        if (identity.HasClaim(x => x.Type == BeaconClaims.Role) || string.IsNullOrWhiteSpace(username))
+        var externalId = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (identity.HasClaim(x => x.Type == BeaconClaims.Role) || string.IsNullOrWhiteSpace(externalId))
         {
             return principal;
         }
 
-        var user = await userService.GetUserByUserNameAsync(username);
+        var user = await userService.GetUserByExternalIdAsync(externalId);
         if (user == null || !user.IsEnabled)
         {
             return principal;
         }
 
         var role = ResolveRole(user);
-        identity.AddClaim(new Claim(BeaconClaims.Role, role));
+        if (role != null)
+        {
+            identity.AddClaim(new Claim(BeaconClaims.Role, role));
+        }
 
         return principal;
     }
 
-    private static string ResolveRole(Beacon.Core.Models.UserManagement.BeaconUserData user)
+    private static string? ResolveRole(Beacon.Core.Models.UserManagement.BeaconUserData user)
     {
         if (user.IsSuperAdmin)
         {
             return RoleService.RoleNames.Admin;
         }
 
-        var maxLevel = user.Roles.Any() ? user.Roles.Max(x => x.Level) : 0;
+        if (!user.Roles.Any())
+        {
+            return null;
+        }
+
+        var maxLevel = user.Roles.Max(x => x.Level);
 
         if (maxLevel >= RoleService.RoleLevels.Admin)
         {
@@ -67,6 +78,7 @@ public class SampleClaimsTransformation(IUserManagementService userService) : IC
             return RoleService.RoleNames.Editor;
         }
 
-        return RoleService.RoleNames.Viewer;
+        // Functional roles (level 0) carry no global role.
+        return maxLevel >= RoleService.RoleLevels.Viewer ? RoleService.RoleNames.Viewer : null;
     }
 }

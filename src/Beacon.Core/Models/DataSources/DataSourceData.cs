@@ -21,4 +21,10 @@ public class DataSourceData
     public bool MetadataLoadTableNamesOnly { get; set; }
     public List<string> MetadataExcludeSchemas { get; set; } = new();
     public List<string> MetadataIncludeSchemas { get; set; } = new();
+
+    /// <summary>The projects a new data source is linked into when it is created (checked by the caller).</summary>
+    public List<int> ProjectIds { get; set; } = new();
+
+    /// <summary>The <c>Users.Id</c> of the user who links the new data source into <see cref="ProjectIds"/>, recorded on each link.</summary>
+    public int? LinkedByUserId { get; set; }
 }

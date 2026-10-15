@@ -14,6 +14,12 @@ public class QueryStepChangeHistory : BaseEntity
     public int QueryStepId { get; set; }
 
     /// <summary>
+    /// The data source the step read when the change was made, so the change is authorized by the source it was made
+    /// against. Null for changes recorded before the source was kept: they follow the step's current source.
+    /// </summary>
+    public int? DataSourceId { get; set; }
+
+    /// <summary>
     /// The AI Actor that made this change (null if user-made)
     /// </summary>
     public int? AiActorId { get; set; }

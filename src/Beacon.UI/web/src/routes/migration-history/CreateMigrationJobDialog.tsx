@@ -111,6 +111,7 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
           <Field label={<>Source data source {REQ}</>} hint="Database data sources only.">
             <DataSourcePicker
               databaseOnly
+              migrationTargets={false}
               value={sourceId > 0 ? sourceId : null}
               selectedLabel={names[sourceId]}
               onSelect={x => pickSource('dataSourceId', x)}
@@ -148,9 +149,10 @@ export function CreateMigrationJobDialog({ open, onClose }: CreateMigrationJobDi
       fields: ['destinationDataSourceId', 'destinationTable', 'mode'],
       render: () => (
         <div className="flex flex-col gap-3.5">
-          <Field label={<>Destination data source {REQ}</>}>
+          <Field label={<>Destination data source {REQ}</>} hint="Migration write targets only.">
             <DataSourcePicker
               databaseOnly
+              migrationTargets
               value={destId > 0 ? destId : null}
               selectedLabel={names[destId]}
               onSelect={x => pickSource('destinationDataSourceId', x)}

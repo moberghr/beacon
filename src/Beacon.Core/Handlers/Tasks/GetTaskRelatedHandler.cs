@@ -1,5 +1,6 @@
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Tasks;
 
@@ -24,7 +25,13 @@ internal sealed class GetTaskRelatedHandler(ITaskService taskService)
     }
 }
 
-public record GetTaskRelatedQuery(int TaskId) : IRequest<TaskRelatedResult>;
+public record GetTaskRelatedQuery(int TaskId) : IRequest<TaskRelatedResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Task(TaskId), ProjectAction.Read)
+    ];
+}
 
 public record TaskRelatedResult(int TaskId, IReadOnlyList<TaskRelatedItem> Related);
 

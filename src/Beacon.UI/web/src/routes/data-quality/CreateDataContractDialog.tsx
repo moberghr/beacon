@@ -3,7 +3,9 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Dialog } from '@/components/ui/Dialog';
+import { AlertTriangle } from 'lucide-react';
 import {
+  Banner,
   Button,
   Card,
   Field,
@@ -11,8 +13,10 @@ import {
   Select,
   Textarea,
 } from '@/components/beacon';
+import { describeError } from '@/lib/api';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { DataSourcePicker } from '../data-sources/DataSourcePicker';
+import { noteSubmittedForApproval } from '../approvals/AwaitingApproval';
 import type { RecipientOption } from '../recipients/queries';
 import { DataContractRuleType, DataContractSeverity } from '@/lib/enums';
 import {
@@ -164,6 +168,9 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
   }, [existingQ.data, reset]);
 
   const submitting = createMutation.isPending || updateMutation.isPending;
+  // The server's reason stays in the dialog, the one place it is shown: e.g. a table outside the data source's metadata,
+  // or custom SQL naming another database.
+  const saveError = isEdit ? updateMutation.error : createMutation.error;
 
   // In edit mode the form must not render on blank DEFAULTS — submitting an
   // unhydrated form would wipe the contract's rules and recipients. Gate on
@@ -195,21 +202,23 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
       description: values.description || null,
       cronExpression: values.cronExpression,
       isEnabled: values.isEnabled,
-      ownerUserId: null,
       alertOnFailure: values.alertOnFailure,
       failureThresholdScore: values.failureThreshold,
       rules: rulesData,
       recipientIds: values.alertOnFailure ? values.recipientIds : null,
     };
 
-    // No onError toast — useCreate/UpdateContract (createSimpleMutation) already toast.
+    // A refusal is shown in the dialog's banner only (the mutations do not toast it).
     if (isEdit) {
       updateMutation.mutate(payload, {
         onSuccess: () => onClose(true),
       });
     } else {
       createMutation.mutate(payload, {
-        onSuccess: () => onClose(true),
+        onSuccess: created => {
+          noteSubmittedForApproval(created);
+          onClose(true);
+        },
       });
     }
   };
@@ -255,6 +264,15 @@ export function CreateDataContractDialog({ editContractId, onClose }: Props) {
       {formReady && (
       <form id="data-contract-form" onSubmit={handleSubmit(onSubmit)}>
         <div className="flex flex-col gap-3">
+          {saveError != null && !submitting && (
+            <Banner
+              tone="crit"
+              icon={<AlertTriangle />}
+              role="alert"
+              title={isEdit ? 'The contract was not updated' : 'The contract was not created'}
+              sub={describeError(saveError, 'The server refused the contract.')}
+            />
+          )}
           <Field label={<>Contract name {REQ}</>}>
             <Input {...register('name')} maxLength={200} required />
           </Field>

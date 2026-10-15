@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
@@ -67,6 +68,7 @@ internal sealed class CreateQueryFolderHandler(IDbContextFactory<BeaconContext> 
     }
 }
 
+[ProjectScopeExempt("query folders are project-less")]
 public record CreateQueryFolderCommand(
     string Name,
     string? Description,

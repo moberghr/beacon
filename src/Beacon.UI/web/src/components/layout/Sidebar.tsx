@@ -14,6 +14,7 @@ import {
   Bell as IconBell,
   Users as IconUsers,
   Check as IconCheck,
+  ClipboardCheck as IconApprovals,
   Key as IconKey,
   SlidersHorizontal as IconSliders,
   Wand2 as IconWand,
@@ -25,8 +26,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
-import { useAuth } from '@/auth/useAuth';
+import { useAccess, useAuth, type Access, type BeaconPermission } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
 import { BuildBadge } from '@/components/beacon';
 
@@ -36,7 +38,15 @@ interface NavItem {
   slug: string;
   count?: number;
   badge?: string;
+  /** Who sees the item; omitted: everyone who reads project data. */
+  visible?: (access: Access) => boolean;
 }
+
+/** Pages of project data: hidden only from a user whose roles are functional only (they would answer 403). */
+const readsProjectData = (access: Access) => !access.isFunctionalOnly;
+
+/** Pages a functional permission opens (an Admin holds them all); hidden until the permissions are known. */
+const opensFor = (...permissions: BeaconPermission[]) => (access: Access) => access.hasAnyPermission(...permissions);
 
 interface NavSection {
   label: string;
@@ -47,7 +57,8 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Overview',
     items: [
-      { name: 'Home', Icon: IconHome, slug: 'home' },
+      // Shown to everyone: for a user with functional roles only it explains what they need to see project data.
+      { name: 'Home', Icon: IconHome, slug: 'home', visible: () => true },
       { name: 'Control Tower', Icon: IconTower, slug: 'control-tower' },
       // Dashboards hidden — feature unfinished, will be redesigned (see internal/UNFINISHED.md).
     ],
@@ -55,10 +66,15 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Data',
     items: [
-      { name: 'Data Sources', Icon: IconDatabase, slug: 'data-sources' },
+      {
+        name: 'Data Sources',
+        Icon: IconDatabase,
+        slug: 'data-sources',
+        visible: access => readsProjectData(access) || access.hasPermission('DataSourceAdmin'),
+      },
       { name: 'Projects', Icon: IconFolder, slug: 'projects' },
       { name: 'Data Quality', Icon: IconShield, slug: 'data-quality' },
-      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs' },
+      { name: 'Data Migration', Icon: IconArrowsLR, slug: 'migration-jobs', visible: access => access.opensMigrations },
       { name: 'AI Actors', Icon: IconBot, slug: 'ai-actors' },
     ],
   },
@@ -75,8 +91,13 @@ const SECTIONS: NavSection[] = [
   {
     label: 'MCP',
     items: [
-      { name: 'API Keys', Icon: IconKey, slug: 'api-keys' },
-      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings' },
+      {
+        name: 'API Keys',
+        Icon: IconKey,
+        slug: 'api-keys',
+        visible: access => readsProjectData(access) || access.hasAnyPermission('Auditor', 'UserAdmin'),
+      },
+      { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
       { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground' },
       { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning' },
     ],
@@ -84,8 +105,9 @@ const SECTIONS: NavSection[] = [
   {
     label: 'Admin',
     items: [
-      { name: 'User Management', Icon: IconUsers, slug: 'users' },
-      { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings' },
+      { name: 'Approvals', Icon: IconApprovals, slug: 'approvals', visible: opensFor('Approver') },
+      { name: 'User Management', Icon: IconUsers, slug: 'users', visible: opensFor('UserAdmin') },
+      { name: 'Admin Settings', Icon: IconCog, slug: 'admin-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
     ],
   },
 ];
@@ -109,6 +131,10 @@ export function Sidebar() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: user } = useAuth();
+  const access = useAccess();
+  const sections = SECTIONS
+    .map(section => ({ ...section, items: section.items.filter(item => (item.visible ?? readsProjectData)(access)) }))
+    .filter(section => section.items.length > 0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -160,12 +186,19 @@ export function Sidebar() {
     }
   };
 
-  const handleSignOut = async () => {
+  // "Everywhere" also ends every other session of this user (a new security stamp on the server). When the server could
+  // not do that it signs nothing out (409): say so, and stay signed in.
+  const handleSignOut = async (everywhere: boolean) => {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await beaconApi().logout();
+      await beaconApi().logout(everywhere ? true : undefined);
     } catch {
+      if (everywhere) {
+        setSigningOut(false);
+        toast.error('Your other sessions could not be signed out. You are still signed in here.');
+        return;
+      }
       // fall through — still navigate to login
     }
     setMenuOpen(false);
@@ -185,7 +218,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-4">
-        {SECTIONS.map(section => (
+        {sections.map(section => (
           <div className="flex flex-col gap-0.5" key={section.label}>
             <div className="px-2.5 mb-1 text-2xs font-semibold uppercase tracking-eyebrow text-text-subtle">
               {section.label}
@@ -244,12 +277,26 @@ export function Sidebar() {
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
-                onClick={handleSignOut}
+                onClick={() => handleSignOut(false)}
                 disabled={signingOut}
                 className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
               >
                 <IconLogOut className="size-4 shrink-0 text-text-muted" />
                 <span>{signingOut ? 'Signing out…' : 'Sign out'}</span>
+              </button>
+            )}
+            {!user?.externalLogin && user?.signOutEverywhereEnabled && (
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => handleSignOut(true)}
+                disabled={signingOut}
+                title="Also ends your sessions in every other browser and device."
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2 disabled:opacity-60 text-left"
+              >
+                <IconLogOut className="size-4 shrink-0 text-text-muted" />
+                <span>Sign out everywhere</span>
               </button>
             )}
           </div>

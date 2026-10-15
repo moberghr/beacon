@@ -23,7 +23,11 @@ namespace Beacon.Core.Mcp;
 /// user token also carries the calling app's <c>azp</c>, so matching it there would turn every user into that system.</item>
 /// <item>User mode, for delegated tokens, when enabled and the role/group requirement holds.</item>
 /// </list>
-/// Anything else is unknown and gets <c>null</c> (no access).
+/// Anything else is unknown and gets <c>null</c> (no access). The projects a caller is mapped to are its configured
+/// ones; what it reaches in them is decided per request by the project access evaluator: a system caller its
+/// configured projects, a user caller its configured projects within its Beacon user's access (a restricted project
+/// only as a member; a disabled or archived user nothing), a user caller without a Beacon user its configured open
+/// projects.
 /// </summary>
 public sealed class ConfiguredMcpCallerMapper(
     IOptions<McpCallerOptions> options,
@@ -33,7 +37,8 @@ public sealed class ConfiguredMcpCallerMapper(
     IUserManagementService? userManagementService = null,
     JwtAuthenticationOptions? jwtOptions = null) : IMcpCallerMapper
 {
-    // Short on purpose: a Beacon user disabled by an admin loses MCP access within this window.
+    // Short on purpose: within this window a disabled Beacon user's caller is still mapped (not provisioned again), but
+    // project access reads the user's live state on every request, so from its next call it reaches no project.
     private static readonly TimeSpan ProvisionedUserCacheDuration = TimeSpan.FromMinutes(1);
 
     public async Task<McpCaller?> MapAsync(ClaimsPrincipal jwtPrincipal, CancellationToken cancellationToken)

@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Security.Cryptography;
 using Beacon.Connector.MySql;
 using Beacon.Core;
 using Beacon.Core.Data;
@@ -111,7 +112,7 @@ public class MigrationBulkContextFactoryTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                ["Beacon:EncryptionKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             })
             .Build();
 

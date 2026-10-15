@@ -29,7 +29,9 @@ public class BeaconUserRole : BaseEntity
     public BeaconRole Role { get; set; } = null!;
 
     /// <summary>
-    /// External ID of the user who assigned this role.
+    /// External ID of the user who assigned this role: recorded when an administrator creates the user or changes their
+    /// roles. Null when Beacon granted it itself (the default role at a first single sign-on or MCP sign-in, the super
+    /// admin's Admin role at first-run setup) and for assignments made before it was recorded.
     /// </summary>
     public string? AssignedByUserId { get; set; }
 

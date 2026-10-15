@@ -47,4 +47,26 @@ internal static class SettingsProviderMock
 
         return mock;
     }
+
+    /// <summary>
+    /// Shared-source settings over <paramref name="provider"/> where no other project links any data source: every call
+    /// gets the asking project's own effective settings (a data source's own work, the global ones).
+    /// </summary>
+    public static ISharedSourceSettings Unshared(IMcpSettingsProvider provider)
+    {
+        return new UnsharedSettings(provider);
+    }
+
+    private sealed class UnsharedSettings(IMcpSettingsProvider provider) : ISharedSourceSettings
+    {
+        public Task<McpSettingsData> GetEffectiveSettingsAsync(int projectId, IReadOnlyCollection<int> dataSourceIds, CancellationToken ct = default)
+        {
+            return provider.GetEffectiveSettingsAsync(projectId, ct);
+        }
+
+        public Task<McpSettingsData> GetDataSourceSettingsAsync(int dataSourceId, CancellationToken ct = default)
+        {
+            return provider.GetSettingsAsync(ct);
+        }
+    }
 }

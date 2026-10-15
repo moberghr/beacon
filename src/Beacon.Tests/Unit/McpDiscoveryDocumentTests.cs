@@ -36,7 +36,7 @@ public class McpDiscoveryDocumentTests
             .Should().Equal("header");
         document["scopes_supported"]!.AsArray()
             .Select(x => x!.GetValue<string>())
-            .Should().Equal("Execute", "Admin");
+            .Should().Equal("Execute");
         document["resource_name"]!.GetValue<string>().Should().Be("Beacon MCP");
         document["resource_documentation"]!.GetValue<string>().Should().NotBeNullOrWhiteSpace();
     }
@@ -62,7 +62,7 @@ public class McpDiscoveryDocumentTests
             .Should().Equal(["https://beacon-sso.example"], "without the new section the document is unchanged");
         McpDiscoveryDocuments.ResolveAuthorizationServers(options, EntraJwt(), null)
             .Should().BeEmpty("a JWT issuer is never published unless the host opts in");
-        McpDiscoveryDocuments.ResolveScopesSupported(options).Should().Equal("Execute", "Admin");
+        McpDiscoveryDocuments.ResolveScopesSupported(options).Should().Equal("Execute");
     }
 
     [Test]
@@ -138,7 +138,7 @@ public class McpDiscoveryDocumentTests
         authentication["type"]!.GetValue<string>().Should().Be("bearer");
         authentication["scopes_supported"]!.AsArray()
             .Select(x => x!.GetValue<string>())
-            .Should().Equal("Execute", "Admin");
+            .Should().Equal("Execute");
         authentication["resource_metadata"]!.GetValue<string>()
             .Should().Be($"{BaseUrl}/.well-known/oauth-protected-resource");
     }

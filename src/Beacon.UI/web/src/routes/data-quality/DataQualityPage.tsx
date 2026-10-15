@@ -128,9 +128,16 @@ export default function DataQualityPage() {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    <Pill tone={c.isEnabled ? 'ok' : 'neutral'}>
-                      {c.isEnabled ? 'Active' : 'Disabled'}
-                    </Pill>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Pill tone={c.isEnabled ? 'ok' : 'neutral'}>
+                        {c.isEnabled ? 'Active' : 'Disabled'}
+                      </Pill>
+                      {c.ownerNotAuthorized && (
+                        <Pill tone="warn" title="Scheduled evaluations are skipped: the owner may no longer run this contract">
+                          Owner not authorized
+                        </Pill>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2"><code className="mono text-xs">{c.cronExpression}</code></td>
                   <td className="px-3 py-2">
@@ -197,6 +204,9 @@ function OverviewCard({ overview: o }: { overview: DataQualityOverviewData }) {
         <Stat label="Healthy" value={o.healthyTables} tone="ok" />
         <Stat label="Degrading" value={o.degradingTables} tone="crit" />
         <Stat label="Contracts" value={o.activeContracts} />
+        {o.ownerNotAuthorizedContracts > 0 && (
+          <Stat label="Skipped (owner)" value={o.ownerNotAuthorizedContracts} tone="warn" />
+        )}
       </div>
       {o.tableScores.length > 0 && (
         <>
@@ -215,9 +225,9 @@ function OverviewCard({ overview: o }: { overview: DataQualityOverviewData }) {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: 'ok' | 'crit' }) {
+function Stat({ label, value, tone }: { label: string; value: number; tone?: 'ok' | 'warn' | 'crit' }) {
   const color =
-    tone === 'ok' ? 'text-ok' : tone === 'crit' ? 'text-crit' : 'text-text';
+    tone === 'ok' ? 'text-ok' : tone === 'warn' ? 'text-warn' : tone === 'crit' ? 'text-crit' : 'text-text';
   return (
     <div>
       <div className={`font-bold text-lg ${color}`}>{value}</div>

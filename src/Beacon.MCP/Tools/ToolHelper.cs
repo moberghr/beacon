@@ -6,8 +6,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Protocol;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.Core.Mcp;
 using Beacon.Core.Models;
+using Beacon.Core.Services;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -23,42 +26,34 @@ internal static class ToolHelper
     /// Resolves the active project ID as a pure per-call function of the request-scoped context
     /// and the explicit project_id parameter — no cross-call state, so any instance behind a load
     /// balancer resolves identically. Returns null on success (with projectId set), or an error
-    /// message string.
+    /// message string. Only a project in <see cref="IProjectContext.AllowedProjectIds"/> resolves: a
+    /// null list (no caller resolved) reaches no project, like an empty one (fail closed). A tool that
+    /// works ad hoc in the project (<see cref="McpToolProjectAction"/>: the SQL-carrying tools) needs
+    /// the project in <see cref="IProjectContext.QueryProjectIds"/> as well, so a caller who may only
+    /// read it (a Viewer) reads the catalog but runs no SQL there.
     /// </summary>
     public static string? ResolveProjectId(
         IProjectContext context,
+        string toolName,
         int? requestedProjectId,
         out int projectId)
     {
+        var error = ResolveReadableProjectId(context, requestedProjectId, out projectId);
+        if (error != null)
+        {
+            return error;
+        }
+
+        if (McpToolProjectAction.Of(toolName) != ProjectAction.Query || context.QueryProjectIds?.Contains(projectId) == true)
+        {
+            return null;
+        }
+
+        var refused = projectId;
         projectId = 0;
+        context.ActiveProjectId = null;
 
-        if (requestedProjectId.HasValue)
-        {
-            // A null AllowedProjectIds means unrestricted; an empty list denies everything (fail closed).
-            if (context.AllowedProjectIds != null && !context.AllowedProjectIds.Contains(requestedProjectId.Value))
-            {
-                return $"Access denied: your API key does not have access to project {requestedProjectId.Value}.";
-            }
-
-            projectId = requestedProjectId.Value;
-            context.ActiveProjectId = projectId;
-            return null;
-        }
-
-        // No project requested — try auto-resolve
-        if (context.AllowedProjectIds == null || context.AllowedProjectIds.Count == 0)
-        {
-            return "No projects are associated with this API key. Create a project and regenerate your API key with project access.";
-        }
-
-        if (context.AllowedProjectIds.Count == 1)
-        {
-            projectId = context.AllowedProjectIds[0];
-            context.ActiveProjectId = projectId;
-            return null;
-        }
-
-        return $"Multiple projects available (IDs: {string.Join(", ", context.AllowedProjectIds)}). Specify project_id parameter to select one.";
+        return $"Access denied: you may read project {refused} but not run ad-hoc queries in it.";
     }
 
     /// <summary>
@@ -69,6 +64,7 @@ internal static class ToolHelper
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var belongs = await context.ProjectDataSources
+            .WhereReadable()
             .AnyAsync(pds => pds.ProjectId == projectId && pds.DataSourceId == dataSourceId, ct);
 
         return belongs ? null : $"Data source {dataSourceId} is not part of project {projectId}.";
@@ -82,6 +78,7 @@ internal static class ToolHelper
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         return await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
@@ -95,6 +92,7 @@ internal static class ToolHelper
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
         var ds = await context.ProjectDataSources
+            .WhereReadable()
             .Where(pds => pds.ProjectId == projectId)
             .Where(pds => pds.DataSource.Name.ToLower() == dataSourceName.ToLower())
             .Select(pds => new { pds.DataSourceId })
@@ -163,6 +161,46 @@ internal static class ToolHelper
 
     public static CallToolResult Error(string message) =>
         new() { Content = [new TextContentBlock { Text = message }], IsError = true };
+
+    private static string? ResolveReadableProjectId(
+        IProjectContext context,
+        int? requestedProjectId,
+        out int projectId)
+    {
+        projectId = 0;
+
+        if (context.AccessUndetermined)
+        {
+            return ProjectContextFactory.AccessUndeterminedMessage;
+        }
+
+        if (requestedProjectId.HasValue)
+        {
+            if (context.AllowedProjectIds?.Contains(requestedProjectId.Value) != true)
+            {
+                return $"Access denied: you do not have access to project {requestedProjectId.Value}.";
+            }
+
+            projectId = requestedProjectId.Value;
+            context.ActiveProjectId = projectId;
+            return null;
+        }
+
+        // No project requested — try auto-resolve
+        if (context.AllowedProjectIds == null || context.AllowedProjectIds.Count == 0)
+        {
+            return "No projects are available to you. Ask your Beacon administrator for access to a project.";
+        }
+
+        if (context.AllowedProjectIds.Count == 1)
+        {
+            projectId = context.AllowedProjectIds[0];
+            context.ActiveProjectId = projectId;
+            return null;
+        }
+
+        return $"Multiple projects available (IDs: {string.Join(", ", context.AllowedProjectIds)}). Specify project_id parameter to select one.";
+    }
 
     private static string FormatResultsAsMarkdownInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>
     {

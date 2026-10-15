@@ -54,7 +54,7 @@ Flexible authorization for your Beacon installation. Supports role-based access 
 Statistical anomaly detection that learns baselines from historical execution data and alerts on unusual patterns.
 
 ### [API Keys](/features/api-keys/)
-Scoped API keys (`Read`, `Execute`, `Admin`) with optional per-project restrictions and expiry — SHA256-hashed at rest, shown exactly once.
+Scoped API keys (`Read`, `Execute`) with optional per-project restrictions and a mandatory expiry, bound to their owner's account — SHA256-hashed at rest, shown exactly once.
 
 ### [AI Integration (Experimental)](/features/ai-integration/)
 Auto-generate data source documentation with ERD diagrams and turn natural language into SQL alerts using a runtime-swappable LLM provider.

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol;
@@ -74,12 +75,12 @@ public static class ServiceConfiguration
                     "4. dry_run — validate your SQL through every safety gate (read-only guardrail, AST, schema columns, provider EXPLAIN) without executing it.\n" +
                     "5. query — run the validated read-only SQL (SELECT/WITH only); results are row-capped and PII-masked (when PII detection is enabled).\n" +
                     "Or let Beacon do it: ask — natural-language question; Beacon routes to the right source(s), generates schema-grounded SQL, executes, and appends a _signal_id: N_ marker.\n" +
-                    "Close the loop: feedback — after you verify an ask answer, report verdict 'correct' or 'incorrect' with that signal_id; correct answers become verified examples that improve future generation.\n" +
+                    "Close the loop: feedback — after you verify an ask answer, report verdict 'correct' or 'incorrect' with that signal_id; verdicts are recorded for an Admin to review, and an Admin may promote a correct answer to a verified example that improves future generation.\n" +
                     "get_documentation gives deeper schema/lineage detail for a data source, table, or API endpoint, and lists/reads the documents the host application ships (document=<path>).\n" +
                     "get_context with format='agents_md' returns a deterministic project brief for an agent workspace's AGENTS.md.\n" +
                     "Approved saved queries appear as q_<name> tools (or, for many, search_saved_queries to find one and run_saved_query to run it): reviewed, versioned, parameterized read-only SQL — prefer one over hand-written SQL when it answers the question.\n" +
                     "When the host application exposes some of its read-only endpoints, they appear as api_<name> tools (or, for many endpoints, search_api to find one and call_api to run it); they run with your host permissions.\n" +
-                    "Auth: API keys need the Execute or Admin scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
+                    "Auth: API keys need the Execute scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
                     "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.";
             })
             .WithHttpTransport(options =>
@@ -93,12 +94,25 @@ public static class ServiceConfiguration
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             })
             .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly)
+            // Scope enforcement (§1.4) first: every request of a refused caller but tools/call, initialize and ping
+            // is refused here; tools/call by the scope call-tool filter, ahead of every tool so a refused call reaches
+            // none. The project-context filters run outermost: they only read the caller's project access, which the
+            // tools, the tool lists and the audit of a refused call need. A call whose project access could not be
+            // determined is answered (and audited) innermost, after the scope check, before any tool.
+            .WithMessageFilters(x => x.AddIncomingFilter(McpScopeMessageFilter.Create()))
             .WithRequestFilters(x => x
+                .AddListToolsFilter(McpProjectContextFilter.CreateListToolsFilter())
                 .AddListToolsFilter(McpToolDescriptionOverrides.CreateListToolsFilter())
-                .AddCallToolFilter(McpAuditCallToolFilter.Create()));
+                .AddCallToolFilter(McpProjectContextFilter.CreateCallToolFilter())
+                .AddCallToolFilter(McpScopeCallToolFilter.Create())
+                .AddCallToolFilter(McpAuditCallToolFilter.Create())
+                .AddCallToolFilter(McpProjectContextFilter.CreateUndeterminedAccessCallToolFilter()));
 
         // Playground (public facade for UI)
         services.TryAddTransient<IMcpPlaygroundService, McpPlaygroundService>();
+
+        // Notes at startup that provisioned user callers get the Viewer role (catalog only) by default.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpUserCallerStartupNote>());
 
         return services;
     }

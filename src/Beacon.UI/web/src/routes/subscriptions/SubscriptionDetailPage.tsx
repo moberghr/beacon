@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CalendarClock, ShieldAlert, UserX } from 'lucide-react';
+import { Banner, Button } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
+import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { useAuth, useIsAdmin } from '@/auth/useAuth';
+import { useAccess, useAuth } from '@/auth/useAuth';
+import { SetOwnerDialog } from '../users/SetOwnerDialog';
 import {
   useArchiveSubscription,
   useReactivateSubscription,
+  useSetSubscriptionOwner,
   useSubscriptionDetailQuery,
   useSubscriptionExecutionsQuery,
   useTestSubscription,
@@ -28,7 +32,10 @@ export default function SubscriptionDetailPage() {
   const validId = Number.isFinite(id) ? id : undefined;
 
   const auth = useAuth();
-  const isAdmin = useIsAdmin() === true;
+  const access = useAccess();
+  const isAdmin = access.isAdmin;
+  // Giving a subscription a new owner is a UserAdmin's (an Admin holds it).
+  const canChangeOwner = access.hasPermission('UserAdmin');
   const canWrite = auth.data?.isAuthenticated === true;
 
   const detail = useSubscriptionDetailQuery(validId);
@@ -36,14 +43,29 @@ export default function SubscriptionDetailPage() {
   const test = useTestSubscription(validId);
   const archive = useArchiveSubscription(validId);
   const reactivate = useReactivateSubscription(validId);
+  const setOwner = useSetSubscriptionOwner(validId ?? 0);
 
   const [tab, setTab] = useState<SubscriptionTabKey>('recipients');
   const [confirmingArchive, setConfirmingArchive] = useState(false);
+  const [changingOwner, setChangingOwner] = useState(false);
 
   if (!Number.isFinite(id)) {
     return (
       <div className="flex flex-col gap-5 p-7">
         <EmptyState icon={<AlertTriangle />} title="Invalid subscription id" />
+      </div>
+    );
+  }
+
+  // A subscription the caller may not read answers 404, like a missing one.
+  if (detail.isError && isNotFound(detail.error)) {
+    return (
+      <div className="flex flex-col gap-5 p-7">
+        <EmptyState
+          icon={<CalendarClock />}
+          title="Subscription not found"
+          description={NOT_FOUND_DETAIL}
+        />
       </div>
     );
   }
@@ -88,7 +110,37 @@ export default function SubscriptionDetailPage() {
         onTest={onTest}
         onArchive={onArchive}
         onReactivate={onReactivate}
+        onChangeOwner={canChangeOwner ? () => setChangingOwner(true) : undefined}
       />
+
+      {subscription.notApproved && (
+        <Banner
+          tone="warn"
+          icon={<ShieldAlert />}
+          title="The last run was skipped: this query's change is not approved"
+          sub="Save the query to submit its SQL for approval, or restore a version and approve it."
+        />
+      )}
+
+      {subscription.ownerNotAuthorized && (
+        <Banner
+          tone="warn"
+          icon={<UserX />}
+          title="Owner not authorized: scheduled runs are skipped"
+          sub={
+            canChangeOwner
+              ? 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped. Assign an owner who has access to resume it.'
+              : 'The owner this subscription runs as may no longer run its query, so each scheduled run is skipped until an Admin or a UserAdmin assigns an owner who has access.'
+          }
+          actions={
+            canChangeOwner ? (
+              <Button size="sm" onClick={() => setChangingOwner(true)}>
+                Change owner
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       <SubscriptionKpiGrid
         subscription={subscription}
@@ -123,6 +175,17 @@ export default function SubscriptionDetailPage() {
         onArchive={onArchive}
         onReactivate={onReactivate}
       />
+
+      {canChangeOwner && changingOwner && (
+        <SetOwnerDialog
+          open
+          noun="subscription"
+          description="Scheduled runs run as the owner, so the owner must be able to run this subscription's query. Admins can always change the subscription."
+          busy={setOwner.isPending}
+          onClose={() => setChangingOwner(false)}
+          onSubmit={userId => setOwner.mutate(userId, { onSuccess: () => setChangingOwner(false) })}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmingArchive}

@@ -37,29 +37,37 @@ internal static class SchemaRelationshipsEndpoints
                     }, ct))
             .WithName("CreateSchemaRelationship");
 
+        // The answer says whether the relationship is still verified: a non-curator's change to a verified one unverifies it.
         relationships.MapPut("/relationships/{relationshipId:int}",
-            async (int relationshipId, UpdateSchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
-            {
-                await m.Send(new UpdateSchemaRelationshipCommand
-                {
-                    Id = relationshipId,
-                    Label = body.Label,
-                    Cardinality = body.Cardinality
-                }, ct);
-                return TypedResults.NoContent();
-            }).WithName("UpdateSchemaRelationship");
+                (int dataSourceId, int relationshipId, UpdateSchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
+                    m.Send(new UpdateSchemaRelationshipCommand
+                    {
+                        DataSourceId = dataSourceId,
+                        Id = relationshipId,
+                        Label = body.Label,
+                        Cardinality = body.Cardinality
+                    }, ct))
+            .WithName("UpdateSchemaRelationship");
 
+        // Verifying names the label and cardinality the curator reviewed: a relationship holding other content is not verified (409).
         relationships.MapPost("/relationships/{relationshipId:int}/verify",
-            async (int relationshipId, VerifySchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
+            async (int dataSourceId, int relationshipId, VerifySchemaRelationshipBody body, IMediator m, CancellationToken ct) =>
             {
-                await m.Send(new VerifySchemaRelationshipCommand(relationshipId, body.IsVerified), ct);
+                await m.Send(
+                    new VerifySchemaRelationshipCommand(dataSourceId, relationshipId, body.IsVerified)
+                    {
+                        ReviewedLabel = body.ReviewedLabel,
+                        ReviewedCardinality = body.ReviewedCardinality
+                    },
+                    ct);
                 return TypedResults.NoContent();
             }).WithName("VerifySchemaRelationship");
 
+        // A verified relationship needs a curator of the data source (403 otherwise).
         relationships.MapDelete("/relationships/{relationshipId:int}",
-            async (int relationshipId, IMediator m, CancellationToken ct) =>
+            async (int dataSourceId, int relationshipId, IMediator m, CancellationToken ct) =>
             {
-                await m.Send(new DeleteSchemaRelationshipCommand(relationshipId), ct);
+                await m.Send(new DeleteSchemaRelationshipCommand(dataSourceId, relationshipId), ct);
                 return TypedResults.NoContent();
             }).WithName("DeleteSchemaRelationship");
 
@@ -89,4 +97,7 @@ internal record CreateSchemaRelationshipBody(
 
 internal record UpdateSchemaRelationshipBody(string? Label, SchemaRelationshipCardinality Cardinality);
 
-internal record VerifySchemaRelationshipBody(bool IsVerified);
+/// <param name="IsVerified">Verify (true) or unverify (false).</param>
+/// <param name="ReviewedLabel">The label the curator reviewed; required to verify.</param>
+/// <param name="ReviewedCardinality">The cardinality the curator reviewed; required to verify.</param>
+internal record VerifySchemaRelationshipBody(bool IsVerified, string? ReviewedLabel, SchemaRelationshipCardinality? ReviewedCardinality);

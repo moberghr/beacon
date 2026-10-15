@@ -101,12 +101,37 @@ public class SqlPageRewriterTests
 
     [TestCase("SELECT DISTINCT name FROM dbo.Customers")]
     [TestCase("SELECT name FROM dbo.A UNION SELECT name FROM dbo.B")]
+    [TestCase("SELECT name FROM dbo.A UNION ALL SELECT name FROM dbo.B")]
+    [TestCase("SELECT name FROM dbo.A EXCEPT SELECT name FROM dbo.B")]
+    [TestCase("SELECT name FROM dbo.A INTERSECT SELECT name FROM dbo.B")]
+    [TestCase("(SELECT name FROM dbo.A)")]
     public void TSql_DistinctOrSetOperationWithoutSort_PagesThroughDerivedTable(string sql)
     {
         var plan = SqlPageRewriter.Plan(sql, "MSSQL", 0, 20, null);
 
         plan.PageSql.Should().Be($"SELECT * FROM ({sql}) AS beacon_page ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 20 ROWS ONLY");
+        plan.CountSql.Should().Be($"SELECT COUNT(*) FROM ({sql}) AS beacon_count");
         ShouldParse(plan, new MsSqlDialect());
+    }
+
+    [Test]
+    public void TSql_SetOperationWithASort_OrdersByTheResultColumn()
+    {
+        var plan = SqlPageRewriter.Plan("SELECT name FROM dbo.A UNION SELECT name FROM dbo.B", "MSSQL", 20, 20, ByNameDesc);
+
+        plan.PageSql.Should().Be("SELECT name FROM dbo.A UNION SELECT name FROM dbo.B ORDER BY [name] DESC OFFSET 20 ROWS FETCH NEXT 20 ROWS ONLY");
+        plan.SortApplied.Should().BeTrue();
+        ShouldParse(plan, new MsSqlDialect());
+    }
+
+    [Test]
+    public void TSql_SetOperationAfterACteList_FallsBackToStreaming()
+    {
+        // A CTE cannot sit inside a derived table, and ORDER BY (SELECT NULL) is refused after a set operation.
+        var plan = SqlPageRewriter.Plan("WITH r AS (SELECT name FROM dbo.A) SELECT name FROM r UNION SELECT name FROM dbo.B", "MSSQL", 0, 20, null);
+
+        plan.PageSql.Should().BeNull();
+        plan.CountSql.Should().BeNull();
     }
 
     [Test]

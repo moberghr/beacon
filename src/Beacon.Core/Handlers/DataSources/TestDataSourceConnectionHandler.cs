@@ -2,6 +2,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Services;
 using MediatR;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
@@ -24,6 +25,7 @@ internal sealed class TestDataSourceConnectionHandler(IDataSourceService dataSou
     }
 }
 
+[ProjectScopeExempt("data-source administration, gated by the DataSourceAdmin permission; no stored data source", Policy = BeaconPermissions.DataSourceAdminPolicy)]
 public record TestDataSourceConnectionCommand(
     string? Name,
     DataSourceType DataSourceType,

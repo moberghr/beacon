@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Beacon.Api.Endpoints;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Tests.Integration.Api;
 
@@ -14,7 +15,7 @@ namespace Beacon.Tests.Integration.Api;
 /// lesson "Integration harness DB gotcha": several API-harness tests fail locally with
 /// 'relation "users" does not exist' unless <c>BEACON_TEST_CONNECTION_STRING</c> points at a real database).
 /// This test instead proves the same guarantee through the <see cref="EndpointDataSource"/>, which needs no
-/// database: the endpoint exists, is named correctly, and carries <see cref="BeaconApiEndpoints.AdminPolicyName"/>
+/// database: the endpoint exists, is named correctly, and carries <see cref="BeaconPermissions.AuditorPolicy"/>
 /// — the same wiring <see cref="ExecuteScopeWiringTests"/> checks for the Execute-scope policy. A dropped
 /// <c>.RequireAuthorization(...)</c> fails this test the same way it would fail a live 403 check.
 /// </summary>
@@ -50,7 +51,7 @@ public class McpAuditEndpointTests
     }
 
     [Test]
-    public void GetMcpAuditLogs_IsMappedNamedAndAdminOnly()
+    public void GetMcpAuditLogs_IsMappedNamedAndAuditorOnly()
     {
         var endpointSource = _factory!.Services.GetRequiredService<EndpointDataSource>();
 
@@ -66,8 +67,8 @@ public class McpAuditEndpointTests
             .ToList();
 
         policies.Should().Contain(
-            BeaconApiEndpoints.AdminPolicyName,
-            "the audit export returns every caller's tool-call history and must be admin-only, " +
-            "so a non-admin caller gets 403");
+            BeaconPermissions.AuditorPolicy,
+            "the audit export returns every caller's tool-call history and is an Auditor's (or an Admin's), " +
+            "so any other caller gets 403");
     }
 }

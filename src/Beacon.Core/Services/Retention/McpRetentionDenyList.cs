@@ -52,6 +52,9 @@ public static class McpRetentionDenyList
         Rule<McpQuerySignal>(nameof(McpQuerySignal.FeedbackNote), RetentionKind.Content),
         Rule<McpQuerySignal>(nameof(McpQuerySignal.CallerHash), RetentionKind.Structural),
 
+        // The digest of the signal's SQL goes with the SQL it digests.
+        Rule<McpQuerySignal>(nameof(McpQuerySignal.CandidateSqlHash), RetentionKind.Content),
+
         // McpAuditLog — the row itself is never skipped (§1.7); under the lock Parameters becomes the structural JSON.
         Rule<McpAuditLog>(nameof(McpAuditLog.Tool), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.Parameters), RetentionKind.Content, McpContentRedactor.IsStructuralAuditParameters),
@@ -72,6 +75,10 @@ public static class McpRetentionDenyList
         Rule<McpLearnedPattern>(nameof(McpLearnedPattern.PatternContent), RetentionKind.Structural),
         Rule<McpLearnedPattern>(nameof(McpLearnedPattern.ExampleQuestion), RetentionKind.Content),
         Rule<McpLearnedPattern>(nameof(McpLearnedPattern.ExampleSql), RetentionKind.Content),
+
+        // The digest of the pattern's content and examples goes with the examples it digests; a pattern whose digest was
+        // cleared gets it again on its next decision or auto-approval.
+        Rule<McpLearnedPattern>(nameof(McpLearnedPattern.ContentHash), RetentionKind.Content),
 
         // McpDocumentationPatch — schema documentation derived from PatternContent, not from interaction text.
         Rule<McpDocumentationPatch>(nameof(McpDocumentationPatch.TargetIdentifier), RetentionKind.Structural),

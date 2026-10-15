@@ -40,7 +40,7 @@ public class McpEffectiveSettingsTests
     [Test]
     public void Resolve_NoRows_ReturnsCodeDefaults()
     {
-        var result = McpSettingsProvider.Resolve(new McpSettingsData(), null, new McpDeploymentOptions());
+        var result = McpSettingsProvider.Resolve(new McpSettingsData(), null, NoLocks());
 
         result.Effective.MaxRowLimit.Should().Be(1000);
         result.Effective.EnforceReadOnly.Should().BeTrue();
@@ -60,7 +60,7 @@ public class McpEffectiveSettingsTests
         var global = new McpSettingsData { MaxRowLimit = 500, EnablePiiDetection = false, StatementTimeoutSeconds = 45 };
         var project = new McpProjectSettingsData { MaxRowLimit = 200, EnablePiiDetection = null, CustomPiiPatterns = ["iban"] };
 
-        var result = McpSettingsProvider.Resolve(global, project, new McpDeploymentOptions());
+        var result = McpSettingsProvider.Resolve(global, project, NoLocks());
 
         result.Effective.MaxRowLimit.Should().Be(200, "project value wins");
         result.Effective.EnablePiiDetection.Should().BeFalse("null project field inherits the global value");
@@ -74,7 +74,7 @@ public class McpEffectiveSettingsTests
         var global = new McpSettingsData { MaxRowLimit = 500, CustomPiiPatterns = ["a"] };
         var project = new McpProjectSettingsData { MaxRowLimit = 10, CustomPiiPatterns = ["b"] };
 
-        McpSettingsProvider.Resolve(global, project, new McpDeploymentOptions());
+        McpSettingsProvider.Resolve(global, project, NoLocks());
 
         global.MaxRowLimit.Should().Be(500);
         global.CustomPiiPatterns.Should().Equal("a");
@@ -115,7 +115,7 @@ public class McpEffectiveSettingsTests
         var global = new McpSettingsData { EnforceReadOnly = false };
         var project = new McpProjectSettingsData { EnforceReadOnly = false };
 
-        var result = McpSettingsProvider.Resolve(global, project, new McpDeploymentOptions { ForceReadOnly = true });
+        var result = McpSettingsProvider.Resolve(global, project, new McpDeploymentOptions { ForceReadOnly = true, ForcePiiDetection = false });
 
         result.Effective.EnforceReadOnly.Should().BeTrue();
         result.LockedFields.Should().Equal("EnforceReadOnly");
@@ -126,7 +126,7 @@ public class McpEffectiveSettingsTests
     {
         var project = new McpProjectSettingsData { RetainQueryContent = true };
 
-        var result = McpSettingsProvider.Resolve(new McpSettingsData(), project, new McpDeploymentOptions { ForceNoContentRetention = true });
+        var result = McpSettingsProvider.Resolve(new McpSettingsData(), project, new McpDeploymentOptions { ForceReadOnly = false, ForcePiiDetection = false, ForceNoContentRetention = true });
 
         result.Effective.RetainQueryContent.Should().BeFalse();
         result.LockedFields.Should().Equal("RetainQueryContent");
@@ -156,7 +156,7 @@ public class McpEffectiveSettingsTests
     {
         _globalRows.Add(new McpSettingsEntity { Id = 1, MaxRowLimit = 500, LearningSignalRetentionDays = 90 });
         _projectRows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, MaxRowLimit = 50, RetainQueryContent = false });
-        var provider = CreateProvider(new McpDeploymentOptions());
+        var provider = CreateProvider(NoLocks());
 
         var settings = await provider.GetEffectiveSettingsAsync(ProjectId);
         var other = await provider.GetEffectiveSettingsAsync(ProjectId + 1);
@@ -171,7 +171,7 @@ public class McpEffectiveSettingsTests
     public async Task GetEffectiveSettingsAsync_ProjectIdZeroOrNegative_IsGlobal()
     {
         _globalRows.Add(new McpSettingsEntity { Id = 1, MaxRowLimit = 321 });
-        var provider = CreateProvider(new McpDeploymentOptions());
+        var provider = CreateProvider(NoLocks());
 
         (await provider.GetEffectiveSettingsAsync(0)).MaxRowLimit.Should().Be(321);
         (await provider.GetEffectiveSettingsAsync(-5)).MaxRowLimit.Should().Be(321);
@@ -185,6 +185,7 @@ public class McpEffectiveSettingsTests
         var provider = CreateProvider(new McpDeploymentOptions
         {
             ForceReadOnly = true,
+            ForcePiiDetection = false,
             Ceilings = new McpCeilingOptions { MaxRowLimit = 1000 }
         });
 
@@ -205,7 +206,7 @@ public class McpEffectiveSettingsTests
     {
         _globalRows.Add(new McpSettingsEntity { Id = 1, CustomPiiPatterns = "[\"iban\"]" });
         _projectRows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, CustomPiiPatterns = "{not json", MaxRowLimit = 5 });
-        var provider = CreateProvider(new McpDeploymentOptions());
+        var provider = CreateProvider(NoLocks());
 
         var settings = await provider.GetEffectiveSettingsAsync(ProjectId);
 
@@ -218,7 +219,7 @@ public class McpEffectiveSettingsTests
     {
         _globalRows.Add(new McpSettingsEntity { Id = 1, MaxRowLimit = 100 });
         _projectRows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, MaxRowLimit = 10 });
-        var provider = CreateProvider(new McpDeploymentOptions());
+        var provider = CreateProvider(NoLocks());
 
         (await provider.GetSettingsAsync()).MaxRowLimit.Should().Be(100);
         (await provider.GetEffectiveSettingsAsync(ProjectId)).MaxRowLimit.Should().Be(10);
@@ -242,8 +243,8 @@ public class McpEffectiveSettingsTests
         // request A would leave request B's cached copy stale for five minutes.
         _globalRows.Add(new McpSettingsEntity { Id = 1, MaxRowLimit = 100 });
         var cache = new MemoryCache(new MemoryCacheOptions());
-        var reader = CreateProvider(new McpDeploymentOptions(), cache);
-        var writer = CreateProvider(new McpDeploymentOptions(), cache);
+        var reader = CreateProvider(NoLocks(), cache);
+        var writer = CreateProvider(NoLocks(), cache);
 
         (await reader.GetSettingsAsync()).MaxRowLimit.Should().Be(100);
         _globalRows[0].MaxRowLimit = 300;
@@ -324,15 +325,52 @@ public class McpEffectiveSettingsTests
 
     // A-F001: deployment locks are ONE table (McpLockPolicy) that resolution and both write handlers iterate.
     [Test]
+    public void Defaults_LockReadOnlyEnforcementAndPiiDetection_ButNotContentRetention()
+    {
+        var defaults = new McpDeploymentOptions();
+        var global = new McpSettingsData { EnforceReadOnly = false, EnablePiiDetection = false, RetainQueryContent = true };
+        var project = new McpProjectSettingsData { EnforceReadOnly = false, EnablePiiDetection = false };
+
+        var result = McpSettingsProvider.Resolve(global, project, defaults);
+
+        defaults.ForceReadOnly.Should().BeTrue();
+        defaults.ForcePiiDetection.Should().BeTrue();
+        defaults.ForceNoContentRetention.Should().BeFalse();
+        result.Effective.EnforceReadOnly.Should().BeTrue();
+        result.Effective.EnablePiiDetection.Should().BeTrue();
+        result.Effective.RetainQueryContent.Should().BeTrue();
+        result.LockedFields.Should().BeEquivalentTo("EnforceReadOnly", "EnablePiiDetection");
+    }
+
+    [Test]
+    public void LockPolicy_ForcePiiDetection_PinsDetectsAndKeepsStored()
+    {
+        var rule = McpLockPolicy.ActiveRules(new McpDeploymentOptions { ForceReadOnly = false })
+            .Should().ContainSingle().Subject;
+        var effective = new McpSettingsData { EnablePiiDetection = false };
+        var incoming = new McpSettingsData { EnablePiiDetection = true };
+
+        rule.Pin(effective);
+        rule.KeepStored(incoming, new McpSettingsEntity { EnablePiiDetection = false });
+
+        rule.FieldName.Should().Be("EnablePiiDetection");
+        rule.LockName.Should().Be("ForcePiiDetection");
+        effective.EnablePiiDetection.Should().BeTrue();
+        rule.Contradicts(new McpSettingsData { EnablePiiDetection = false }).Should().BeTrue();
+        rule.HasOverride(new McpProjectSettingsData { EnablePiiDetection = true }).Should().BeTrue();
+        incoming.EnablePiiDetection.Should().BeFalse("the stored value survives a locked-field echo");
+    }
+
+    [Test]
     public void LockPolicy_NoLocksConfigured_HasNoActiveRules()
     {
-        McpLockPolicy.ActiveRules(new McpDeploymentOptions()).Should().BeEmpty();
+        McpLockPolicy.ActiveRules(NoLocks()).Should().BeEmpty();
     }
 
     [Test]
     public void LockPolicy_BothLocks_PinContradictDetectOverrides_AndKeepStored()
     {
-        var rules = McpLockPolicy.ActiveRules(new McpDeploymentOptions { ForceReadOnly = true, ForceNoContentRetention = true });
+        var rules = McpLockPolicy.ActiveRules(new McpDeploymentOptions { ForceReadOnly = true, ForcePiiDetection = false, ForceNoContentRetention = true });
 
         rules.Select(x => x.FieldName).Should().BeEquivalentTo("EnforceReadOnly", "RetainQueryContent");
         rules.Select(x => x.LockName).Should().BeEquivalentTo("ForceReadOnly", "ForceNoContentRetention");
@@ -365,8 +403,10 @@ public class McpEffectiveSettingsTests
     [Test]
     public void LockPolicy_OneLock_OnlyThatRuleIsActive()
     {
-        var rules = McpLockPolicy.ActiveRules(new McpDeploymentOptions { ForceNoContentRetention = true });
+        var rules = McpLockPolicy.ActiveRules(new McpDeploymentOptions { ForceReadOnly = false, ForcePiiDetection = false, ForceNoContentRetention = true });
 
         rules.Should().ContainSingle().Which.FieldName.Should().Be("RetainQueryContent");
     }
+
+    private static McpDeploymentOptions NoLocks() => new() { ForceReadOnly = false, ForcePiiDetection = false };
 }

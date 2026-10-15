@@ -24,28 +24,34 @@
  * Coverage (GET unless noted):
  * - csrf, auth/me, auth/logout (POST)
  * - home: trends, activity, migration-summary, task-summary, uptime
- * - projects, projects/:id, projects/:id/documentation
+ * - projects, projects/:id, projects/:id/documentation, projects/:id/members, projects/:id/member-candidates,
+ *   PUT/DELETE projects/:id/members/:userId, PUT projects/:id/access, POST projects/:id/data-sources,
+ *   DELETE projects/:id/data-sources/:dataSourceId (no state kept)
  * - queries, query-folders, queries/:id, queries/:id/versions, query-versions/:id
  * - data-sources, data-sources/:id/metadata
  * - notifications (filters by ?subscriptionId), notifications/:id
  * - tasks, tasks/:id (+ executions / related / result-history / comments)
- * - approvals/pending, approvals/:id
+ * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id
  * - subscriptions, subscriptions/:id, subscriptions/:id/anomaly-chart
  * - recipients
  * - ai-actors, ai-actors/:id
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
+ * - eval: golden/candidates, golden, grounding/recheck (honest empties)
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
- * - admin: api-keys, users, users/roles, admin-settings, user-settings
+ * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
+ *   admin-settings, user-settings
  * - data-quality: overview, contracts
  * - catch-alls: 404 GET / 400 mutations / 503 hub negotiate
  */
 import { http, HttpResponse } from 'msw';
 import {
+  AiActorExecutionPhase,
   AiActorStatus,
   AnomalyDetectionMethod,
   AnomalySensitivity,
   ApprovalStatus,
+  ChangeApprovalKind,
   BedrockAuthMode,
   ChangeSource,
   DatabaseEngineType,
@@ -59,6 +65,8 @@ import {
   NotificationTrigger,
   NotificationType,
   ParameterType,
+  ProjectMembershipManagement,
+  ProjectRole,
   QueryVersionStatus,
   TaskPriority,
 } from '@/lib/enums';
@@ -85,13 +93,24 @@ const authHandlers = [
   http.get('/beacon/api/auth/me', () =>
     HttpResponse.json({
       userId: 'mock-admin',
+      userName: 'mock.admin',
       displayName: 'Mock Admin',
       email: 'mock.admin@example.test',
       isAuthenticated: true,
       roles: ['Admin'],
       realtimeEnabled: true,
+      signOutEverywhereEnabled: true,
     })),
-  http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false })),
+  // An Admin holds every functional permission.
+  http.get('/beacon/api/auth/permissions', () =>
+    HttpResponse.json({
+      canRead: true,
+      canWrite: true,
+      isAdmin: true,
+      permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'],
+      migrationsEnabled: true,
+    })),
+  http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false, localLoginEnabled: true })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];
 
@@ -168,6 +187,9 @@ const projectsHandlers = [
           lastScanStatus: 'Completed',
           lastScanAt: iso(1),
           createdAt: iso(40),
+          requiresMembership: false,
+          myRole: ProjectRole.ProjectAdmin,
+          memberCount: 1,
         },
         {
           id: 2,
@@ -179,6 +201,9 @@ const projectsHandlers = [
           lastScanStatus: null,
           lastScanAt: null,
           createdAt: iso(12),
+          requiresMembership: true,
+          myRole: ProjectRole.ProjectAdmin,
+          memberCount: 1,
         },
       ]))),
   http.get('/beacon/api/projects/:id', ({ params }) =>
@@ -192,8 +217,8 @@ const projectsHandlers = [
         codeReferenceCount: 342,
         lastScanAt: iso(1),
         dataSources: [
-          { name: 'Demo Warehouse (PostgreSQL)', type: 'Database', tableCount: 96, qualityScore: 91 },
-          { name: 'Sample CRM (SQL Server)', type: 'Database', tableCount: 32, qualityScore: 78 },
+          { id: 1, name: 'Demo Warehouse (PostgreSQL)', type: 'Database', tableCount: 96, qualityScore: 91 },
+          { id: 2, name: 'Sample CRM (SQL Server)', type: 'Database', tableCount: 32, qualityScore: 78 },
         ],
         repositories: [
           {
@@ -207,11 +232,89 @@ const projectsHandlers = [
           },
         ],
         hasDocumentation: false,
+        // The mock user is an Admin: project admin everywhere, and Beacon manages membership.
+        requiresMembership: Number(params.id) === 2,
+        myRole: ProjectRole.ProjectAdmin,
+        canManageMembers: true,
+        // Sample CRM is also linked to the open Demo Analytics project.
+        openlyReachableDataSourceIds: Number(params.id) === 2 ? [2] : [],
+        sharedSourceProjects: sharedSourceProjects(Number(params.id)),
+        sharedSourceGuardrails: sharedSourceGuardrails(Number(params.id)),
+        membershipManagement: ProjectMembershipManagement.Beacon,
       },
     })),
+  http.post('/beacon/api/projects', () => HttpResponse.json({ projectId: 2, requiresMembership: true }, { status: 201 })),
   http.get('/beacon/api/projects/:id/documentation', () =>
     HttpResponse.json({ latest: null, history: [] })),
+  http.get('/beacon/api/projects/:id/members', () =>
+    HttpResponse.json(paged([
+      {
+        userId: 1,
+        displayName: 'Mock Admin',
+        role: ProjectRole.ProjectAdmin,
+        isActive: true,
+        addedAt: iso(40),
+        modifiedAt: null,
+        // The mock user is an Admin: every membership is theirs to change.
+        canChange: true,
+      },
+    ]))),
+  http.get('/beacon/api/projects/:id/member-candidates', ({ request }) => {
+    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase();
+    const people = [
+      { userId: 1, displayName: 'Mock Admin', isMember: true, canAdd: true },
+      { userId: 2, displayName: 'Sample Analyst', isMember: false, canAdd: true },
+    ];
+    return HttpResponse.json({ candidates: people.filter(x => x.displayName.toLowerCase().includes(search)) });
+  }),
+  http.put('/beacon/api/projects/:id/members/:userId', async ({ params, request }) => {
+    const body = (await request.json()) as { role: ProjectRole };
+    return HttpResponse.json({ projectId: Number(params.id), userId: Number(params.userId), role: body.role, added: true });
+  }),
+  http.delete('/beacon/api/projects/:id/members/:userId', () => new HttpResponse(null, { status: 204 })),
+  http.put('/beacon/api/projects/:id/access', async ({ params, request }) => {
+    const body = (await request.json()) as { requiresMembership: boolean };
+    return HttpResponse.json({
+      projectId: Number(params.id),
+      requiresMembership: body.requiresMembership,
+      sharedSourceProjects: sharedSourceProjects(Number(params.id)),
+    });
+  }),
+  http.post('/beacon/api/projects/:id/data-sources', async ({ params, request }) => {
+    const body = (await request.json()) as { dataSourceIds: number[] };
+    return HttpResponse.json({ projectId: Number(params.id), linkedDataSourceIds: body.dataSourceIds });
+  }),
+  http.delete('/beacon/api/projects/:id/data-sources/:dataSourceId', ({ params }) =>
+    HttpResponse.json({ projectId: Number(params.id), dataSourceId: Number(params.dataSourceId), leftUnlinked: false })),
 ];
+
+/** Sample CRM's guardrails: the stricter of the two mock projects' settings, and which project sets each. */
+function sharedSourceGuardrails(projectId: number) {
+  const other = projectId === 2 ? { projectId: 1, projectName: 'Demo Analytics' } : { projectId: 2, projectName: 'Sample Warehouse' };
+  const own = projectId === 2 ? { projectId: 2, projectName: 'Sample Warehouse' } : { projectId: 1, projectName: 'Demo Analytics' };
+  return [
+    {
+      dataSourceId: 2,
+      dataSourceName: 'Sample CRM (SQL Server)',
+      guardrails: [
+        { setting: 'enforceReadOnly', value: 'true', ...own },
+        { setting: 'enablePiiDetection', value: 'true', ...other },
+        { setting: 'maxRowLimit', value: '500', ...other },
+        { setting: 'statementTimeoutSeconds', value: '30', ...own },
+        { setting: 'maxResultBytes', value: '10485760', ...own },
+        { setting: 'maxExplainCost', value: 'none', ...own },
+        { setting: 'customPiiPatterns', value: '0', ...own },
+      ],
+    },
+  ];
+}
+
+/** The two mock projects share Sample CRM (data source 2); Sample Warehouse is the restricted one. */
+function sharedSourceProjects(projectId: number) {
+  return projectId === 2
+    ? [{ projectId: 1, name: 'Demo Analytics', requiresMembership: false, sharedDataSourceIds: [2], projectAdminNames: ['Mock Admin'] }]
+    : [{ projectId: 2, name: 'Sample Warehouse', requiresMembership: true, sharedDataSourceIds: [2], projectAdminNames: [] }];
+}
 
 // ---------- queries ----------------------------------------------------------
 
@@ -380,9 +483,9 @@ const queriesHandlers = [
         id: 102,
         versionNumber: 2,
         label: 'Mock v2',
+        status: 1,
         name: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
         createdTime: iso(3),
-        createdByUserId: 'mock-admin',
         createdByUserName: 'Mock Admin',
         changeSource: 'User',
         changeReason: 'Mock change — widened date window',
@@ -392,9 +495,9 @@ const queriesHandlers = [
         id: 101,
         versionNumber: 1,
         label: null,
+        status: 2,
         name: Number(params.id) === 2 ? 'Demo: Cross-Source Revenue Join' : 'Demo: Daily Order Count',
         createdTime: iso(20),
-        createdByUserId: 'mock-admin',
         createdByUserName: 'Mock Admin',
         changeSource: 'User',
         changeReason: null,
@@ -407,11 +510,11 @@ const queriesHandlers = [
       id: Number(params.id),
       versionNumber: Number(params.id) === 101 ? 1 : 2,
       label: Number(params.id) === 101 ? null : 'Mock v2',
+      status: Number(params.id) === 101 ? 2 : 1,
       name: 'Demo: Daily Order Count',
       description: 'Mock query against Sample Warehouse',
       finalQuery: null,
       createdTime: iso(Number(params.id) === 101 ? 20 : 3),
-      createdByUserId: 'mock-admin',
       createdByUserName: 'Mock Admin',
       changeSource: 'User',
       changeReason: Number(params.id) === 101 ? null : 'Mock change — widened date window',
@@ -439,6 +542,12 @@ const dataSourceEntries = [
           queryCount: 2,
           migrationJobsCount: 0,
           metadataLoadingEnabled: true,
+          openWhenUnlinked: true,
+          projects: [{ id: 1, name: 'Demo Analytics' }],
+          // A project the mock user may not see: shown as "+1 other".
+          otherProjectCount: 1,
+          databaseReadOnlyEnforced: true,
+          allowMigrationWrites: false,
         },
         {
           id: 2,
@@ -448,6 +557,27 @@ const dataSourceEntries = [
           queryCount: 1,
           migrationJobsCount: 0,
           metadataLoadingEnabled: false,
+          openWhenUnlinked: true,
+          projects: [{ id: 1, name: 'Demo Analytics' }, { id: 2, name: 'Sample Warehouse' }],
+          otherProjectCount: 0,
+          // SQL Server does not refuse writes in a read-only session: the page warns.
+          databaseReadOnlyEnforced: false,
+          allowMigrationWrites: false,
+        },
+        {
+          id: 3,
+          name: 'Reporting (migration write target)',
+          dataSourceType: 'Database',
+          databaseEngineType: 'MSSQL',
+          queryCount: 0,
+          migrationJobsCount: 0,
+          metadataLoadingEnabled: true,
+          openWhenUnlinked: false,
+          projects: [],
+          otherProjectCount: 0,
+          databaseReadOnlyEnforced: false,
+          // Migrations write to it and Beacon never reads it: labelled as a write target, not asked for a read-only login.
+          allowMigrationWrites: true,
         },
       ];
 
@@ -456,8 +586,13 @@ const dataSourcesHandlers = [
     const entry = dataSourceEntries.find(x => x.id === Number(params.id));
     return entry ? HttpResponse.json(entry) : new HttpResponse(null, { status: 404 });
   }),
-  http.get('/beacon/api/data-sources', () =>
-    HttpResponse.json(paged(dataSourceEntries))),
+  http.get('/beacon/api/data-sources', ({ request }) => {
+    const targets = new URL(request.url).searchParams.get('migrationTargets');
+    return HttpResponse.json(paged(dataSourceEntries.filter(
+      x => targets === null || String(x.allowMigrationWrites === true) === targets,
+    )));
+  }),
+  http.put('/beacon/api/data-sources/:id/migration-writes', () => new HttpResponse(null, { status: 204 })),
   // Schema explorer on the detail page (DatabaseMetadataSnapshot, unwrapped).
   http.get('/beacon/api/data-sources/:id/metadata', ({ params }) => {
     const id = Number(params.id);
@@ -640,14 +775,15 @@ const listHandlers = [
       lastExecutionAt: iso(0, 2),
       cronExpression: '0 7 * * *',
       priority: TaskPriority.Normal,
-      assigneeUserId: null,
+      hasAssignee: false,
       assigneeUserName: null,
+      assignedToCaller: false,
       snoozedUntil: null,
       slaHours: 24,
       watcherCount: 1,
       isWatching: false,
-      ownerUserId: 'mock-admin',
-      ownerUserName: 'Mock Admin',
+      hasOwner: false,
+      ownerDisplayName: null,
     })),
   http.get('/beacon/api/tasks/:id/executions', ({ params }) =>
     HttpResponse.json({
@@ -698,6 +834,58 @@ const listHandlers = [
         changeSummary: `Mock change (source: ${ChangeSource.User}) — widened revenue window`,
       },
     ]))),
+  // Changes of migration jobs, Custom SQL rules and recipients. Keep BEFORE /approvals/:id, which would match
+  // /approvals/changes too.
+  http.get('/beacon/api/approvals/changes', ({ request }) => {
+    const kind = Number(new URL(request.url).searchParams.get('kind') ?? ChangeApprovalKind.MigrationJob);
+    return HttpResponse.json(paged([
+      {
+        id: 31,
+        kind,
+        resourceId: 4,
+        resourceName: kind === ChangeApprovalKind.RecipientDestination ? 'Mock ops webhook' : 'Mock nightly copy',
+        status: ApprovalStatus.Pending,
+        requestedByUserName: 'Mock Operator',
+        createdTime: iso(0, 3),
+        changeSummary: kind === ChangeApprovalKind.MigrationJob ? 'Migration job created' : 'Mock change',
+      },
+    ]));
+  }),
+  http.get('/beacon/api/approvals/changes/:id', ({ params }) =>
+    HttpResponse.json({
+      id: Number(params.id),
+      kind: ChangeApprovalKind.MigrationJob,
+      resourceId: 4,
+      resourceName: 'Mock nightly copy',
+      resourceExists: true,
+      status: ApprovalStatus.Pending,
+      requestedByUserName: 'Mock Operator',
+      reviewedByUserName: null,
+      reviewedAt: null,
+      reviewComment: null,
+      changeSummary: 'Migration job created',
+      createdTime: iso(0, 3),
+      previousMigrationJob: null,
+      proposedMigrationJob: {
+        sourceDataSourceId: 1,
+        sourceDataSourceName: 'Mock warehouse',
+        queryText: 'SELECT id, total FROM orders',
+        destinationDataSourceId: 2,
+        destinationDataSourceName: 'Mock reporting',
+        destinationTable: 'orders_copy',
+        mode: 1,
+        transformationScript: null,
+      },
+      previousCustomSqlRules: null,
+      proposedCustomSqlRules: null,
+      previousRecipientDestination: null,
+      proposedRecipientDestination: null,
+      payloadHash: 'mock-payload-hash',
+      isOwnRequest: false,
+      mayApprove: true,
+      approveBlockedReason: null,
+      isStale: false,
+    })),
   // ApprovalDetailPage (ApprovalRequestDetail, unwrapped). Keep AFTER the
   // /approvals/pending handler — both match two path segments.
   http.get('/beacon/api/approvals/:id', ({ params }) => {
@@ -710,7 +898,7 @@ const listHandlers = [
       description: 'Mock query — widened revenue window',
       finalQuery: 'SELECT a.name, r.revenue FROM step1 r JOIN step2 a ON a.id = r.account_id WHERE r.revenue > 0',
       createdTime: iso(0, 5),
-      createdByUserId: 'mock-analyst',
+      createdByUserName: 'Mock Analyst',
       changeSource: 'User',
       changeReason: 'Mock change — widened revenue window',
     };
@@ -723,7 +911,7 @@ const listHandlers = [
       description: null,
       finalQuery: 'SELECT a.name, r.revenue FROM step1 r JOIN step2 a ON a.id = r.account_id',
       createdTime: iso(14),
-      createdByUserId: 'mock-admin',
+      createdByUserName: 'Mock Admin',
       changeSource: 'User',
       changeReason: null,
     };
@@ -794,6 +982,10 @@ const listHandlers = [
         cronNextAt: iso(-1),
         aiActorId: null,
         aiActorName: null,
+        hasOwner: true,
+        ownerDisplayName: crossSource ? 'Mock Analyst' : 'Mock Admin',
+        ownerNotAuthorized: crossSource,
+        notApproved: false,
         maxRows: 100,
         minimumRowCount: null,
         includeAttachment: !crossSource,
@@ -814,14 +1006,14 @@ const listHandlers = [
                 id: 2,
                 name: 'Sample Finance Group',
                 description: 'Mock recipient — not real',
-                destination: '#sample-finance',
+                destination: null,
                 notificationType: NotificationType.Slack,
               }
             : {
                 id: 1,
                 name: 'Demo Ops Team',
                 description: 'Mock recipient — not real',
-                destination: 'demo.ops@example.test',
+                destination: null,
                 notificationType: NotificationType.Email,
               },
         ],
@@ -839,6 +1031,7 @@ const listHandlers = [
       },
     });
   }),
+  http.put('/beacon/api/subscriptions/:id/owner', () => new HttpResponse(null, { status: 204 })),
   // Anomaly tab (AnomalyChartResult, unwrapped).
   http.get('/beacon/api/subscriptions/:id/anomaly-chart', ({ params }) => {
     const hasAnomalyDetection = Number(params.id) !== 2;
@@ -870,16 +1063,19 @@ const listHandlers = [
           notificationType: NotificationType.Email,
           headersJson: null,
           bodyTemplate: null,
+          secretsUnreadable: false,
           subscriptionCount: 1,
         },
         {
           id: 2,
           name: 'Sample Finance Group',
           description: 'Mock recipient — not real',
-          destination: '#sample-finance',
+          // Masked as the server returns it to admins.
+          destination: 'https://hooks.slack.com/********',
           notificationType: NotificationType.Slack,
           headersJson: null,
           bodyTemplate: null,
+          secretsUnreadable: false,
           subscriptionCount: 1,
         },
       ]))),
@@ -922,12 +1118,43 @@ const aiActorsHandlers = [
       lastError: null,
       createdTime: iso(15),
       pendingPlanCount: 0,
+      hasOwner: true,
+      ownerDisplayName: 'Mock Admin',
+      recentExecutions: [
+        {
+          executionId: 41,
+          phase: AiActorExecutionPhase.Skipped,
+          startedAt: iso(0, 3),
+          completedAt: iso(0, 3),
+          queriesCreated: 0,
+          subscriptionsCreated: 0,
+          tokensUsed: 0,
+          estimatedCost: 0,
+          decisionSummary: null,
+          errorMessage: 'Skipped: owner not authorized.',
+        },
+        {
+          executionId: 40,
+          phase: AiActorExecutionPhase.Completed,
+          startedAt: iso(1),
+          completedAt: iso(1),
+          queriesCreated: 1,
+          subscriptionsCreated: 1,
+          tokensUsed: 4_600,
+          estimatedCost: 0.11,
+          decisionSummary: 'Mock cycle: added a revenue drop watch.',
+          errorMessage: null,
+        },
+      ],
     })),
 ];
 
 // ---------- mcp -----------------------------------------------------------------
 
 const mcpHandlers = [
+  // The default deployment locks read-only enforcement and PII detection on.
+  http.get('/beacon/api/mcp/settings/locks', () =>
+    HttpResponse.json({ lockedFields: ['EnablePiiDetection', 'EnforceReadOnly'] })),
   http.get('/beacon/api/mcp/settings', () =>
     HttpResponse.json({
       askSystemPrompt: null,
@@ -984,6 +1211,10 @@ const mcpHandlers = [
           status: McpPatternStatus.Pending,
           createdTime: iso(4),
           lastRefreshedAt: iso(1),
+          reviewedByName: null,
+          reviewedAt: null,
+          // The mock user is an Admin: every pattern is theirs to review.
+          canCurate: true,
         },
       ]))),
   http.get('/beacon/api/mcp/documentation-patches', () =>
@@ -1001,8 +1232,19 @@ const mcpHandlers = [
           status: McpDocPatchStatus.Proposed,
           createdTime: iso(3),
           appliedAt: null,
+          appliedByName: null,
+          canCurate: true,
         },
       ]))),
+  http.get('/beacon/api/eval/golden/candidates', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/eval/golden', () => HttpResponse.json([])),
+  http.get('/beacon/api/eval/grounding/recheck', ({ request }) =>
+    HttpResponse.json({
+      projectId: Number(new URL(request.url).searchParams.get('projectId')),
+      goldenCasesChecked: 0,
+      patternsChecked: 0,
+      refused: [],
+    })),
 ];
 
 // ---------- control tower ----------------------------------------------------
@@ -1020,6 +1262,7 @@ const controlTowerHandlers = [
         totalAnomalies30Days: 3,
         overallSuccessRate: 96.4,
         timeRangeDays: 30,
+        ownerNotAuthorizedContracts: 0,
       },
     })),
   http.get('/beacon/api/control-tower/health', () =>
@@ -1038,6 +1281,8 @@ const controlTowerHandlers = [
           lastExecutionTime: iso(0, 2),
           lastExecutionStatus: NotificationStatus.NotificationSent,
           lastResultCount: 42,
+          ownerNotAuthorized: false,
+          notApproved: false,
           unresolvedTaskCount: 0,
           totalTaskCount: 3,
           anomalyCount30Days: 1,
@@ -1060,8 +1305,10 @@ const controlTowerHandlers = [
           failedExecutions: 4,
           successRate: 90.0,
           lastExecutionTime: iso(1),
-          lastExecutionStatus: NotificationStatus.NoResults,
+          lastExecutionStatus: NotificationStatus.Skipped,
           lastResultCount: 0,
+          ownerNotAuthorized: true,
+          notApproved: false,
           unresolvedTaskCount: 1,
           totalTaskCount: 2,
           anomalyCount30Days: 2,
@@ -1090,6 +1337,14 @@ const controlTowerHandlers = [
         cronExpression: '0 7 * * *',
         timeRangeDays: 30,
         recentExecutions: [
+          {
+            executionId: 902,
+            createdTime: iso(0, 1),
+            notificationStatus: NotificationStatus.Skipped,
+            resultCount: 0,
+            executionTimeMs: 0,
+            errorMessage: 'Skipped: owner not authorized.',
+          },
           {
             executionId: 901,
             createdTime: iso(0, 2),
@@ -1159,12 +1414,15 @@ const adminHandlers = [
           name: 'Demo CI Key',
           prefix: 'sk-sem_demo',
           scopes: ['Read', 'Execute'],
+          allowedProjectIds: null,
           createdAt: '2026-06-01T09:00:00Z',
           lastUsedAt: '2026-06-24T14:30:00Z',
           expiresAt: null,
           isActive: true,
         },
       ]))),
+  // Every user's keys (administrators) — honest empty in the mock.
+  http.get('/beacon/api/api-keys/admin', () => HttpResponse.json(paged([]))),
 
   // Users + roles (admin user management).
   http.get('/beacon/api/users', () =>
@@ -1186,8 +1444,12 @@ const adminHandlers = [
       entries: [
         { id: 1, name: 'Admin', description: 'Full access', level: 100, isSystemRole: true },
         { id: 2, name: 'Member', description: 'Standard access', level: 10, isSystemRole: true },
+        { id: 3, name: 'Approver', description: 'Approves query changes', level: 0, isSystemRole: true, permission: 'Approver' },
+        { id: 4, name: 'Auditor', description: 'Reads the audit and settings', level: 0, isSystemRole: true, permission: 'Auditor' },
       ],
     })),
+  http.put('/beacon/api/users/:id/roles', () => new HttpResponse(null, { status: 204 })),
+  http.post('/beacon/api/users/:id/sign-out-everywhere', () => new HttpResponse(null, { status: 204 })),
 
   // Admin (LLM provider) settings — no secrets are ever returned, only "*Set" booleans.
   http.get('/beacon/api/admin-settings', () =>

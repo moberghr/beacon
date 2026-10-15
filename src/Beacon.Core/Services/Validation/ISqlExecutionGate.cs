@@ -3,8 +3,8 @@ using Beacon.Core.Models;
 namespace Beacon.Core.Services.Validation;
 
 /// <summary>
-/// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: regex guardrail →
-/// AST read-only validator → schema catalog check → semantic lint → row-limit rewrite. Pure and synchronous
+/// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: length cap → regex guardrail →
+/// AST read-only validator → cross-database names → host policy → schema catalog check → semantic lint → row-limit rewrite. Pure and synchronous
 /// (no I/O) so it can be evaluated on every candidate, including every repair attempt, at no cost beyond a
 /// parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
 /// </summary>
@@ -18,7 +18,9 @@ public interface ISqlExecutionGate
 /// <paramref name="MaxRows"/> means "this stage was not requested" and yields a <c>Skipped("not_requested")</c>
 /// verdict rather than a pass.
 /// </summary>
-/// <param name="Dialect">Database engine name (<c>DatabaseEngineType.ToString()</c>) or <c>"SQLite"</c>.</param>
+/// <param name="Dialect">The target's dialect name from <see cref="DataSourceSqlDialect.Of(Beacon.Core.Data.Entities.DataSource)"/>, or
+/// <c>"SQLite"</c> for the in-memory join (<see cref="ForInMemoryJoin"/>). An unknown or null dialect fails the read-only stage: SQL is never judged under a
+/// generic grammar.</param>
 /// <param name="BlockOnSchemaFailure">When true a schema-gate failure blocks execution (the <c>query</c> tool);
 /// when false it is advisory and left to the caller's repair loop (<c>ask</c>, <c>dry_run</c>, cross-source).</param>
 public sealed record SqlGateRequest(
@@ -40,6 +42,28 @@ public sealed record SqlGateRequest(
     public string? HostManagedKey { get; init; }
 
     /// <summary>
+    /// The database the target is configured for — its catalog on Databricks, its project on BigQuery
+    /// (<see cref="IConfiguredDatabaseResolver"/>). A name the SQL qualifies with any other database BLOCKS, regardless of
+    /// <see cref="EnforceReadOnly"/> and <see cref="BlockOnSchemaFailure"/>; null allows no database qualifier at all
+    /// (<see cref="SqlCrossDatabaseRule"/>), and so does <see cref="DataSourceConfiguredDatabase.Undetermined"/>.
+    /// </summary>
+    public string? ConfiguredDatabase { get; init; }
+
+    /// <summary>
+    /// True only for the statement that joins step results on Beacon's own in-memory SQLite database
+    /// (<see cref="ForInMemoryJoin"/>): it reaches no other database, so <see cref="SqlCrossDatabaseRule"/> does not apply.
+    /// A SQLite data source is checked like any other.
+    /// </summary>
+    public bool InMemoryJoin { get; init; }
+
+    /// <summary>
+    /// True when the deployment lock <c>Beacon:Mcp:ForceReadOnly</c> turned read-only enforcement on over stored settings
+    /// that had it off (<see cref="McpSettingsData.ReadOnlyPinnedByLock"/>): a refusal only read-only enforcement causes then
+    /// names the lock.
+    /// </summary>
+    internal bool ReadOnlyPinnedByLock { get; init; }
+
+    /// <summary>
     /// Read-only / PII / lint flags copied from the effective MCP settings; catalog, lint context and row limit
     /// left unset so a caller adds only the stages it needs via a <c>with</c> expression.
     /// </summary>
@@ -55,7 +79,19 @@ public sealed record SqlGateRequest(
             BlockOnSchemaFailure: false,
             LintContext: null,
             settings.EnableSemanticLint,
-            MaxRows: null);
+            MaxRows: null)
+        {
+            ReadOnlyPinnedByLock = settings.ReadOnlyPinnedByLock
+        };
+    }
+
+    /// <summary>
+    /// <see cref="FromSettings"/> for the statement that joins step results on the in-memory SQLite database: the SQLite
+    /// dialect, and no cross-database check (<see cref="InMemoryJoin"/>).
+    /// </summary>
+    public static SqlGateRequest ForInMemoryJoin(string sql, McpSettingsData settings)
+    {
+        return FromSettings(sql, "SQLite", settings) with { InMemoryJoin = true };
     }
 }
 
@@ -84,6 +120,15 @@ public static class SqlGateCodes
     /// <summary>Read-only: blank SQL.</summary>
     public const string Empty = "empty";
 
+    /// <summary>Read-only: the SQL is longer than <c>Beacon:Mcp:Ceilings:MaxSqlChars</c>, so no other stage ran.</summary>
+    public const string SqlTooLong = "sql_too_long";
+
+    /// <summary>
+    /// Read-only: the SQL holds a control character other than tab, LF and CR, or a Unicode noncharacter, so no other stage
+    /// ran.
+    /// </summary>
+    public const string DisallowedCharacter = "disallowed_character";
+
     /// <summary>Read-only: the regex guardrail rejected the SQL.</summary>
     public const string Guardrail = "guardrail";
 
@@ -96,17 +141,35 @@ public static class SqlGateCodes
     /// <summary>Schema: the SQL reads a table or column the host data source does not expose.</summary>
     public const string HostPolicy = "host_policy";
 
+    /// <summary>Schema: the SQL names another database (catalog, project) than the one the data source is configured for.</summary>
+    public const string CrossDatabase = "cross_database";
+
     /// <summary>Schema: no catalog rows exist for the data source, so nothing could be checked.</summary>
     public const string EmptyCatalog = "empty_catalog";
 
     /// <summary>Row limit: the outermost query already bounds its result.</summary>
     public const string AlreadyLimited = "already_limited";
 
+    /// <summary>
+    /// Row limit: the outermost query's own bound did not keep its result within the cap, so the bound was lowered to the
+    /// cap or the statement was wrapped in a capped derived table.
+    /// </summary>
+    public const string OwnBoundCapped = "own_bound_capped";
+
+    /// <summary>Row limit: the outermost query's own bound can neither be checked against the cap nor capped, so it is blocked.</summary>
+    public const string UncappableBound = "uncappable_bound";
+
     /// <summary>Row limit: the statement carries no result set to cap.</summary>
     public const string NotApplicable = "not_applicable";
 
     /// <summary>Row limit: the SQL did not parse, so the legacy textual heuristic decided the placement.</summary>
     public const string TextualFallback = "textual_fallback";
+
+    /// <summary>Row limit: the SQL is nested too deeply to cap safely, so it is blocked.</summary>
+    public const string TooDeep = "too_deep";
+
+    /// <summary>Lint: the SQL did not parse, so no semantic check ran.</summary>
+    public const string ParseFailed = "parse_failed";
 }
 
 /// <summary>One stage's verdict. <see cref="Code"/> is a stable machine-readable token; <see cref="Message"/> is caller-facing text.</summary>

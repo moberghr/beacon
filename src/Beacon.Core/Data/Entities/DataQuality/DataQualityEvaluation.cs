@@ -14,6 +14,15 @@ public class DataQualityEvaluation : BaseEntity
 
     public int TotalRules { get; set; }
 
+    /// <summary>
+    /// The enabled Custom SQL rules this evaluation left out because their SQL waited for approval: more than none makes
+    /// its score partial. Zero for evaluations made before Beacon reviewed Custom SQL rules.
+    /// </summary>
+    public int AwaitingApprovalRules { get; set; }
+
+    /// <summary>The alert recipients this evaluation's alert skipped because where they deliver waited for approval.</summary>
+    public int HeldAlertRecipients { get; set; }
+
     public double ExecutionTimeMs { get; set; }
 
     public List<DataQualityRuleResult> RuleResults { get; set; } = new();

@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
@@ -77,6 +78,7 @@ internal sealed class UpdateQueryFolderHandler(IDbContextFactory<BeaconContext> 
     }
 }
 
+[ProjectScopeExempt("query folders are project-less")]
 public record UpdateQueryFolderCommand(
     int FolderId,
     string Name,

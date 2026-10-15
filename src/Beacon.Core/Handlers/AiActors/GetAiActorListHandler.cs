@@ -3,14 +3,16 @@ using MediatR;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Authorization;
 
 
 
 namespace Beacon.Core.Handlers.AiActors;
 
 /// <summary>Newest first unless <c>sort</c> says otherwise; optionally one data source, optionally archived too.</summary>
-public record GetAiActorListQuery : ListRequest, IRequest<PagedList<AiActorListItem>>
+public record GetAiActorListQuery : ListRequest, IRequest<PagedList<AiActorListItem>>, IProjectFilteredRequest
 {
+    [ProjectScopeExempt("filter only: the list is scope-filtered")]
     public int? DataSourceId { get; init; }
 
     public bool? IncludeArchived { get; init; }

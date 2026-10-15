@@ -11,4 +11,10 @@ public record ControlTowerStatistics
     public int TotalAnomalies30Days { get; init; }
     public double OverallSuccessRate { get; init; }
     public int TimeRangeDays { get; init; }
+
+    /// <summary>
+    /// The enabled data contracts the caller may read (on the filtered data source, when one is chosen) whose last
+    /// scheduled evaluation was skipped because their owner may no longer run them; none has run since.
+    /// </summary>
+    public int OwnerNotAuthorizedContracts { get; init; }
 }

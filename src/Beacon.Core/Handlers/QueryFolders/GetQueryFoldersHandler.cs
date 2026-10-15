@@ -1,15 +1,22 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Data.Entities;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
-internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetQueryFoldersQuery, GetQueryFoldersResult>
 {
     public async Task<GetQueryFoldersResult> Handle(GetQueryFoldersQuery request, CancellationToken cancellationToken)
     {
+        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // Folders are project-less; their query counts cover only the queries the caller may read.
+        var readableQuery = ProjectAccessQueryableExtensions.AllSourcesInOneProjectOf<Query>(context, readable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId);
 
         var folders = await context.QueryFolders
             .OrderBy(f => f.SortOrder)
@@ -21,18 +28,22 @@ internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> co
                 ParentFolderId = f.ParentFolderId,
                 Path = f.Path,
                 SortOrder = f.SortOrder,
-                QueryCount = f.Queries.Count,
+                QueryCount = f.Queries
+                    .AsQueryable()
+                    .Count(readableQuery),
                 ChildFolderCount = f.ChildFolders.Count
             })
             .ToListAsync(cancellationToken);
 
         // Count queries at root level (no folder assigned)
         var rootLevelQueryCount = await context.Queries
+            .WhereAllSourcesInOneProject(context, readable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId)
             .Where(q => q.FolderId == null)
             .CountAsync(cancellationToken);
 
         // Count all queries
         var totalQueryCount = await context.Queries
+            .WhereAllSourcesInOneProject(context, readable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId)
             .CountAsync(cancellationToken);
 
         return new GetQueryFoldersResult
@@ -44,7 +55,7 @@ internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> co
     }
 }
 
-public record GetQueryFoldersQuery() : IRequest<GetQueryFoldersResult>;
+public record GetQueryFoldersQuery() : IRequest<GetQueryFoldersResult>, IProjectFilteredRequest;
 
 public record GetQueryFoldersResult
 {

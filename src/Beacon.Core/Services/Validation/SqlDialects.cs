@@ -35,6 +35,38 @@ internal static class SqlDialects
     }
 
     /// <summary>
+    /// Engines whose lexer nests block comments the way SqlParserCS does (PostgreSQL, T-SQL). Every other engine —
+    /// SQLite and MySQL among them — ends a block comment at its first <c>*/</c>.
+    /// </summary>
+    public static bool NestsBlockComments(string? dialect)
+    {
+        return dialect != null
+            && (TSqlEngines.Contains(dialect)
+                || dialect.Equals("postgresql", StringComparison.OrdinalIgnoreCase)
+                || dialect.Equals("postgres", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// True when <paramref name="text"/> holds a marker that starts a line comment on the engine: <c>--</c> everywhere,
+    /// <c>#</c> on MySQL and BigQuery, <c>//</c> on Snowflake. Quote-unaware, so a marker inside a literal counts too.
+    /// </summary>
+    public static bool HasLineCommentMarker(string text, string? dialect)
+    {
+        if (text.Contains("--"))
+        {
+            return true;
+        }
+
+        var parserDialect = Resolve(dialect);
+        if (parserDialect is MySqlDialect or BigQueryDialect && text.Contains('#'))
+        {
+            return true;
+        }
+
+        return parserDialect is SnowflakeDialect && text.Contains("//");
+    }
+
+    /// <summary>
     /// T-SQL engines have no LIMIT keyword — they take the TOP / OFFSET-FETCH row-limit path.
     /// </summary>
     public static bool IsTSql(string? dialect)

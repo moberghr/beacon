@@ -16,6 +16,7 @@ using Beacon.Core.Handlers.McpGlossary;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -99,6 +100,52 @@ public class GlossaryInjectionTests
         var renderedOrder = RenderedTermIds(block);
         renderedOrder.Should().Equal(expectedActiveOrder,
             "the block renders the nearest active glossary terms in descending-similarity order");
+    }
+
+    // A metric expression is SQL the model copies into its answer: rendered without its comments in the asked data source's
+    // dialect; one that cannot be shown so is left out (the term keeps its definition), logged by term id once per interval.
+    [Test]
+    public async Task BuildGlossaryBlock_RendersMetricExpressionsWithoutComments_AndLeavesOutWhatCannotBeShown()
+    {
+        var embedder = new FakeEmbeddingService();
+        var terms = new List<McpGlossaryTerm>
+        {
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount) -- metric-note"),
+            NewTerm(2, "margin", "Revenue less cost", isActive: true, metric: "SUM(amount - cost) /* never closed"),
+            NewTerm(3, "refunds", "Refunded orders", isActive: true, metric: "COUNT(*) FILTER (WHERE note = 'a--b')")
+        };
+        var embeddings = new List<McpEmbedding>
+        {
+            NewGlossaryEmbedding(1, await embedder.EmbedAsync("gross sales money earned", CancellationToken.None)),
+            NewGlossaryEmbedding(2, await embedder.EmbedAsync("profit after costs", CancellationToken.None)),
+            NewGlossaryEmbedding(3, await embedder.EmbedAsync("orders returned", CancellationToken.None))
+        };
+        var logs = new LogRecorder();
+        var service = BuildService(embedder, terms, embeddings, semanticEnabled: true, glossaryTopK: 5, logs);
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 };
+
+        var block = await service.BuildGlossaryBlockAsync(ProjectId, Question, settings, "PostgreSQL", CancellationToken.None);
+        await service.BuildGlossaryBlockAsync(ProjectId, Question, settings, "PostgreSQL", CancellationToken.None);
+
+        block.Should().Contain("- **revenue**: Total sales amount recognized (→ `SUM(amount)`)");
+        block.Should().Contain("- **margin**: Revenue less cost").And.NotContain("never closed").And.NotContain("metric-note");
+        block.Should().Contain("`COUNT(*) FILTER (WHERE note = 'a--b')`");
+        logs.Entries.Should().ContainSingle(x => x.Level == Microsoft.Extensions.Logging.LogLevel.Warning, "logged once per interval")
+            .Which.Message.Should().EndWith("(terms 2)");
+    }
+
+    // Without the asked data source's dialect, an expression holding a comment marker cannot be read safely: left out.
+    [Test]
+    public async Task BuildGlossaryBlock_WithoutADialect_LeavesOutAMetricExpressionHoldingACommentMarker()
+    {
+        var embedder = new FakeEmbeddingService();
+        var terms = new List<McpGlossaryTerm> { NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount) -- metric-note") };
+        var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(1, await embedder.EmbedAsync("gross sales money earned", CancellationToken.None)) };
+        var service = BuildService(embedder, terms, embeddings, semanticEnabled: true, glossaryTopK: 5);
+
+        var block = await service.BuildGlossaryBlockAsync(ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 }, CancellationToken.None);
+
+        block.Should().Contain("- **revenue**: Total sales amount recognized").And.NotContain("metric-note").And.NotContain("SUM(amount)");
     }
 
     [Test]
@@ -231,6 +278,29 @@ public class GlossaryInjectionTests
         added.Definition.Should().Be("Total sales amount recognized");
         added.MetricExpression.Should().Be("SUM(amount)");
         added.IsActive.Should().BeTrue("new terms are active on creation");
+    }
+
+    [Test]
+    public async Task CreateGlossaryTermHandler_ADataSourceNotLinkedToTheProject_IsRefused()
+    {
+        var set = BuildDbSet(new List<McpGlossaryTerm>());
+        var context = new GlossaryHandlerContext(set.Object, links: []);
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
+        var handler = new CreateGlossaryTermHandler(factory.Object);
+
+        var act = () => handler.Handle(new CreateGlossaryTermCommand
+        {
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            Term = "revenue",
+            Definition = "Total sales amount recognized"
+        }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not linked to project*");
+        set.Verify(x => x.Add(It.IsAny<McpGlossaryTerm>()), Times.Never);
     }
 
     [Test]
@@ -429,7 +499,8 @@ public class GlossaryInjectionTests
         List<McpGlossaryTerm> terms,
         List<McpEmbedding> embeddings,
         bool semanticEnabled,
-        int glossaryTopK)
+        int glossaryTopK,
+        LogRecorder? logs = null)
     {
         var links = new List<ProjectDataSource>
         {
@@ -458,13 +529,16 @@ public class GlossaryInjectionTests
         return new KnowledgeGraphService(
             factory.Object,
             settings.Object,
+            SettingsProviderMock.Unshared(settings.Object),
             embedder,
             Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())
                 == Task.FromResult(SchemaGraph.Build(Array.Empty<TableMetadataDto>(), Array.Empty<SchemaRelationshipEdge>()))),
             Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
-                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
                 == Task.FromResult("")),
-            NullLogger<KnowledgeGraphService>.Instance);
+            TestConfiguredDatabases.None,
+            new QueryGuardrailService(),
+            logs?.For<KnowledgeGraphService>() ?? NullLogger<KnowledgeGraphService>.Instance);
     }
 
     private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class
@@ -546,14 +620,25 @@ public class GlossaryInjectionTests
                 .Options;
 
         private readonly DbSet<McpGlossaryTerm> _terms;
+        private readonly DbSet<ProjectDataSource> _links;
 
-        public GlossaryHandlerContext(DbSet<McpGlossaryTerm> terms) : base(Options, "beacon") => _terms = terms;
+        // By default the test project links the test data source, as the consistency rule requires.
+        public GlossaryHandlerContext(DbSet<McpGlossaryTerm> terms, List<ProjectDataSource>? links = null) : base(Options, "beacon")
+        {
+            _terms = terms;
+            _links = BuildDbSet(links ?? [new ProjectDataSource { ProjectId = ProjectId, DataSourceId = DataSourceId }]).Object;
+        }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
             if (typeof(TEntity) == typeof(McpGlossaryTerm))
             {
                 return (DbSet<TEntity>)(object)_terms;
+            }
+
+            if (typeof(TEntity) == typeof(ProjectDataSource))
+            {
+                return (DbSet<TEntity>)(object)_links;
             }
 
             return base.Set<TEntity>();

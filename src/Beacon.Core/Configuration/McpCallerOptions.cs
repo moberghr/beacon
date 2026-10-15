@@ -93,7 +93,13 @@ public sealed class McpHostClaimOptions
 /// The bearer JWT options the host registered (<c>AddBeaconJwtAuthentication</c>), or null when bearer JWT is not
 /// configured at all.
 /// </param>
-internal sealed class McpCallerOptionsValidator(JwtAuthenticationOptions? jwtOptions = null) : IValidateOptions<McpCallerOptions>
+/// <param name="roleMapping">
+/// The functional permission role names (<c>Beacon:Authorization:Roles</c>): a provisioned user's default role may not be
+/// one of them, nor the Admin role.
+/// </param>
+internal sealed class McpCallerOptionsValidator(
+    JwtAuthenticationOptions? jwtOptions = null,
+    IOptions<RoleMappingOptions>? roleMapping = null) : IValidateOptions<McpCallerOptions>
 {
     public ValidateOptionsResult Validate(string? name, McpCallerOptions options)
     {
@@ -155,6 +161,11 @@ internal sealed class McpCallerOptionsValidator(JwtAuthenticationOptions? jwtOpt
         if (users.Enabled && users.AutoProvision && string.IsNullOrWhiteSpace(users.DefaultRoleName))
         {
             failures.Add($"{McpCallerOptions.SectionName}:Users:DefaultRoleName is required when AutoProvision is on.");
+        }
+
+        if (users.Enabled && users.AutoProvision && (roleMapping?.Value ?? new RoleMappingOptions()).IsPrivilegedRoleName(users.DefaultRoleName))
+        {
+            failures.Add($"{McpCallerOptions.SectionName}:Users:DefaultRoleName cannot be the Admin role or the role of a functional permission: every provisioned user would administer Beacon.");
         }
 
         return failures.Count > 0

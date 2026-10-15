@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Worker;
 using Beacon.Core.Data.Entities;
@@ -12,20 +14,48 @@ using Beacon.AI.Services.Ai.AiActor.Models;
 using Beacon.Core.Models.Ai;
 
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Helpers;
+using Beacon.Core.SavedQueries;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.AI.Services.Ai.AiActor;
 
 /// <summary>
-/// Service for managing AI Actors that autonomously monitor data sources
+/// Service for managing AI Actors that autonomously monitor data sources. A think cycle runs only while its actor may
+/// still work ad hoc with the actor's data source: a background cycle runs as the actor's creator
+/// (<see cref="IRunAsScope"/>) and is skipped, recorded on its execution, when the creator may not; a cycle a request
+/// asks for runs as the request's caller.
 /// </summary>
 public class AiActorService : IAiActorServiceExtended
 {
+    /// <summary>Recorded on a background think cycle skipped because the actor's creator may no longer run it.</summary>
+    public const string OwnerNotAuthorizedMessage = "Skipped: owner not authorized.";
+
+    /// <summary>The change source a refinement records on its query version.</summary>
+    public const string AiActorChangeSource = "AiActor";
+
+    /// <summary>Why a decision on a plan that is no longer pending approval is refused.</summary>
+    public const string PlanNotPendingMessage = "This plan is no longer pending approval: it was decided already.";
+
+    /// <summary>Why, with the approval workflow on, an AI actor does not subscribe to a query whose SQL nobody approved.</summary>
+    public const string NotApprovedForSubscriptionMessage =
+        "it has no approved active version yet, so a schedule would run SQL nobody approved; subscribe to it once its SQL is approved";
+
+    // The longest change reason a query version stores.
+    private const int MaxChangeReasonLength = 2000;
+
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly ILlmProvider _llmProvider;
     private readonly IDatabaseMetadataService _metadataService;
     private readonly IQueryService _queryService;
     private readonly ISubscriptionService _subscriptionService;
     private readonly IBeaconScheduler _beaconScheduler;
+    private readonly IRunAsScope _runAs;
+    private readonly IExecutionAccessCheck _executionAccess;
+    private readonly IStepSqlSaveCheck _saveCheck;
+    private readonly IQueryProposalCheck _proposalCheck;
+    private readonly IQueryVersionService _versionService;
+    private readonly BeaconConfiguration _configuration;
     private readonly ILogger<AiActorService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -41,6 +71,12 @@ public class AiActorService : IAiActorServiceExtended
         IQueryService queryService,
         ISubscriptionService subscriptionService,
         IBeaconScheduler beaconScheduler,
+        IRunAsScope runAs,
+        IExecutionAccessCheck executionAccess,
+        IStepSqlSaveCheck saveCheck,
+        IQueryProposalCheck proposalCheck,
+        IQueryVersionService versionService,
+        BeaconConfiguration configuration,
         ILogger<AiActorService> logger)
     {
         _contextFactory = contextFactory;
@@ -49,6 +85,12 @@ public class AiActorService : IAiActorServiceExtended
         _queryService = queryService;
         _subscriptionService = subscriptionService;
         _beaconScheduler = beaconScheduler;
+        _runAs = runAs;
+        _executionAccess = executionAccess;
+        _saveCheck = saveCheck;
+        _proposalCheck = proposalCheck;
+        _versionService = versionService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -91,7 +133,7 @@ public class AiActorService : IAiActorServiceExtended
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to run initial setup for actor {ActorId}", actor.Id);
+                _logger.LogError("Failed to run initial setup for actor {ActorId} ({Failure})", actor.Id, FailureCodes.Describe(ex));
                 actor.Status = AiActorStatus.Failed;
                 actor.LastError = ex.Message;
                 await context.SaveChangesAsync(cancellationToken);
@@ -165,6 +207,18 @@ public class AiActorService : IAiActorServiceExtended
             throw new BeaconException($"AI Actor {actorId} is not active (status: {actor.Status})");
         }
 
+        // Before any LLM call or SQL: the cycle's actor (a background cycle's creator, or a request's caller) may still
+        // work ad hoc with the actor's data source, which every action of the cycle reads.
+        if (!await _executionAccess.AllowsAsync(ProjectAction.Query, [actor.DataSourceId], "AI actor", actorId, cancellationToken))
+        {
+            if (!_runAs.IsSet)
+            {
+                throw new BeaconForbiddenException("Working with this AI actor's data source is not allowed.");
+            }
+
+            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, cancellationToken);
+        }
+
         // SaveChanges checkpoints in this method are deliberate:
         //   1. After creating the execution row (need the generated Id for downstream refs).
         //   2. Before/after each external LLM call (so the row's Phase reflects reality if
@@ -231,7 +285,7 @@ public class AiActorService : IAiActorServiceExtended
 
             foreach (var actionPlan in planResponse.Actions)
             {
-                var action = await ExecuteActionAsync(
+                var action = await ExecuteOrProposeAsync(
                     actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
 
@@ -313,7 +367,7 @@ public class AiActorService : IAiActorServiceExtended
 
             await context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogError(ex, "Think cycle failed for actor {ActorId}", actorId);
+            _logger.LogError("Think cycle failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
 
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
         }
@@ -321,6 +375,9 @@ public class AiActorService : IAiActorServiceExtended
 
     public async Task ExecuteThinkCycleBackgroundAsync(int actorId, int? triggeringSubscriptionId = null)
     {
+        // A background cycle acts as the actor's creator as they are now, set before anything resolves the scope's caller.
+        await RunAsCreatorAsync(actorId);
+
         await ExecuteThinkCycleAsync(actorId, triggeringSubscriptionId);
     }
 
@@ -465,7 +522,7 @@ public class AiActorService : IAiActorServiceExtended
 
             foreach (var actionPlan in planResponse.Actions)
             {
-                var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
+                var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
@@ -517,7 +574,7 @@ public class AiActorService : IAiActorServiceExtended
             execution.CompletedAt = DateTime.UtcNow;
             await context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogError(ex, "Refinement failed for actor {ActorId}", actorId);
+            _logger.LogError("Refinement failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
         }
     }
@@ -699,6 +756,53 @@ public class AiActorService : IAiActorServiceExtended
 
     #region Private Helper Methods
 
+    private async Task RunAsCreatorAsync(int actorId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(CancellationToken.None);
+
+        var actor = await context.AiActors
+            .Where(x => x.Id == actorId)
+            .Select(x =>
+                new
+                {
+                    x.CreatedByUserId
+                })
+            .FirstOrDefaultAsync(CancellationToken.None);
+
+        // A missing actor fails its cycle as before; there is no creator to run as.
+        if (actor != null)
+        {
+            _runAs.RunAs(actor.CreatedByUserId);
+        }
+    }
+
+    // A background cycle its creator may no longer run: recorded as a skipped execution (no LLM call, no SQL, no change
+    // to the actor), not as a failure.
+    private static async Task<AiActorThinkResult> RecordSkippedCycleAsync(
+        BeaconContext context,
+        int actorId,
+        int? triggeringSubscriptionId,
+        DateTime startTime,
+        CancellationToken cancellationToken)
+    {
+        var execution = new AiActorExecution
+        {
+            AiActorId = actorId,
+            TriggeringSubscriptionId = triggeringSubscriptionId,
+            Phase = AiActorExecutionPhase.Skipped,
+            StartedAt = startTime,
+            CompletedAt = DateTime.UtcNow,
+            ErrorMessage = OwnerNotAuthorizedMessage
+        };
+        context.AiActorExecutions.Add(execution);
+        await context.SaveChangesAsync(cancellationToken);
+
+        var result = AiActorThinkResult.CreateFailure(execution.Id, OwnerNotAuthorizedMessage);
+        result.Phase = AiActorExecutionPhase.Skipped;
+
+        return result;
+    }
+
     private async Task ExecuteInitialSetupAsync(
         int actorId,
         List<int>? defaultRecipientIds,
@@ -757,7 +861,7 @@ public class AiActorService : IAiActorServiceExtended
 
             foreach (var actionPlan in planResponse.Actions)
             {
-                var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
+                var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
@@ -827,7 +931,7 @@ public class AiActorService : IAiActorServiceExtended
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch schema metadata for data source {DataSourceId}", dataSourceId);
+            _logger.LogWarning("Failed to fetch schema metadata for data source {DataSourceId} ({Failure})", dataSourceId, FailureCodes.Describe(ex));
             return "Schema metadata not available.";
         }
     }
@@ -911,7 +1015,7 @@ public class AiActorService : IAiActorServiceExtended
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Failed to parse LLM response as JSON");
+            _logger.LogWarning("Failed to parse LLM response as JSON ({Failure})", FailureCodes.Describe(ex));
             return new AiActorPlanResponse
             {
                 Analysis = "Failed to parse response: " + ex.Message,
@@ -920,13 +1024,52 @@ public class AiActorService : IAiActorServiceExtended
         }
     }
 
+    // Used by the think / refine / initial-setup loops. Actors that require approval only record
+    // what they would do; the approve path calls ExecuteActionAsync directly.
+    internal Task<AiActorAction> ExecuteOrProposeAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
+        AiActorActionPlan plan,
+        Dictionary<string, int> newlyCreatedQueries,
+        CancellationToken cancellationToken)
+    {
+        if (!AiActorActionGuard.ShouldExecute(actor))
+        {
+            return Task.FromResult(ProposeAction(actor, plan));
+        }
+
+        return ExecuteActionAsync(actor, plan, newlyCreatedQueries, cancellationToken);
+    }
+
+    // A malformed plan is a failed action, as it is on the execute path — never a failed cycle.
+    private AiActorAction ProposeAction(Beacon.Core.Data.Entities.AiActor actor, AiActorActionPlan plan)
+    {
+        try
+        {
+            return AiActorActionGuard.ToProposed(plan);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("AI Actor {ActorId} could not record a proposed action ({ExceptionType})", actor.Id, ex.GetType().Name);
+
+            return new AiActorAction
+            {
+                Reasoning = plan?.Reasoning,
+                Success = false,
+                ErrorMessage = ex.Message
+            };
+        }
+    }
+
+    /// <param name="contributors">For the actions of an approved plan: the plan's reviewer and whoever asked for its
+    /// revisions, recorded on the query changes the actions submit (none of them approves those).</param>
     private async Task<AiActorAction> ExecuteActionAsync(
         Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         Dictionary<string, int> newlyCreatedQueries,
         CancellationToken cancellationToken,
         int? executionId = null,
-        int? planId = null)
+        int? planId = null,
+        IReadOnlyList<string>? contributors = null)
     {
         var action = new AiActorAction
         {
@@ -939,7 +1082,7 @@ public class AiActorService : IAiActorServiceExtended
             {
                 case "CREATE_QUERY":
                     action.ActionType = AiActorActionType.CreateQuery;
-                    await ExecuteCreateQueryAsync(actor, plan, action, cancellationToken);
+                    await ExecuteCreateQueryAsync(actor, plan, action, contributors ?? [], cancellationToken);
                     break;
 
                 case "CREATE_SUBSCRIPTION":
@@ -949,17 +1092,17 @@ public class AiActorService : IAiActorServiceExtended
 
                 case "REFINE_QUERY":
                     action.ActionType = AiActorActionType.RefineQuery;
-                    await ExecuteRefineQueryAsync(actor, plan, action, cancellationToken, executionId, planId);
+                    await ExecuteRefineQueryAsync(actor, plan, action, contributors ?? [], cancellationToken, executionId, planId);
                     break;
 
                 case "ARCHIVE_QUERY":
                     action.ActionType = AiActorActionType.ArchiveQuery;
-                    await ExecuteArchiveQueryAsync(plan, action, cancellationToken);
+                    await ExecuteArchiveQueryAsync(actor, plan, action, cancellationToken);
                     break;
 
                 case "ARCHIVE_SUBSCRIPTION":
                     action.ActionType = AiActorActionType.ArchiveSubscription;
-                    await ExecuteArchiveSubscriptionAsync(plan, action, cancellationToken);
+                    await ExecuteArchiveSubscriptionAsync(actor, plan, action, cancellationToken);
                     break;
 
                 default:
@@ -967,11 +1110,15 @@ public class AiActorService : IAiActorServiceExtended
                     break;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             action.Success = false;
             action.ErrorMessage = ex.Message;
-            _logger.LogError(ex, "Failed to execute action {ActionType}", plan.ActionType);
+            _logger.LogError("Failed to execute action {ActionType} ({Failure})", plan.ActionType, FailureCodes.Describe(ex));
         }
 
         return action;
@@ -981,6 +1128,7 @@ public class AiActorService : IAiActorServiceExtended
         Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         AiActorAction action,
+        IReadOnlyList<string> contributors,
         CancellationToken cancellationToken)
     {
         var name = plan.Parameters.GetValueOrDefault("name")?.ToString() ?? "Unnamed Query";
@@ -996,13 +1144,98 @@ public class AiActorService : IAiActorServiceExtended
         action.QueryName = name;
         action.SqlQuery = sql;
 
+        // The model's SQL passes the same check as a query saved from the editor before anything is stored: the execution
+        // gate in the source's dialect and, where Beacon holds the source's metadata, its own tables and columns only.
+        var rejection = await _saveCheck.RejectionAsync(actor.DataSourceId, sql, [], cancellationToken);
+        if (rejection != null)
+        {
+            action.ErrorMessage = $"Query validation failed: {rejection}";
+            _logger.LogWarning("AI Actor {ActorId} proposed a query the save check refused", actor.Id);
+            return;
+        }
+
         // Create query directly in context to get the ID back
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Single unit of work: build the Query + its first QueryStep via the navigation
-        // collection so EF resolves the FK during SaveChanges. Previously this method
-        // called SaveChanges twice and could leave an orphan Query row if the second
-        // save (or the subsequent validation) blew up.
+        var ownedQueries = await context.Queries
+            .Where(x => x.AiActorId == actor.Id)
+            .CountAsync(cancellationToken);
+
+        var capError = AiActorActionGuard.CheckQueryCap(ownedQueries, actor.MaxQueries);
+        if (capError != null)
+        {
+            action.ErrorMessage = capError;
+            _logger.LogWarning("AI Actor {ActorId} hit the query cap", actor.Id);
+            return;
+        }
+
+        // Validated before anything is stored — with the approval workflow on, without running it (DraftFailureAsync): a
+        // query whose SQL does not pass is never written (nor deleted again).
+        var failure = await DraftFailureAsync(
+            0,
+            [
+                new QueryStepData
+                {
+                    StepOrder = 1,
+                    Name = "Step 1",
+                    SqlValue = sql,
+                    DataSourceId = actor.DataSourceId
+                }
+            ],
+            null,
+            cancellationToken);
+        if (failure != null)
+        {
+            action.Success = false;
+            action.ErrorMessage = $"Query validation failed: {failure}";
+            _logger.LogWarning("AI Actor {ActorId} created invalid query '{QueryName}' ({ErrorClass})",
+                actor.Id, name, DatabaseErrorRedactor.ClassOnly(failure, _logger));
+            return;
+        }
+
+        // With the approval workflow on, the new query's SQL waits for approval like a person's: the query is created with
+        // nothing live and its SQL submitted as its first version, with the actor's creator as its requester and the
+        // plan's reviewer and revision requesters recorded, so none of them approves it and nothing runs until approved.
+        if (_configuration.ApprovalWorkflow.Enabled)
+        {
+            var change = await _versionService.SubmitNewQueryAsync(
+                new Query
+                {
+                    Name = name,
+                    Description = description,
+                    AiActorId = actor.Id,
+                    OwnerUserId = actor.CreatedByUserId
+                },
+                new QueryData
+                {
+                    Name = name,
+                    Description = description,
+                    Steps =
+                    [
+                        new QueryStepData
+                        {
+                            StepOrder = 1,
+                            Name = "Step 1",
+                            SqlValue = sql,
+                            DataSourceId = actor.DataSourceId
+                        }
+                    ]
+                },
+                new QueryChangeSubmission(actor.CreatedByUserId, null, AiActorChangeSource, Truncated(plan.Reasoning, MaxChangeReasonLength), "AI actor's new query")
+                {
+                    ContributorUserIds = contributors
+                },
+                cancellationToken);
+
+            _logger.LogInformation("AI Actor {ActorId} created query {QueryId}; its SQL waits for approval", actor.Id, change.Version.QueryId);
+
+            action.Success = true;
+            action.ResultEntityId = change.Version.QueryId;
+            return;
+        }
+
+        // Single unit of work: build the Query + its first QueryStep via the navigation collection so EF resolves the FK
+        // during SaveChanges.
         var queryStep = new QueryStep
         {
             DataSourceId = actor.DataSourceId,
@@ -1017,47 +1250,14 @@ public class AiActorService : IAiActorServiceExtended
             Name = name,
             Description = description,
             AiActorId = actor.Id,
+            OwnerUserId = actor.CreatedByUserId,
             Steps = { queryStep }
         };
 
         context.Queries.Add(query);
         await context.SaveChangesAsync(cancellationToken);
 
-        // Validate the query by executing it - must run without exceptions
-        try
-        {
-            var validationResult = await _queryService.ExecuteQueryAdvanced(query.Id, cancellationToken: cancellationToken);
-
-            if (!validationResult.Success)
-            {
-                // Query execution failed - delete the query and mark action as failed
-                context.QuerySteps.Remove(queryStep);
-                context.Queries.Remove(query);
-                await context.SaveChangesAsync(cancellationToken);
-
-                action.Success = false;
-                action.ErrorMessage = $"Query validation failed: {validationResult.ErrorMessage ?? "Unknown error"}";
-                _logger.LogWarning("AI Actor {ActorId} created invalid query '{QueryName}': {Error}",
-                    actor.Id, name, validationResult.ErrorMessage);
-                return;
-            }
-
-            var rowCount = validationResult.StepResults.LastOrDefault()?.TotalRows ?? 0;
-            _logger.LogInformation("AI Actor {ActorId} created valid query '{QueryName}' (ID: {QueryId}) returning {RowCount} rows",
-                actor.Id, name, query.Id, rowCount);
-        }
-        catch (Exception ex)
-        {
-            // Query execution threw an exception - delete the query and mark action as failed
-            context.QuerySteps.Remove(queryStep);
-            context.Queries.Remove(query);
-            await context.SaveChangesAsync(cancellationToken);
-
-            action.Success = false;
-            action.ErrorMessage = $"Query validation failed: {ex.Message}";
-            _logger.LogWarning(ex, "AI Actor {ActorId} created invalid query '{QueryName}'", actor.Id, name);
-            return;
-        }
+        _logger.LogInformation("AI Actor {ActorId} created valid query '{QueryName}' (ID: {QueryId})", actor.Id, name, query.Id);
 
         action.Success = true;
         action.ResultEntityId = query.Id;
@@ -1111,6 +1311,55 @@ public class AiActorService : IAiActorServiceExtended
         // Create subscription directly in context to get the ID back
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
+        var targetQuery = await context.Queries
+            .Where(x => x.Id == queryId.Value)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (targetQuery == null)
+        {
+            action.ErrorMessage = $"Query {queryId} not found";
+            return;
+        }
+
+        var ownershipError = AiActorActionGuard.CheckOwnership(actor.Id, targetQuery.AiActorId, false);
+        if (ownershipError != null)
+        {
+            action.ErrorMessage = $"Query {queryId}: {ownershipError}";
+            _logger.LogWarning("AI Actor {ActorId} was denied subscribing to query {QueryId}", actor.Id, queryId);
+            return;
+        }
+
+        // With the approval workflow on, an actor schedules only SQL a second person approved: the query's active version,
+        // approved for exactly its content (a query it just created waits for approval, and is subscribed to once approved).
+        if (_configuration.ApprovalWorkflow.Enabled)
+        {
+            var approved = await SavedQueryRunnableVersion.ForQuery(context, queryId.Value, requireApprovedHash: true)
+                .AnyAsync(cancellationToken);
+            if (!approved)
+            {
+                action.ErrorMessage = $"Query {queryId}: {NotApprovedForSubscriptionMessage}";
+                _logger.LogWarning("AI Actor {ActorId} was refused a subscription to query {QueryId}, which has no approved version", actor.Id, queryId);
+                return;
+            }
+        }
+
+        var existingSubscriptions = await context.Subscriptions
+            .Where(x => x.QueryId == queryId.Value)
+            .CountAsync(cancellationToken);
+
+        var capError = AiActorActionGuard.CheckSubscriptionCap(existingSubscriptions, actor.MaxSubscriptionsPerQuery);
+        if (capError != null)
+        {
+            action.ErrorMessage = capError;
+            _logger.LogWarning("AI Actor {ActorId} hit the subscription cap for query {QueryId}", actor.Id, queryId);
+            return;
+        }
+
         var subscription = new Subscription
         {
             QueryId = queryId.Value,
@@ -1119,7 +1368,9 @@ public class AiActorService : IAiActorServiceExtended
             CreateTasks = true, // AI-created subscriptions create tasks by default
             ShowQuery = true,
             IncludeAttachment = false,
-            AiActorId = actor.Id
+            AiActorId = actor.Id,
+            // Owned by the actor's creator, whose access its runs act with.
+            OwnerUserId = actor.CreatedByUserId
         };
 
         context.Subscriptions.Add(subscription);
@@ -1133,6 +1384,7 @@ public class AiActorService : IAiActorServiceExtended
         Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         AiActorAction action,
+        IReadOnlyList<string> contributors,
         CancellationToken cancellationToken,
         int? executionId = null,
         int? planId = null)
@@ -1162,8 +1414,10 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = await context.Queries
-            .Include(q => q.Steps)
-            .Where(q => q.Id == queryId && q.AiActorId == actor.Id)
+            .Include(x => x.Steps)
+                .ThenInclude(x => x.Parameters)
+            .Where(x => x.Id == queryId)
+            .Where(x => x.AiActorId == actor.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (query == null)
@@ -1188,51 +1442,96 @@ public class AiActorService : IAiActorServiceExtended
             return;
         }
 
-        var previousSql = firstStep.SqlValue;
-        var changeReason = plan.Parameters.GetValueOrDefault("reason")?.ToString();
-
-        // Temporarily update the SQL to validate it
-        firstStep.SqlValue = newSql;
-        await context.SaveChangesAsync(cancellationToken);
-
-        // Validate the refined query by executing it - must run without exceptions
-        try
+        // Checked before the stored step is touched, as a new query is (see ExecuteCreateQueryAsync).
+        var rejection = await _saveCheck.RejectionAsync(firstStep.DataSourceId, newSql, [], cancellationToken);
+        if (rejection != null)
         {
-            var validationResult = await _queryService.ExecuteQueryAdvanced(queryId, cancellationToken: cancellationToken);
-
-            if (!validationResult.Success)
-            {
-                // Query execution failed - revert to original SQL
-                firstStep.SqlValue = previousSql;
-                await context.SaveChangesAsync(cancellationToken);
-
-                action.Success = false;
-                action.ErrorMessage = $"Refined query validation failed: {validationResult.ErrorMessage ?? "Unknown error"}";
-                _logger.LogWarning("AI Actor {ActorId} refined query {QueryId} with invalid SQL: {Error}",
-                    actor.Id, queryId, validationResult.ErrorMessage);
-                return;
-            }
-
-            var rowCount = validationResult.StepResults.LastOrDefault()?.TotalRows ?? 0;
-            _logger.LogInformation("AI Actor {ActorId} refined query {QueryId} - new SQL returns {RowCount} rows",
-                actor.Id, queryId, rowCount);
-        }
-        catch (Exception ex)
-        {
-            // Query execution threw an exception - revert to original SQL
-            firstStep.SqlValue = previousSql;
-            await context.SaveChangesAsync(cancellationToken);
-
-            action.Success = false;
-            action.ErrorMessage = $"Refined query validation failed: {ex.Message}";
-            _logger.LogWarning(ex, "AI Actor {ActorId} refined query {QueryId} with invalid SQL", actor.Id, queryId);
+            action.ErrorMessage = $"Refined query validation failed: {rejection}";
+            _logger.LogWarning("AI Actor {ActorId} proposed a refinement of query {QueryId} the save check refused", actor.Id, queryId);
             return;
         }
 
-        // Record the change in history
-        var changeHistory = new QueryStepChangeHistory
+        var previousSql = firstStep.SqlValue;
+        var changeReason = plan.Parameters.GetValueOrDefault("reason")?.ToString();
+
+        // The refined query: the stored steps, the first one with the new SQL.
+        var refinedSteps = query.Steps
+            .OrderBy(x => x.StepOrder)
+            .Select(x =>
+                new QueryStepData
+                {
+                    StepId = x.Id,
+                    StepOrder = x.StepOrder,
+                    Name = x.Name ?? string.Empty,
+                    Description = x.Description,
+                    SqlValue = x == firstStep ? newSql : x.SqlValue,
+                    DataSourceId = x.DataSourceId,
+                    Parameters = x.Parameters
+                        .Select(y =>
+                            new QueryStepParameterData
+                            {
+                                Name = y.Name,
+                                Type = y.Type,
+                                Description = y.Description,
+                                Placeholder = y.Placeholder
+                            })
+                        .ToList()
+                })
+            .ToList();
+
+        // Validated before anything is stored — with the approval workflow on, without running it (DraftFailureAsync): the
+        // stored query never runs the refined SQL before it is saved (or approved), and a refinement that fails changes
+        // nothing.
+        var failure = await DraftFailureAsync(queryId, refinedSteps, query.FinalQuery, cancellationToken);
+        if (failure != null)
+        {
+            action.Success = false;
+            action.ErrorMessage = $"Refined query validation failed: {failure}";
+            _logger.LogWarning("AI Actor {ActorId} refined query {QueryId} with invalid SQL ({ErrorClass})",
+                actor.Id, queryId, DatabaseErrorRedactor.ClassOnly(failure, _logger));
+            return;
+        }
+
+        var reason = Truncated(changeReason ?? plan.Reasoning, MaxChangeReasonLength);
+
+        // With the approval workflow on, the refinement is a change like a person's edit: submitted for approval, with the
+        // actor's creator as its requester and the plan's reviewer and revision requesters recorded (so none of them can
+        // approve it), and live only once approved. The submission records the stored SQL it would replace when no version
+        // holds it, and never replaces another person's pending change of the query (409, the action fails).
+        if (_configuration.ApprovalWorkflow.Enabled)
+        {
+            await _versionService.SubmitForApprovalAsync(
+                queryId,
+                new QueryData
+                {
+                    QueryId = queryId,
+                    Name = query.Name,
+                    Description = query.Description,
+                    FinalQuery = query.FinalQuery,
+                    Steps = refinedSteps
+                },
+                new QueryChangeSubmission(actor.CreatedByUserId, null, AiActorChangeSource, reason, "AI actor refinement")
+                {
+                    ContributorUserIds = contributors
+                },
+                cancellationToken);
+
+            _logger.LogInformation("AI Actor {ActorId} submitted a refinement of query {QueryId} for approval", actor.Id, queryId);
+
+            action.Success = true;
+            action.ResultEntityId = queryId;
+            return;
+        }
+
+        // Without the workflow, a versioned save: history keeps the SQL it replaces, and the refinement becomes the active
+        // version, attributed to the actor's creator.
+        await _versionService.EnsureBaselineVersionAsync(queryId, cancellationToken);
+
+        firstStep.SqlValue = newSql;
+        context.QueryStepChangeHistory.Add(new QueryStepChangeHistory
         {
             QueryStepId = firstStep.Id,
+            DataSourceId = firstStep.DataSourceId,
             AiActorId = actor.Id,
             AiActorExecutionId = executionId,
             AiActorPlanId = planId,
@@ -1241,15 +1540,59 @@ public class AiActorService : IAiActorServiceExtended
             ChangeReason = changeReason ?? plan.Reasoning,
             ChangeSource = ChangeSource.AiActor,
             ChangedAt = DateTime.UtcNow
-        };
-        context.QueryStepChangeHistory.Add(changeHistory);
+        });
         await context.SaveChangesAsync(cancellationToken);
+
+        await _versionService.CreateVersionAsync(queryId, actor.CreatedByUserId, AiActorChangeSource, reason, QueryVersionStatus.Active, cancellationToken);
+
+        _logger.LogInformation("AI Actor {ActorId} refined query {QueryId}", actor.Id, queryId);
 
         action.Success = true;
         action.ResultEntityId = queryId;
     }
 
+    // Why the proposed steps would not run, or null when they would. With the approval workflow on nothing runs: SQL nobody
+    // reviewed is checked as a save checks it and by its source's own non-executing validation (IQueryProposalCheck: a plan
+    // or a description of the result, never a row). Without the workflow the draft runs as an editor's preview does (the
+    // error it reports, or what it threw).
+    private async Task<string?> DraftFailureAsync(int queryId, List<QueryStepData> steps, string? finalQuery, CancellationToken cancellationToken)
+    {
+        var draft = new QueryDraft
+        {
+            Steps = steps,
+            FinalQuery = finalQuery
+        };
+
+        try
+        {
+            if (_configuration.ApprovalWorkflow.Enabled)
+            {
+                return await _proposalCheck.RejectionAsync(draft, cancellationToken);
+            }
+
+            var result = await _queryService.PreviewQuery(queryId, draft, ValidationPage.Instance, cancellationToken);
+
+            return result.Success ? null : result.ErrorMessage ?? "Unknown error";
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ex.Message;
+        }
+    }
+
+    private static string? Truncated(string? value, int maxLength)
+    {
+        return value == null || value.Length <= maxLength ? value : value[..maxLength];
+    }
+
+    // The smallest page: validation needs to know the SQL runs, not its rows.
+    private sealed record ValidationPage : ListRequest
+    {
+        public static ValidationPage Instance { get; } = new() { Page = 0, PageSize = 1 };
+    }
+
     private async Task ExecuteArchiveQueryAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         AiActorAction action,
         CancellationToken cancellationToken)
@@ -1268,6 +1611,32 @@ public class AiActorService : IAiActorServiceExtended
 
         action.TargetQueryId = queryId;
 
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var target = await context.Queries
+            .Where(x => x.Id == queryId)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId,
+                    x.IsLocked
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (target == null)
+        {
+            action.ErrorMessage = $"Query {queryId} not found";
+            return;
+        }
+
+        var ownershipError = AiActorActionGuard.CheckOwnership(actor.Id, target.AiActorId, target.IsLocked);
+        if (ownershipError != null)
+        {
+            action.ErrorMessage = $"Query {queryId}: {ownershipError}";
+            _logger.LogWarning("AI Actor {ActorId} was denied archiving query {QueryId}", actor.Id, queryId);
+            return;
+        }
+
         await _queryService.DeleteQuery(queryId, cancellationToken);
 
         action.Success = true;
@@ -1275,6 +1644,7 @@ public class AiActorService : IAiActorServiceExtended
     }
 
     private async Task ExecuteArchiveSubscriptionAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
         AiActorAction action,
         CancellationToken cancellationToken)
@@ -1292,6 +1662,31 @@ public class AiActorService : IAiActorServiceExtended
         }
 
         action.TargetSubscriptionId = subscriptionId;
+
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var owner = await context.Subscriptions
+            .Where(x => x.Id == subscriptionId)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (owner == null)
+        {
+            action.ErrorMessage = $"Subscription {subscriptionId} not found";
+            return;
+        }
+
+        var ownershipError = AiActorActionGuard.CheckOwnership(actor.Id, owner.AiActorId, false);
+        if (ownershipError != null)
+        {
+            action.ErrorMessage = $"Subscription {subscriptionId}: {ownershipError}";
+            _logger.LogWarning("AI Actor {ActorId} was denied archiving subscription {SubscriptionId}", actor.Id, subscriptionId);
+            return;
+        }
 
         await _subscriptionService.DeleteSubscription(subscriptionId, cancellationToken);
 
@@ -1457,7 +1852,7 @@ public class AiActorService : IAiActorServiceExtended
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to generate plan for actor {ActorId}", options.ActorId);
+            _logger.LogError("Failed to generate plan for actor {ActorId} ({Failure})", options.ActorId, FailureCodes.Describe(ex));
             return AiActorPlanResult.CreateFailure(ex.Message);
         }
     }
@@ -1475,19 +1870,24 @@ public class AiActorService : IAiActorServiceExtended
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
-        if (plan.Status != AiActorPlanStatus.PendingApproval)
-        {
-            throw new BeaconException($"Plan is not pending approval (status: {plan.Status})");
-        }
-
         var actor = plan.AiActor;
 
-        // Mark plan as executing
+        // Decided only from PendingApproval, in one conditional update: a second decision, or one racing this, changes
+        // nothing and is refused.
+        var reviewedAt = DateTime.UtcNow;
+        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.Executing, options.UserId, options.Comment, reviewedAt, cancellationToken);
         plan.Status = AiActorPlanStatus.Executing;
-        plan.ReviewedAt = DateTime.UtcNow;
+        plan.ReviewedAt = reviewedAt;
         plan.ReviewedByUserId = options.UserId;
         plan.ReviewerComment = options.Comment;
-        await context.SaveChangesAsync(cancellationToken);
+
+        // Who shaped the query changes this approval submits, besides the actor's creator: the plan's reviewer and whoever
+        // asked for its revisions. None of them approves those changes.
+        var contributors = await AiActorPlanChain.RevisionRequestersAsync(context, plan.Id, cancellationToken);
+        if (options.UserId != null)
+        {
+            contributors = [options.UserId, .. contributors];
+        }
 
         // Create execution record
         var execution = new AiActorExecution
@@ -1548,7 +1948,7 @@ public class AiActorService : IAiActorServiceExtended
                     _ => proposedAction.ActionType.ToString()
                 };
 
-                var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken, execution.Id, plan.Id);
+                var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken, execution.Id, plan.Id, contributors);
                 executedActions.Add(action);
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
@@ -1608,7 +2008,7 @@ public class AiActorService : IAiActorServiceExtended
 
             await context.SaveChangesAsync(cancellationToken);
 
-            _logger.LogError(ex, "Failed to execute approved plan {PlanId}", options.PlanId);
+            _logger.LogError("Failed to execute approved plan {PlanId} ({Failure})", options.PlanId, FailureCodes.Describe(ex));
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
         }
     }
@@ -1619,24 +2019,9 @@ public class AiActorService : IAiActorServiceExtended
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var plan = await context.AiActorPlans
-            .Where(p => p.Id == options.PlanId)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
+        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.Rejected, options.UserId, options.Reason, DateTime.UtcNow, cancellationToken);
 
-        if (plan.Status != AiActorPlanStatus.PendingApproval)
-        {
-            throw new BeaconException($"Plan is not pending approval (status: {plan.Status})");
-        }
-
-        plan.Status = AiActorPlanStatus.Rejected;
-        plan.ReviewedAt = DateTime.UtcNow;
-        plan.ReviewedByUserId = options.UserId;
-        plan.ReviewerComment = options.Reason;
-
-        await context.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation("Rejected plan {PlanId}: {Reason}", options.PlanId, options.Reason);
+        _logger.LogInformation("Rejected plan {PlanId}", options.PlanId);
     }
 
     public async Task<AiActorPlanResult> RequestPlanRevisionAsync(
@@ -1646,28 +2031,26 @@ public class AiActorService : IAiActorServiceExtended
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var plan = await context.AiActorPlans
-            .Where(p => p.Id == options.PlanId)
+            .Where(x => x.Id == options.PlanId)
+            .Select(x =>
+                new
+                {
+                    x.AiActorId,
+                    x.UserInstruction
+                })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Plan with ID {options.PlanId} not found");
 
-        if (plan.Status != AiActorPlanStatus.PendingApproval)
-        {
-            throw new BeaconException($"Plan is not pending approval (status: {plan.Status})");
-        }
-
-        // Mark original plan as revision requested
-        plan.Status = AiActorPlanStatus.RevisionRequested;
-        plan.ReviewedAt = DateTime.UtcNow;
-        plan.ReviewedByUserId = options.UserId;
-        plan.ReviewerComment = options.Feedback;
-        await context.SaveChangesAsync(cancellationToken);
+        // Mark original plan as revision requested, only from PendingApproval: the person asking is recorded on it, and
+        // the revised plan's chain names them.
+        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.RevisionRequested, options.UserId, options.Feedback, DateTime.UtcNow, cancellationToken);
 
         // Generate new plan with the feedback
         var newPlanOptions = new GeneratePlanOptions
         {
             ActorId = plan.AiActorId,
             UserInstruction = $"{plan.UserInstruction}\n\nRevision feedback: {options.Feedback}",
-            ParentPlanId = plan.Id,
+            ParentPlanId = options.PlanId,
             PreviousFeedback = options.Feedback
         };
 
@@ -1711,6 +2094,34 @@ public class AiActorService : IAiActorServiceExtended
             .Include(p => p.AiActorExecution)
             .Where(p => p.Id == planId)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    // A plan is approved, rejected or sent back for revision only from PendingApproval, as one conditional update that
+    // records who decided: a decision on a plan that is no longer pending (decided, or decided concurrently) changes
+    // nothing and is refused.
+    private static async Task DecidePlanAsync(
+        BeaconContext context,
+        int planId,
+        AiActorPlanStatus status,
+        string? reviewerUserId,
+        string? comment,
+        DateTime reviewedAt,
+        CancellationToken cancellationToken)
+    {
+        var decided = await context.AiActorPlans
+            .Where(x => x.Id == planId)
+            .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.Status, status)
+                    .SetProperty(y => y.ReviewedAt, reviewedAt)
+                    .SetProperty(y => y.ReviewedByUserId, reviewerUserId)
+                    .SetProperty(y => y.ReviewerComment, comment),
+                cancellationToken);
+        if (decided == 0)
+        {
+            throw new BeaconConflictException(PlanNotPendingMessage);
+        }
     }
 
     private async Task<int> GetNextPlanVersionAsync(int parentPlanId, CancellationToken cancellationToken)

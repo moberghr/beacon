@@ -65,6 +65,26 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool — the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
 
+### Row data sent to the LLM provider
+
+Prompts that carry data read from a data source are logged at category
+`Beacon.AI.Services.LlmProviders.LlmRowDataEgress`, event **7123** `RowDataSentToLlm` — identifiers only, never a value
+or prompt text, and no table is written:
+
+| Level | When | Message fields |
+|---|---|---|
+| Information | A request carrying row data is handed to the LLM provider (written before the provider answers, since the data may leave even when it then fails). | `Categories`, `DataSourceIds`, `ProjectId`, `CallerId` |
+| Warning | The provider then fails that request. | the same, plus `Failure` — the exception's type and error code, never its message |
+| Information | A `get_query_context` response returns sample values or value matches to the MCP client. | `Categories`, `DataSourceIds`, `ProjectId`, `CallerId` |
+
+The categories are `sample-values`, `value-matches`, `column-values` (documentation enum discovery), `result-rows`
+(the eval judge), `database-errors` (lesson extraction) and `stored-documentation` (business-domain, data-model and
+glossary sections, which can list discovered values). `CallerId` is the caller's Beacon user id; background work names
+itself — `learning-aggregation`, `documentation-indexing`, `pattern-replay`, an eval run's starting user or `eval-run`,
+documentation generation's requesting user — and a caller that cannot be resolved is `unknown` (the lookup failure is
+logged as a Warning by type, and never fails the request). See
+[What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
+
 ## Span attributes and metrics
 
 The MCP SDK already opens one span per `tools/call` (activity source `Experimental.ModelContextProtocol`, tagged
@@ -87,6 +107,7 @@ On the `Beacon` meter:
 | `beacon.mcp.tool.calls` | Counter | `gen_ai.tool.name`, `beacon.outcome` (`success`\|`error`), `error.type`, `beacon.caller.kind` |
 | `beacon.mcp.tool.rows` | Histogram | `gen_ai.tool.name` |
 | `beacon.mcp.audit.write_failures` | Counter | `gen_ai.tool.name` |
+| `beacon.error_redaction.fallbacks` | Counter | none — a database error that could not be [screened](/features/mcp-server/#database-errors) in time and was replaced as a whole |
 
 Duration is not duplicated on a Beacon instrument — the SDK's own `mcp.server.operation.duration` already covers it.
 
@@ -248,9 +269,12 @@ or by calling `IMcpAuditRetentionService.PurgeExpiredAsync(cancellationToken)` f
 
 ## Reading the audit
 
-`GET /beacon/api/mcp/audit` is an admin-only, paged JSON export. Rows come back exactly as stored — any retention
-redaction was already applied at write time, so this endpoint never re-reads or reconstructs content. Reading the
-audit is itself audited (9103, above).
+`GET /beacon/api/mcp/audit` is a paged JSON export for an Auditor or an Admin (the
+[Auditor permission](/features/authorization/#functional-permissions)). Rows come back exactly as stored — any retention
+redaction was already applied at write time, so this endpoint never re-reads or reconstructs content. The rows are not
+filtered by project membership: an Auditor reads every project's tool calls, including the SQL and question text the
+retention settings keep, though the Auditor role grants no other project data. Reading the audit is itself audited
+(9103, above).
 
 | Query parameter | Required | Notes |
 |---|---|---|
@@ -259,5 +283,5 @@ audit is itself audited (9103, above).
 | `page` | No (default `1`) | Must be `≥ 1`. |
 | `pageSize` | No (default `100`) | Must be between `1` and `500`. |
 
-A non-admin caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI for this endpoint and
+Any other caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI for this endpoint and
 no NSwag client is generated for it — it's an operational export, not a product surface.

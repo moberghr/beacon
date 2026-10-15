@@ -1,5 +1,6 @@
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
+using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Core.Authorization.Providers;
 
@@ -8,7 +9,7 @@ namespace Beacon.Core.Authorization.Providers;
 /// Provides role-based authorization: Admin (level 3), Editor (level 2), Viewer (level 1).
 /// </summary>
 public class DatabaseAuthorizationProvider(
-    IBeaconUserContext userContext,
+    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userService) : IBeaconAuthorizationProvider
 {
     private BeaconUserData? _cachedUser;
@@ -48,112 +49,30 @@ public class DatabaseAuthorizationProvider(
         return user.Roles.Any(x => x.Level >= RoleService.RoleLevels.Editor);
     }
 
-    /// <summary>
-    /// Resource-level authorization based on roles.
-    /// </summary>
-    public async Task<AuthorizationResult?> AuthorizeAsync(
-        ResourceType resourceType,
-        int resourceId,
-        PermissionAction action,
-        CancellationToken cancellationToken = default)
-    {
-        var user = await GetCurrentUserAsync(cancellationToken);
-        if (user == null || !user.IsEnabled)
-            return AuthorizationResult.Failure("Access denied.");
-
-        // SuperAdmins can do everything
-        if (user.IsSuperAdmin)
-            return AuthorizationResult.Success();
-
-        var maxLevel = user.Roles.Any() ? user.Roles.Max(x => x.Level) : 0;
-
-        return action switch
-        {
-            PermissionAction.Read => maxLevel >= RoleService.RoleLevels.Viewer
-                ? AuthorizationResult.Success()
-                : AuthorizationResult.Failure("Viewer role or higher required."),
-
-            PermissionAction.Create or PermissionAction.Update or PermissionAction.Execute =>
-                maxLevel >= RoleService.RoleLevels.Editor
-                    ? AuthorizationResult.Success()
-                    : AuthorizationResult.Failure("Editor role or higher required."),
-
-            PermissionAction.Delete or PermissionAction.Archive =>
-                maxLevel >= RoleService.RoleLevels.Admin
-                    ? AuthorizationResult.Success()
-                    : AuthorizationResult.Failure("Admin role required."),
-
-            PermissionAction.Approve or PermissionAction.Lock =>
-                maxLevel >= RoleService.RoleLevels.Admin
-                    ? AuthorizationResult.Success()
-                    : AuthorizationResult.Failure("Admin role required."),
-
-            PermissionAction.Export =>
-                maxLevel >= RoleService.RoleLevels.Viewer
-                    ? AuthorizationResult.Success()
-                    : AuthorizationResult.Failure("Viewer role or higher required."),
-
-            _ => AuthorizationResult.Failure("Unknown action.")
-        };
-    }
-
-    /// <summary>
-    /// Authorization for new resources (before ID is assigned).
-    /// </summary>
-    public async Task<AuthorizationResult?> AuthorizeNewResourceAsync(
-        ResourceType resourceType,
-        PermissionAction action,
-        object? resourceContext = null,
-        CancellationToken cancellationToken = default)
-    {
-        var user = await GetCurrentUserAsync(cancellationToken);
-        if (user == null || !user.IsEnabled)
-            return AuthorizationResult.Failure("Access denied.");
-
-        // SuperAdmins can do everything
-        if (user.IsSuperAdmin)
-            return AuthorizationResult.Success();
-
-        var maxLevel = user.Roles.Any() ? user.Roles.Max(x => x.Level) : 0;
-
-        // Creating new resources requires Editor level
-        if (action == PermissionAction.Create)
-        {
-            return maxLevel >= RoleService.RoleLevels.Editor
-                ? AuthorizationResult.Success()
-                : AuthorizationResult.Failure("Editor role or higher required to create resources.");
-        }
-
-        return null; // Defer to other checks
-    }
-
-    /// <summary>
-    /// Gets accessible resource IDs. Returns null (no filtering) for role-based auth.
-    /// </summary>
-    public Task<IEnumerable<int>?> GetAccessibleResourceIdsAsync(
-        ResourceType resourceType,
-        PermissionAction action,
-        CancellationToken cancellationToken = default)
-    {
-        // Role-based authorization doesn't filter by specific resource IDs
-        // All users with appropriate role level can see all resources
-        return Task.FromResult<IEnumerable<int>?>(null);
-    }
-
     private async Task<BeaconUserData?> GetCurrentUserAsync(CancellationToken cancellationToken)
     {
         if (_userFetched)
-            return _cachedUser;
-
-        var externalId = userContext.UserId;
-        if (string.IsNullOrEmpty(externalId))
         {
-            _userFetched = true;
-            return null;
+            return _cachedUser;
         }
 
-        _cachedUser = await userService.GetUserByExternalIdAsync(externalId, cancellationToken);
+        _cachedUser = await FindCurrentUserAsync(cancellationToken);
         _userFetched = true;
         return _cachedUser;
+    }
+
+    // Resolved as BeaconUserLookup names the user: an API key by its username claim (a user-less key resolves to
+    // nobody), every other principal by NameIdentifier to Users.ExternalId.
+    private Task<BeaconUserData?> FindCurrentUserAsync(CancellationToken cancellationToken)
+    {
+        var lookup = BeaconUserLookup.Of(httpContextAccessor.HttpContext?.User);
+        if (lookup.UserName != null)
+        {
+            return userService.GetUserByUserNameAsync(lookup.UserName, cancellationToken);
+        }
+
+        return lookup.ExternalId != null
+            ? userService.GetUserByExternalIdAsync(lookup.ExternalId, cancellationToken)
+            : Task.FromResult<BeaconUserData?>(null);
     }
 }

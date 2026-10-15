@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using MediatR;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Integration.Api;
@@ -18,6 +20,7 @@ namespace Beacon.Tests.Integration.Api;
 public class OpenApiContractTests
 {
     private BeaconWebApplicationFactory? _factory;
+    private WebApplicationFactory<Program>? _host;
     private HttpClient? _client;
 
     /// <summary>
@@ -35,7 +38,9 @@ public class OpenApiContractTests
         try
         {
             _factory = new BeaconWebApplicationFactory();
-            _client = _factory.CreateClient();
+            // The whole surface: the migration endpoints are mapped only on a host that runs migrations.
+            _host = _factory.WithWebHostBuilder(x => x.UseSetting("Beacon:Migrations:Enabled", "true"));
+            _client = _host.CreateClient();
         }
         catch (Exception ex)
         {
@@ -47,6 +52,7 @@ public class OpenApiContractTests
     public void OneTimeTearDown()
     {
         _client?.Dispose();
+        _host?.Dispose();
         _factory?.Dispose();
     }
 

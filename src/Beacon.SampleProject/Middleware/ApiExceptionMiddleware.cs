@@ -47,7 +47,7 @@ internal sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiEx
 
     private static (int Status, string Title, string Type) Map(Exception ex) => ex switch
     {
-        UnauthorizedAccessException => (StatusCodes.Status403Forbidden, "Forbidden", "/errors/forbidden"),
+        UnauthorizedAccessException or BeaconForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden", "/errors/forbidden"),
         InvalidOperationException ioe => (StatusCodes.Status400BadRequest, ioe.Message, "/errors/invalid-operation"),
         // Before the BeaconException arm — a write that contradicts a deployment lock is a conflict, not a bad request.
         SettingLockedException sle => (StatusCodes.Status409Conflict, sle.Message, "/errors/setting-locked"),

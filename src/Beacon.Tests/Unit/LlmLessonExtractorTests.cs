@@ -6,7 +6,10 @@ using Beacon.AI.Services.Learning;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Ai;
+using Beacon.Core.Configuration;
 using Beacon.Core.Services;
+using Beacon.Tests.Common;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Tests.Unit;
 
@@ -154,11 +157,91 @@ public class LlmLessonExtractorTests
         llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new OperationCanceledException());
 
-        var extractor = new LlmLessonExtractor(llm.Object, NullLogger<LlmLessonExtractor>.Instance);
+        var extractor = Extractor(llm.Object);
 
         var act = async () => await extractor.ExtractAsync(Cluster, new CancellationToken(true));
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    // The error goes to the provider without the value it quotes, and the request is logged as carrying a database error.
+    [Test]
+    public async Task ExtractAsync_SendsTheErrorRedacted_AndLogsTheRequest()
+    {
+        var (llm, prompts) = RecordingProvider();
+        var log = new LogRecorder();
+        var extractor = Extractor(llm, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()));
+        var cluster = Cluster with { Error = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"" };
+
+        await extractor.ExtractAsync(cluster with { ProjectId = 7 }, CancellationToken.None);
+
+        prompts.Should().ContainSingle()
+            .Which.Should().Contain("Database error 22P02 (data exception): a value could not be converted to integer.")
+            .And.NotContain("Horvat");
+        log.Entries.Should().ContainSingle()
+            .Which.Message.Should().Be($"An LLM request carrying database-errors read from data sources 1 of project 7 was handed to the provider for caller {LlmLessonExtractor.CallerId}");
+    }
+
+    [Test]
+    public async Task ExtractAsync_KeepsTheKnownNamesOfAnErrorAboutAName()
+    {
+        var (llm, prompts) = RecordingProvider();
+
+        await Extractor(llm).ExtractAsync(Cluster with { Error = "42703: column \"created_at\" does not exist" }, CancellationToken.None);
+
+        prompts.Should().ContainSingle().Which.Should().Contain("42703: column \"created_at\" does not exist");
+    }
+
+    // While row data may not reach the provider, the error goes as its class and code only, and nothing row-derived is
+    // left to log.
+    [Test]
+    public async Task ExtractAsync_UnderTheRowDataLock_SendsTheErrorsClassAndCodeOnly()
+    {
+        var (llm, prompts) = RecordingProvider();
+        var log = new LogRecorder();
+        var extractor = Extractor(llm, forbidRowData: true, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()));
+
+        await extractor.ExtractAsync(Cluster with { Error = "42703: column \"created_at\" does not exist" }, CancellationToken.None);
+
+        prompts.Should().ContainSingle()
+            .Which.Should().Contain("Database error 42703 (undefined column).")
+            .And.NotContain("does not exist");
+        log.Entries.Should().BeEmpty();
+    }
+
+    // An error the statement's own code raised holds its author's values unquoted: the prompt gets its class and code, with
+    // or without the lock.
+    [TestCase(false, "Database error P0001 (unrecognised): not an error Beacon recognises.")]
+    [TestCase(true, "Database error P0001 (unrecognised).")]
+    public async Task ExtractAsync_WithholdsARaisedError(bool forbidRowData, string sent)
+    {
+        var (llm, prompts) = RecordingProvider();
+
+        await Extractor(llm, forbidRowData).ExtractAsync(Cluster with { Error = "P0001: permission denied for ivan.horvat@bank.example" }, CancellationToken.None);
+
+        prompts.Should().ContainSingle()
+            .Which.Should().Contain(sent)
+            .And.NotContain("ivan.horvat@bank.example");
+    }
+
+    private static (ILlmProvider Provider, List<string> Prompts) RecordingProvider()
+    {
+        var prompts = new List<string>();
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<LlmRequest, CancellationToken>((x, _) => prompts.Add(x.Messages[0].Content))
+            .ReturnsAsync(new LlmResponse { Content = "{}" });
+
+        return (llm.Object, prompts);
+    }
+
+    private static LlmLessonExtractor Extractor(ILlmProvider llm, bool forbidRowData = false, ILlmRowDataEgress? egress = null)
+    {
+        return new LlmLessonExtractor(
+            llm,
+            egress ?? TestRowDataEgress.Discarding(),
+            Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
+            NullLogger<LlmLessonExtractor>.Instance);
     }
 
     private static LlmLessonExtractor BuildExtractor(string responseContent)
@@ -167,6 +250,6 @@ public class LlmLessonExtractorTests
         llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new LlmResponse { Content = responseContent });
 
-        return new LlmLessonExtractor(llm.Object, NullLogger<LlmLessonExtractor>.Instance);
+        return Extractor(llm.Object);
     }
 }

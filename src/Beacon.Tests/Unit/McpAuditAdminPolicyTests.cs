@@ -4,13 +4,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Beacon.Api.Endpoints;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// SC10 — GET /beacon/api/mcp/audit is gated by <see cref="BeaconApiEndpoints.AdminPolicyName"/>. DB-free: the
-/// policy is resolved from the same <see cref="BeaconApiEndpoints.AddBeaconApiAuthorization"/> registration the
-/// host uses, and evaluated against the principal shapes that reach the endpoint.
+/// GET /beacon/api/mcp/audit is gated by <see cref="BeaconPermissions.AuditorPolicy"/>: the Admin role or the Auditor
+/// role. DB-free: the policy is resolved from the same <see cref="BeaconApiEndpoints.AddBeaconApiAuthorization"/>
+/// registration the host uses, and evaluated against the principal shapes that reach the endpoint.
 /// </summary>
 [TestFixture]
 public class McpAuditAdminPolicyTests
@@ -55,6 +56,28 @@ public class McpAuditAdminPolicyTests
     }
 
     [Test]
+    public async Task AuditorRole_IsAllowed()
+    {
+        var user = Principal("Cookies", new Claim(ClaimTypes.NameIdentifier, "2"), new Claim(ClaimTypes.Role, BeaconPermissions.Auditor));
+
+        var result = await AuthorizeAsync(user);
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [TestCase(BeaconPermissions.SecurityAdmin)]
+    [TestCase(BeaconPermissions.UserAdmin)]
+    [TestCase("Editor")]
+    public async Task AnotherRole_IsDenied(string role)
+    {
+        var user = Principal("Cookies", new Claim(ClaimTypes.NameIdentifier, "2"), new Claim(ClaimTypes.Role, role));
+
+        var result = await AuthorizeAsync(user);
+
+        result.Succeeded.Should().BeFalse();
+    }
+
+    [Test]
     public async Task ExecuteScopedApiKey_IsDenied()
     {
         var user = Principal("ApiKey", new Claim("auth_method", "api_key"), new Claim("scope", "Execute"),
@@ -62,7 +85,7 @@ public class McpAuditAdminPolicyTests
 
         var result = await AuthorizeAsync(user);
 
-        result.Succeeded.Should().BeFalse("an Execute-scoped API key is not an admin and must not export the audit");
+        result.Succeeded.Should().BeFalse("an Execute-scoped API key carries no role and must not export the audit");
     }
 
     [Test]
@@ -73,8 +96,8 @@ public class McpAuditAdminPolicyTests
         result.Succeeded.Should().BeFalse();
     }
 
-    private Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user) =>
-        _authService.AuthorizeAsync(user, resource: null, BeaconApiEndpoints.AdminPolicyName);
+    private Task<Microsoft.AspNetCore.Authorization.AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user) =>
+        _authService.AuthorizeAsync(user, resource: null, BeaconPermissions.AuditorPolicy);
 
     private static ClaimsPrincipal Principal(string authenticationType, params Claim[] claims) =>
         new(new ClaimsIdentity(claims, authenticationType));

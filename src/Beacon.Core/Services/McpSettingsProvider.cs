@@ -185,6 +185,12 @@ internal sealed class McpSettingsProvider(
         // One table drives resolution AND both write handlers (McpLockPolicy) — a new lockable field is one entry there.
         foreach (var rule in McpLockPolicy.ActiveRules(options))
         {
+            // A refusal the read-only lock causes names the lock (SqlGateRequest.ReadOnlyPinnedByLock).
+            if (rule.FieldName == nameof(McpSettingsData.EnforceReadOnly) && rule.Contradicts(effective))
+            {
+                effective.ReadOnlyPinnedByLock = true;
+            }
+
             rule.Pin(effective);
             locked.Add(rule.FieldName);
         }

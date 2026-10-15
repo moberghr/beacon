@@ -7,6 +7,7 @@ using Beacon.SampleProject.Warp;
 using Beacon.SampleProject.Warp.Jobs;
 using Beacon.AI;
 using Beacon.Core;
+using Beacon.Core.Notifications;
 using Beacon.Core.Worker;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.SqlServer;
@@ -36,23 +37,13 @@ using Beacon.SampleProject.Middleware;
 using Beacon.SampleProject.Services;
 using Beacon.UI;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Fail fast if a production deployment is still using the placeholder encryption key shipped in
-// appsettings.json for local dev. With that publicly-known key, every secret encrypted at rest
-// (connection strings, API keys) would be trivially decryptable.
-if (builder.Environment.IsProduction()
-    && builder.Configuration["Beacon:EncryptionKey"] == Beacon.Core.ServiceConfiguration.DefaultEncryptionKey)
-{
-    throw new InvalidOperationException(
-        "Beacon:EncryptionKey is set to the built-in placeholder value in Production. " +
-        "Generate a unique key (openssl rand -base64 32) and supply it via an environment " +
-        "variable or secret store — never the committed appsettings.json default.");
-}
+// Beacon:EncryptionKey comes from user-secrets in Development and from a secret store or the Beacon__EncryptionKey
+// environment variable elsewhere — never from a committed file. AddBeaconServices refuses a missing, weak or published key
+// in every environment.
 
 // Configure Kestrel server limits for long-running AI operations
 builder.WebHost.ConfigureKestrel(serverOptions =>
@@ -82,7 +73,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
         .ConfigureResource(x => x.AddService(serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "beacon"))
         .WithTracing(x => x
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
-            .AddHttpClientInstrumentation()
+            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path).
+            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z => !NotificationRequests.IsNotificationRequest(z))
             .AddBeaconInstrumentation()
             .AddOtlpExporter())
         .WithMetrics(x => x
@@ -143,6 +135,8 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         // Enable login form authentication
         options.Authentication.EnableLoginForm = true;
         options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
+        // First-run setup asks for a setup token: Beacon:UserManagement:SetupToken when configured, otherwise the
+        // token Beacon writes to this host's log at startup while no user exists yet.
         options.UserManagement = new UserManagementOptions
         {
             // For demo purposes, allow user registration. In production, you would likely disable this.
@@ -167,6 +161,12 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 // Step 2: Cookie authentication (React shell at root)
 builder.Services.AddBeaconCookieAuthentication(BeaconUiEndpointRouteBuilderExtensions.BasePath);
 
+// Step 2a: Data Protection (protects the session cookie). Beacon's default: the key ring in the Beacon database under
+// Beacon:DataProtection:ApplicationName (required outside Development). Outside Development a host must also encrypt the
+// keys at rest, or it does not start — chain ProtectKeysWithAzureKeyVault(...) or ProtectKeysWithCertificate(...) here,
+// with a key or certificate only that environment holds. A host with its own Data Protection setup skips this call.
+builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environment);
+
 // Step 2b: OIDC authentication (SSO)
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 
@@ -185,7 +185,7 @@ if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
         jwt.Validation.ValidIssuer = oidcAuthority;
         jwt.Validation.ValidAudience = oidcClientId;
         jwt.Validation.ValidateIssuer = true;
-        jwt.Validation.ValidateAudience = !string.IsNullOrEmpty(oidcClientId);
+        jwt.Validation.ValidateAudience = true;
     });
 }
 
@@ -217,25 +217,6 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.Name = ".Beacon.Antiforgery";
 });
 builder.Services.AddBeaconApiAuthorization();
-
-// Rate limiting for sensitive anonymous endpoints (login). 10 requests / 60 seconds
-// per remote-IP partition; clients beyond the window get 429 Too Many Requests.
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("login", httpContext =>
-    {
-        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(remoteIp, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 10,
-            Window = TimeSpan.FromSeconds(60),
-            QueueLimit = 0,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            AutoReplenishment = true,
-        });
-    });
-});
 
 // SignalR + the IUserIdProvider are wired by AddBeaconApiServices() itself; the host adds nothing.
 // Turn realtime off with AddBeaconApiServices(x => x.Realtime = false).
@@ -330,9 +311,6 @@ if (beaconConfiguration.UserManagement.Enabled)
 // Antiforgery middleware must run after auth so it can issue tokens for the current user.
 app.UseAntiforgery();
 
-// Rate limiter — sits after auth/antiforgery so endpoint-level policies (e.g. "login") apply.
-app.UseRateLimiter();
-
 // OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
 app.MapOpenApi();
 
@@ -359,7 +337,7 @@ if (beaconConfiguration.UserManagement.Enabled)
 // as the REST SQL endpoints; a Read-scoped API key must not reach SQL execution through MCP.
 // Entra JWT callers are scope-gated too: IMcpCallerMapper (Beacon:Mcp:Callers) decides their scope and
 // projects. Cookie/OIDC sessions are unaffected (the policy only constrains API keys and mapped MCP JWT callers).
-app.MapMcp("/beacon/mcp").RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
+app.MapBeaconMcp();
 
 // MCP discovery documents (tier 3, anonymous by design): RFC 9728 protected-resource metadata at
 // /.well-known/oauth-protected-resource (+ /beacon/mcp path-inserted variant) and the SEP-2127
@@ -401,6 +379,20 @@ using (var warpStartupScope = app.Services.CreateScope())
 
     // MCP Doc chunks (Tier-3 ⑨/⑩): re-chunk + (optional contextual blurb) + re-embed project docs every 12 hours
     await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
+
+    // EncryptRecipientSecretsJob (Warp/Jobs/NotificationJobs.cs) is deliberately not enqueued here: it rewrites stored
+    // recipient secrets, which an older version cannot read, so an operator runs it once every node runs this version
+    // (see "Notification Destinations" in the configuration docs).
+
+    // Retired encryption keys: while Beacon:PreviousEncryptionKeys lists a key, every start enqueues one run of the
+    // re-encryption job, which moves stored values still under a previous key to Beacon:EncryptionKey and logs how many
+    // there were. Once it reports none, remove the previous keys from the configuration.
+    if (Beacon.Core.ServiceConfiguration.HasPreviousEncryptionKeys(app.Configuration))
+    {
+        var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
+        await publisher.Enqueue(new ReEncryptStoredValuesJob());
+        await publisher.SaveChangesAsync();
+    }
 }
 
 app.Run();

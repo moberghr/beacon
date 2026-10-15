@@ -63,6 +63,13 @@ public class Query : ArchivableBaseEntity, IMultiStepWorkflow
     /// </summary>
     public bool McpToolEnabled { get; set; }
 
+    /// <summary>
+    /// The creator's <c>Users.ExternalId</c> (the signed-in caller, or an AI actor's creator), stamped when the query is
+    /// created and never taken from a request body. A query without steps reads no data source, so no project holds it:
+    /// while it has none, only its owner and Admins reach it. Null for queries created before owners were recorded.
+    /// </summary>
+    public string? OwnerUserId { get; set; }
+
     public List<Subscription> Subscriptions { get; set; } = new();
 
     public List<QueryStep> Steps { get; set; } = new();

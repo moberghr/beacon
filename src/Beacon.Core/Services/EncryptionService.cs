@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Services;
 
@@ -9,6 +10,21 @@ public interface IEncryptionService
     string Decrypt(string cipherText);
 }
 
+/// <summary>
+/// AES-256 encryption of values at rest (data-source connection strings, recipient secrets, sensitive settings) with
+/// <c>Beacon:EncryptionKey</c>. New values are written in the v2 format below with the configured key. A value is read with
+/// the configured key and, failing that, with each of <c>Beacon:PreviousEncryptionKeys</c> (decrypt only), so a key can be
+/// replaced without rewriting what is stored: a value moves to the new key when it is next saved, or when
+/// <see cref="IStoredValueReEncryptionService"/> re-encrypts it. The first value each previous key decrypts is logged
+/// (Information, the key's position in the list only).
+/// </summary>
+/// <remarks>
+/// The AES key is SHA-256 of the configured key text. It is kept, not replaced by HKDF: startup accepts only a key of at
+/// least 32 random bytes (<see cref="EncryptionKeyRequirements"/>), for which one SHA-256 is a sound extraction step (a
+/// salted or stretched derivation only adds strength to low-entropy passphrases, which are refused); and a new derivation
+/// would need a new payload version that an earlier Beacon version cannot read, so a rollback would lose every value
+/// written in between.
+/// </remarks>
 internal class EncryptionService : IEncryptionService
 {
     // Versioned payload layout (v2): [0x01][12-byte nonce][16-byte GCM tag][ciphertext], base64-encoded.
@@ -16,11 +32,25 @@ internal class EncryptionService : IEncryptionService
     private const byte V2Marker = 0x01;
     private const int NonceSize = 12;
     private const int TagSize = 16;
+    private const int LegacyBlockSize = 16;
+
+    // A wrong key can leave legacy CBC padding intact by chance; the garbage it yields is then not UTF-8 and is refused.
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly byte[] _key;
     private readonly byte[] _legacyIv;
+    private readonly IReadOnlyList<PreviousKey> _previousKeys;
+    private readonly ILogger? _logger;
 
     public EncryptionService(string encryptionKey)
+        : this(encryptionKey, [])
+    {
+    }
+
+    /// <param name="encryptionKey">The key new values are encrypted with.</param>
+    /// <param name="previousKeys">Keys values written earlier may be encrypted with: read only, never used to encrypt.</param>
+    /// <param name="logger">Where the first use of each previous key is logged.</param>
+    public EncryptionService(string encryptionKey, IEnumerable<string> previousKeys, ILogger? logger = null)
     {
         if (string.IsNullOrWhiteSpace(encryptionKey))
         {
@@ -28,12 +58,34 @@ internal class EncryptionService : IEncryptionService
         }
 
         // Use SHA256 to create a 32-byte key from the provided key
-        using var sha256 = SHA256.Create();
-        _key = sha256.ComputeHash(Encoding.UTF8.GetBytes(encryptionKey));
+        _key = SHA256.HashData(Encoding.UTF8.GetBytes(encryptionKey));
 
         // Legacy IV (fixed) — kept only so v1 ciphertext written before the GCM upgrade still decrypts.
         _legacyIv = new byte[16];
         Array.Copy(_key, 0, _legacyIv, 0, 16);
+
+        // Each previous key keeps its position in Beacon:PreviousEncryptionKeys, which is how the log names it.
+        _previousKeys = previousKeys
+            .Select((x, i) => (Key: x, Index: i))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Key))
+            .Where(x => !string.Equals(x.Key, encryptionKey, StringComparison.Ordinal))
+            .DistinctBy(x => x.Key, StringComparer.Ordinal)
+            .Select(x => new PreviousKey(new EncryptionService(x.Key), x.Index))
+            .ToList();
+        _logger = logger;
+    }
+
+    /// <summary>Which configured key decrypts a stored value.</summary>
+    internal enum KeyMatch
+    {
+        /// <summary>The current key (or the value is empty): nothing to re-encrypt.</summary>
+        Current,
+
+        /// <summary>One of the previous keys only: re-encrypt it with the current key.</summary>
+        Previous,
+
+        /// <summary>No configured key: it cannot be read.</summary>
+        None
     }
 
     public string Encrypt(string plainText)
@@ -70,14 +122,102 @@ internal class EncryptionService : IEncryptionService
 
         var payload = Convert.FromBase64String(cipherText);
 
-        // v2: authenticated AES-GCM with a random per-value nonce.
+        try
+        {
+            return DecryptPayload(payload);
+        }
+        catch (CryptographicException) when (_previousKeys.Count > 0)
+        {
+            foreach (var previous in _previousKeys)
+            {
+                try
+                {
+                    var plainText = previous.Service.DecryptPayload(payload);
+                    LogFirstUse(previous);
+
+                    return plainText;
+                }
+                catch (CryptographicException)
+                {
+                    // Not encrypted with this previous key either; the next one is tried.
+                }
+            }
+
+            // No key decrypts it: the configured key's failure is reported.
+            throw;
+        }
+    }
+
+    /// <summary>Which configured key decrypts <paramref name="cipherText"/>; a value that is not base64 matches none.</summary>
+    internal KeyMatch Identify(string? cipherText)
+    {
+        if (string.IsNullOrEmpty(cipherText))
+        {
+            return KeyMatch.Current;
+        }
+
+        byte[] payload;
+        try
+        {
+            payload = Convert.FromBase64String(cipherText);
+        }
+        catch (FormatException)
+        {
+            return KeyMatch.None;
+        }
+
+        if (CanDecrypt(payload))
+        {
+            return KeyMatch.Current;
+        }
+
+        return _previousKeys.Any(x => x.Service.CanDecrypt(payload))
+            ? KeyMatch.Previous
+            : KeyMatch.None;
+    }
+
+    private bool CanDecrypt(byte[] payload)
+    {
+        try
+        {
+            DecryptPayload(payload);
+
+            return true;
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    private string DecryptPayload(byte[] payload)
+    {
+        // v2: authenticated AES-GCM with a random per-value nonce. A legacy v1 value whose first ciphertext byte happens
+        // to be the v2 marker fails the GCM tag check; a whole number of CBC blocks is then read as legacy v1.
         if (payload.Length > 1 + NonceSize + TagSize && payload[0] == V2Marker)
         {
-            return DecryptV2(payload);
+            try
+            {
+                return DecryptV2(payload);
+            }
+            catch (CryptographicException) when (payload.Length % LegacyBlockSize == 0)
+            {
+                return DecryptLegacy(payload);
+            }
         }
 
         // Legacy v1: AES-CBC with the fixed SHA256-derived IV.
         return DecryptLegacy(payload);
+    }
+
+    private void LogFirstUse(PreviousKey previous)
+    {
+        if (_logger != null && Interlocked.Exchange(ref previous.Logged, 1) == 0)
+        {
+            _logger.LogInformation(
+                "A stored value was decrypted with Beacon:PreviousEncryptionKeys entry {Index}, not the current key; it moves to the current key when it is next saved or re-encrypted. Logged once per key",
+                previous.Index);
+        }
     }
 
     private string DecryptV2(byte[] payload)
@@ -107,8 +247,25 @@ internal class EncryptionService : IEncryptionService
         using var decryptor = aes.CreateDecryptor();
         using var msDecrypt = new MemoryStream(payload);
         using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
-        using var srDecrypt = new StreamReader(csDecrypt);
+        using var srDecrypt = new StreamReader(csDecrypt, StrictUtf8);
 
-        return srDecrypt.ReadToEnd();
+        try
+        {
+            return srDecrypt.ReadToEnd();
+        }
+        catch (DecoderFallbackException ex)
+        {
+            throw new CryptographicException("The value could not be decrypted with this key.", ex);
+        }
+    }
+
+    // A previous key, its position in Beacon:PreviousEncryptionKeys, and whether its first use was logged.
+    private sealed class PreviousKey(EncryptionService service, int index)
+    {
+        public int Logged;
+
+        public EncryptionService Service { get; } = service;
+
+        public int Index { get; } = index;
     }
 }

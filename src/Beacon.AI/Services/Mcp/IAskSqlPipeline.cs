@@ -32,7 +32,14 @@ public sealed record AskSqlPipelineOptions(
     bool Execute = true,
     string? ExtraContext = null,
     decimal? GenerationTemperature = null,
-    bool AllowSelfConsistency = true);
+    bool AllowSelfConsistency = true)
+{
+    /// <summary>
+    /// Who the row-data egress log names for the pipeline's prompts when the work knows it — a background job names
+    /// itself; null names the current caller.
+    /// </summary>
+    public string? CallerId { get; init; }
+}
 
 /// <summary>
 /// One repair attempt out of the shared budget. <paramref name="RetriedSql"/> is null when the model

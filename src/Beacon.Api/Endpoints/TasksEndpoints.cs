@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Tasks;
 using MediatR;
@@ -22,11 +21,10 @@ internal static class TasksEndpoints
             return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
         }).WithName("GetTaskDetail");
 
-        tasks.MapPost("/{id:int}/resolve", async (
-            int id, ResolveTaskBody body, IMediator m, HttpContext http, CancellationToken ct) =>
+        // Resolve, assign, snooze and priority are checked against the task's assignee (or an Admin) by the handlers.
+        tasks.MapPost("/{id:int}/resolve", async (int id, ResolveTaskBody body, IMediator m, CancellationToken ct) =>
         {
-            var userId = http.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            await m.Send(new ResolveTaskCommand(id, body.ResolutionNotes, userId), ct);
+            await m.Send(new ResolveTaskCommand(id, body.ResolutionNotes), ct);
             return TypedResults.NoContent();
         }).WithName("ResolveTask");
 

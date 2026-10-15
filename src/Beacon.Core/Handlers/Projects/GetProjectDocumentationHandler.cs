@@ -2,12 +2,24 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.Projects;
 
-public record GetProjectDocumentationQuery(int ProjectId) : IRequest<GetProjectDocumentationResult>;
+public record GetProjectDocumentationQuery(int ProjectId) : IRequest<GetProjectDocumentationResult>, IProjectAuthorizedRequest
+{
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Project(ProjectId), ProjectAction.Read)
+    ];
+}
 
-public record GetProjectDocumentationResult(ProjectDocumentationDetailEntry? Latest, List<ProjectDocumentationHistoryEntry> History);
+public record GetProjectDocumentationResult(ProjectDocumentationDetailEntry? Latest, List<ProjectDocumentationHistoryEntry> History)
+{
+    /// <summary>Whether the caller may edit the documentation's sections: Curate in the project (the project admin role).</summary>
+    public bool CanCurate { get; init; }
+}
 
 public record ProjectDocumentationDetailEntry(
     int Id,
@@ -39,7 +51,8 @@ public record ProjectDocumentationHistoryEntry(
     decimal EstimatedCost);
 
 internal sealed class GetProjectDocumentationHandler(
-    IDbContextFactory<BeaconContext> contextFactory) : IRequestHandler<GetProjectDocumentationQuery, GetProjectDocumentationResult>
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess) : IRequestHandler<GetProjectDocumentationQuery, GetProjectDocumentationResult>
 {
     public async Task<GetProjectDocumentationResult> Handle(
         GetProjectDocumentationQuery request,
@@ -71,8 +84,11 @@ internal sealed class GetProjectDocumentationHandler(
             })
             .ToListAsync(cancellationToken);
 
+        var canCurate = GroundingCuration.MayCurateProject(await projectAccess.GetScopeAsync(cancellationToken), request.ProjectId);
         if (documentations.Count == 0)
-            return new GetProjectDocumentationResult(null, new List<ProjectDocumentationHistoryEntry>());
+        {
+            return new GetProjectDocumentationResult(null, new List<ProjectDocumentationHistoryEntry>()) { CanCurate = canCurate };
+        }
 
         var latest = documentations[0];
         var latestDetail = new ProjectDocumentationDetailEntry(
@@ -86,6 +102,6 @@ internal sealed class GetProjectDocumentationHandler(
             d.Sections.Count, d.InputTokens + d.OutputTokens, d.EstimatedCost))
             .ToList();
 
-        return new GetProjectDocumentationResult(latestDetail, history);
+        return new GetProjectDocumentationResult(latestDetail, history) { CanCurate = canCurate };
     }
 }

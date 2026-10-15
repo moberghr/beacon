@@ -3,9 +3,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
@@ -18,37 +21,41 @@ namespace Beacon.Tests.Unit;
 /// <see cref="QueryService.AddQueryStep"/> / <see cref="QueryService.UpdateQueryStep"/>
 /// actually route <c>SqlValue</c> through <see cref="SqlReadOnlyAstValidator"/> and throw
 /// on a non-read-only statement — i.e. the wiring is intact, not just the validator's own
-/// logic (which is covered by <see cref="SqlReadOnlyAstValidatorTests"/>).
+/// logic (which is covered by <see cref="SqlReadOnlyAstValidatorTests"/>). The saved
+/// <c>FinalQuery</c> passes the same gate (SQLite dialect, after <c>@resultN</c> translation)
+/// on <see cref="QueryService.CreateQuery"/> / <see cref="QueryService.UpdateQuery"/>, before
+/// anything is persisted — after a nested-block-comment check, since the gate's parser and SQLite
+/// end such a comment in different places.
 ///
-/// The context's <c>DataSources</c> set is backed by an empty in-memory async sequence
-/// (no DB connection, no forbidden UseInMemoryDatabase — §4.7), so the dialect lookup
-/// resolves to null and the gate is reached before any real query executes.
+/// The context's <c>DataSources</c> and <c>Queries</c> sets are backed by in-memory async
+/// sequences (no DB connection, no forbidden UseInMemoryDatabase — §4.7), so the dialect lookup
+/// resolves to null and the gate is reached before any real query executes; <c>SaveChangesAsync</c>
+/// is counted instead of reaching a database.
 /// </summary>
 [TestFixture]
 public class QueryServiceReadOnlyGateTests
 {
     private const string WriteSql = "DELETE FROM foo";
 
-    private static QueryService BuildService()
+    // The reproduced attack: ATTACH a host file, write into it, then return something harmless.
+    private const string AttachFinalQuery = "ATTACH DATABASE 'beacon-pwned.db' AS x; CREATE TABLE x.loot AS SELECT * FROM @result1; SELECT * FROM @result1";
+
+    private const string ReadOnlyFinalQuery = "SELECT * FROM @result1";
+
+    // A nested block comment, which the gate's parser and SQLite end in different places; refused before saving.
+    private const string NestedCommentFinalQuery = "SELECT * FROM @result1 /* /* */ ; PRAGMA user_version=7; -- */";
+
+    private static QueryService BuildService(ContextSpy? spy = null, IQueryVersionService? versionService = null)
     {
+        var contextSpy = spy ?? new ContextSpy();
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new EmptyDataSourceContext());
+            .ReturnsAsync(() => new SpyContext(contextSpy));
 
         var validator = new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance);
 
-        return new QueryService(
-            factory.Object,
-            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            null!,
-            Mock.Of<IBeaconUserContext>(),
-            validator,
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+        return TestQueryServices.QueryService(factory.Object, versions: versionService);
     }
 
     [Test]
@@ -67,6 +74,22 @@ public class QueryServiceReadOnlyGateTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    // A warehouse has no engine type; its step is validated in the dialect its data source type names.
+    [TestCase(DataSourceType.BigQuery)]
+    [TestCase(DataSourceType.Databricks)]
+    public async Task AddQueryStep_WarehouseSource_IsValidatedInItsOwnDialect(DataSourceType type)
+    {
+        var spy = new ContextSpy();
+        spy.DataSources.Add(new DataSource { Id = 5, Name = "lake", DataSourceType = type, EncryptedConnectionData = "encrypted" });
+        var service = BuildService(spy);
+
+        var plain = () => service.AddQueryStep(1, new QueryStepData { Name = "step", SqlValue = "SELECT id FROM orders", DataSourceId = 5 }, CancellationToken.None);
+        var escaped = () => service.AddQueryStep(1, new QueryStepData { Name = "step", SqlValue = "SELECT 'x\\', 1 AS y", DataSourceId = 5 }, CancellationToken.None);
+
+        await plain.Should().NotThrowAsync();
+        await escaped.Should().ThrowAsync<InvalidOperationException>().WithMessage("A backslash before a quote*");
+    }
+
     [Test]
     public async Task UpdateQueryStep_NonReadOnlySql_ThrowsInvalidOperationException()
     {
@@ -83,45 +106,239 @@ public class QueryServiceReadOnlyGateTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
-    /// <summary>
-    /// A BeaconContext whose <c>DataSources</c> resolves to an empty async sequence, so the
-    /// dialect lookup in the read-only gate returns null with no DB round-trip. Only the
-    /// <see cref="DataSource"/> set is used by the code path under test.
-    /// </summary>
-    private sealed class EmptyDataSourceContext : BeaconContext
+    [Test]
+    public async Task CreateQuery_AttachFinalQuery_ThrowsAndPersistsNothing()
     {
-        private static readonly DbContextOptions<EmptyDataSourceContext> _options =
-            new DbContextOptionsBuilder<EmptyDataSourceContext>()
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+
+        var act = () => service.CreateQuery(NewQuery(AttachFinalQuery), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Final query rejected*");
+        spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task CreateQuery_ReadOnlyFinalQuery_PassesTheGateAndSaves()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+
+        var response = await service.CreateQuery(NewQuery(ReadOnlyFinalQuery), CancellationToken.None);
+
+        response.Success.Should().BeTrue();
+        spy.SaveChangesCalls.Should().Be(1);
+    }
+
+    // A query without a final query (single step, or steps read on their own) never reaches the gate.
+    [Test]
+    public async Task CreateQuery_NoFinalQuery_SkipsTheGateAndSaves()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+
+        var response = await service.CreateQuery(NewQuery(null), CancellationToken.None);
+
+        response.Success.Should().BeTrue();
+        spy.SaveChangesCalls.Should().Be(1);
+    }
+
+    [Test]
+    public async Task CreateQuery_RecordsTheCallerAsTheOwner()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+
+        await service.CreateQuery(NewQuery(null), CancellationToken.None);
+
+        spy.Queries.Should().ContainSingle().Which.OwnerUserId.Should().Be("ext-ada", "the signed-in caller (Users.ExternalId) owns what it creates");
+    }
+
+    [Test]
+    public async Task UpdateQuery_AttachFinalQuery_ThrowsAndPersistsNothing()
+    {
+        var spy = new ContextSpy();
+        spy.Queries.Add(new Query { Id = 7, Name = "orders" });
+        var versionService = new Mock<IQueryVersionService>();
+        var service = BuildService(spy, versionService.Object);
+
+        var act = () => service.UpdateQuery(ExistingQuery(7, AttachFinalQuery), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Final query rejected*");
+        spy.SaveChangesCalls.Should().Be(0);
+        versionService.Verify(
+            x => x.CreateVersionAsync(It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<QueryVersionStatus>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "a rejected final query must not leave a version behind either");
+    }
+
+    [Test]
+    public async Task CreateQuery_NestedCommentFinalQuery_ThrowsAndPersistsNothing()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+
+        var act = () => service.CreateQuery(NewQuery(NestedCommentFinalQuery), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Nested block comments*");
+        spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task UpdateQuery_NestedCommentFinalQuery_ThrowsAndPersistsNothing()
+    {
+        var spy = new ContextSpy();
+        spy.Queries.Add(new Query { Id = 7, Name = "orders" });
+        var versionService = new Mock<IQueryVersionService>();
+        var service = BuildService(spy, versionService.Object);
+
+        var act = () => service.UpdateQuery(ExistingQuery(7, NestedCommentFinalQuery), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Nested block comments*");
+        spy.SaveChangesCalls.Should().Be(0);
+        versionService.Verify(
+            x => x.CreateVersionAsync(It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<QueryVersionStatus>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task UpdateQuery_ReadOnlyFinalQuery_PassesTheGateAndSaves()
+    {
+        var spy = new ContextSpy();
+        spy.Queries.Add(new Query { Id = 7, Name = "orders" });
+        var service = BuildService(spy);
+
+        var response = await service.UpdateQuery(ExistingQuery(7, ReadOnlyFinalQuery), CancellationToken.None);
+
+        response.Success.Should().BeTrue();
+        spy.SaveChangesCalls.Should().Be(1);
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    public async Task UpdateQuery_ClearedFinalQuery_SkipsTheGateAndSaves(string? finalQuery)
+    {
+        var spy = new ContextSpy();
+        spy.Queries.Add(new Query { Id = 7, Name = "orders", FinalQuery = ReadOnlyFinalQuery });
+        var service = BuildService(spy);
+
+        var response = await service.UpdateQuery(ExistingQuery(7, finalQuery), CancellationToken.None);
+
+        response.Success.Should().BeTrue();
+        spy.SaveChangesCalls.Should().Be(1);
+        spy.Queries[0].FinalQuery.Should().Be(finalQuery);
+    }
+
+    private static QueryData NewQuery(string? finalQuery) =>
+        new()
+        {
+            Name = "orders",
+            FinalQuery = finalQuery,
+            Steps =
+            [
+                new QueryStepData
+                {
+                    StepOrder = 1,
+                    Name = "step",
+                    SqlValue = "SELECT id FROM orders",
+                    DataSourceId = 1
+                }
+            ]
+        };
+
+    private static QueryData ExistingQuery(int queryId, string? finalQuery) =>
+        new()
+        {
+            QueryId = queryId,
+            Name = "orders",
+            FinalQuery = finalQuery
+        };
+
+    /// <summary>What the service did to its contexts: the stored queries it reads and the saves it attempted.</summary>
+    private sealed class ContextSpy
+    {
+        // The data source the queries' steps read; a step's SQL is checked in its dialect before it is saved.
+        public List<DataSource> DataSources { get; } =
+        [
+            new DataSource
+            {
+                Id = 1,
+                Name = "warehouse",
+                DataSourceType = DataSourceType.Database,
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                EncryptedConnectionData = "encrypted"
+            }
+        ];
+
+        public List<Query> Queries { get; } = [];
+
+        public int SaveChangesCalls { get; set; }
+    }
+
+    /// <summary>
+    /// A BeaconContext whose <c>DataSources</c> resolves to <see cref="ContextSpy.DataSources"/>, whose metadata is empty and whose <c>Queries</c>
+    /// resolves to <see cref="ContextSpy.Queries"/>, with no DB round-trip. <c>SaveChangesAsync</c> only counts.
+    /// </summary>
+    private sealed class SpyContext : BeaconContext
+    {
+        private static readonly DbContextOptions<SpyContext> _options =
+            new DbContextOptionsBuilder<SpyContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
                 .Options;
 
-        public EmptyDataSourceContext() : base(_options, "beacon") { }
+        private readonly ContextSpy _spy;
+
+        public SpyContext(ContextSpy spy) : base(_options, "beacon")
+        {
+            _spy = spy;
+        }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
             if (typeof(TEntity) == typeof(DataSource))
             {
-                return (DbSet<TEntity>)(object)BuildEmptyDataSourceSet();
+                return (DbSet<TEntity>)(object)BuildSet(_spy.DataSources);
+            }
+
+            if (typeof(TEntity) == typeof(Query))
+            {
+                return (DbSet<TEntity>)(object)BuildSet(_spy.Queries);
+            }
+
+            if (typeof(TEntity) == typeof(DatabaseMetadata))
+            {
+                return (DbSet<TEntity>)(object)BuildSet(new List<DatabaseMetadata>());
             }
 
             return base.Set<TEntity>();
         }
+
+        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        {
+            _spy.SaveChangesCalls++;
+            return Task.FromResult(0);
+        }
     }
 
-    private static DbSet<DataSource> BuildEmptyDataSourceSet()
+    private static DbSet<T> BuildSet<T>(List<T> rows) where T : class
     {
-        var data = new List<DataSource>().AsQueryable();
-        var set = new Mock<DbSet<DataSource>>();
-        set.As<IAsyncEnumerable<DataSource>>()
+        var data = rows.AsQueryable();
+        var set = new Mock<DbSet<T>>();
+        set.As<IAsyncEnumerable<T>>()
             .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
-            .Returns(new TestAsyncEnumerator<DataSource>(data.GetEnumerator()));
-        set.As<IQueryable<DataSource>>()
+            .Returns(() => new TestAsyncEnumerator<T>(data.GetEnumerator()));
+        set.As<IQueryable<T>>()
             .Setup(x => x.Provider)
-            .Returns(new TestAsyncQueryProvider<DataSource>(data.Provider));
-        set.As<IQueryable<DataSource>>().Setup(x => x.Expression).Returns(data.Expression);
-        set.As<IQueryable<DataSource>>().Setup(x => x.ElementType).Returns(data.ElementType);
-        set.As<IQueryable<DataSource>>().Setup(x => x.GetEnumerator()).Returns(data.GetEnumerator());
+            .Returns(new TestAsyncQueryProvider<T>(data.Provider));
+        set.As<IQueryable<T>>().Setup(x => x.Expression).Returns(data.Expression);
+        set.As<IQueryable<T>>().Setup(x => x.ElementType).Returns(data.ElementType);
+        set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());
+        set.Setup(x => x.Add(It.IsAny<T>())).Callback<T>(rows.Add);
         return set.Object;
     }
 }

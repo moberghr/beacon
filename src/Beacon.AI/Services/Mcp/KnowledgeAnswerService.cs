@@ -1,13 +1,24 @@
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
 using Beacon.Core.Models;
 
 namespace Beacon.AI.Services.Mcp;
 
+/// <summary>
+/// Answers a knowledge question from the project's stored documentation, schema and search results. Stored documentation
+/// of the sections that can list values discovered in the data (<see cref="ProjectDocSectionTypes.ListingValues"/>) is row
+/// data — as the export, as chunks and as search results cut from it: a prompt that carries it is logged by the row-data
+/// egress log, and while row data may not reach the LLM provider (<c>Beacon:Mcp:ForbidRowDataToLlm</c>) those sections stay
+/// out of the prompt.
+/// </summary>
 internal sealed class KnowledgeAnswerService(
     IKnowledgeGraphService knowledgeGraph,
-    IProjectDocumentationService documentationService) : IKnowledgeAnswerService
+    IProjectDocumentationService documentationService,
+    ILlmRowDataEgress rowDataEgress,
+    IOptions<McpDeploymentOptions> deploymentOptions) : IKnowledgeAnswerService
 {
     public async Task<string> AnswerAsync(
         ILlmProvider llmProvider,
@@ -16,17 +27,27 @@ internal sealed class KnowledgeAnswerService(
         McpSettingsData settings,
         CancellationToken ct)
     {
+        var forbidRowData = deploymentOptions.Value.ForbidRowDataToLlm;
         var projectContextTask = knowledgeGraph.GetProjectContextForLlmAsync(projectId, ct);
         var searchTask = knowledgeGraph.SearchProjectAsync(question, projectId, 10, ct);
         var docChunksTask = knowledgeGraph.GetRelevantDocChunksAsync(projectId, question, settings.DocChunkTopK, ct);
-        var docTask = documentationService.ExportLatestToMarkdownAsync(projectId, ct);
+        var docTask = forbidRowData
+            ? documentationService.ExportLatestToMarkdownAsync(projectId, ProjectDocSectionTypes.ListingValues, ct)
+            : documentationService.ExportLatestToMarkdownAsync(projectId, ct);
 
         await Task.WhenAll(projectContextTask, searchTask, docChunksTask, docTask);
 
         var projectContext = projectContextTask.Result;
-        var searchResults = searchTask.Result;
-        var docChunks = docChunksTask.Result;
+        var searchResults = searchTask.Result
+            .Where(x => !forbidRowData || x.SectionType?.ListsValues() != true)
+            .ToList();
+        var docChunks = docChunksTask.Result
+            .Where(x => !forbidRowData || x.SectionType?.ListsValues() != true)
+            .ToList();
         var documentation = docTask.Result;
+
+        // A search result's snippet is the stored text of its section, so one cut from a value-listing section carries it.
+        var sendsListedValues = searchResults.Any(x => x.SectionType?.ListsValues() == true);
 
         var context = "";
 
@@ -35,6 +56,7 @@ internal sealed class KnowledgeAnswerService(
         // documentation. Fall back to today's char-truncation when nothing is indexed / the embedder is off.
         if (docChunks.Count > 0)
         {
+            sendsListedValues |= docChunks.Any(x => x.SectionType?.ListsValues() == true);
             context += "## Project Documentation\n\n";
             foreach (var chunk in docChunks)
             {
@@ -46,6 +68,8 @@ internal sealed class KnowledgeAnswerService(
         }
         else if (!string.IsNullOrEmpty(documentation))
         {
+            // The whole documentation holds the sections that can list values, unless the lock left them out.
+            sendsListedValues |= !forbidRowData;
             context += "## Project Documentation\n\n";
             context += documentation.Length > 6000 ? documentation[..6000] + "\n\n[... truncated ...]\n" : documentation;
             context += "\n\n";
@@ -105,7 +129,11 @@ internal sealed class KnowledgeAnswerService(
             MaxTokens = 2048
         };
 
-        var response = await llmProvider.CompleteAsync(request, ct);
+        // Stored documentation that can list discovered values is row data: the request carrying it is logged.
+        var provider = rowDataEgress.Track(
+            llmProvider,
+            new LlmRowDataScope(projectId, [], sendsListedValues ? [LlmRowDataCategories.StoredDocumentation] : []));
+        var response = await provider.CompleteAsync(request, ct);
 
         var text = $"# {question}\n\n";
         text += response.Content;

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Beacon.Core;
 using Beacon.Core.Data;
 using Beacon.Core.PostgreSql;
@@ -127,7 +128,7 @@ public class PostgreSqlHostDataSourceTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                ["Beacon:EncryptionKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             })
             .Build();
 

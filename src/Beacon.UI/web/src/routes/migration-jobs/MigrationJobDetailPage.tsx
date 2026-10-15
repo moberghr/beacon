@@ -7,7 +7,7 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { MigrationMode, MigrationStatus } from '@/lib/enums';
+import { ChangeApprovalKind, MigrationMode, MigrationStatus } from '@/lib/enums';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import {
   useMigrationJobQuery,
@@ -19,6 +19,7 @@ import {
   useMigrationExecutionsList,
   type MigrationExecutionEntry,
 } from '@/routes/migration-history/queries';
+import { AwaitingApprovalBanner, isRejected } from '@/routes/approvals/AwaitingApproval';
 
 type TabKey = 'overview' | 'executions';
 
@@ -150,9 +151,17 @@ export default function MigrationJobDetailPage() {
               variant="primary"
               type="button"
               onClick={handleRun}
-              disabled={!job.isEnabled || runMutation.isPending}
+              disabled={!job.isEnabled || job.awaitingApproval === true || runMutation.isPending}
               icon={<Play />}
-              title={!job.isEnabled ? 'Enable the job to run it' : 'Run this migration now'}
+              title={
+                !job.isEnabled
+                  ? 'Enable the job to run it'
+                  : job.awaitingApproval
+                    ? isRejected({ requestId: job.pendingApprovalRequestId, lastDecision: job.lastApprovalDecision })
+                      ? 'Its definition was rejected: delete and recreate the job'
+                      : 'The job runs once its definition is approved'
+                    : 'Run this migration now'
+              }
             >
               {runMutation.isPending ? 'Running…' : 'Run now'}
             </Button>
@@ -167,6 +176,16 @@ export default function MigrationJobDetailPage() {
           </>
         }
       />
+
+      {job.awaitingApproval && (
+        <AwaitingApprovalBanner
+          kind={ChangeApprovalKind.MigrationJob}
+          title="Awaiting approval: this job does not run"
+          sub="A second person approves the job's definition (its source, query, destination and mode) before it runs, manually or on a schedule."
+          requestId={job.pendingApprovalRequestId}
+          lastDecision={job.lastApprovalDecision}
+        />
+      )}
 
       <KPIGrid>
         <KPI

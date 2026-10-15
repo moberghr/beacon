@@ -2,10 +2,11 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.Queries;
 
-internal sealed class CreateQueryHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class CreateQueryHandler(IDbContextFactory<BeaconContext> contextFactory, IBeaconActorAccessor actorAccessor)
     : IRequestHandler<CreateQueryCommand, CreateQueryResult>
 {
     public async Task<CreateQueryResult> Handle(CreateQueryCommand request, CancellationToken cancellationToken)
@@ -15,12 +16,16 @@ internal sealed class CreateQueryHandler(IDbContextFactory<BeaconContext> contex
             throw new InvalidOperationException("Query name is required.");
         }
 
+        // The creator owns the query: while it has no steps, no project holds it and only its owner and Admins reach it.
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var query = new Query
         {
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
+            OwnerUserId = actor.UserId
         };
 
         context.Queries.Add(query);
@@ -33,6 +38,7 @@ internal sealed class CreateQueryHandler(IDbContextFactory<BeaconContext> contex
     }
 }
 
+[ProjectScopeExempt("creates a query without steps, so no data source to check; it records its creator as the owner, and its steps are checked when they are saved (UpdateQueryCommand)")]
 public record CreateQueryCommand : IRequest<CreateQueryResult>
 {
     public required string Name { get; init; }

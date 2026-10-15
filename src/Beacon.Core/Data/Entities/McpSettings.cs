@@ -15,7 +15,8 @@ public class McpSettings : BaseEntity
     public bool EnforceReadOnly { get; set; } = true;
     public bool EnablePiiDetection { get; set; } = true;
     public string? CustomPiiPatterns { get; set; }
-    public bool EnableSampleValueCollection { get; set; } = true;
+    // Off by default: sample values are row data a prompt carries to the LLM provider. An existing settings row keeps its value.
+    public bool EnableSampleValueCollection { get; set; }
 
     // Learning settings
     public bool EnableLearning { get; set; } = true;
@@ -47,7 +48,8 @@ public class McpSettings : BaseEntity
     public int GoldenExemplarBudgetChars { get; set; } = 2000;
 
     // Ask-correctness grounding settings
-    public bool EnableValueGrounding { get; set; } = true;
+    // Off by default: value grounding probes live rows and puts the matches in the prompt.
+    public bool EnableValueGrounding { get; set; }
     public int ValueGroundingMaxProbes { get; set; } = 12;
     public bool EnableSemanticLint { get; set; } = true;
     public int SelfConsistencyMinTables { get; set; } = 2;

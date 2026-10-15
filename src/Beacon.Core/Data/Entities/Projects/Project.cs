@@ -13,7 +13,16 @@ public class Project : ArchivableBaseEntity
     /// </summary>
     public string? HostManagedKey { get; set; }
 
+    /// <summary>
+    /// A restricted project: only its members (and Admins) reach it and the data sources it holds. False for an open
+    /// project, which every reader reaches at their global role. <c>Beacon:Authorization:RequireProjectMembership</c>
+    /// restricts every project whatever this says.
+    /// </summary>
+    public bool RequiresMembership { get; set; }
+
     public List<ProjectDataSource> DataSources { get; set; } = new();
     public List<GitHubRepository> Repositories { get; set; } = new();
     public List<ProjectDocumentation> Documentations { get; set; } = new();
+
+    public List<ProjectMember> Members { get; set; } = new();
 }

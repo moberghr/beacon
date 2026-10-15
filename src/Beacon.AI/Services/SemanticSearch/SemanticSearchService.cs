@@ -2,8 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -19,11 +21,20 @@ internal sealed class SemanticSearchService(
     IKnowledgeGraphService knowledgeGraphService,
     ILlmProvider llmProvider,
     IQueryGuardrailService guardrailService,
-    SqlReadOnlyAstValidator readOnlyAstValidator,
+    ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
     IDataSourceProviderFactory providerFactory,
+    IProjectAccessEvaluator projectAccess,
+    IBeaconActorAccessor actorAccessor,
     ILogger<SemanticSearchService> logger) : ISemanticSearchService
 {
+    /// <summary>What a failed answer says: the failure's own text stays in the server log.</summary>
+    public const string FailedMessage = "The question could not be answered; try again or rephrase it.";
+
     private const int _defaultMaxRows = 100;
+
+    // How long the generated statement may run, as the MCP query tool allows.
+    private static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
     private const string _systemPrompt =
         """
         You are an expert SQL analyst. Your job is to translate a natural language question into a correct,
@@ -42,6 +53,7 @@ internal sealed class SemanticSearchService(
     /// </summary>
     public async Task<SemanticSearchResult> AskAsync(
         int dataSourceId,
+        int projectId,
         string question,
         bool execute = true,
         CancellationToken ct = default)
@@ -49,10 +61,14 @@ internal sealed class SemanticSearchService(
         if (string.IsNullOrWhiteSpace(question))
             return new SemanticSearchResult(string.Empty, null, null, "Question cannot be empty");
 
+        // Generating and running SQL from a question is the Query action, in the caller's project; refused before any
+        // LLM call or SQL.
+        await DemandQueryAsync(projectId, ct);
+
         try
         {
-            // 1. Build schema context for the LLM
-            var schemaContext = await knowledgeGraphService.GetContextForLlmAsync(dataSourceId, ct: ct);
+            // 1. Build schema context for the LLM, from the caller's project only (a source it does not link is not found)
+            var schemaContext = await knowledgeGraphService.GetContextForLlmAsync(dataSourceId, projectId, ct: ct);
 
             // 2. Generate SQL via LLM
             var userPrompt = $"""
@@ -90,55 +106,54 @@ internal sealed class SemanticSearchService(
                 "SQL generated for DataSource {DataSourceId} ({SqlLength} chars)",
                 dataSourceId, generatedSql.Length);
 
-            // 3. Validate query with the regex guardrail (write-op + PII column detection)
-            var validation = guardrailService.ValidateQuery(generatedSql, new QueryGuardrailOptions
+            // 3. Load the data source: the gate judges the SQL in its dialect.
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            var dataSource = await context.DataSources
+                .Where(x => x.Id == dataSourceId)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+            // 4. The shared execution gate (§1.5): the regex guardrail and the read-only AST in the source's dialect, names
+            // in the source's own configured database only, the host policy, PII columns, and the row cap written into the
+            // SQL — a bound of the statement's own above it is lowered.
+            var report = gate.Evaluate(new SqlGateRequest(
+                generatedSql,
+                DataSourceSqlDialect.Of(dataSource),
+                EnforceReadOnly: true,
+                DetectPii: true,
+                CustomPiiPatterns: null,
+                Catalog: null,
+                BlockOnSchemaFailure: false,
+                LintContext: null,
+                EnableSemanticLint: false,
+                MaxRows: _defaultMaxRows)
             {
-                ReadOnly = true,
-                MaxRows = _defaultMaxRows,
-                DetectPii = true
+                HostManagedKey = dataSource.HostManagedKey,
+                ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
             });
-
-            if (!validation.IsValid)
+            if (report.Blocked)
             {
                 return new SemanticSearchResult(
                     generatedSql,
                     explanation,
                     null,
-                    $"Generated query failed safety validation: {validation.Error}");
-            }
-
-            // AST-based read-only enforcement as defense-in-depth on top of the regex guardrail (§1.5).
-            var astError = readOnlyAstValidator.Validate(generatedSql);
-            if (astError != null)
-            {
-                return new SemanticSearchResult(
-                    generatedSql,
-                    explanation,
-                    null,
-                    $"Generated query failed safety validation: {astError}");
+                    $"Generated query failed safety validation: {report.BlockReason}");
             }
 
             if (!execute)
                 return new SemanticSearchResult(generatedSql, explanation, null, null);
 
-            // 4. Load the data source entity
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-            var dataSource = await context.DataSources
-                .Where(ds => ds.Id == dataSourceId)
-                .FirstOrDefaultAsync(ct)
-                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
-
-            // 5. Apply row limit and execute
-            var engine = dataSource.DatabaseEngineType?.ToString();
-            var limitedSql = guardrailService.ApplyRowLimit(generatedSql, _defaultMaxRows, engine);
-
+            // 5. §1.5 backstop — the gate's SQL on the read-only path (a READ ONLY transaction where the engine has one;
+            // the warehouse connectors' own binding verdict otherwise), within a bounded statement timeout.
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-            var queryResult = await provider.ExecuteQueryAsync(
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(StatementTimeout);
+            var queryResult = await provider.ExecuteReadOnlyQueryAsync(
                 dataSource,
-                limitedSql,
+                report.FinalSql,
                 new Dictionary<string, object?>(),
-                ct);
+                timeoutCts.Token);
 
             if (!queryResult.Success)
             {
@@ -151,7 +166,7 @@ internal sealed class SemanticSearchService(
 
             // 6. Optionally mask PII columns
             var rows = queryResult.Rows;
-            if (validation.PiiColumns is { Count: > 0 } piiCols && rows.Count > 0)
+            if (report.PiiColumns is { Count: > 0 } piiCols && rows.Count > 0)
             {
                 rows = rows
                     .Select(row => guardrailService.MaskPiiValues(row, piiCols))
@@ -164,14 +179,40 @@ internal sealed class SemanticSearchService(
 
             return new SemanticSearchResult(generatedSql, explanation, rows, null);
         }
+        catch (Exception ex) when (ex is BeaconException or InvalidOperationException or OperationCanceledException)
+        {
+            // A refusal (a data source the project does not link, a missing source) or a cancellation reaches the caller
+            // as it is, never as a failed answer.
+            throw;
+        }
         catch (Exception ex)
         {
+            // The exception's text can quote the database or the model (§1.11): logged, never returned.
             logger.LogError(ex, "Semantic search failed for DataSource {DataSourceId}", dataSourceId);
-            return new SemanticSearchResult(string.Empty, null, null, ex.Message);
+            return new SemanticSearchResult(string.Empty, null, null, FailedMessage);
         }
     }
 
     // --- Private helpers ---
+
+    private async Task DemandQueryAsync(int projectId, CancellationToken ct)
+    {
+        var scope = await projectAccess.GetScopeAsync(ct);
+        if (scope.Allows(projectId, ProjectAction.Query))
+        {
+            return;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(ct);
+        if (!scope.Allows(projectId, ProjectAction.Read))
+        {
+            AccessRefusal.Hidden(logger, actor, nameof(ProjectResourceKind.Project), projectId, ProjectAction.Query, AccessRefusal.NotReadable);
+
+            throw new BeaconNotFoundException($"Project {projectId} not found.");
+        }
+
+        throw AccessRefusal.Of(logger, actor, $"project ({ProjectAction.Query})", projectId, "Query is not allowed in this project.");
+    }
 
     /// <summary>
     /// Parses the LLM response to extract the SQL block and optional explanation text.

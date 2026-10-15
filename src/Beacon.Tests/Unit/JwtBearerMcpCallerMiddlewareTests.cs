@@ -21,6 +21,7 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.MCP.Services;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -76,7 +77,7 @@ public class JwtBearerMcpCallerMiddlewareTests
         context.Items[typeof(McpCaller)].Should().BeOfType<McpCaller>()
             .Which.HostClaims.Should().BeEmpty();
 
-        var projectContext = CreateProjectContext(context);
+        var projectContext = await CreateProjectContextAsync(context);
         projectContext.AllowedProjectIds.Should().Equal(7);
         projectContext.UserId.Should().BeNull();
         projectContext.ApiKeyId.Should().BeNull("a token cannot pose as an API key");
@@ -116,7 +117,7 @@ public class JwtBearerMcpCallerMiddlewareTests
         user.FindFirst("caller_kind")!.Value.Should().Be("User");
         (await AuthorizeExecuteAsync(user)).Should().BeTrue();
 
-        var projectContext = CreateProjectContext(context);
+        var projectContext = await CreateProjectContextAsync(context);
         projectContext.UserId.Should().Be(17, "audit rows get the Beacon user");
         projectContext.AllowedProjectIds.Should().Equal(3);
     }
@@ -131,27 +132,46 @@ public class JwtBearerMcpCallerMiddlewareTests
         user.FindFirst("allowed_projects").Should().BeNull();
         context.Items.ContainsKey(typeof(McpCaller)).Should().BeFalse();
         (await AuthorizeExecuteAsync(user)).Should().BeFalse("an unknown JWT caller gets 403 on /beacon/mcp");
-        CreateProjectContext(context).AllowedProjectIds.Should().BeEmpty();
+        (await CreateProjectContextAsync(context)).AllowedProjectIds.Should().BeEmpty();
     }
 
     [Test]
-    public async Task OtherRoute_KeepsPassThroughClaims_ButStripsReservedOnes_AndSkipsTheMapper()
+    public async Task OtherRoute_IsTheBeaconUser_WithNoTokenClaims_AndSkipsTheMapper()
     {
         var mapper = new Mock<IMcpCallerMapper>(MockBehavior.Strict);
+        var userService = new Mock<IUserManagementService>();
+        userService
+            .Setup(x => x.GetBearerUserCandidatesAsync("pairwise-sub", Issuer, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new BearerUserCandidate
+                {
+                    User = new BeaconUserData
+                    {
+                        Id = 5,
+                        ExternalId = "pairwise-sub",
+                        IdentityProvider = Issuer,
+                        UserName = "ana",
+                        IsEnabled = true,
+                        Roles = [new BeaconRoleData { Id = 1, Name = "Editor", Level = 2 }]
+                    }
+                }
+            ]);
         var token = MintToken(
             DelegatedClaims(),
             new Claim("allowed_projects", "[99]"),
             new Claim("scope", "Admin"),
             new Claim("region", "eu"));
 
-        var (_, user) = await RunAsync("/beacon/api/projects", token, mapperOverride: mapper.Object);
+        var (_, user) = await RunAsync("/beacon/api/projects", token, userService: userService.Object, mapperOverride: mapper.Object);
 
-        user.FindFirst("region")!.Value.Should().Be("eu");
+        user.FindFirst("region").Should().BeNull("token claims do not reach a REST session");
         user.FindFirst("allowed_projects").Should().BeNull();
         user.FindFirst("scope").Should().BeNull();
         user.FindAll("auth_method").Select(x => x.Value).Should().Equal("jwt");
-        user.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be("pairwise-sub", "non-MCP identity is unchanged");
-        (await AuthorizeExecuteAsync(user)).Should().BeTrue("JWT callers outside MCP are not scope-gated");
+        user.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be("pairwise-sub");
+        user.FindAll(ClaimTypes.Role).Select(x => x.Value).Should().Equal("Editor");
+        (await AuthorizeExecuteAsync(user)).Should().BeTrue("a Beacon user's REST session is governed by role, not scope");
     }
 
     private static async Task<(HttpContext Context, ClaimsPrincipal User)> RunAsync(
@@ -192,7 +212,13 @@ public class JwtBearerMcpCallerMiddlewareTests
             },
             jwtOptions,
             NullLogger<JwtBearerAuthMiddleware>.Instance);
-        var context = new DefaultHttpContext();
+        var services = new ServiceCollection();
+        if (userService != null)
+        {
+            services.AddSingleton(userService);
+        }
+
+        var context = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         context.Request.Path = path;
         context.Request.Headers.Authorization = $"Bearer {token}";
 
@@ -245,13 +271,21 @@ public class JwtBearerMcpCallerMiddlewareTests
         ];
     }
 
-    private static IProjectContext CreateProjectContext(HttpContext context)
+    // The MCP context the request gets from its project access: projects 3 and 7 are open, user 17 is an Editor.
+    private static async Task<IProjectContext> CreateProjectContextAsync(HttpContext context)
     {
+        var world = new ProjectAccessWorld();
+        world.Project(3);
+        world.Project(7);
+        world.User(17, UserOid);
         var services = new ServiceCollection();
+        world.Register(services);
         services.AddScoped<McpProjectContext>();
         services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = context });
-        using var provider = services.BuildServiceProvider();
-        using var scope = provider.CreateScope();
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+
+        await ProjectContextFactory.PopulateAsync(scope.ServiceProvider, CancellationToken.None);
 
         return ProjectContextFactory.Create(scope.ServiceProvider);
     }

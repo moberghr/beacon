@@ -5,22 +5,29 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Data.Entities;
-
-
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.Queries;
 
-internal sealed class GetQueryChangeHistoryHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetQueryChangeHistoryHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetQueryChangeHistoryQuery, PagedList<QueryChangeHistoryItem>>
 {
     public async Task<PagedList<QueryChangeHistoryItem>> Handle(
         GetQueryChangeHistoryQuery request,
         CancellationToken cancellationToken)
     {
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Each change is shown only when the caller may read the data source it was made against (the query's other
+        // steps may read sources it cannot, and a step may since have moved to another source). A change recorded before
+        // its source was kept follows its step's current source.
         var query = context.QueryStepChangeHistory
-            .Where(c => c.QueryStep.QueryId == request.QueryId);
+            .Where(c => c.QueryStep.QueryId == request.QueryId)
+            .WhereSourceAccessible(context, scope.For(ProjectAction.Read), x => x.DataSourceId ?? x.QueryStep.DataSourceId);
 
         // Apply optional filters
         if (request.StepId.HasValue)
@@ -66,10 +73,11 @@ internal sealed class GetQueryChangeHistoryHandler(IDbContextFactory<BeaconConte
 }
 
 /// <summary>A query's SQL changes, newest first unless <c>sort</c> says otherwise. <c>QueryId</c> binds from the route.</summary>
-public record GetQueryChangeHistoryQuery : ListRequest, IRequest<PagedList<QueryChangeHistoryItem>>
+public record GetQueryChangeHistoryQuery : ListRequest, IRequest<PagedList<QueryChangeHistoryItem>>, IProjectAuthorizedRequest, IProjectFilteredRequest
 {
     public int QueryId { get; init; }
 
+    [ProjectScopeExempt("filter only: each change row is filtered by the data source it was made against")]
     public int? StepId { get; init; }
 
     public ChangeSource? ChangeSource { get; init; }
@@ -77,6 +85,11 @@ public record GetQueryChangeHistoryQuery : ListRequest, IRequest<PagedList<Query
     public DateTime? FromDate { get; init; }
 
     public DateTime? ToDate { get; init; }
+
+    IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
+    [
+        new(ProjectResource.Query(QueryId), ProjectAction.Read)
+    ];
 }
 
 public record QueryChangeHistoryItem

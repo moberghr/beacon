@@ -24,17 +24,16 @@ internal sealed class SavedQueryTestData
         Store.Projects.Add(project);
         foreach (var dataSource in dataSources)
         {
-            Store.ListFor<ProjectDataSource>().Add(new ProjectDataSource
-            {
-                Id = Store.NextId(),
-                ProjectId = id,
-                DataSourceId = dataSource.Id,
-                Project = project,
-                DataSource = dataSource
-            });
+            Link(project, dataSource);
         }
 
         return project;
+    }
+
+    /// <summary>Links <paramref name="dataSource"/> into the existing project <paramref name="projectId"/>.</summary>
+    public ProjectDataSource Link(int projectId, DataSource dataSource)
+    {
+        return Link(Store.Projects.First(x => x.Id == projectId), dataSource);
     }
 
     public DataSource DataSource(int id, string name, string? hostManagedKey = null, DatabaseEngineType engine = DatabaseEngineType.PostgreSQL)
@@ -121,6 +120,21 @@ internal sealed class SavedQueryTestData
         }
 
         return version;
+    }
+
+    private ProjectDataSource Link(Project project, DataSource dataSource)
+    {
+        var link = new ProjectDataSource
+        {
+            Id = Store.NextId(),
+            ProjectId = project.Id,
+            DataSourceId = dataSource.Id,
+            Project = project,
+            DataSource = dataSource
+        };
+        Store.ListFor<ProjectDataSource>().Add(link);
+
+        return link;
     }
 
     public static QueryStepSnapshot Step(int order, int dataSourceId, string sql, params QueryStepParameterSnapshot[] parameters) =>

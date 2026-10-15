@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -20,7 +21,9 @@ internal sealed record CandidateColumn(string Schema, string Table, ValueGroundi
 internal sealed class ValueGroundingService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
-    SqlReadOnlyAstValidator astValidator,
+    ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases,
+    IQueryGuardrailService guardrail,
     ILogger<ValueGroundingService> logger) : IValueGroundingService
 {
     private const int MaxLiterals = 4;
@@ -57,7 +60,7 @@ internal sealed class ValueGroundingService(
     private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled);
 
     public async Task<string> BuildValueMatchesBlockAsync(
-        int dataSourceId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
+        int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
     {
         if (!settings.EnableValueGrounding || tables.Count == 0)
         {
@@ -70,11 +73,22 @@ internal sealed class ValueGroundingService(
             return "";
         }
 
+        // A column whose values are never read to describe it (a PII, secret-like or financial-amount name) is neither
+        // matched against its samples nor probed.
+        var groundable = WithoutExcludedColumns(tables, settings);
+
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+            // Only through the caller's project: a data source it does not link is not found, so nothing is probed.
+            var projectSourceIds = context.ProjectDataSources
+                .WhereReadable()
+                .Where(x => x.ProjectId == projectId)
+                .Select(x => x.DataSourceId);
             var dataSource = await context.DataSources
                 .Where(x => x.Id == dataSourceId)
+                .Where(x => projectSourceIds.Contains(x.Id))
                 .FirstOrDefaultAsync(ct)
                 ?? throw new InvalidOperationException($"Data source {dataSourceId} not found.");
 
@@ -83,7 +97,8 @@ internal sealed class ValueGroundingService(
                 return "";
             }
 
-            var dialect = dataSource.DatabaseEngineType?.ToString();
+            var dialect = DataSourceSqlDialect.Of(dataSource);
+            var configuredDatabase = configuredDatabases.Resolve(dataSource);
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             var probesUsed = 0;
             var matchLines = new List<string>();
@@ -93,7 +108,7 @@ internal sealed class ValueGroundingService(
                 ct.ThrowIfCancellationRequested();
 
                 var hits = new List<string>();
-                var candidates = RankCandidateColumns(tables, literal);
+                var candidates = RankCandidateColumns(groundable, literal);
 
                 foreach (var candidate in candidates)
                 {
@@ -111,7 +126,7 @@ internal sealed class ValueGroundingService(
                     }
 
                     probesUsed++;
-                    var probeHits = await ProbeColumnAsync(provider, dataSource, dialect, candidate, literal, settings, ct);
+                    var probeHits = await ProbeColumnAsync(provider, dataSource, dialect, configuredDatabase, candidate, literal, settings, ct);
                     if (probeHits != null)
                     {
                         hits.AddRange(probeHits);
@@ -133,7 +148,7 @@ internal sealed class ValueGroundingService(
         catch (Exception ex)
         {
             // Never log the literal or probe SQL (§1.11) — a count is enough to diagnose.
-            logger.LogWarning(ex, "Value grounding probe failed for data source {DataSourceId}; injecting no value-matches block.", dataSourceId);
+            logger.LogWarning("Value grounding probe failed for data source {DataSourceId}; injecting no value-matches block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
             return "";
         }
     }
@@ -329,15 +344,31 @@ internal sealed class ValueGroundingService(
     }
 
     private async Task<IReadOnlyList<string>?> ProbeColumnAsync(
-        IDataSourceProvider provider, DataSource dataSource, string? dialect, CandidateColumn candidate, string literal,
-        McpSettingsData settings, CancellationToken ct)
+        IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, CandidateColumn candidate,
+        string literal, McpSettingsData settings, CancellationToken ct)
     {
         var sql = BuildProbeSql(dataSource.DatabaseEngineType, candidate.Schema, candidate.Table, candidate.Column.ColumnName, literal);
 
-        // R3/§1.5 — every probe passes the AST read-only gate before it ever reaches the provider, and
-        // executes through the read-only variant so PostgreSQL additionally runs it in a READ ONLY transaction.
-        var astError = astValidator.Validate(sql, dialect);
-        if (astError != null)
+        // §1.5 — every probe passes the shared execution gate (regex guardrail, read-only AST, the source's own
+        // database, the host policy) before it ever reaches the provider, and executes through the read-only variant
+        // (a READ ONLY transaction where the engine has one). The probe carries its own LIMIT/TOP, which the gate's row cap
+        // holds it to.
+        var report = gate.Evaluate(new SqlGateRequest(
+            sql,
+            dialect,
+            EnforceReadOnly: true,
+            DetectPii: false,
+            CustomPiiPatterns: null,
+            Catalog: null,
+            BlockOnSchemaFailure: false,
+            LintContext: null,
+            EnableSemanticLint: false,
+            MaxRows: ProbeResultLimit)
+        {
+            HostManagedKey = dataSource.HostManagedKey,
+            ConfiguredDatabase = configuredDatabase
+        });
+        if (report.Blocked)
         {
             return null;
         }
@@ -348,7 +379,7 @@ internal sealed class ValueGroundingService(
         ProviderQueryResult result;
         try
         {
-            result = await provider.ExecuteReadOnlyQueryAsync(dataSource, sql, new Dictionary<string, object?>(), timeoutCts.Token);
+            result = await provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, new Dictionary<string, object?>(), timeoutCts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -368,13 +399,25 @@ internal sealed class ValueGroundingService(
         }
 
         var values = ExtractColumnValues(result.Rows);
-        if (values.Count == 0 || PiiValueScreen.ContainsPiiValue(values, settings.CustomPiiPatterns))
+        if (values.Count == 0 || ColumnValueExclusions.ContainsExcludedValue(values, settings.CustomPiiPatterns))
         {
             return null;
         }
 
         return values
             .Select(x => $"{candidate.Schema}.{candidate.Table}.{candidate.Column.ColumnName} = '{EscapeForRender(x)}'")
+            .ToList();
+    }
+
+    private IReadOnlyList<ValueGroundingTable> WithoutExcludedColumns(IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings)
+    {
+        return tables
+            .Select(x => x with
+            {
+                Columns = x.Columns
+                    .Where(y => !ColumnValueExclusions.IsExcludedColumn(guardrail, y.ColumnName, settings.CustomPiiPatterns))
+                    .ToList()
+            })
             .ToList();
     }
 

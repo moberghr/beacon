@@ -14,6 +14,7 @@ using Beacon.Core.SqlServer;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Worker;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -88,7 +89,7 @@ public class ContentRetentionWiringTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Beacon:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                ["Beacon:EncryptionKey"] = TestEncryptionKey.Value
             })
             .Build();
 

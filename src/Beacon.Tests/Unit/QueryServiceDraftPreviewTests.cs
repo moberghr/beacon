@@ -87,17 +87,7 @@ public class QueryServiceDraftPreviewTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new DataSourcesOnlyContext());
 
-        return new QueryService(
-            factory.Object,
-            Mock.Of<Beacon.Core.HostData.IDataSourceConnectionResolver>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            NullLogger<QueryService>.Instance,
-            NullLoggerFactory.Instance,
-            Mock.Of<IQueryVersionService>(),
-            null!,
-            Mock.Of<IBeaconUserContext>(),
-            new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
-            Mock.Of<Beacon.Core.HostData.IHostDataSourceGuard>());
+        return TestQueryServices.QueryService(factory.Object);
     }
 
     private sealed class DataSourcesOnlyContext : BeaconContext

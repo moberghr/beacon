@@ -133,6 +133,32 @@ public class SqlReadOnlyAstValidatorTests
         _validator.Validate("SELECT * INTO evil FROM orders", dialect).Should().NotBeNullOrWhiteSpace();
     }
 
+    // The parser nests block comments; an engine that ends a comment at its first `*/` would read a different
+    // statement than the one validated, so nesting is refused for every engine that does not nest comments too.
+    [TestCase("SQLite", "SELECT 1 /* /* */ ; SELECT 2; -- */")]
+    [TestCase("MySQL", "SELECT 1 /* /* */ ; SELECT 2; -- */")]
+    [TestCase("MySQL", @"SELECT 'a\'' /* /* */ ; SELECT 2; -- */")]
+    [TestCase("SQLite", "SELECT 1 /* /*/ */")]
+    [TestCase("Snowflake", "SELECT 1 /* /* */ -- */")]
+    public void Validate_NestedBlockComment_IsRejectedWhereTheEngineDoesNotNest(string? dialect, string sql)
+    {
+        _validator.Validate(sql, dialect).Should().StartWith("Nested block comments are not allowed");
+    }
+
+    [TestCase("PostgreSQL")]
+    [TestCase("MSSQL")]
+    public void Validate_NestedBlockComment_PassesWhereTheEngineNestsToo(string dialect)
+    {
+        _validator.Validate("SELECT 1 /* outer /* inner */ still outer */", dialect).Should().BeNull();
+    }
+
+    [TestCase("SQLite")]
+    [TestCase("MySQL")]
+    public void Validate_SeparateBlockComments_Pass(string dialect)
+    {
+        _validator.Validate("SELECT /* first */ 1 /* second */", dialect).Should().BeNull();
+    }
+
     [Test]
     public void Validate_UnparseableSql_IsRejected()
     {
@@ -166,8 +192,9 @@ public class SqlReadOnlyAstValidatorTests
     }
 
     [Test]
-    public void Validate_UnknownDialect_FallsBackToGeneric()
+    public void Validate_UnknownDialect_IsRejected()
     {
-        _validator.Validate("DELETE FROM orders", "SomethingElse").Should().NotBeNullOrWhiteSpace();
+        // A generic grammar matches no engine's lexing, so an unknown dialect fails closed instead of falling back.
+        _validator.Validate("SELECT * FROM orders", "SomethingElse").Should().StartWith("The SQL dialect of this data source is not known");
     }
 }

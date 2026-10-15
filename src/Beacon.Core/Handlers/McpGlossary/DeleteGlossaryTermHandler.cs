@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
@@ -28,4 +29,5 @@ internal sealed class DeleteGlossaryTermHandler(IDbContextFactory<BeaconContext>
     }
 }
 
+[ProjectScopeExempt("admin-gated curation (the glossary)", Policy = ProjectScopeExemptAttribute.AdminPolicy)]
 public record DeleteGlossaryTermCommand(int Id) : IRequest;

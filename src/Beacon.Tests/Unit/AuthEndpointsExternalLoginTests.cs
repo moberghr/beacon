@@ -18,33 +18,33 @@ public class AuthEndpointsExternalLoginTests
 {
     [TestCase(true)]
     [TestCase(false)]
-    public void GetCurrentUser_ExternalLoginConfigured_ReportsLoginUrlAndParameter(bool authenticated)
+    public async Task GetCurrentUser_ExternalLoginConfigured_ReportsLoginUrlAndParameter(bool authenticated)
     {
         var options = new BeaconApiOptions
         {
             ExternalLogin = new ExternalLoginOptions { LoginUrl = "/Account/Login", ReturnUrlParameter = "next" }
         };
 
-        var response = AuthEndpoints.GetCurrentUser(CreateUserContext(authenticated), new DefaultHttpContext(), options);
+        var response = await AuthEndpoints.GetCurrentUser(CreateUserContext(authenticated), new DefaultHttpContext(), options);
 
         response.IsAuthenticated.Should().Be(authenticated);
         response.ExternalLogin.Should().Be(new ExternalLoginResponse("/Account/Login", "next"));
     }
 
     [Test]
-    public void GetCurrentUser_ExternalLoginDefaultParameter_IsReturnUrl()
+    public async Task GetCurrentUser_ExternalLoginDefaultParameter_IsReturnUrl()
     {
         var options = new BeaconApiOptions { ExternalLogin = new ExternalLoginOptions { LoginUrl = "/Account/Login" } };
 
-        var response = AuthEndpoints.GetCurrentUser(CreateUserContext(false), new DefaultHttpContext(), options);
+        var response = await AuthEndpoints.GetCurrentUser(CreateUserContext(false), new DefaultHttpContext(), options);
 
         response.ExternalLogin!.ReturnUrlParameter.Should().Be("returnUrl");
     }
 
     [Test]
-    public void GetCurrentUser_NoExternalLogin_ReportsNull()
+    public async Task GetCurrentUser_NoExternalLogin_ReportsNull()
     {
-        var response = AuthEndpoints.GetCurrentUser(CreateUserContext(false), new DefaultHttpContext(), new BeaconApiOptions());
+        var response = await AuthEndpoints.GetCurrentUser(CreateUserContext(false), new DefaultHttpContext(), new BeaconApiOptions());
 
         response.ExternalLogin.Should().BeNull("without the option the shell keeps Beacon's own login page");
     }

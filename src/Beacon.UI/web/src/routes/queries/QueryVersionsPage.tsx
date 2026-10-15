@@ -1,10 +1,11 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ChevronRight, Layers } from 'lucide-react';
-import { PageHeader } from '@/components/beacon';
+import { PageHeader, Pill } from '@/components/beacon';
+import { QueryVersionStatus } from '@/lib/enums';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
-import { useQueryVersionsList, type QueryVersionSummary } from './queries';
+import { QUERY_VERSION_STATUS_LABEL, useQueryVersionsList, type QueryVersionSummary } from './queries';
 
 const COLUMNS: Column<QueryVersionSummary>[] = [
   {
@@ -21,6 +22,18 @@ const COLUMNS: Column<QueryVersionSummary>[] = [
         {v.label && <div className="text-xs text-text-muted mt-0.5">{v.label}</div>}
       </div>
     ),
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: v =>
+      v.status != null ? (
+        <Pill tone={v.status === QueryVersionStatus.Active ? 'ok' : v.status === QueryVersionStatus.PendingApproval ? 'warn' : 'neutral'}>
+          {QUERY_VERSION_STATUS_LABEL[v.status] ?? `status ${v.status}`}
+        </Pill>
+      ) : (
+        '—'
+      ),
   },
   {
     key: 'steps',
@@ -51,7 +64,7 @@ const COLUMNS: Column<QueryVersionSummary>[] = [
   },
 ];
 
-const GRID_TEMPLATE = '0.6fr 2fr 0.6fr 1fr 1.2fr 1.4fr 28px';
+const GRID_TEMPLATE = '0.6fr 2fr 1fr 0.6fr 1fr 1.2fr 1.4fr 28px';
 
 export default function QueryVersionsPage() {
   const { id } = useParams();

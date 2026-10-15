@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import {
   BeaconHero,
+  type BeaconHeroProps,
   Button,
   Card,
   CardHead,
@@ -40,6 +41,15 @@ import {
 } from './queries';
 import { HomeKpi, StatRow, FeedItem } from './atoms';
 import { MigrationOverviewCard, TaskMgmtCard } from './sections';
+
+// The uptime strip: the server marks an hour "warn" when a scheduled run was skipped (its owner may no longer run it).
+const UPTIME_TICK_TITLES: BeaconHeroProps['tickTitles'] = { warn: 'runs skipped' };
+
+const UPTIME_LEGEND: BeaconHeroProps['legend'] = [
+  { tick: 'ok', label: 'ok' },
+  { tick: 'warn', label: 'skipped' },
+  { tick: 'crit', label: 'failed' },
+];
 
 // ── Time range helpers ────────────────────────────────────────────────────────
 
@@ -123,6 +133,8 @@ export default function HomePage() {
       <BeaconHero
         user={firstName}
         ticks={uptime?.ticks}
+        tickTitles={UPTIME_TICK_TITLES}
+        legend={UPTIME_LEGEND}
         meta={{
           executions30d: trends?.queryExecutions30d ?? 0,
           anomalies: anomaliesOpen,
