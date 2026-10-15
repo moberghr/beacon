@@ -355,7 +355,9 @@ internal sealed class AskSqlPipeline(
 
         var execResult = await ExecuteForAsync(McpStatementPurposes.Initial, executor, dataSourceId, generatedSql, ct);
 
-        if (!execResult.IsSuccess && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
+        // A statement Beacon refused before it ran (a cost limit) is not repaired: the limit, not the SQL's correctness,
+        // stopped it, so the call ends with the refusal.
+        if (!execResult.IsSuccess && !execResult.Refused && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;
             var redactedExecutionError = RedactedError(execResult.ErrorMessage, generatedSql);
@@ -434,7 +436,9 @@ internal sealed class AskSqlPipeline(
             }
         }
 
-        text += execResult.FormattedResult ?? $"**Execution Error:** {CallerError(execResult.ErrorMessage ?? "", generatedSql)}\n";
+        text += execResult.Refused
+            ? $"**Refused:** {execResult.ErrorMessage}\n"
+            : execResult.FormattedResult ?? $"**Execution Error:** {CallerError(execResult.ErrorMessage ?? "", generatedSql)}\n";
         lintFindings = RelintFinalSql(generatedSql);
         AppendSemanticWarnings();
 

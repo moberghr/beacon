@@ -96,6 +96,30 @@ public class AskSqlPipelineTests
         log.CurrentPurpose.Should().BeNull("each purpose ends with its execution");
     }
 
+    // A statement Beacon refused before it ran (MaxExplainCost) ends the call: no repair is generated or run, and the
+    // caller reads the refusal as written.
+    [Test]
+    public async Task RunAsync_RefusedStatement_IsNotRepaired()
+    {
+        const string refusal = "The query's estimated cost (5000) exceeds this project's limit (100). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["sales"]));
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, refusal, 0, false, Refused: true));
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.Succeeded.Should().BeFalse();
+        outcome.Repairs.Should().BeEmpty();
+        outcome.Text.Should().Contain($"**Refused:** {refusal}");
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _executor.Verify(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Test]
     public async Task RunAsync_SchemaThenExecutionRepairSucceeds_IsScoredPass()
     {

@@ -65,7 +65,7 @@ internal sealed class QueryExecutionService(
 
         if (costRefusal != null)
         {
-            return new QueryExecutionResult(null, costRefusal, 0, false);
+            return new QueryExecutionResult(null, costRefusal, 0, false, Refused: true);
         }
 
         if (result.Success && result.Rows?.Count > 0)
