@@ -417,6 +417,109 @@ public class ProjectQueryToolSchemaGateTests
             .Should().Contain("*1 column(s) of this host data source result were masked because the database named them differently than the host policy checked them.*");
     }
 
+    // The recorded MCP limits on the query tool: the data source's resolved settings (the strictest of the projects that
+    // link it) set the statement timeout, the result size budget and the concurrent-query limit.
+    [Test]
+    public async Task TheStatement_RunsWithinTheDataSourcesResolvedTimeout()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns<DataSource, string, Dictionary<string, object?>, CancellationToken>(async (_, _, _, token) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), token);
+                return new ProviderQueryResult { Success = true, Rows = [] };
+            });
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { StatementTimeoutSeconds = 1 })).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout cancelled the statement, not the 30 s default");
+        (result.IsError ?? false).Should().BeTrue();
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().NotBeNullOrEmpty();
+    }
+
+    [Test]
+    public async Task AResultOverTheResolvedMaxResultBytes_ReturnsFewerRows_TruncatedBySize()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = Enumerable.Range(1, 40)
+                    .Select(x => new Dictionary<string, object?> { ["id"] = x, ["note"] = new string('x', 500) })
+                    .ToList()
+            });
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxResultBytes = 4096 })).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id, note FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse("a result over the size budget is truncated, never failed");
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("_Further rows omitted — response size budget reached._");
+        var structured = result.StructuredContent!.Value;
+        structured.GetProperty("truncated").GetBoolean().Should().BeTrue();
+        structured.GetProperty("rows_omitted_for_size").GetBoolean().Should().BeTrue();
+        structured.GetProperty("rows").GetArrayLength().Should().BeInRange(1, 39);
+        _auditLogs.Should().ContainSingle().Which.ResultRowCount.Should().Be(40);
+    }
+
+    [Test]
+    public async Task AtTheConcurrencyLimit_TheCallIsRefusedBeforeTheProvider_AndAuditedWithASignal()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var limiter = new McpQueryConcurrencyLimiter();
+        using var running = limiter.TryAcquire($"user:{CallerUserId}", 2);
+        using var another = limiter.TryAcquire($"user:{CallerUserId}", 2);
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxConcurrentQueriesPerKey = 2 }), limiter: limiter).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _auditLogs.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { Tool = "query", ErrorMessage = McpQueryConcurrencyLimiter.RefusalMessage, ProjectId = (int?)ProjectId, DataSourceId = (int?)DataSourceId },
+            x => x.ExcludingMissingMembers());
+        _signals.Should().ContainSingle().Which.ExecutionError.Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+        limiter.InFlight($"user:{CallerUserId}").Should().Be(2, "the refused call took no slot");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task TheSlot_IsHeldWhileTheStatementRuns_AndReleasedAfterSuccessOrFailure(bool providerThrows)
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var limiter = new McpQueryConcurrencyLimiter();
+        var inFlightDuringRun = -1;
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, _, _, _) =>
+            {
+                inFlightDuringRun = limiter.InFlight($"user:{CallerUserId}");
+                return providerThrows
+                    ? throw new InvalidOperationException("connection reset")
+                    : Task.FromResult(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["id"] = 1 }] });
+            });
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 }), limiter: limiter).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().Be(providerThrows);
+        inFlightDuringRun.Should().Be(1);
+        limiter.InFlight($"user:{CallerUserId}").Should().Be(0);
+    }
+
+    private static ISharedSourceSettings Shared(McpSettingsData settings)
+    {
+        var sharedSources = new Mock<ISharedSourceSettings>();
+        sharedSources
+            .Setup(x => x.GetEffectiveSettingsAsync(ProjectId, It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { DataSourceId })), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(settings);
+
+        return sharedSources.Object;
+    }
+
     private void WithCatalog(Dictionary<string, HashSet<string>> catalog)
     {
         _knowledgeGraph
@@ -424,7 +527,7 @@ public class ProjectQueryToolSchemaGateTests
             .ReturnsAsync(catalog);
     }
 
-    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null)
+    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null, McpQueryConcurrencyLimiter? limiter = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -456,6 +559,7 @@ public class ProjectQueryToolSchemaGateTests
             projectContext,
             auditService,
             signalService,
+            limiter ?? new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectQueryTool>.Instance);
     }
 

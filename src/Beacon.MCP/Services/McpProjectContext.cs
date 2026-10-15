@@ -28,6 +28,12 @@ internal interface IProjectContext
     int? ApiKeyId { get; set; }
 
     /// <summary>
+    /// A mapped MCP caller's keyed subject hash (the <c>caller_hash</c> claim), the credential its concurrent queries are
+    /// counted under when it has no API key (<see cref="McpQueryConcurrencyLimiter"/>); null for other callers.
+    /// </summary>
+    string? CallerHash { get; set; }
+
+    /// <summary>
     /// The caller's project access could not be determined (the evaluator or the database failed): the context reaches no
     /// project, and callers are told to retry rather than that they have no projects.
     /// </summary>
@@ -41,6 +47,7 @@ internal sealed class McpProjectContext : IProjectContext
     public int? ActiveProjectId { get; set; }
     public int? UserId { get; set; }
     public int? ApiKeyId { get; set; }
+    public string? CallerHash { get; set; }
     public bool AccessUndetermined { get; set; }
 }
 
@@ -82,6 +89,7 @@ internal static class ProjectContextFactory
         context.QueryProjectIds = [];
         context.UserId = null;
         context.ApiKeyId = null;
+        context.CallerHash = null;
         context.AccessUndetermined = false;
 
         var user = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
@@ -105,6 +113,8 @@ internal static class ProjectContextFactory
             context.ApiKeyId = int.TryParse(user.FindFirst(McpCallerClaimTypes.ApiKeyId)?.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var apiKeyId)
                 ? apiKeyId
                 : null;
+            var callerHash = user.FindFirst(McpCallerClaimTypes.CallerHash)?.Value;
+            context.CallerHash = string.IsNullOrEmpty(callerHash) ? null : callerHash;
 
             var scope = await services.GetRequiredService<IProjectAccessEvaluator>().GetScopeAsync(cancellationToken);
             var readable = scope.For(ProjectAction.Read);

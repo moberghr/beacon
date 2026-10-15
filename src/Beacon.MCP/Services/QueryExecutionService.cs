@@ -26,10 +26,15 @@ internal sealed class QueryExecutionService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
+        // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId); 0 falls
+        // back to the global effective settings — with the strictest guardrails of the live projects that link the source.
+        // Resolved before execution: the statement timeout and the result size budget come from them.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
+
         var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, DataSourceSqlDialect.Of(dataSource));
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
         // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL and MySQL
         // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
         // non-database providers forward to normal execution and rely on the parser gates upstream.
@@ -40,10 +45,6 @@ internal sealed class QueryExecutionService(
             limitedSql,
             () => provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token),
             x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
-
-        // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId); 0 falls
-        // back to the global effective settings — with the strictest guardrails of the live projects that link the source.
-        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
 
         if (result.Success && result.Rows?.Count > 0)
         {
@@ -71,9 +72,9 @@ internal sealed class QueryExecutionService(
                 DataSourceSqlDialect.Of(dataSource));
 
             var text = $"### Results ({rows.Count} rows)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
+            text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows, settings.MaxResultBytes);
 
-            return new QueryExecutionResult(text, null, rows.Count, true, ToolHelper.BuildStructuredPayload(rows, maxRows));
+            return new QueryExecutionResult(text, null, rows.Count, true, ToolHelper.BuildStructuredPayload(rows, maxRows, settings.MaxResultBytes));
         }
 
         if (!result.Success)

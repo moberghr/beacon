@@ -29,6 +29,7 @@ internal sealed class ProjectQueryTool(
     IProjectContext projectContext,
     McpAuditService auditService,
     McpSignalService signalService,
+    McpQueryConcurrencyLimiter concurrencyLimiter,
     ILogger<ProjectQueryTool> logger)
 {
     [McpServerTool(Name = "query", Title = "Run Read-Only Query", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
@@ -82,6 +83,13 @@ internal sealed class ProjectQueryTool(
         // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
         var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
         var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
+
+        // MaxConcurrentQueriesPerKey: refused at once, never queued, and audited like every other refusal (§1.7/§9.5).
+        using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
+        if (lease == null)
+        {
+            return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, McpQueryConcurrencyLimiter.RefusalMessage, cancellationToken);
+        }
 
         try
         {
@@ -143,7 +151,7 @@ internal sealed class ProjectQueryTool(
 
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
             // §1.5 backstop — SQL executes through the read-only path. The database-level guarantee
             // is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above. API
@@ -191,8 +199,8 @@ internal sealed class ProjectQueryTool(
                     isApi ? null : queryText,
                     DataSourceSqlDialect.Of(dataSource));
 
-                text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
-                structured = ToolHelper.BuildStructuredPayload(rows, maxRows);
+                text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows, settings.MaxResultBytes);
+                structured = ToolHelper.BuildStructuredPayload(rows, maxRows, settings.MaxResultBytes);
             }
 
             sw.Stop();

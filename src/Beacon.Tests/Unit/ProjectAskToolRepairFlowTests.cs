@@ -526,6 +526,7 @@ public class ProjectAskToolRepairFlowTests
             knowledgeAnswer.Object,
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectAskTool>.Instance);
 
         var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
@@ -584,6 +585,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectAskTool>.Instance);
 
         await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
@@ -741,6 +743,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
@@ -824,6 +827,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
@@ -994,6 +998,7 @@ public class ProjectAskToolRepairFlowTests
             knowledgeAnswer ?? Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(deploymentOptions ?? new McpDeploymentOptions()),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectAskTool>.Instance);
     }
 

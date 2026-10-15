@@ -185,7 +185,7 @@ internal sealed class CrossSourceQueryService(
             var limitedSql = finalReport.FinalSql;
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
             // §1.5 backstop — per-source execution goes through the read-only path. The database-level
             // guarantee is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above.
@@ -291,7 +291,7 @@ internal sealed class CrossSourceQueryService(
             return (text, false);
         }
 
-        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, 30);
+        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, settings.StatementTimeoutSeconds);
 
         if (timedOut)
         {
@@ -316,7 +316,7 @@ internal sealed class CrossSourceQueryService(
                 "SQLite");
 
             text += $"### Final Results ({joinedRows.Count} rows, {execTimeMs:F0}ms)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(joinedRows);
+            text += ToolHelper.FormatResultsAsMarkdown(joinedRows, maxResultBytes: settings.MaxResultBytes);
         }
         else
         {

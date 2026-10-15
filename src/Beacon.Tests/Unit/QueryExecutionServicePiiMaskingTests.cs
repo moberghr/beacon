@@ -189,6 +189,68 @@ public class QueryExecutionServicePiiMaskingTests
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != 7), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // The recorded MCP limits apply on the ask path: the statement timeout and the result size budget are the active
+    // project's resolved settings, not constants. Global is 30 s / 256 KB; project 7 is tighter.
+    [Test]
+    public async Task ExecuteAsync_RunsWithinTheProjectsResolvedStatementTimeout()
+    {
+        var service = BuildService(
+            piiDetectionOn: false,
+            activeProjectId: 7,
+            perProject: new Dictionary<int, McpSettingsData> { [7] = new McpSettingsData { StatementTimeoutSeconds = 1 } },
+            execute: async token =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), token);
+                return new ProviderQueryResult { Success = true, Rows = [] };
+            });
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => service.ExecuteAsync(1, "SELECT name FROM users", 100, CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the 1 s project timeout cancelled the statement, not the 30 s default");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_AResultOverTheProjectsMaxResultBytes_ReturnsFewerRows_TruncatedBySize()
+    {
+        var rows = Enumerable.Range(1, 40)
+            .Select(x => new Dictionary<string, object?> { ["id"] = x, ["note"] = new string('x', 500) })
+            .ToList();
+        var service = BuildService(
+            piiDetectionOn: false,
+            activeProjectId: 7,
+            perProject: new Dictionary<int, McpSettingsData> { [7] = new McpSettingsData { MaxResultBytes = 4096 } },
+            rows: rows);
+
+        var result = await service.ExecuteAsync(1, "SELECT id, note FROM users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.FormattedResult.Should().Contain("_Further rows omitted — response size budget reached._");
+        System.Text.Encoding.UTF8.GetByteCount(result.FormattedResult!).Should().BeLessThan(4096 + 1024, "only the table is budgeted, the heading and notes are small");
+        var structured = result.Structured!.AsObject();
+        structured["truncated"]!.GetValue<bool>().Should().BeTrue();
+        structured["rows_omitted_for_size"]!.GetValue<bool>().Should().BeTrue();
+        structured["row_count"]!.GetValue<int>().Should().Be(40);
+        structured["rows"]!.AsArray().Count.Should().BeInRange(1, 39);
+        System.Text.Encoding.UTF8.GetByteCount(structured.ToJsonString()).Should().BeLessThanOrEqualTo(4096);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_TheSameResultUnderTheDefaultMaxResultBytes_IsNotTruncated()
+    {
+        var rows = Enumerable.Range(1, 40)
+            .Select(x => new Dictionary<string, object?> { ["id"] = x, ["note"] = new string('x', 500) })
+            .ToList();
+        var service = BuildService(piiDetectionOn: false, rows: rows);
+
+        var result = await service.ExecuteAsync(1, "SELECT id, note FROM users", 100, CancellationToken.None);
+
+        result.FormattedResult.Should().NotContain("response size budget");
+        result.Structured!.AsObject().ContainsKey("rows_omitted_for_size").Should().BeFalse();
+        result.Structured!["rows"]!.AsArray().Count.Should().Be(40);
+    }
+
     [TestCase("SELECT * FROM users", "email")]
     [TestCase("SELECT customer_email FROM users", "customer_email")]
     [TestCase("SELECT email_address FROM users", "email_address")]
@@ -253,7 +315,8 @@ public class QueryExecutionServicePiiMaskingTests
         List<string>? executed = null,
         ISharedSourceSettings? sharedSources = null,
         ProviderQueryResult? result = null,
-        Beacon.Core.Models.Providers.QueryValidationResult? validation = null)
+        Beacon.Core.Models.Providers.QueryValidationResult? validation = null,
+        Func<CancellationToken, Task<ProviderQueryResult>>? execute = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -277,7 +340,7 @@ public class QueryExecutionServicePiiMaskingTests
                 It.IsAny<Dictionary<string, object?>>(),
                 It.IsAny<CancellationToken>()))
             .Callback<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, sql, _, _) => executed?.Add(sql))
-            .ReturnsAsync(providerResult);
+            .Returns<DataSource, string, Dictionary<string, object?>, CancellationToken>((_, _, _, token) => execute?.Invoke(token) ?? Task.FromResult(providerResult));
         provider
             .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(validation ?? new Beacon.Core.Models.Providers.QueryValidationResult { IsValid = true });

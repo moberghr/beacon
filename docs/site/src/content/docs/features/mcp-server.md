@@ -342,7 +342,9 @@ The MCP server enforces several safety measures:
 | **Shared data sources** | A source several live projects link runs, and is grounded, with the strictest guardrails among them | Always on |
 | **Row limits** | `query`: `max_rows` (default 100) capped at the max row limit; `ask` on one data source: 100 rows; cross-source: the max row limit | Max row limit 1000 |
 | **PII detection** | Detects and masks sensitive values in results | On; locked on by default (`Beacon:Mcp:ForcePiiDetection`) |
-| **Query timeout** | The `query` and `ask` tools use a fixed 30-second timeout (other Beacon paths use `Beacon:Query:StatementTimeoutSeconds`, default 120) | Always on |
+| **Query timeout** | Each statement `query`, `ask` and the saved-query tools run may take the project's **Statement timeout** (other Beacon paths use `Beacon:Query:StatementTimeoutSeconds`, default 120) | 30 seconds |
+| **Result size** | The markdown table and the structured result of `query`, `ask` and the saved-query tools are each held to the project's **Max result size**; a larger result returns fewer rows, marked as truncated by size (`truncated` plus `rows_omitted_for_size`, `rowsOmittedForSize` on saved-query tools) | 262,144 bytes |
+| **Concurrent queries** | One credential (an API key, else a mapped caller, else a Beacon user) may run up to the project's **Max concurrent queries per API key** `query`, `ask`, `dry_run` and saved-query calls at once on each Beacon instance; another call is refused at once with *Too many concurrent queries for this credential; retry shortly.* and audited | 4 |
 | **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters (see [MCP observability and audit](/features/mcp-observability-and-audit/)) | Always on |
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 | **Content retention** | Whether questions, SQL, and error text are persisted at all, per project, lockable deployment-wide | Retained |
@@ -449,7 +451,7 @@ The tabs:
 - **Read-only enforcement**: the SELECT-only restriction; locked on by default (see below)
 - **PII detection**: enable/disable, plus custom PII regex patterns; detection is locked on by default (see below)
 - **Row data sent to the LLM provider**: sample-value collection and value grounding, both off by default (see [What reaches the LLM provider](#what-reaches-the-llm-provider))
-- **Execution**: the two retention switches, **Retain question and SQL text in signals and audit** and **Allow the feedback tool to store question and SQL text** (see [Content retention](#content-retention)); and **Statement timeout (s)** (default 30), **Max result size (bytes)** (default 262144), **Max EXPLAIN cost** (blank = no limit) and **Max concurrent queries per API key** (default 4), which are recorded and shown in settings. The MCP `query` and `ask` tools use a fixed 30-second timeout
+- **Execution**: the two retention switches, **Retain question and SQL text in signals and audit** and **Allow the feedback tool to store question and SQL text** (see [Content retention](#content-retention)); and **Statement timeout (s)** (default 30), **Max result size (bytes)** (default 262144), **Max EXPLAIN cost** (blank = no limit) and **Max concurrent queries per API key** (default 4). The statement timeout, result size and concurrent-query limit apply to the MCP SQL tools (see the guardrails table above); the EXPLAIN cost limit is recorded and shown in settings only
 - **Learning**: **Enable learning**, auto-approve threshold (stored; auto-approval is decided by replay), injection budget, and signal retention
 
 **Context preview**

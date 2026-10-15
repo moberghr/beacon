@@ -85,7 +85,7 @@ Then the statement runs on the data source's provider:
 | BigQuery | The connector's own parser check and a dry run whose statement type must be `SELECT` |
 | Databricks | The connector's own parser check and configured catalog |
 
-The gate is the primary control and database-level read-only is defence in depth, so **every data source needs a read-only login**, on every engine. Data sources whose engine cannot refuse writes carry a badge, and Beacon warns at startup. Every statement has a timeout: `Beacon:Query:StatementTimeoutSeconds` (120 s by default) for scheduled runs, previews and Beacon's own reads, and a fixed 30 seconds for MCP `query` and `ask`. Every statement also honours the caller's cancellation.
+The gate is the primary control and database-level read-only is defence in depth, so **every data source needs a read-only login**, on every engine. Data sources whose engine cannot refuse writes carry a badge, and Beacon warns at startup. Every statement has a timeout: `Beacon:Query:StatementTimeoutSeconds` (120 s by default) for scheduled runs, previews and Beacon's own reads, and the project's MCP statement timeout (30 s by default) for MCP `query`, `ask` and the saved-query tools. Every statement also honours the caller's cancellation.
 
 ## 7. Masking and what leaves Beacon
 

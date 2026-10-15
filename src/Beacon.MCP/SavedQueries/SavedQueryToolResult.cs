@@ -9,19 +9,19 @@ namespace Beacon.MCP.SavedQueries;
 /// <summary>
 /// The machine-readable result of a saved-query tool call:
 /// <c>{ columns: [{name, type}], rows: [{column: value}], rowCount, truncated, queryVersionId, versionNumber }</c>.
-/// Held to the same byte budget as the other tools' structured payloads; rows dropped for size set
-/// <c>truncated</c> and <c>rowsOmittedForSize</c>.
+/// Held to the same byte budget as the other tools' structured payloads (the resolved <c>MaxResultBytes</c>); rows dropped
+/// for size set <c>truncated</c> and <c>rowsOmittedForSize</c>.
 /// </summary>
 internal static class SavedQueryToolResult
 {
-    public static JsonObject BuildStructured(SavedQueryToolDefinition tool, SavedQueryToolExecution execution)
+    public static JsonObject BuildStructured(SavedQueryToolDefinition tool, SavedQueryToolExecution execution, int maxResultBytes = ToolHelper.MaxStructuredPayloadBytes)
     {
         var columns = Columns(execution.Rows);
         var rowBudget = execution.Rows.Count;
         var payload = BuildPayload(tool, execution, columns, rowBudget);
 
         var trimmedForSize = false;
-        while (rowBudget > 0 && Encoding.UTF8.GetByteCount(payload.ToJsonString()) > ToolHelper.MaxStructuredPayloadBytes)
+        while (rowBudget > 0 && Encoding.UTF8.GetByteCount(payload.ToJsonString()) > maxResultBytes)
         {
             rowBudget /= 2;
             trimmedForSize = true;

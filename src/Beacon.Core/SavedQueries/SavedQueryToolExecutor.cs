@@ -36,7 +36,8 @@ public sealed record SavedQueryToolExecution(
 /// <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>; a final query joins the step results in in-memory
 /// SQLite behind the same gate. Unlike the UI's <c>QueryService</c> preview it never runs unbounded: the result is
 /// capped at the project's MCP row limit, and an intermediate step that exceeds <see cref="IntermediateRowCap"/> fails
-/// the call rather than feeding a silently incomplete join. Right before any SQL runs it re-checks the steps that run:
+/// the call rather than feeding a silently incomplete join. Each statement (every step and the final query) runs within the
+/// resolved MCP <c>StatementTimeoutSeconds</c>. Right before any SQL runs it re-checks the steps that run:
 /// the caller may still run stored SQL in the project, and the project still links every data source they read;
 /// otherwise the call fails without running anything.
 /// </summary>
@@ -62,7 +63,6 @@ internal sealed class SavedQueryToolExecutor(
     /// <summary>The most rows one intermediate step of a multi-step query may return before the call fails.</summary>
     public const int IntermediateRowCap = 50_000;
 
-    private const int StepTimeoutSeconds = 30;
     private const string SqliteDialect = "SQLite";
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<SavedQueryToolExecutor>();
@@ -137,7 +137,7 @@ internal sealed class SavedQueryToolExecutor(
 
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(StepTimeoutSeconds));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
 
             // §1.5 backstop — read-only execution path (a READ ONLY transaction on PostgreSQL and MySQL; parser gates
             // above for the other engines, see IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement).
@@ -238,7 +238,7 @@ internal sealed class SavedQueryToolExecutor(
             return SavedQueryToolExecution.Failed($"The final query failed validation: {report.BlockReason ?? "the SQL was rejected."}", tablesUsed, firstDataSourceId);
         }
 
-        var (results, _, timedOut) = await memDb.ExecuteQueryAsync(report.FinalSql, StepTimeoutSeconds);
+        var (results, _, timedOut) = await memDb.ExecuteQueryAsync(report.FinalSql, settings.StatementTimeoutSeconds);
         if (timedOut)
         {
             return SavedQueryToolExecution.Failed("The final query timed out.", tablesUsed, firstDataSourceId);

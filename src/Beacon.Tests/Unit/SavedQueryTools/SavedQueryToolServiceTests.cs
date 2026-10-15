@@ -301,6 +301,68 @@ public class SavedQueryToolServiceTests
         Audits.Should().ContainSingle(x => x.Tool == SavedQueryToolService.RunToolName);
     }
 
+    // MaxConcurrentQueriesPerKey: a run over the caller's limit is refused before the executor, and audited (§1.7).
+    [Test]
+    public async Task ARunOverTheConcurrencyLimit_IsRefusedBeforeTheExecutor_AndAudited()
+    {
+        _tools.Add(LoanBook([1]));
+        var limiter = new McpQueryConcurrencyLimiter();
+        using var running = limiter.TryAcquire("user:11", 1);
+        var settings = new Dictionary<int, McpSettingsData> { [1] = new McpSettingsData { RetainQueryContent = true, MaxConcurrentQueriesPerKey = 1 } };
+
+        var result = await Service([1], projectSettings: settings, limiter: limiter).CallAsync("q_loan_book", Json("""{ "from": "2026-01-01", "to": "2026-02-01" }"""), CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        Text(result).Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+        _executor.Verify(x => x.ExecuteAsync(It.IsAny<SavedQueryToolDefinition>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never);
+        Audits.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { Tool = "q_loan_book", ErrorMessage = McpQueryConcurrencyLimiter.RefusalMessage, ProjectId = (int?)1 },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ARun_ReleasesItsSlot_WhetherTheExecutorSucceedsOrThrows(bool executorThrows)
+    {
+        _tools.Add(LoanBook([1]));
+        var limiter = new McpQueryConcurrencyLimiter();
+        if (executorThrows)
+        {
+            _executor
+                .Setup(x => x.ExecuteAsync(It.IsAny<SavedQueryToolDefinition>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("the warehouse went away"));
+        }
+
+        var result = await Service([1], limiter: limiter).CallAsync("q_loan_book", Json("""{ "from": "2026-01-01", "to": "2026-02-01" }"""), CancellationToken.None);
+
+        (result.IsError ?? false).Should().Be(executorThrows);
+        limiter.InFlight("user:11").Should().Be(0);
+    }
+
+    // MaxResultBytes: the project's resolved budget bounds what is returned; a larger result comes back with fewer rows,
+    // marked as truncated by size, never as a failure.
+    [Test]
+    public async Task AResultOverTheProjectsMaxResultBytes_ReturnsFewerRows_TruncatedBySize()
+    {
+        _tools.Add(LoanBook([1]));
+        var rows = Enumerable.Range(1, 40)
+            .Select(x => new Dictionary<string, object?> { ["id"] = x, ["note"] = new string('x', 500) })
+            .ToList();
+        _executor
+            .Setup(x => x.ExecuteAsync(It.IsAny<SavedQueryToolDefinition>(), It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SavedQueryToolExecution(true, null, rows, false, 1000, ["loans"], 10));
+        var settings = new Dictionary<int, McpSettingsData> { [1] = new McpSettingsData { RetainQueryContent = true, MaxResultBytes = 4096 } };
+
+        var result = await Service([1], projectSettings: settings).CallAsync("q_loan_book", Json("""{ "from": "2026-01-01", "to": "2026-02-01" }"""), CancellationToken.None);
+
+        result.IsError.Should().NotBe(true);
+        Text(result).Should().Contain("_Further rows omitted — response size budget reached._");
+        var structured = result.StructuredContent!.Value;
+        structured.GetProperty("truncated").GetBoolean().Should().BeTrue();
+        structured.GetProperty("rowsOmittedForSize").GetBoolean().Should().BeTrue();
+        structured.GetProperty("rows").GetArrayLength().Should().BeInRange(1, 39);
+    }
+
     [TestCase("q_anything", true)]
     [TestCase("search_saved_queries", true)]
     [TestCase("run_saved_query", true)]
@@ -320,12 +382,14 @@ public class SavedQueryToolServiceTests
         List<int> allowedProjects,
         int namedToolLimit = 25,
         IReadOnlyDictionary<int, McpSettingsData>? projectSettings = null,
-        ProjectAccessScope? access = null)
+        ProjectAccessScope? access = null,
+        McpQueryConcurrencyLimiter? limiter = null)
     {
         var projectContext = new McpProjectContext { AllowedProjectIds = allowedProjects, UserId = 11 };
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = true }, projectSettings: projectSettings);
         var audit = new McpAuditService(
             _auditStore.Factory().Object,
-            SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = true }, projectSettings: projectSettings).Object,
+            settingsProvider.Object,
             new HttpContextAccessor(),
             Options.Create(new McpDeploymentOptions()),
             NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
@@ -333,7 +397,7 @@ public class SavedQueryToolServiceTests
 
         var evaluator = TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn([.. allowedProjects]));
 
-        return new SavedQueryToolService(_source.Object, _executor.Object, projectContext, evaluator, audit, NullLogger<SavedQueryToolService>.Instance, configuration);
+        return new SavedQueryToolService(_source.Object, _executor.Object, projectContext, evaluator, audit, SettingsProviderMock.Unshared(settingsProvider.Object), limiter ?? new McpQueryConcurrencyLimiter(), NullLogger<SavedQueryToolService>.Instance, configuration);
     }
 
     private static Dictionary<string, JsonElement> Json(string json) =>

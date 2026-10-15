@@ -262,6 +262,7 @@ public class CrossDatabaseCallSiteTests
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(store.Factory(), settings.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(store.Factory(), settings.Object, NullLogger<McpSignalService>.Instance),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<DryRunTool>.Instance);
 
         var foreign = await tool.ExecuteAsync(datasource_id: DataSourceId, sql: Foreign, cancellationToken: CancellationToken.None);

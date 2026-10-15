@@ -512,6 +512,26 @@ public class SavedQueryToolExecutorTests
         _executed.Should().ContainSingle("the call stops at the oversized step");
     }
 
+    // Each step runs within the resolved MCP StatementTimeoutSeconds (default 30 s), not a constant.
+    [Test]
+    public async Task AStep_RunsWithinTheResolvedStatementTimeout()
+    {
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns<DataSource, string, Dictionary<string, object?>, CancellationToken>(async (_, _, _, token) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), token);
+                return new ProviderQueryResult { Success = true, Rows = [] };
+            });
+        var tool = Tool("slow", [Step(1, 10, "SELECT * FROM loans")], [ProjectId]);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => Executor(new McpSettingsData { StatementTimeoutSeconds = 1 }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout cancelled the step, not the 30 s default");
+    }
+
     [Test]
     public async Task AProviderFailure_IsReportedAsAFailedStep()
     {
