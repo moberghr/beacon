@@ -222,7 +222,7 @@ public class MetadataRefreshTests
             {
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
-                ConnectionString = "Host=fixed",
+                ConnectionString = "Host=fixed;SSL Mode=VerifyFull",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL
             },
             CancellationToken.None);
@@ -428,7 +428,7 @@ public class MetadataRefreshTests
             {
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
-                ConnectionString = "Host=elsewhere",
+                ConnectionString = "Host=elsewhere;SSL Mode=VerifyFull",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL
             },
             CancellationToken.None);
@@ -578,6 +578,7 @@ public class MetadataRefreshTests
                 Graph.Object,
                 TestQueryServices.Runner(),
                 new RecordingSecurityAudit(),
+                TestTransport.Policy(),
                 NullLogger<DataSourceService>.Instance);
         }
 

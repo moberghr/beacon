@@ -438,6 +438,7 @@ public class StoredQueryExecutionGateTests
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             TestQueryServices.Runner(),
             new RecordingSecurityAudit(),
+            TestTransport.Policy(),
             NullLogger<DataSourceService>.Instance);
     }
 

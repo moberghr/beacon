@@ -85,6 +85,7 @@ public class ApiKeyPrincipalAuthorizationTests
         {
             RequestServices = new ServiceCollection().AddLogging().AddProblemDetails().BuildServiceProvider()
         };
+        context.Request.Path = "/beacon/api/queries";
         context.Request.Headers.Authorization = "Bearer sk-sem_test-key";
         var nextInvoked = false;
         var middleware = new ApiKeyAuthMiddleware(_ =>
@@ -188,6 +189,7 @@ public class ApiKeyPrincipalAuthorizationTests
     private static DefaultHttpContext KeyRequest()
     {
         var context = new DefaultHttpContext();
+        context.Request.Path = "/beacon/api/queries";
         context.Request.Headers.Authorization = "Bearer sk-sem_test-key";
         return context;
     }
@@ -244,6 +246,7 @@ public class ApiKeyPrincipalAuthorizationTests
             .Setup(x => x.ValidateApiKeyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(credential);
         var context = new DefaultHttpContext();
+        context.Request.Path = "/beacon/api/queries";
         context.Request.Headers.Authorization = "Bearer sk-sem_test-key";
         var nextInvoked = false;
         var middleware = new ApiKeyAuthMiddleware(_ =>

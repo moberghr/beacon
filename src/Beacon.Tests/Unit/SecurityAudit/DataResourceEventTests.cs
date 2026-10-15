@@ -67,7 +67,7 @@ public class DataResourceEventTests
         var service = DataSources(saved, []);
 
         await service.CreateDataSource(
-            new DataSourceData { Name = "warehouse", ConnectionString = "Host=db.internal;Password=hunter2", DatabaseEngineType = DatabaseEngineType.PostgreSQL, ProjectIds = [4, 4, 2] },
+            new DataSourceData { Name = "warehouse", ConnectionString = "Host=db.internal;Password=hunter2;SSL Mode=VerifyFull", DatabaseEngineType = DatabaseEngineType.PostgreSQL, ProjectIds = [4, 4, 2] },
             CancellationToken.None);
 
         var created = _audit.Single("db.internal", "hunter2", "warehouse");
@@ -98,11 +98,11 @@ public class DataResourceEventTests
     public async Task ChangingADataSourcesConnection_StagesCredentialsRotated_WithTheFieldsChanged_NeverAValue()
     {
         var saved = new List<object>();
-        var source = new DataSource { Id = 12, Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "enc", MetadataMaxTables = 50 };
+        var source = new DataSource { Id = 12, Name = "warehouse", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.PostgreSQL, EncryptedConnectionData = "enc", MetadataMaxTables = 50 };
         var service = DataSources(saved, [source], storedConnection: "Host=db.internal;Password=hunter2");
 
         await service.UpdateDataSource(
-            new DataSourceData { DataSourceId = 12, Name = "warehouse-eu", ConnectionString = "Host=db.internal;Password=rotated-secret", MetadataMaxTables = 50 },
+            new DataSourceData { DataSourceId = 12, Name = "warehouse-eu", DatabaseEngineType = DatabaseEngineType.PostgreSQL, ConnectionString = "Host=db.internal;Password=rotated-secret;SSL Mode=VerifyFull", MetadataMaxTables = 50 },
             CancellationToken.None);
 
         var rotated = _audit.Single("hunter2", "rotated-secret", "db.internal", "warehouse");
@@ -375,6 +375,7 @@ public class DataResourceEventTests
             Mock.Of<ISchemaGraphService>(),
             TestQueryServices.Runner(),
             _audit,
+            TestTransport.Policy(),
             NullLogger<DataSourceService>.Instance);
     }
 

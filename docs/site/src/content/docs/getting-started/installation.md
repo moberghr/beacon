@@ -104,7 +104,7 @@ While `Beacon:PreviousEncryptionKeys` lists a key, every start also enqueues one
 
 - Warp polls every second and runs at most `min(2 × CPU count, 20)` workers.
 - Failed jobs are not retried automatically. They stay failed for you to investigate.
-- The dashboard at `/warp` is for signed-in users with the Admin role.
+- The dashboard at `/warp` is for signed-in users with the Admin role. It sits outside `/beacon`, so the sample lists `/warp` in `Beacon:Authentication:AdditionalPaths` (`appsettings.json`): Beacon's session authenticates `/beacon` and the listed paths only. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).
 
 See [Background jobs](/integrate/background-jobs/) for implementing `IBeaconScheduler` on another job runner.
 
@@ -190,7 +190,7 @@ with the settings from [Running outside Development](#running-outside-developmen
 | `/beacon/api/*` | REST API and the SignalR hub (`/beacon/api/hub`). |
 | `/beacon/mcp` | MCP server. |
 | `/openapi/v1.json` | OpenAPI document. |
-| `/warp` | Warp dashboard (Admin only). |
+| `/warp` | Warp dashboard (Admin only; listed in `Beacon:Authentication:AdditionalPaths`). |
 
 The full list is in [Routes & endpoints](/reference/routes/).
 

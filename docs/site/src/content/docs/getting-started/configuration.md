@@ -85,10 +85,7 @@ var beaconConfiguration = app.Services.GetRequiredService<BeaconConfiguration>()
 
 app.UseStaticFiles();
 app.UseMcpResourceMetadataChallenge();
-app.UseMiddleware<ApiKeyAuthMiddleware>();
-app.UseBeaconJwtBearerAuthentication();
-app.UseAuthentication();
-app.UseMiddleware<BeaconCookieAuthMiddleware>();
+app.UseBeaconAuthentication();                               // API key → bearer JWT → UseAuthentication → Beacon.Auth cookie
 app.UseAuthorization();
 app.UseMiddleware<LoginFormAuthMiddleware>(beaconConfiguration, BeaconUiEndpointRouteBuilderExtensions.BasePath);  // with the login form
 app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, BeaconUiEndpointRouteBuilderExtensions.BasePath); // with user management
@@ -103,7 +100,7 @@ app.MapMcpDiscovery();                                       // /.well-known/* (
 app.MapBeaconUi();                                           // the React SPA at /beacon
 ```
 
-The middleware order is load-bearing; keep it. Beacon does **not** create or migrate its own schema when the host starts: apply its migrations as described in [Metadata database](/integrate/database/).
+The middleware order is load-bearing; keep it. `UseBeaconAuthentication()` takes the place of `UseAuthentication()` and wires Beacon's half of it; the Beacon middlewares act on `/beacon` and [`Beacon:Authentication:AdditionalPaths`](#where-beacon-credentials-apply) only. Beacon does **not** create or migrate its own schema when the host starts: apply its migrations as described in [Metadata database](/integrate/database/).
 
 | Path | What |
 |---|---|
@@ -113,7 +110,7 @@ The middleware order is load-bearing; keep it. Beacon does **not** create or mig
 | `/beacon/mcp` | MCP server |
 | `/.well-known/oauth-protected-resource`, `/.well-known/mcp/server-card.json` | MCP discovery (anonymous) |
 | `/openapi/v1.json` | OpenAPI document |
-| `/warp` | Warp dashboard (sample host, Admin only) |
+| `/warp` | Warp dashboard (sample host, Admin only; listed in `Beacon:Authentication:AdditionalPaths`) |
 
 ## Code-only options
 
@@ -270,6 +267,26 @@ Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `Sec
 builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beacon/login
 ```
 
+### Where Beacon credentials apply
+
+Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's own routes, everything under `/beacon`, and the path prefixes listed in `Beacon:Authentication:AdditionalPaths`. On every other route of the host, `ApiKeyAuthMiddleware`, the bearer JWT middleware and `BeaconCookieAuthMiddleware` do nothing, and the login and first-run redirects never send a request to Beacon's pages: the host's own authentication decides.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `AdditionalPaths` | string[] | empty | More path prefixes where Beacon credentials apply, for example `/warp` for a Warp dashboard that admits Beacon admins. Matched by whole segments (`/warp` matches `/warp/jobs`, not `/warpx`), ignoring case, against the request path after the host's `PathBase`. Each entry starts with `/` and is not `/` alone, with no query or fragment; a trailing `/` is ignored. An invalid entry fails startup |
+
+```json
+{ "Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } } }
+```
+
+`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: `ApiKeyAuthMiddleware`, the bearer JWT middleware, the host's `UseAuthentication()`, then `BeaconCookieAuthMiddleware`. Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
+
+Path scoping cannot stop the host's own `UseAuthentication()` from reading the `Beacon.Auth` cookie when the cookie scheme (`Cookies`) is the default authentication scheme, as it is when no other scheme is registered. Outside Development Beacon then logs a startup Warning: give the host its own default scheme, or name the host's schemes on its authorization policies.
+
+:::caution[Upgrading]
+Beacon credentials no longer authenticate the host's own routes. A host route that relied on a Beacon session, API key or bearer token now sees an anonymous request: add its prefix to `Beacon:Authentication:AdditionalPaths`. A host that serves the Warp dashboard with Beacon's admin check (as the sample does) must list `/warp`, or the dashboard refuses every request. `/openapi/v1.json` and the `/.well-known` discovery documents are host routes and are no longer redirected to Beacon's login or setup page. Hosts that wired the four middlewares one by one keep working unchanged; `UseBeaconAuthentication()` is the shorter form.
+:::
+
 ### Session lifetime
 
 Bound from `Beacon:Authentication:Session`, validated at startup.
@@ -377,6 +394,32 @@ Validated at startup. Without the section, no JWT caller is admitted on `/beacon
 | `Systems[i]:ProjectIds`, `Scope`, `HostClaims[]` | | `Execute` | The system caller's projects, scope and host-endpoint claims |
 
 See [Entra ID callers](/features/mcp-entra-callers/).
+
+## Data-source transport security
+
+Every data-source connection must authenticate the server over TLS (for example `SSL Mode=VerifyFull` on PostgreSQL,
+`SslMode=VerifyFull` on MySQL, `Encrypt=Mandatory` or `Strict` without `TrustServerCertificate=true` on SQL Server and
+Azure Synapse). The rule per engine is in [Transport security (TLS)](/features/data-sources/#transport-security-tls).
+Creating a data source, changing its connection and testing a connection refuse a connection that does not meet it.
+Bound from `Beacon:DataSources:Transport`:
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `EnforceOnExisting` | bool | `false` | Refuses a stored data source whose connection does not meet the rule every time it connects. While `false`, such a source keeps working, the data-source list reports it (`transportVerified: false`) and the log carries one Warning per data source per process |
+| `AllowInsecure` | bool | `false` | Lifts the rule for new, changed and stored connections alike. For development hosts whose local databases have no TLS; outside Development the host logs a Warning at startup while it is set. The sample host sets it in `appsettings.Development.json` only |
+
+```json
+{ "Beacon": { "DataSources": { "Transport": { "EnforceOnExisting": true } } } }
+```
+
+Host-managed data sources follow the same rules, applied to the `ConnectionStrings:{Name}` value each time they connect.
+
+:::caution[Upgrading]
+PostgreSQL and MySQL data sources stored without `VerifyFull`, and SQL Server or Azure Synapse sources with
+`Encrypt=False` or `TrustServerCertificate=True`, keep working but are flagged and logged once per process; new ones are
+refused. Replace each flagged connection, then set `EnforceOnExisting` to `true`. A development host that connects to
+local databases without TLS sets `AllowInsecure` in its Development configuration only.
+:::
 
 ## Authorization
 

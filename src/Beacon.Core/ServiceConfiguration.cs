@@ -285,7 +285,11 @@ public static class ServiceConfiguration
         services.TryAddSingleton<HostData.IHostDataSourceRegistry, HostData.HostDataSourceRegistry>();
         services.TryAddTransient<HostData.IHostDataSourceGuard, HostData.HostDataSourceGuard>();
         services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x =>
-            new HostData.DataSourceConnectionResolver(x.GetRequiredService<IEncryptionService>(), configuration));
+            new HostData.DataSourceConnectionResolver(
+                x.GetRequiredService<IEncryptionService>(),
+                configuration,
+                x.GetRequiredService<Services.Providers.IDataSourceTransportPolicy>()));
+        services.TryAddTransient<Services.Providers.DataSourceTransportStatus>();
         services.TryAddTransient<IConfiguredDatabaseResolver, ConfiguredDatabaseResolver>();
         services.TryAddTransient<HostData.IHostProjectResolver, HostData.HostProjectResolver>();
         services.TryAddTransient<HostData.IHostSyncLock, HostData.DatabaseHostSyncLock>();
@@ -321,12 +325,25 @@ public static class ServiceConfiguration
         services.TryAddTransient<IUserSessionStore, UserSessionStore>();
         services.TryAddScoped<SessionStampExpectation>();
 
+        // Where Beacon's authentication middlewares apply (Beacon:Authentication:AdditionalPaths): /beacon and the listed
+        // prefixes. ValidateOnStart so an entry that is not a path prefix, or is '/' (every host route), fails the host at boot.
+        services.AddOptions<Configuration.AuthenticationPathOptions>()
+            .Bind(configuration.GetSection(Configuration.AuthenticationPathOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.AuthenticationPathOptions>, Configuration.AuthenticationPathOptionsValidator>());
+
         // Row cap of the statements Beacon runs for its own features (Beacon:Query). ValidateOnStart so a cap out of range
         // fails the host at boot.
         services.AddOptions<Configuration.QueryExecutionOptions>()
             .Bind(configuration.GetSection(Configuration.QueryExecutionOptions.SectionName))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.QueryExecutionOptions>, Configuration.QueryExecutionOptionsValidator>());
+
+        // Data-source transport (Beacon:DataSources:Transport): a connection must authenticate the server over TLS, as each
+        // connector's inspector judges it; the options decide what happens to a stored source that does not.
+        services.AddOptions<Configuration.DataSourceTransportOptions>()
+            .Bind(configuration.GetSection(Configuration.DataSourceTransportOptions.SectionName));
+        services.TryAddSingleton<Services.Providers.IDataSourceTransportPolicy, Services.Providers.DataSourceTransportPolicy>();
 
         // Data migrations (Beacon:Migrations): off unless the host turns them on, and their own row budget. ValidateOnStart
         // so a budget out of range fails the host at boot.

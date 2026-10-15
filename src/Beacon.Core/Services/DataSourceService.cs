@@ -49,11 +49,14 @@ internal class DataSourceService(
     ISchemaGraphService schemaGraphService,
     GatedSqlRunner sqlRunner,
     ISecurityAuditRecorder securityAudit,
+    IDataSourceTransportPolicy transportPolicy,
     ILogger<DataSourceService> logger,
     ISharedSourceSettings? sharedSourceSettings = null) : IDataSourceService
 {
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
+        transportPolicy.EnsureNewConnectionAllowed(dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, dataSourceData.ConnectionString);
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var dataSource = new DataSource
@@ -287,6 +290,13 @@ internal class DataSourceService(
         EnsureNotHostManaged(dataSource);
 
         var connectionChanged = ConnectionChanged(dataSource.EncryptedConnectionData, dataSourceData.ConnectionString);
+        if (connectionChanged || dataSource.DatabaseEngineType != dataSourceData.DatabaseEngineType)
+        {
+            // A connection kept as it is stays a stored one (warned about when it connects); a new one, or the same one
+            // read as another engine's, must authenticate the server.
+            transportPolicy.EnsureNewConnectionAllowed(dataSource.DataSourceType, dataSourceData.DatabaseEngineType, dataSourceData.ConnectionString);
+        }
+
         var excludeSchemas = dataSourceData.MetadataExcludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataExcludeSchemas) : null;
         var includeSchemas = dataSourceData.MetadataIncludeSchemas.Count > 0 ? string.Join(",", dataSourceData.MetadataIncludeSchemas) : null;
         var changes = new (string Field, bool Changed)[]
@@ -473,6 +483,12 @@ internal class DataSourceService(
 
     public async Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken)
     {
+        var refusal = TransportRefusal(DataSourceType.Database, databaseEngineType, connectionString);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
         try
         {
             await using var connection = DbConnectionFactory.CreateConnection(databaseEngineType, connectionString);
@@ -497,6 +513,12 @@ internal class DataSourceService(
 
     public async Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
+        var refusal = TransportRefusal(dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, dataSourceData.ConnectionString);
+        if (refusal != null)
+        {
+            return refusal;
+        }
+
         try
         {
             // For database types, use the connection factory directly
@@ -545,6 +567,26 @@ internal class DataSourceService(
             .ToList();
 
         return (columns, rows);
+    }
+
+    // A connection test is refused, never opened, when the connection does not authenticate the server: its message names
+    // the option to change, never a value from the connection string.
+    private BaseResponse? TransportRefusal(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionString)
+    {
+        try
+        {
+            transportPolicy.EnsureNewConnectionAllowed(dataSourceType, databaseEngineType, connectionString);
+
+            return null;
+        }
+        catch (DataSourceTransportException ex)
+        {
+            return new BaseResponse
+            {
+                Success = false,
+                Message = $"Connection refused: {ex.Message}"
+            };
+        }
     }
 
     // Cached metadata and the relationship graph are rebuilt on their next read; an archived source's reads are refused.

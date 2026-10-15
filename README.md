@@ -108,7 +108,10 @@ builder.Services.AddBeaconMcp();
 
 var app = builder.Build();
 Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);   // migrate Beacon's schema
-// … the documented middleware order …
+// … static files, MCP challenge …
+app.UseBeaconAuthentication();   // API key → bearer JWT → UseAuthentication → Beacon.Auth cookie, on /beacon only
+app.UseAuthorization();
+// … login and first-run redirects, antiforgery …
 app.MapBeaconApi();        // /beacon/api
 app.MapBeaconMcp();        // /beacon/mcp
 app.MapMcpDiscovery();     // /.well-known/…
@@ -128,7 +131,7 @@ git clone https://github.com/moberghr/beacon && cd beacon
 docker run -d --name beacon-pg -e POSTGRES_PASSWORD=beacon -e POSTGRES_DB=beacon \
   -p 5432:5432 pgvector/pgvector:pg17
 
-# Secrets (never committed)
+# Secrets (never committed; a local database without TLS, for development only)
 dotnet user-secrets --project src/Beacon.SampleProject set "ConnectionStrings:BeaconContext" \
   "Host=localhost;Port=5432;Database=beacon;Username=postgres;Password=beacon"
 dotnet user-secrets --project src/Beacon.SampleProject set "Beacon:EncryptionKey" "$(openssl rand -base64 32)"

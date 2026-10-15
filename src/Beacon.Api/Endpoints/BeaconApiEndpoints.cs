@@ -99,6 +99,9 @@ public static class BeaconApiEndpoints
         // Warns at startup about unlocked MCP safety settings and data sources whose engine does not refuse writes.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, ReadOnlyStartupWarnings>());
 
+        // Warns at startup, outside Development, when data-source connections may skip server authentication.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, DataSourceTransportStartupWarning>());
+
         // Warns at startup about stored values still encrypted with a previous encryption key.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, EncryptionKeyStartupWarnings>());
 

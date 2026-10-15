@@ -797,6 +797,7 @@ public class ApiKeyLifecycleTests
             .Setup(x => x.ValidateApiKeyAsync(PlainTextKey, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new ApiKeyOwnerInactiveException(30));
         var context = new DefaultHttpContext { RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider() };
+        context.Request.Path = "/beacon/api/queries";
         context.Request.Headers.Authorization = $"Bearer {PlainTextKey}";
         context.Response.Body = new MemoryStream();
         var reachedNext = false;

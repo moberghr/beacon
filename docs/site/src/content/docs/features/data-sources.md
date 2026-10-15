@@ -53,14 +53,19 @@ Connection string examples for the database engines:
 
 ```text
 # PostgreSQL
-Host=prod-db.example.com;Database=appdb;Username=beacon_readonly;Password=...;SSL Mode=Require
+Host=prod-db.example.com;Database=appdb;Username=beacon_readonly;Password=...;SSL Mode=VerifyFull
 
 # SQL Server / Azure Synapse
-Server=sql.example.com;Database=appdb;User Id=beacon_readonly;Password=...;Encrypt=True
+Server=sql.example.com;Database=appdb;User Id=beacon_readonly;Password=...;Encrypt=Strict
 
 # MySQL
-Server=mysql.example.com;Database=appdb;Uid=beacon_readonly;Pwd=...;SslMode=Required
+Server=mysql.example.com;Database=appdb;Uid=beacon_readonly;Pwd=...;SslMode=VerifyFull
+
+# Snowflake
+account=myorg-myaccount;user=beacon_readonly;password=...;db=APPDB;warehouse=BEACON_WH
 ```
+
+Each example authenticates the server over TLS, which Beacon requires: see [Transport security (TLS)](#transport-security-tls).
 
 :::note[Name the database]
 Set the database in the connection: `Database` (or `Initial Catalog`) on SQL Server, Azure Synapse, PostgreSQL and
@@ -71,6 +76,39 @@ database qualifier is accepted. See [Database names in SQL](/features/authorizat
 
 If **Test connection** fails, check that the host can reach the server (firewall, VPN, private endpoint), that the
 credentials and database name are right, and that the login can read.
+
+### Transport security (TLS)
+
+Every data-source connection must encrypt its traffic and authenticate the server: the server's certificate must chain
+to a trusted certificate authority and name the host Beacon connects to. Otherwise anyone on the network path can
+read the credentials and the rows. Each connector checks its connection with its driver's own parser, so option
+synonyms and case do not matter.
+
+| Engine | Required | Server certificate from a private CA |
+|---|---|---|
+| PostgreSQL | `SSL Mode=VerifyFull`. `Require` and `VerifyCA` do not check the host name, and the default (`Prefer`) may not encrypt at all. | `Root Certificate=/path/to/ca.pem` |
+| SQL Server, Azure Synapse | `Encrypt` set to `Mandatory` (`True`, the default) or `Strict`, and `TrustServerCertificate` left out or `false`. | Install the CA on the Beacon host, or pin it: `HostNameInCertificate=<name in the certificate>` when it differs from the server name, `ServerCertificate=/path/to/server.cer` to accept exactly that certificate. |
+| MySQL | `SslMode=VerifyFull`. `Required` and `VerifyCA` do not check the host name, and the default (`Preferred`) may not encrypt at all. | `SslCa=/path/to/ca.pem` |
+| Snowflake | Nothing to set. `insecureMode=true` and a `scheme` other than `https` are refused. | Not applicable |
+| API (OpenAPI) | **Base URL** and **OpenAPI spec URL** are absolute `https://` URLs. | Install the CA on the Beacon host. |
+| Databricks, BigQuery, AWS CloudWatch | Nothing to set: their clients always connect over HTTPS and check the certificate. | Not applicable |
+
+A CA file is read on the Beacon host, so it must exist there. A connection Beacon cannot read, or whose type has no
+connector registered, is never verified.
+
+How Beacon applies the rule:
+
+- **Creating a data source, changing its connection, and Test connection** refuse a connection that does not meet it.
+  The message names the option to change, never a value from the connection string.
+- **A data source stored before the rule** keeps working, so an upgrade does not stop running queries and
+  subscriptions. The data-source list reports it (`transportVerified: false`), and the log carries one Warning per data
+  source per process, naming it by id. Replace its connection with one that meets the rule. A host that sets
+  `Beacon:DataSources:Transport:EnforceOnExisting` to `true` refuses such a source every time it connects.
+- **Host-managed data sources** follow the same rules, applied to the connection string the host configures, which is
+  read each time the source connects.
+- **`Beacon:DataSources:Transport:AllowInsecure`** lifts the rule for development hosts whose local databases have no
+  TLS (the sample host sets it in its Development configuration). Outside Development the host logs a Warning at
+  startup while it is set. See [Configuration](/getting-started/configuration/#data-source-transport-security).
 
 ## Manage data sources
 
@@ -363,8 +401,13 @@ warehouse.
 ## Troubleshooting
 
 **Test connection fails.** Check network reachability from the Beacon host (`nc -vz db-host 5432`, `1433`, `3306`), the
-server's remote-connection and TLS settings (self-signed certificates need `Trust Server Certificate=true` on PostgreSQL
-or `TrustServerCertificate=True` on SQL Server), and the credentials.
+server's remote-connection and TLS settings, and the credentials. A message that starts with "Connection refused" names
+the transport option to change: see [Transport security (TLS)](#transport-security-tls).
+
+**Certificate errors.** The server's certificate must chain to a CA the Beacon host trusts and name the host in the
+connection string. Install the issuing CA on the Beacon host, or pin it in the connection (`Root Certificate` on
+PostgreSQL, `SslCa` on MySQL, `HostNameInCertificate` or `ServerCertificate` on SQL Server and Azure Synapse). Do not
+turn certificate checks off: Beacon refuses such a connection.
 
 **Permission denied on a table.** Check the login's grants:
 

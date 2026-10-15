@@ -2,6 +2,7 @@ using Beacon.Core;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Beacon.Connector.Databricks;
 
@@ -11,6 +12,7 @@ public static class ServiceCollectionExtensions
     {
         ConnectorRegistry.RegisterDataSourceType(DataSourceType.Databricks, "Databricks");
         builder.Services.AddTransient<IDataSourceProvider, DatabricksProvider>();
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, DatabricksTransportInspector>());
         return builder;
     }
 }

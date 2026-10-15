@@ -61,6 +61,8 @@ dotnet user-secrets --project src/Beacon.SampleProject set \
   "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
 ```
 
+This connection string, without TLS, is for the local container only; a deployed host's database connection belongs in its environment or secret store.
+
 The encryption key protects connection strings and other secrets at rest. Keep it: values encrypted with it cannot be read with another key.
 
 ## Step 3: Create Beacon's schema
@@ -164,6 +166,10 @@ SQL
 4. **Test & save**: click **Test connection** and wait for **Connected**, then click **Create data source**.
 
 Beacon encrypts the connection string and loads the database's metadata. Until the data source is linked into a project, only Admins can use it.
+
+:::note[Local development only]
+The local container has no TLS, so this connection does not authenticate the server. The sample host accepts it because its Development configuration sets `Beacon:DataSources:Transport:AllowInsecure`. Outside Development Beacon refuses it: a real data source needs a connection that verifies the server's certificate, for example `Host=db.example.com;Port=5432;Database=sales;Username=beacon_reader;Password=...;SSL Mode=VerifyFull`. See [Transport security (TLS)](/features/data-sources/#transport-security-tls).
+:::
 
 ## Step 9: Create a project
 

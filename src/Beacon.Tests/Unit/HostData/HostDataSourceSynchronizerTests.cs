@@ -325,7 +325,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_HostManagedSource_ResolvesFromConfigurationAtCallTime()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString));
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy());
 
         var connection = resolver.GetConnectionString(HostDataSource());
 
@@ -335,7 +335,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_HostManagedSourceWithoutConfiguredString_Throws()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(null));
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(null), TestTransport.Policy());
 
         var act = () => resolver.GetConnectionString(HostDataSource());
 
@@ -345,9 +345,10 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_OrdinarySource_DecryptsStoredString()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString));
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy());
         var dataSource = new DataSource
         {
+            Id = 7,
             Name = "warehouse",
             DataSourceType = DataSourceType.Database,
             EncryptedConnectionData = FakeEncryption.Instance.Encrypt("Host=wh")
@@ -447,6 +448,7 @@ public class HostDataSourceSynchronizerTests
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             TestQueryServices.Runner(),
             new RecordingSecurityAudit(),
+            TestTransport.Policy(),
             NullLogger<DataSourceService>.Instance);
 
         var update = () => service.UpdateDataSource(new Beacon.Core.Models.DataSources.DataSourceData

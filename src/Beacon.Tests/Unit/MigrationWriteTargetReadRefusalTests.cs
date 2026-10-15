@@ -50,7 +50,7 @@ public class MigrationWriteTargetReadRefusalTests
     [Test]
     public void TheConnectionResolver_RefusesAWriteTarget_AndResolvesAReadSource()
     {
-        var resolver = new DataSourceConnectionResolver(Encryption(), new ConfigurationBuilder().Build());
+        var resolver = new DataSourceConnectionResolver(Encryption(), new ConfigurationBuilder().Build(), TestTransport.Policy());
 
         var read = resolver.GetConnectionString(Source(ReadSource));
         var write = () => resolver.GetConnectionString(Source(WriteTarget, writeTarget: true));
@@ -71,7 +71,7 @@ public class MigrationWriteTargetReadRefusalTests
         });
         var service = TestQueryServices.QueryService(
             QueryOn(Source(WriteTarget, writeTarget: true)),
-            connections: new DataSourceConnectionResolver(Encryption(), new ConfigurationBuilder().Build()));
+            connections: new DataSourceConnectionResolver(Encryption(), new ConfigurationBuilder().Build(), TestTransport.Policy()));
 
         var act = () => service.ExecuteQueryAdvanced(7, cancellationToken: CancellationToken.None);
 
