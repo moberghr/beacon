@@ -123,6 +123,33 @@ public class McpDiscoveryDocumentTests
     }
 
     [Test]
+    public void ServerVersion_IsTheMcpAssemblysInformationalVersion_WithoutBuildMetadata()
+    {
+        var informational = typeof(McpDiscoveryDocuments).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+
+        McpDiscoveryDocuments.ServerVersion.Should().Be(informational.Split('+')[0]);
+        McpDiscoveryDocuments.ServerVersion.Should().NotContain("+").And.NotBe("2.0.5");
+    }
+
+    [TestCase("4.5.1+3f20291abc", "4.5.1")]
+    [TestCase("4.5.1-local.20261015", "4.5.1-local.20261015")]
+    [TestCase("4.5.1", "4.5.1")]
+    public void VersionFrom_StripsTheCommitSuffix(string informational, string expected)
+    {
+        McpDiscoveryDocuments.VersionFrom(informational, new Version(9, 9, 9, 9)).Should().Be(expected);
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("+3f20291")]
+    public void VersionFrom_WithoutAnInformationalVersion_FallsBackToTheAssemblyVersion(string? informational)
+    {
+        McpDiscoveryDocuments.VersionFrom(informational, new Version(4, 5, 2, 0)).Should().Be("4.5.2");
+        McpDiscoveryDocuments.VersionFrom(informational, null).Should().Be(McpDiscoveryDocuments.FallbackVersion);
+    }
+
+    [Test]
     public void ServerCard_CarriesIdentityTransportAndAuthSummary()
     {
         var card = McpDiscoveryDocuments.BuildServerCard(BaseUrl);

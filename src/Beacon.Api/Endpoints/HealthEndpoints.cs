@@ -5,9 +5,17 @@ namespace Beacon.Api.Endpoints;
 
 internal static class HealthEndpoints
 {
+    private const string RoutePath = "/health";
+
+    /// <summary>
+    /// The health route as requested by load-balancer probes. It must answer before first-run setup
+    /// completes, so <see cref="Authentication.FirstRunSetupMiddleware"/> lets exactly this path through.
+    /// </summary>
+    public const string RequestPath = BeaconApiEndpoints.GroupPrefix + RoutePath;
+
     public static RouteGroupBuilder MapHealthEndpoints(this RouteGroupBuilder group)
     {
-        group.MapGet("/health", async (IDbContextFactory<BeaconContext> contextFactory, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
+        group.MapGet(RoutePath, async (IDbContextFactory<BeaconContext> contextFactory, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
             {
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));

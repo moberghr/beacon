@@ -549,6 +549,56 @@ public class FirstRunSetupTests
         TokenFrom(console).Should().MatchRegex("^[0-9a-f]{64}$");
     }
 
+    [TestCase("/beacon/api/health")]
+    [TestCase("/beacon/api/HEALTH")]
+    public async Task FirstRunMiddleware_LetsTheHealthProbeThrough(string path)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+        var reached = false;
+        var middleware = new FirstRunSetupMiddleware(
+            _ =>
+            {
+                reached = true;
+                return Task.CompletedTask;
+            },
+            configuration,
+            "/beacon");
+        var context = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context, FirstRunUsers().Object);
+
+        reached.Should().BeTrue("a load-balancer probe must reach the health check before an admin exists");
+        context.Response.Headers.Location.ToString().Should().BeEmpty();
+    }
+
+    [TestCase("/beacon/api/health/details")]
+    [TestCase("/beacon/api/healthz")]
+    [TestCase("/beacon/api/projects")]
+    public async Task FirstRunMiddleware_RedirectsEverythingButTheExactHealthPath(string path)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+        var reached = false;
+        var middleware = new FirstRunSetupMiddleware(
+            _ =>
+            {
+                reached = true;
+                return Task.CompletedTask;
+            },
+            configuration,
+            "/beacon");
+        var context = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context, FirstRunUsers().Object);
+
+        reached.Should().BeFalse();
+        context.Response.StatusCode.Should().Be(StatusCodes.Status302Found);
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/setup");
+    }
+
     [Test]
     public async Task Startup_Check_IsBoundToTheHostLifetime()
     {

@@ -227,7 +227,7 @@ export function RecipientDialog({ open, onClose, recipient }: RecipientDialogPro
               label="Custom headers (JSON)"
               hint={isEdit
                 ? `Optional JSON object of HTTP headers. A ${MASK} value keeps the stored one; clear the field to remove all headers.`
-                : 'Optional JSON object of HTTP headers to send with the webhook. Allowed: Authorization, Api-Key, Ocp-Apim-Subscription-Key and X- headers.'}
+                : 'Optional JSON object of HTTP headers to send with the webhook. Allowed: Authorization, Api-Key, X-Api-Key, Ocp-Apim-Subscription-Key and any names the administrator has allowed in Beacon:Notifications:AllowedHeaders.'}
             >
               <Textarea
                 id="recipient-headers"

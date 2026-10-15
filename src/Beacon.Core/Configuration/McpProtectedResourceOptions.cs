@@ -8,7 +8,7 @@ namespace Beacon.Core.Configuration;
 /// and requests the scopes in <c>scopes_supported</c>, so both have to name the external IdP.
 /// <para>
 /// An absent section keeps the original document: Beacon's OIDC authority (when <c>Beacon:Authentication:Oidc</c> is
-/// enabled, otherwise no <c>authorization_servers</c>) and the Beacon scope names <c>Execute</c> / <c>Admin</c>.
+/// enabled, otherwise no <c>authorization_servers</c>) and the Beacon scope name <c>Execute</c> (the Admin scope is retired).
 /// </para>
 /// </summary>
 public sealed class McpProtectedResourceOptions
@@ -32,7 +32,7 @@ public sealed class McpProtectedResourceOptions
     public bool DeriveAuthorizationServerFromJwtIssuer { get; set; }
 
     /// <summary>
-    /// Scopes to publish instead of Beacon's internal <c>Execute</c> / <c>Admin</c> names, as the external IdP knows
+    /// Scopes to publish instead of Beacon's internal <c>Execute</c> name, as the external IdP knows
     /// them, e.g. <c>api://{api-app-client-id}/mcp.access</c>. Clients request these verbatim. Also used for the server
     /// card's <c>authentication.scopes_supported</c>. Empty keeps the Beacon names.
     /// </summary>

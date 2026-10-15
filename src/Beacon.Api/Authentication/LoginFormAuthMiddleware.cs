@@ -46,7 +46,7 @@ public sealed class LoginFormAuthMiddleware(
     {
         var path = requestPath.Value ?? "";
 
-        // Allow React auth landing pages (anonymous routes mounted at root)
+        // Allow React auth landing pages (anonymous routes mounted under /beacon)
         if (path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/logout", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/error", StringComparison.OrdinalIgnoreCase))

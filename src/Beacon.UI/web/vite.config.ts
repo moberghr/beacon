@@ -74,16 +74,13 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
-      '/beacon/mcp': {
+      // Only the MCP endpoint itself — a bare '/beacon/mcp' prefix would also catch the
+      // /beacon/mcp-playground, /beacon/mcp-learning and /beacon/mcp-settings SPA routes.
+      '^/beacon/mcp(/|$)': {
         target: backend,
         secure: false,
         changeOrigin: true,
         ws: true,
-      },
-      '/hangfire': {
-        target: backend,
-        secure: false,
-        changeOrigin: true,
       },
     },
   },

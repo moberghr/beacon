@@ -201,7 +201,7 @@ export default function DataSourcesListPage() {
         title="Delete data source"
         message={
           deleting
-            ? <>Delete data source <strong>{deleting.name}</strong>? This will remove all related queries and migrations. This cannot be undone.</>
+            ? <>Delete data source <strong>{deleting.name}</strong>? The data source is archived; deletion is refused while a live query or migration job still uses it.</>
             : ''
         }
         confirmLabel="Delete"

@@ -16,6 +16,8 @@ namespace Beacon.Api.Endpoints;
 public static class BeaconApiEndpoints
 {
     public const string AuthPolicyName = "BeaconApi";
+
+    internal const string GroupPrefix = "/beacon/api";
     public const string AdminPolicyName = "BeaconApiAdmin";
 
     /// <summary>The realtime hub's route (negotiate and connect).</summary>
@@ -112,6 +114,9 @@ public static class BeaconApiEndpoints
         // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
 
+        // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());
+
         return services;
     }
 
@@ -139,7 +144,7 @@ public static class BeaconApiEndpoints
         // every request that is not GET/HEAD/OPTIONS and for GETs marked RequiresExecuteScope().
         // The permission filter enforces Viewer (read) vs Editor (write) when authorization or user
         // management is on; it runs after antiforgery so a forged request never reaches the user lookup.
-        var group = endpoints.MapGroup("/beacon/api")
+        var group = endpoints.MapGroup(GroupPrefix)
             .RequireAuthorization(AuthPolicyName)
             .AddEndpointFilter<BeaconAccessExceptionEndpointFilter>()
             .AddEndpointFilter<BeaconScopeEndpointFilter>()

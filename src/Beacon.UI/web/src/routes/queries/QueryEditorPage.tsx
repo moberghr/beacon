@@ -527,8 +527,7 @@ export default function QueryEditorPage() {
                           SQL — use <code className="mono">{'{name}'}</code> for parameters
                           {step.stepOrder > 1 && (
                             <span className="text-text-muted ml-2 normal-case tracking-normal">
-                              · refer to prior steps as <code className="mono">@result1</code>…
-                              <code className="mono">{`@result${step.stepOrder - 1}`}</code>
+                              · <code className="mono">@resultN</code> works only in the final query
                             </span>
                           )}
                         </div>

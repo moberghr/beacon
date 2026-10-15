@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Beacon.Core.Authentication;
@@ -18,7 +19,17 @@ internal static class McpDiscoveryDocuments
 {
     /// <summary>Single source for the server identity — also used by <c>ServiceConfiguration</c> for the MCP ServerInfo.</summary>
     public const string ServerName = "Beacon";
-    public const string ServerVersion = "2.0.5";
+
+    /// <summary>
+    /// The Beacon.MCP assembly's informational version (the release tag a package is built from), without the
+    /// <c>+commit</c> suffix the SDK appends.
+    /// </summary>
+    public static readonly string ServerVersion = VersionFrom(
+        typeof(McpDiscoveryDocuments).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+        typeof(McpDiscoveryDocuments).Assembly.GetName().Version);
+
+    /// <summary>Reported when the assembly carries no usable version.</summary>
+    public const string FallbackVersion = "0.0.0";
 
     // Aliases only — the paths themselves live in Beacon.Core so the auth middlewares in
     // Beacon.Api can allow-list the exact same values without Api referencing MCP (§2.4).
@@ -184,5 +195,20 @@ internal static class McpDiscoveryDocuments
             ["tools"] = tools,
             ["documentation"] = DocumentationUrl
         };
+    }
+
+    /// <summary>
+    /// The informational version without its build metadata (<c>4.5.1+3f20291</c> is <c>4.5.1</c>); without one, the
+    /// assembly version (major.minor.build); without either, <see cref="FallbackVersion"/>.
+    /// </summary>
+    internal static string VersionFrom(string? informationalVersion, Version? assemblyVersion)
+    {
+        var version = informationalVersion?.Split('+', 2)[0].Trim();
+        if (!string.IsNullOrEmpty(version))
+        {
+            return version;
+        }
+
+        return assemblyVersion?.ToString(3) ?? FallbackVersion;
     }
 }

@@ -47,7 +47,7 @@ public static partial class LoginEndpoints
 
     /// <summary>
     /// Accepts only local, root-relative URLs (starts with "/", not "//" or "/\", no scheme).
-    /// UI routes live at the root, so there is no base-path prefix requirement — any other
+    /// UI routes live under /beacon, so there is no base-path prefix requirement — any other
     /// shape (absolute URL, protocol-relative, backslash trick) is rejected to prevent open
     /// redirects. Control characters, whitespace and backslashes are rejected anywhere: browsers
     /// strip tabs and newlines and read "\" as "/", so a tab between two slashes would become "//evil.example".

@@ -48,8 +48,8 @@ internal partial class MigrationService
 
         try
         {
-            // Parse query steps from JSON format, as the job's access was decided
-            var querySteps = MigrationQuerySteps.Parse(migrationJob.QueryText);
+            // The steps the job's access was decided on: JSON steps, or plain SQL on the job's source
+            var querySteps = MigrationQuerySteps.Parse(migrationJob.DataSourceId, migrationJob.QueryText);
 
             if (!querySteps.Any())
             {
