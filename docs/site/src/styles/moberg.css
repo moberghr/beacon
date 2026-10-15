@@ -219,3 +219,5 @@ code, pre, kbd, .expressive-code, .expressive-code * { font-variant-ligatures: n
 :root[data-theme='dark'] .sidebar-content a[aria-current='page']:hover {
   color: #13181e;
 }
+/* Landing: the dark footer sits flush with the bottom of the page. */
+body:has(main.bx) .main-pane > main { padding-bottom: 0; }
