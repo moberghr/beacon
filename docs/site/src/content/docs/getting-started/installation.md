@@ -1,565 +1,213 @@
 ---
-title: Installation
-description: Install Beacon by running the self-hostable host or embedding the NuGet packages in your ASP.NET Core app.
+title: Run the sample host
+description: Reference for Beacon.SampleProject, the sample host in the repository — what it wires, the configuration it reads, ports, Warp jobs, the UI build, running outside Development and publishing a release.
 ---
 
-Beacon ships two ways. Pick the path that fits you:
+`src/Beacon.SampleProject` is the composition root in the Beacon repository: an ASP.NET Core application that wires every Beacon package together. It is how you evaluate Beacon and how contributors run it. The [Quick start](/getting-started/quick-start/) takes you from a clone to a first alert; this page is the reference for everything else the sample does.
 
-- **[Path A — Run the self-hostable application](#path-a--run-the-self-hostable-application)**: clone the repo and run `Beacon.SampleProject`. Fastest way to evaluate Beacon and the recommended path for contributors.
-- **[Path B — Embed Beacon as NuGet packages](#path-b--embed-beacon-as-nuget-packages)**: reference the `Beacon.*` packages and wire them into your own ASP.NET Core app.
-
-Both paths use the same configuration model (see the [Configuration Guide](/getting-started/configuration/)).
-
-## Prerequisites
-
-Before you begin, ensure you have:
-
-- **.NET 10.0 SDK** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
-- On PostgreSQL, the **[pgvector](https://github.com/pgvector/pgvector) extension available on the server** — a migration runs `CREATE EXTENSION IF NOT EXISTS vector`, so startup migrations fail without it. On Azure Database for PostgreSQL Flexible Server, allow-list it first (server parameter `azure.extensions` must include `VECTOR`), or have an admin run `CREATE EXTENSION vector;` once if Beacon's database role cannot create extensions
-- **Node.js 18+** and npm — only needed to build or run the React frontend from source
-- **Visual Studio 2022**, **Rider**, or **VS Code** with C# support
-- An **encryption key** (`Beacon:EncryptionKey`) — required (see [Step 2](#step-2-generate-the-encryption-key))
-
----
-
-## Path A — Run the Self-Hostable Application
-
-The `Beacon.SampleProject` host is the composition root. It self-hosts Kestrel, serves the React SPA at the root URL `/`, exposes the REST API / MCP server / SignalR hub, and includes a working scheduler implementation.
-
-### A1. Clone the repository
-
-```bash
-git clone https://github.com/moberghr/beacon.git
-cd beacon
-```
-
-### A2. Configure secrets
-
-Set the metadata connection string and the required encryption key. Use User Secrets (recommended) or `appsettings.Development.json`:
-
-```bash
-dotnet user-secrets --project Beacon.SampleProject set \
-  "ConnectionStrings:BeaconContext" \
-  "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-
-dotnet user-secrets --project Beacon.SampleProject set \
-  "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
-```
-
-### A3. Run the API host
-
-```bash
-dotnet run --project Beacon.SampleProject --no-launch-profile
-```
-
-This starts Kestrel on:
-
-- **HTTP**: http://localhost:5296
-- **HTTPS**: https://localhost:7187
-
-On first run Beacon automatically applies EF Core migrations and creates the `beacon` schema. Verify it's up with the health check:
-
-```bash
-curl http://localhost:5296/beacon/api/health
-```
-
-### A4. (Optional) Run the React dev server
-
-The host serves the pre-built SPA out of `src/Beacon.UI/wwwroot`. If you're working on the frontend, run the Vite dev server instead — it hot-reloads and proxies API/MCP calls to Kestrel:
-
-```bash
-npm install --prefix src/Beacon.UI/web
-npm run dev --prefix src/Beacon.UI/web
-```
-
-Vite serves the app on **http://localhost:5173** and proxies `/beacon/api` and `/beacon/mcp` to Kestrel (port 5296 / 7187), so keep the API host from A3 running alongside it.
-
-Other frontend commands (run inside `src/Beacon.UI/web`):
-
-| Command | What it does |
-|---|---|
-| `npm run build` | Production build → outputs to `src/Beacon.UI/wwwroot` |
-| `npm run codegen` | Regenerates the typed TS fetch client from `/openapi/v1.json` via NSwag |
-| `npm test` | Runs the Vitest test suite |
-
-### A5. Open the app
-
-| URL | What |
-|---|---|
-| **`/`** (e.g. https://localhost:7187/) | Beacon React SPA |
-| **`/login`** | Login form |
-| **`/beacon/api/health`** | API health check |
-| **`/openapi/v1.json`** | OpenAPI document |
-| **`/beacon/mcp`** | MCP server (auth required) |
-
-On the **first run** Beacon walks you through a setup flow that creates the initial admin user. There are **no hardcoded credentials** — you set them during setup. The setup page asks for a **setup token**: the value of `Beacon:UserManagement:SetupToken`, or, when it is not set, the token Beacon prints once to the process console (standard error, not the log) at startup while no super admin has ever existed. A configured token must be at least 32 characters. Configure the token explicitly when several replicas serve the setup page, since each replica generates its own.
-
----
-
-## Path B — Embed Beacon as NuGet Packages
-
-Embed Beacon into your own ASP.NET Core app by referencing the `Moberg.Beacon.*` packages.
-
-### B1. Install NuGet packages
-
-```bash
-# Core + metadata DB provider (choose one provider)
-dotnet add package Moberg.Beacon.Core
-dotnet add package Moberg.Beacon.Core.PostgreSql   # or: Moberg.Beacon.Core.SqlServer
-
-# UI (React SPA shipped as a Razor Class Library), REST API, AI, MCP
-dotnet add package Moberg.Beacon.UI
-dotnet add package Moberg.Beacon.Api
-dotnet add package Moberg.Beacon.AI
-dotnet add package Moberg.Beacon.MCP
-
-# Data-source connectors — add only the ones you need
-dotnet add package Moberg.Beacon.Connector.PostgreSql
-dotnet add package Moberg.Beacon.Connector.SqlServer
-dotnet add package Moberg.Beacon.Connector.MySql
-dotnet add package Moberg.Beacon.Connector.BigQuery
-dotnet add package Moberg.Beacon.Connector.Snowflake
-dotnet add package Moberg.Beacon.Connector.Databricks
-dotnet add package Moberg.Beacon.Connector.AzureSynapse
-dotnet add package Moberg.Beacon.Connector.CloudWatch
-dotnet add package Moberg.Beacon.Connector.Api
-```
-
-:::note
-Package IDs carry the `Moberg.` prefix; namespaces and assemblies do not. You install
-`Moberg.Beacon.Core` but still write `using Beacon.Core;`.
+:::caution[A reference, not a product]
+The sample host is never shipped. It hard-codes choices a real deployment makes for itself: Warp as the job runner, SMTP for email, Beacon's own user store, no Data Protection key encryption. Run Beacon in production by embedding the packages in your own host. See [Integrate Beacon](/integrate/).
 :::
 
-:::caution
-If your build fails with `CS9137: The 'interceptors' feature is not enabled in this namespace`,
-add this to your `.csproj`. The .NET 10 OpenAPI source generator emits interceptors when
-`AddOpenApi()` / `MapOpenApi()` are used alongside the Beacon packages, and the consuming
-project has to opt in:
+## What the sample includes
 
-```xml
-<PropertyGroup>
-  <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.OpenApi.Generated</InterceptorsNamespaces>
-</PropertyGroup>
-```
-:::
-
-You will also need a job runner for scheduled work — see [B5](#b5-provide-a-scheduler-implementation).
-
-:::note[MySQL migration targets]
-Migration jobs that write **into** MySQL need `Moberg.Beacon.Connector.MySql` and `.AddMySqlConnector()`: that
-package carries the EF Core MySQL provider (Pomelo) the bulk-write path uses. Beacon.Core no longer references it,
-so hosts that never touch MySQL stay clear of Pomelo's EF Core 9 dependency constraint. Without the connector, a
-MySQL migration fails with a message naming the package. Pomelo has no EF Core 10 build yet, so a host that adds
-the MySQL connector sees `NU1608` on restore; under `TreatWarningsAsErrors` that host has to suppress it at
-project level (`<NoWarn>$(NoWarn);NU1608</NoWarn>`) — a `NoWarn` on the package reference does not clear it.
-:::
-
-:::note
-The `Moberg.Beacon.Core.PostgreSql` / `Moberg.Beacon.Core.SqlServer` provider you choose is for Beacon's **metadata** database. The data sources you **monitor** are wired separately via the connector packages, and you can mix any of the nine connectors regardless of which metadata provider you use.
-:::
-
-### B2. Generate the encryption key
-
-See [Step 2](#step-2-generate-the-encryption-key) below.
-
-### B3. Configure `appsettings.json`
-
-Keep `Beacon:EncryptionKey` out of this file: supply it through User Secrets, the `Beacon__EncryptionKey` environment variable or a secrets manager (see [Step 2](#step-2-generate-the-encryption-key)).
-
-```json
-{
-  "ConnectionStrings": {
-    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-  },
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning",
-      "Microsoft.EntityFrameworkCore.Database": "Warning"
-    }
-  }
-}
-```
-
-See the [Configuration Guide](/getting-started/configuration/) for AI/LLM, OIDC, email, and scheduling options.
-
-### B4. Wire up `Program.cs`
-
-This is the full host setup, modeled on `src/Beacon.SampleProject/Program.cs`:
-
-```csharp
-using Beacon.AI;
-using Beacon.Api;
-using Beacon.Api.Endpoints;  // MapBeaconApi / MapLoginEndpoints
-using Beacon.Api.Hubs;       // BeaconHub
-using Beacon.Core;
-using Beacon.Core.PostgreSql;
-using Beacon.MCP;
-using Beacon.UI;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// 1. Your job runner (see B5) — register it here, e.g. Moberg Warp's AddWarpWorker(...)
-
-// 2. Host identity (claims transformation)
-builder.Services.AddBeaconHostInfrastructure<YourClaimsTransformation>();  // your IClaimsTransformation
-
-// 3. Core services, scheduler, connectors, metadata provider
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();   // your IBeaconScheduler (see B5)
-        options.BaseUrl = "https://localhost:7187";
-        options.UseAI = true;
-        options.AddEmailAdapter<BeaconMailSender>();      // your IEmailAdapter impl
-
-        // Auth + user management
-        options.Authorization.Enabled = true;
-        options.Authentication.EnableLoginForm = true;
-        options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
-        options.UserManagement = new UserManagementOptions { Enabled = true };
-    })
-    .AddPostgreSqlConnector()
-    .AddSqlServerConnector()
-    .AddMySqlConnector()
-    .AddCloudWatchConnector()
-    .AddAzureSynapseConnector()
-    .AddSnowflakeConnector()
-    .AddDatabricksConnector()
-    .AddBigQueryConnector()
-    .AddApiConnector()
-    .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-
-// 4. REST API + real-time. SignalR is wired for you — add nothing.
-//    Opt out with: AddBeaconApiServices(x => x.Realtime = false)
-builder.Services.AddBeaconApiServices();
-builder.Services.AddBeaconApiAuthorization();   // the API, Admin and Execute-scope policies (MapBeaconApi, MapBeaconMcp)
-
-// 5. Authentication, AI, MCP, OpenAPI
-builder.Services.AddBeaconCookieAuthentication("/");          // login redirect target
-builder.Services.AddBeaconOidcAuthentication(builder.Configuration); // optional SSO
-builder.Services.AddBeaconAI(builder.Configuration);
-builder.Services.AddBeaconMcp();
-builder.Services.AddOpenApi();
-
-var app = builder.Build();
-
-// 6. Middleware order is load-bearing
-app.UseStaticFiles();
-app.UseMiddleware<ApiKeyAuthMiddleware>();
-app.UseAuthentication();
-app.UseMiddleware<BeaconCookieAuthMiddleware>();
-app.UseAuthorization();
-app.UseAntiforgery();
-
-// 7. Endpoints
-app.MapOpenApi();                 // /openapi/v1.json
-app.MapBeaconApi();               // /beacon/api/* + the SignalR hub at /beacon/api/hub
-app.MapLoginEndpoints("/beacon", beaconConfiguration);
-app.MapBeaconMcp();               // MCP server at /beacon/mcp, behind the Execute-scope policy
-app.MapBeaconUi();                // React SPA at root /
-
-app.Run();
-```
-
-## Real-time (SignalR)
-
-:::tip[You do not need to add SignalR]
-SignalR ships inside the ASP.NET Core shared framework — it is **not** an extra NuGet package — and
-Beacon wires it for you. `AddBeaconApiServices()` registers SignalR and the push notifiers;
-`MapBeaconApi()` maps the hub at `/beacon/api/hub`. There is nothing to add.
-:::
-
-Events pushed to the hub: `JobStatusChanged`, `NotificationCreated`, `ApprovalUpdated` — each scoped
-to the individual user via `Clients.User(...)`.
-
-### Turning it off
-
-If your host has no use for real-time updates:
-
-```csharp
-builder.Services.AddBeaconApiServices(x => x.Realtime = false);
-```
-
-What changes:
-
-| | Realtime on (default) | Realtime off |
+| Area | What the sample wires | Where |
 |---|---|---|
-| SignalR services | registered | not registered |
-| `/beacon/api/hub` | mapped | not mapped |
-| `IApprovalNotifier` | `SignalRApprovalNotifier` | `RealtimeDisabledApprovalNotifier` (a deliberate no-op) |
-| React shell | connects to the hub | never attempts a connection |
+| Beacon services | `AddBeaconServices` with AI on (`UseAI = true`), authorization on, the login form, Beacon's user store (`DatabaseAuthenticationProvider`) and user management with first-run setup. The approval workflow is not enabled. | `Program.cs` |
+| Metadata database | PostgreSQL (`.UsePostgreSql()`), connection string `ConnectionStrings:BeaconContext`. | `Program.cs` |
+| Connectors | All nine: PostgreSQL, SQL Server, MySQL, CloudWatch, Azure Synapse, Snowflake, Databricks, BigQuery and REST API. | `Program.cs` |
+| Background jobs | [Moberg Warp](https://moberghr.github.io/warp/) on PostgreSQL, with `BeaconScheduler` as the `IBeaconScheduler` implementation and one Warp job per Beacon operation. Dashboard at `/warp`. | `Warp/`, `Services/BeaconScheduler.cs` |
+| Sign-in | Cookie sign-in under `/beacon`, Data Protection keys in Beacon's database, optional OIDC/SSO, and bearer JWT for MCP clients when OIDC has a `McpJwksEndpoint`. | `Program.cs` |
+| API, UI and MCP | REST API and SignalR hub under `/beacon/api`, the React UI at `/beacon`, the MCP server at `/beacon/mcp`, the MCP discovery documents, and the OpenAPI document at `/openapi/v1.json`. | `Program.cs` |
+| Email | `BeaconMailSender`, an SMTP adapter configured with `Beacon:Smtp:*`. | `Services/BeaconMailSender.cs` |
+| Error responses | Exceptions under `/beacon/api` become RFC 7807 `application/problem+json` responses. | `Middleware/ApiExceptionMiddleware.cs` |
+| Telemetry | OpenTelemetry traces and metrics, only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. | `Program.cs` |
+| Reverse proxy | Forwarded headers from trusted proxies, only when `Beacon:ForwardedHeaders:Enabled` is `true`. | `Program.cs` |
+| Timeouts | Kestrel keep-alive and request-header timeouts and the default `HttpClient` timeout set to 5 minutes, for long AI calls. | `Program.cs` |
 
-The shell reads `realtimeEnabled` from `/beacon/api/auth/me`, so it knows realtime is off rather than
-discovering it by failing — it will not poll a route that isn't there.
+The Warp jobs, `BeaconMailSender`, the exception middleware, the telemetry and forwarded-headers blocks and the timeouts are sample code, not part of any package. A host that embeds Beacon provides its own.
 
-### Configuring SignalR
+## Configuration
 
-For a custom protocol or a backplane, reach the `ISignalRServerBuilder`:
+The sample reads standard ASP.NET Core configuration: `appsettings.json`, `appsettings.{Environment}.json`, user secrets (Development only), environment variables and command-line arguments. Environment variables use `__` for `:`, for example `Beacon__EncryptionKey`.
 
-```csharp
-builder.Services.AddBeaconApiServices(x =>
-    x.ConfigureSignalR = signalr => signalr.AddStackExchangeRedis(redisConnectionString));
+`appsettings.json` holds the non-secret defaults and commented examples. `appsettings.Development.json` sets only logging. Secrets never go in either file.
+
+| Key | Required | What it does |
+|---|---|---|
+| `ConnectionStrings:BeaconContext` | Yes | Beacon's metadata database (PostgreSQL in the sample). |
+| `Beacon:EncryptionKey` | Yes | Base64 of at least 32 random bytes. Encrypts connection strings and other secrets at rest. Checked at startup in every environment. |
+| `ConnectionStrings:WarpContext` | No | PostgreSQL database for Warp. Defaults to `BeaconContext`. |
+| `Beacon:BaseUrl` | No | Base for links in notifications, built as `{BaseUrl}/notifications/{id}`. Include `/beacon`, for example `https://beacon.example.com/beacon`. Can be changed later in **Admin Settings**. |
+| `Beacon:PublicBaseUrl` | Outside local use | Public origin advertised in the MCP discovery documents. Unset, Beacon uses the request's Host header and logs a warning. |
+| `Beacon:DataProtection:ApplicationName` | Outside Development | Data Protection application name, one per deployment. |
+| `Beacon:DataProtection:AllowUnencryptedKeys` | No | Acknowledges a key ring stored without encryption at rest. See [Running outside Development](#running-outside-development). |
+| `Beacon:UserManagement:SetupToken` | Recommended outside Development | First-run setup token, at least 32 characters. Unset, each process prints its own random token to the console. |
+| `Beacon:UserManagement:LocalLogin:Enabled`, `BreakGlassUserNames` | No | Password sign-in on or off, and up to three break-glass accounts that keep a password when it is off. |
+| `Beacon:Authentication:Oidc:*` | No | OIDC/SSO. See [Sign-in with OIDC](#sign-in-with-oidc-and-jwt-for-mcp). |
+| `Beacon:Mcp:Callers:*` | No | Entra callers admitted to `/beacon/mcp`. See [Entra ID callers](/features/mcp-entra-callers/). |
+| `Beacon:ForwardedHeaders:Enabled`, `KnownProxies` | No | Trust `X-Forwarded-For` and `X-Forwarded-Proto` from the listed proxy IP addresses. An empty list trusts none. |
+| `Beacon:Smtp:Host`, `FromAddress`, `Username`, `Password`, `Port`, `EnableSsl` | For email | SMTP for email recipients. `Port` defaults to `465`, `EnableSsl` to `true`. A missing required key fails the send, not the startup. |
+| `Beacon:LLM:*` | For AI features | The LLM provider. See [AI providers](/integrate/ai/). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | No | Turn on OpenTelemetry export. The service name defaults to `beacon`. |
+
+Every other key (query limits, MCP locks, notification policy, API keys, sessions, authorization) is a Beacon library setting and works the same in any host. See [Configuration](/getting-started/configuration/).
+
+## Ports and launch profiles
+
+`src/Beacon.SampleProject/Properties/launchSettings.json` has three profiles. All of them set `ASPNETCORE_ENVIRONMENT=Development`.
+
+| Profile | URLs | Use |
+|---|---|---|
+| `http` | `http://localhost:5296` | The default for `dotnet run` without `--launch-profile`. |
+| `https` | `https://localhost:7187`, `http://localhost:5296` | The one to use. The Vite dev server proxies to `https://localhost:7187`. |
+| `IIS Express` | IIS Express ports | Visual Studio on Windows. |
+
+```bash
+dotnet run --project src/Beacon.SampleProject --launch-profile https
 ```
 
-Calling `AddSignalR()` yourself as well is safe — registration is additive.
+With `--no-launch-profile` the environment is Production: user secrets and `appsettings.Development.json` are not loaded, and the host refuses to start until the [production settings](#running-outside-development) are in place.
 
-:::caution[Middleware order matters]
-`ApiKeyAuthMiddleware` runs before `UseAuthentication`, and `BeaconCookieAuthMiddleware` runs after it. Reordering breaks API-key-only callers and the login redirect.
-:::
+In Development, HTTP requests are redirected to HTTPS except under `/beacon/mcp`, so local MCP clients can connect over `http://localhost:5296/beacon/mcp`. Outside Development every path is redirected, including `/beacon/mcp`.
 
-### PostgreSQL through your host's `NpgsqlDataSource`
+## Beacon's database
 
-If your host already owns an `NpgsqlDataSource` — for example one Aspire builds with passwordless Microsoft Entra
-authentication, whose connection string has no password — hand it to Beacon instead of a connection string.
-Beacon then opens every connection (EF Core, the startup migrations in `UseBeacon()`, raw SQL) from it:
+The sample host does not create or migrate Beacon's schema. Run the EF Core migrations yourself, before the first start and after every update:
 
-```csharp
-// Aspire registers NpgsqlDataSource as a singleton (Aspire.Azure.Npgsql / Aspire.Npgsql)
-builder.AddAzureNpgsqlDataSource("beacondb");
+```bash
+dotnet tool install --global dotnet-ef
 
-builder.Services.AddBeaconServices(builder.Configuration, options => { /* ... */ })
-    // ... connectors ...
-    .UsePostgreSql(sp => sp.GetRequiredService<NpgsqlDataSource>());
-
-// A keyed registration (AddKeyedAzureNpgsqlDataSource) works the same way:
-//  .UsePostgreSql(sp => sp.GetRequiredKeyedService<NpgsqlDataSource>("beacondb"));
-// Or pass an instance you built yourself: .UsePostgreSql(dataSource)
+dotnet ef database update \
+  --project src/Beacon.Core.PostgreSql \
+  --startup-project src/Beacon.SampleProject \
+  --context PostgreSqlBeaconContext
 ```
 
-The factory is called once, from the root provider, when Beacon first builds its context options.
-`ConnectionStrings:BeaconContext` is not read on this path.
+The command reads the same configuration as the host, in the Development environment, so user secrets apply. The migrations create the `beacon` schema and the pgvector `vector` extension, so the login needs the rights for both, or a DBA creates them first.
 
-What Beacon needs from the data source:
+The sample registers PostgreSQL for Beacon's data. To use SQL Server instead, change `.UsePostgreSql()` to `.UseSqlServer()` in `Program.cs`, apply the migrations from `src/Beacon.Core.SqlServer`, and set `ConnectionStrings:WarpContext` to a PostgreSQL database, because Warp needs PostgreSQL. See [Metadata database](/integrate/database/).
 
-- **No `UseVector()`.** Beacon never sends or reads the pgvector type through Npgsql — it casts text literals to
-  `vector(384)` in SQL — so the data source needs no vector type mapping. The **database** needs the `vector`
-  extension: Beacon's migration runs `CREATE EXTENSION IF NOT EXISTS vector`, which requires `VECTOR` in
-  `azure.extensions` on Azure Flexible Server and a role allowed to create it (or an admin running
-  `CREATE EXTENSION vector;` beforehand).
-- **Its own search path stays yours.** Beacon's SQL names its tables and the vector type unqualified, so on each
-  connection it opens Beacon runs `SET search_path TO "beacon", public`. Npgsql resets session state when a
-  connection returns to the pool, so your own code never sees it — keep that reset on (do not set
-  `No Reset On Close=true`) and do not enable `Multiplexing` on a data source you share with Beacon. If you
-  cannot meet that, register a separate keyed data source for Beacon.
-- **Rights in the `beacon` schema.** The data source's role must be able to create the `beacon` schema (or own it)
-  and create tables in it; `ServiceConfiguration.UseBeacon(app.Services, createSchema: true)` creates the schema if missing.
+## Background jobs (Warp)
 
-### For SQL Server
+At startup the sample migrates Warp's own `warp` schema and registers its recurring jobs. Subscriptions are scheduled through `BeaconScheduler` as you create them.
 
-If you use SQL Server for Beacon's metadata instead of PostgreSQL:
+| Job | Schedule | What it does |
+|---|---|---|
+| `mcp-learning-aggregate` | `0 */6 * * *` | Mines MCP usage signals into learned patterns. |
+| `mcp-learning-cleanup` | `0 3 * * *` | Deletes learning signals past their retention. |
+| `mcp-audit-retention` | `30 3 * * *` | Purges MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays`. Does nothing when that is unset. |
+| `mcp-embedding-reindex` | `0 */12 * * *` | Re-indexes metadata and examples for semantic search. |
+| `mcp-docchunk-reindex` | `0 */12 * * *` | Re-chunks and re-embeds project documentation. |
 
-```csharp
-using Beacon.Core.SqlServer;
+While `Beacon:PreviousEncryptionKeys` lists a key, every start also enqueues one run of the re-encryption job, which moves stored values to the current key.
 
-// Metadata provider
-builder.Services.AddBeaconServices(builder.Configuration, options =>
-    {
-        options.AddBeaconScheduler<BeaconScheduler>();
-    })
-    // ... connectors ...
-    .UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-```
+- Warp polls every second and runs at most `min(2 × CPU count, 20)` workers.
+- Failed jobs are not retried automatically. They stay failed for you to investigate.
+- The dashboard at `/warp` is for signed-in users with the Admin role.
 
-Update the connection string in `appsettings.json`:
+See [Background jobs](/integrate/background-jobs/) for implementing `IBeaconScheduler` on another job runner.
+
+## The UI
+
+The React app lives in `src/Beacon.UI/web`. The `Beacon.UI` project serves the built files from `src/Beacon.UI/wwwroot/beacon` at `/beacon`. The repository does not contain a built UI.
+
+| Goal | Command (from the repository root) |
+|---|---|
+| Install dependencies | `npm ci --prefix src/Beacon.UI/web` |
+| Build once for the host | `npm run build --prefix src/Beacon.UI/web`, then restart the host. Output: `src/Beacon.UI/wwwroot/beacon`. |
+| Develop with hot reload | `npm run dev --prefix src/Beacon.UI/web`, then open `http://localhost:5173/beacon/`. Proxies `/beacon/api` and `/beacon/mcp` to `https://localhost:7187`, or to `BEACON_BACKEND_URL` when set. |
+| Explore without a backend | `npm run dev:mock --prefix src/Beacon.UI/web`, mock data in the browser. |
+| Run the UI tests | `npm test --prefix src/Beacon.UI/web` |
+| Regenerate the API client | `npm run codegen --prefix src/Beacon.UI/web`, with the host running. Reads `/openapi/v1.json`. |
+
+A Debug build of the .NET solution does not build the React app. A Release build does, and so does a Debug build with `-p:BuildReactInDebug=true`. Both run `npm ci` first when `node_modules` is missing. The UI needs Node.js 22 and npm 11.
+
+## Sign-in with OIDC and JWT for MCP
+
+The sample always offers Beacon's login form and user store. To add single sign-on, fill in `Beacon:Authentication:Oidc` and set `Enabled` to `true`:
 
 ```json
 {
-  "ConnectionStrings": {
-    "BeaconContext": "Server=localhost;Database=beacon;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
+  "Beacon": {
+    "Authentication": {
+      "Oidc": {
+        "Enabled": true,
+        "Authority": "https://login.microsoftonline.com/<tenant-id>/v2.0",
+        "ClientId": "<client-id>",
+        "AllowedTenants": ["<tenant-id>"],
+        "DisplayName": "Microsoft",
+        "McpJwksEndpoint": "https://login.microsoftonline.com/<tenant-id>/discovery/v2.0/keys"
+      }
+    }
   }
 }
 ```
 
-### B5. Provide a scheduler implementation
+- Put `ClientSecret` in user secrets or an environment variable (`Beacon__Authentication__Oidc__ClientSecret`), never in the file.
+- Startup fails with SSO on and no `AllowedTenants`, unless `AllowAnyTenant` is `true` for a provider that issues no tenant claim.
+- `McpJwksEndpoint` is a sample convention: when it is set, the sample also accepts bearer JWTs on the API and on `/beacon/mcp`, validated against those signing keys with the `Authority` as issuer and the `ClientId` as audience. Which tokens become MCP callers is decided by `Beacon:Mcp:Callers`.
 
-Beacon does not bundle a job runner — it schedules work through the `IBeaconScheduler` abstraction, so it plugs into whatever your host already uses. Beacon calls `AddOrUpdate` when a subscription is created or its cron changes, and `Remove` when it's deleted or disabled; your implementation maps those calls onto recurring jobs that invoke `IJobService.ExecuteQuery(subscriptionId)`.
+Every OIDC option is in [Configuration](/getting-started/configuration/). How sign-in works is in [Sign-in & identity](/integrate/authentication/).
 
-No Beacon package references a job runner. All the background work itself already ships with the
-packages you installed — `IJobService` (MCP eval, learned-pattern aggregation, signal cleanup,
-embedding reindex, subscription execution) in `Moberg.Beacon.Core`, and documentation generation
-plus AI actor think-cycles in `Moberg.Beacon.AI`. What you supply is a thin adapter per job that
-forwards to those services on your runner's terms. `src/Beacon.SampleProject/Warp/Jobs/` is the
-reference implementation of that pattern, written against Moberg Warp.
+## Running outside Development
 
-```csharp
-using Beacon.Core.Worker;
+Outside Development (`ASPNETCORE_ENVIRONMENT` set to anything but `Development`, or unset), the sample needs more configuration before it starts:
 
-namespace YourProject.Services;
+1. **Provide secrets through the environment or a secret store.** User secrets are not loaded. Set at least `ConnectionStrings__BeaconContext` and `Beacon__EncryptionKey`.
+2. **Set `Beacon:DataProtection:ApplicationName`.** One name per deployment, for example `beacon-staging`. Without it the host does not start.
+3. **Encrypt the Data Protection keys at rest.** Outside Development the host refuses to start while the key ring, which protects sign-in cookies, is stored unencrypted. The sample chains no `ProtectKeysWith*` call: add one to the builder `AddBeaconDataProtection` returns in `Program.cs` (for example `ProtectKeysWithAzureKeyVault` or `ProtectKeysWithCertificate`), or, if the database is protected by other means, set `Beacon:DataProtection:AllowUnencryptedKeys` to `true` and accept the startup warning.
+4. **Set `Beacon:UserManagement:SetupToken`** to a secret of at least 32 characters, so the first admin can be created with a token you control, and every replica accepts the same one.
+5. **Set `Beacon:PublicBaseUrl` and `Beacon:BaseUrl`** to the public origin and the public UI address (with `/beacon`).
+6. **Configure the listening address**, for example `ASPNETCORE_URLS`. Without a launch profile ASP.NET Core does not use the ports above.
+7. **Behind a reverse proxy**, set `Beacon:ForwardedHeaders:Enabled` and list the proxy addresses in `KnownProxies`, so the login rate limiter and cookie security see the client's address and scheme.
 
-public class BeaconScheduler : IBeaconScheduler
-{
-    public void AddOrUpdate(int subscriptionId, string subscriptionName, string cron)
-    {
-        var jobKey = $"{subscriptionId} - {subscriptionName}";
-        // register/update a recurring job in your job runner that calls
-        // IJobService.ExecuteQuery(subscriptionId) on the given cron schedule
-    }
+The [Production checklist](/integrate/production/) covers the rest for a real deployment.
 
-    public void Remove(int subscriptionId, string subscriptionName)
-    {
-        var jobKey = $"{subscriptionId} - {subscriptionName}";
-        // remove the recurring job
-    }
-}
-```
-
-Any job runner with cron/recurring support works. We recommend [Moberg Warp](https://moberghr.github.io/warp/): define an `IJob` that calls `IJobService.ExecuteQuery`, and map `AddOrUpdate`/`Remove` onto Warp's recurring-job APIs — you get retries, concurrency guards (`[Mutex]`), and a job dashboard out of the box. Quartz.NET is another valid choice, and `Beacon.SampleProject` ships a complete working reference implementation you can copy as a starting point.
-
-### B6. (Optional) Extended timeouts for AI operations
-
-AI calls can run for minutes. Kestrel keep-alive and request-header timeouts and the default `HttpClient` timeout are tuned to 5 minutes:
-
-```csharp
-builder.WebHost.ConfigureKestrel(serverOptions =>
-{
-    serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
-    serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
-});
-
-builder.Services.AddHttpClient().ConfigureHttpClientDefaults(http =>
-{
-    http.ConfigureHttpClient(client =>
-    {
-        client.Timeout = TimeSpan.FromMinutes(5);
-    });
-});
-```
-
-### B7. Run
+## Building a release
 
 ```bash
-dotnet run
+dotnet publish src/Beacon.SampleProject -c Release -o ./publish
 ```
 
-On first run Beacon applies EF Core migrations, creates the `beacon` schema, and walks you through the first-run setup flow that creates the initial admin user. Then open:
+The Release build runs `npm ci` (when needed) and `npm run build` for the UI, so the output includes it under `wwwroot/beacon`. Run it with:
+
+```bash
+cd publish
+ASPNETCORE_ENVIRONMENT=Production dotnet Beacon.SampleProject.dll
+```
+
+with the settings from [Running outside Development](#running-outside-development) supplied through the environment.
+
+## URLs
 
 | URL | What |
 |---|---|
-| **`/`** | Beacon React SPA |
-| **`/login`** | Login form |
+| `/beacon` | The React UI. The site root `/` belongs to the host. |
+| `/beacon/setup` | First-run setup, while no admin exists. |
+| `/beacon/login` | Sign-in. |
+| `/beacon/api/health` | Health check: `{"status":"ok"}` when the metadata database answers. |
+| `/beacon/api/*` | REST API and the SignalR hub (`/beacon/api/hub`). |
+| `/beacon/mcp` | MCP server. |
+| `/openapi/v1.json` | OpenAPI document. |
+| `/warp` | Warp dashboard (Admin only). |
 
----
-
-## Step 2: Generate the Encryption Key
-
-Beacon **requires** an encryption key (`Beacon:EncryptionKey`) to encrypt sensitive data — most importantly data-source connection strings — at rest with AES-256. It must be base64 that decodes to at least 32 random bytes; generate one with:
-
-```bash
-openssl rand -base64 32
-```
-
-Store it via User Secrets, the `Beacon__EncryptionKey` environment variable (double underscore), or a secrets manager — never commit it, and never copy a key printed in a guide. Beacon refuses at startup, in every environment, a missing or short key, a passphrase, a published sample value and a `${...}` placeholder (.NET configuration does not expand it). See the [Configuration Guide](/getting-started/configuration/#encryption-key-configuration-required) for production patterns and for replacing a key.
-
----
-
-## Authentication
-
-Beacon authentication is **cookie-based** (the `Beacon.Auth` cookie is `HttpOnly`, `SameSite=Lax`) and driven by a pluggable `IBeaconAuthenticationProvider`. The sample uses `DatabaseAuthenticationProvider` (internal users with passwords stored in Beacon). There is **no basic auth and no `admin`/`admin` default** — the first-run setup flow creates the initial admin user.
-
-Beacon supports:
-
-- **Login form** — React `/login` route, backed by the cookie scheme
-- **OIDC / SSO** — optional, via `AddBeaconOidcAuthentication(...)`
-- **JWT bearer** — for MCP clients
-- **API keys** — SHA256-hashed at rest, carry scopes (`Read`, `Execute`) and optional project restrictions, always expire, and stop working when their owner is disabled; the raw key is shown once at creation
-
-See the [Configuration Guide](/getting-started/configuration/#authentication) and the [User Management Guide](/features/user-management/) for details.
-
----
+The full list is in [Routes & endpoints](/reference/routes/).
 
 ## Troubleshooting
 
-### "Beacon:EncryptionKey must be configured" (or "must be base64…", "is a publicly known value")
+| Symptom | Cause and fix |
+|---|---|
+| `Beacon:DataProtection:ApplicationName must be set outside Development` | The host runs outside Development. Use `--launch-profile https` locally, or follow [Running outside Development](#running-outside-development). |
+| Startup refuses Data Protection keys "persisted without encryption at rest" | Outside Development without key encryption. See step 3 of [Running outside Development](#running-outside-development). |
+| `Beacon:EncryptionKey` errors | The key is missing, too short, printable text or a published sample value. Generate one with `openssl rand -base64 32`. |
+| `relation "…" does not exist` | Beacon's schema is not migrated. See [Beacon's database](#beacons-database). |
+| `extension "vector" is not available` | Install pgvector on the PostgreSQL server, or use the `pgvector/pgvector` image. |
+| `404` under `/beacon` | The UI is not built. See [The UI](#the-ui). |
+| Subscriptions never run | Warp is not running or cannot reach PostgreSQL. Check `/warp` and the host log. |
 
-Generate and configure a new key:
+More in [Troubleshooting](/integrate/troubleshooting/).
 
-```bash
-openssl rand -base64 32
-```
+## Embedding Beacon in your own application
 
-If values were already encrypted with the key that was refused, list that key in `Beacon:PreviousEncryptionKeys` so they stay readable (see [Configuration → Replacing the key](/getting-started/configuration/#replacing-the-key)).
-
-### "Cannot create database schema"
-
-Ensure the Beacon database user has permission to create a schema.
-
-**PostgreSQL:**
-
-```sql
-GRANT CREATE ON DATABASE beacon TO your_user;
-```
-
-**SQL Server:**
-
-```sql
-GRANT CREATE SCHEMA TO your_user;
-```
-
-### Jobs not executing
-
-1. Verify your job runner is registered and its worker is running.
-2. Check your scheduler's dashboard or logs for job status.
-3. Confirm the database or storage your job runner uses is reachable.
-4. Confirm your `IBeaconScheduler` implementation is registered via `options.AddBeaconScheduler<...>()`.
-
-### SPA not loading at `/`
-
-1. Confirm `app.MapBeaconUi()` is wired and `app.UseStaticFiles()` runs before it.
-2. If developing the frontend, make sure the Vite dev server (`npm run dev`) is running, or that you ran `npm run build` so `src/Beacon.UI/wwwroot` is up to date.
-3. Check the browser console for errors and clear cache.
-
-### Authentication failing
-
-1. Confirm `AddBeaconCookieAuthentication("/")` is registered and `UseAuthentication` runs in the correct order.
-2. Verify the authentication provider (e.g. `DatabaseAuthenticationProvider`) is registered.
-3. For API-key callers, confirm the key's scope and project restriction allow the request.
-
-### AI features not working
-
-1. Verify `options.UseAI = true`.
-2. Check the LLM configuration (provider, key) in `appsettings.json` or Admin Settings.
-3. Confirm the provider key is valid and within quota.
-4. Ensure the extended timeouts (B6) are configured.
-
----
-
-## Production Considerations
-
-### Security
-
-- **Set a strong admin password** during first-run setup — there are no default credentials. Keep the setup token out of shared channels; it stops working once the super admin exists.
-- **Keep the encryption key out of source control** — use environment variables or a secrets manager.
-- **Enable HTTPS** in production.
-- **Use OIDC/SSO** for production identity where possible.
-- **Scope API keys** tightly (`Read`/`Execute`/`Admin` + project restrictions).
-
-### Performance
-
-- Configure database connection pooling.
-- Adjust your job runner's worker count to match subscription load.
-- Set query timeouts appropriate to your workloads.
-
-### Monitoring
-
-- Enable detailed logging for troubleshooting (no PII in logs).
-- Use your job runner's dashboard to monitor job execution.
-- Track LLM token usage and cost if AI is enabled.
-
----
-
-## Next Steps
-
-Now that Beacon is running:
-
-1. [Connect your first data source](/features/data-sources/) — add databases and APIs to monitor
-2. [Create your first query](/features/queries/) — define SQL monitoring queries (including cross-database)
-3. [Set up a subscription](/features/subscriptions/) — schedule automated execution
-4. [Configure notifications](/features/notifications/) — deliver results via Email, Teams, or Jira
-
-## Additional Resources
-
-- [Configuration Guide](/getting-started/configuration/) — detailed configuration options
-- [Quick Start](/getting-started/quick-start/) — create your first alert end to end
-- [Features Overview](/features/) — complete feature documentation
-- [Report Issues](https://github.com/moberghr/beacon/issues)
+This page covers the sample only. To add Beacon to your own ASP.NET Core application (packages, `Program.cs`, middleware order, migrations at startup, your job runner and your sign-in), follow [Integrate Beacon](/integrate/).

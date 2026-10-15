@@ -14,7 +14,7 @@ cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `a
    String) and a description — the description becomes the argument's description in the tool schema.
 2. Get a version **approved** (see [the approval rule](#which-version-runs)). With the approval workflow enabled,
    saving SQL changes submits a version for approval; an Approver (or an Admin) other than the requester approves it on
-   the Approvals page (see [Queries → Approval workflow](/features/queries/#approval-workflow)).
+   **Approvals** (`/beacon/approvals`; see [Queries → Approval workflow](/features/queries/#approval-workflow)).
 3. On the query's detail page, a **SecurityAdmin** (or an Admin) opens the **MCP tool** card, ticks *Expose as MCP
    tool*, sets a name and (optionally) a description, and saves. The card shows which approved version calls run, or why
    none can. While the approval workflow is on, publishing is a third pair of eyes: whoever requested or approved the
@@ -70,8 +70,9 @@ version is not approved for its content hash. Nothing else is callable:
 
 A query with no runnable version is **not listed** as a tool at all, even when enabled. The tool executes the
 approved version's **snapshot** (its stored steps and final query), not the live step rows, so an unreviewed change
-to the live query can never change what the tool runs. In practice: enable the approval workflow
-(`options.ApprovalWorkflow.Enabled = true`) on hosts that use saved-query tools. With the workflow on, a version restore is
+to the live query can never change what the tool runs. In practice: enable the approval workflow on hosts that use
+saved-query tools. It is off by default; turn it on in code with `options.EnableApprovalWorkflow(...)` in
+`AddBeaconServices` (see [Approvals](/features/approvals/)). With the workflow on, a version restore is
 submitted for approval like an edit, so restoring an older version never makes it callable without a new approval.
 Subscriptions follow the same rule in the workflow's strict mode
 (`ApprovalWorkflow.RequireApprovedVersionToRun`, see [Queries → Approval workflow](/features/queries/#approval-workflow)).
@@ -111,9 +112,14 @@ The result is a markdown table plus structured content:
 payload within 256 KB, then `rowsOmittedForSize` is also true).
 
 **Many tools.** Up to `SavedQueryTools.NamedToolLimit` tools (default 25) visible to one caller, each is its own
-`q_<name>` tool. Above it, the caller gets two catalog tools instead: `search_saved_queries` (keywords → names,
-descriptions and input schemas) and `run_saved_query` (`name` + `arguments`). Configure the limit in
-`AddBeaconServices(..., options => options.SavedQueryTools.NamedToolLimit = 40)`.
+`q_<name>` tool. Above it, the caller gets two catalog tools instead:
+
+| Tool | Parameters | Returns |
+| --- | --- | --- |
+| `search_saved_queries` | `query` (string, keywords matched against names and descriptions; empty lists every tool), `limit` (integer, default 10, max 50) | names, descriptions and input schemas |
+| `run_saved_query` | `name` (string, required), `arguments` (object matching the query's input schema, including `project_id` when the schema lists one) | the same result as the named tool |
+
+Configure the limit in `AddBeaconServices(..., options => options.SavedQueryTools.NamedToolLimit = 40)`.
 
 The project brief (`get_context` with `format: "agents_md"`) lists the project's saved-query tools with their
 parameters, so an agent workspace's `AGENTS.md` knows they exist.
@@ -121,10 +127,10 @@ parameters, so an agent workspace's `AGENTS.md` knows they exist.
 The tools coexist with the built-in tools and with [host endpoint tools](/features/host-endpoint-tools/)
 (`api_<name>`): all three are served side by side.
 
-## Using one from a Spaces routine
+## Using one from a routine
 
-A Kvika Work Space routine that refreshes a dashboard's data calls the tool and writes the structured rows as JSON —
-no SQL in the routine:
+An agent routine that refreshes a dashboard's data calls the tool and writes the structured rows as JSON, with no SQL
+in the routine. The `mcp.callTool` call below stands for whatever MCP client the routine runs in:
 
 ```ts
 // routines/refresh-loan-book.ts
@@ -169,11 +175,12 @@ When the approved SQL changes, the routine picks up the new version on its next 
   audited.
 - **Execute scope.** `/beacon/mcp` requires the Execute scope, so a Read-scoped API key cannot call saved-query
   tools; project-restricted API keys work and are held to their project list.
-- **Read-only execution (§1.5).** Every step's SQL, with its arguments bound, goes through the shared execution
-  gate (regex guardrail → AST read-only validator → row limit) and runs through the provider's read-only variant — a
-  `READ ONLY` transaction on PostgreSQL and MySQL. A final query joins the steps in in-memory SQLite behind the same
-  gate.
-- **Parameters, never interpolation (§1.10).** Each `{placeholder}` is replaced by a generated database parameter
+- **Read-only execution.** Every step's SQL, with its arguments bound, goes through the shared execution gate
+  (regex guardrail, AST read-only validator, cross-database rule, row limit) and runs through the provider's read-only
+  path — a `READ ONLY` transaction on PostgreSQL and MySQL; on the other engines the parser gates and the read-only
+  login you connect with (see [How a query runs](/features/queries/#how-a-query-runs)). A final query joins the steps
+  in in-memory SQLite behind the same gate.
+- **Parameters, never interpolation.** Each `{placeholder}` is replaced by a generated database parameter
   (`@p0`, `@p1`, …) and the value is sent as a parameter; argument text never reaches the SQL.
 - **Host-managed sources.** When a step reads a [host DbContext](/features/host-dbcontext/) data source, the host's
   allow-list and column policy apply — in the gate and again in the provider — and masked columns come back masked.

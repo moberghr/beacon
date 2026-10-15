@@ -3,15 +3,18 @@ title: MCP observability and audit
 description: Every MCP tool call is auditable, correlated to a W3C trace, and optionally exported through OpenTelemetry — without Beacon choosing your telemetry backend.
 ---
 
-Every call through the [MCP server](/features/mcp-server/) that reaches execution — direct tool calls, saved-query
-tools, and [host endpoint tools](/features/host-endpoint-tools/) — writes one `McpAuditLog` row and emits one
-structured log event, visible (when the host opts in) on your own tracing backend. Some calls write none: a request
-that fails an early validation check (an unresolvable `project_id`, a bad `format`) returns before the tool ever
-calls `McpAuditService.LogToolCallAsync`, so no row and no 9100 event are produced for it. With
-`Beacon:Mcp:Audit:Required = true`, a **successful** result for which no row was written is withheld rather than
-returned instead of leaving a silent gap in the trail — see "Fail-closed audit" below. Beacon never picks an
-exporter or a backend itself; it only tags the MCP SDK's own span and records its own metrics, and a host wires
-those into whatever it already uses (OTLP → an ADOT collector, Phoenix, or your own backend).
+Every tool call through the [MCP server](/features/mcp-server/) — the built-in tools, saved-query tools and
+[host endpoint tools](/features/host-endpoint-tools/) — writes one `McpAuditLog` row and emits one structured log
+event. That includes calls that fail: a tool's own validation errors (an unresolvable `project_id`, a bad `format`,
+an `offset` out of range), project-access refusals, calls refused for a missing `Execute` scope (audited by the scope
+filter, before any tool runs) and calls whose project access could not be determined. An unknown `q_<name>` is
+audited by the saved-query tools. A tool name that belongs to no tool family is answered as a JSON-RPC error
+(`Unknown tool`) and writes no row.
+
+With `Beacon:Mcp:Audit:Required = true`, a result whose row could not be written, or a successful result that
+produced no row, is withheld rather than returned — see [Fail-closed audit](#fail-closed-audit). Beacon never picks
+an exporter or a backend itself: it tags the MCP SDK's own span and records its own metrics, and a host wires those
+into whatever it already uses (OTLP to an ADOT collector, Phoenix, or another backend).
 
 ## Configuration
 
@@ -35,7 +38,7 @@ those into whatever it already uses (OTLP → an ADOT collector, Phoenix, or you
 | Setting | Default | Meaning |
 |---|---|---|
 | `Beacon:Mcp:Audit:Required` | `false` | When `true`, a tool result whose audit row failed to write is replaced with an error instead of being returned. |
-| `Beacon:Mcp:Audit:RetentionDays` | `null` | Days audit rows are kept. `null` keeps them forever (today's behaviour). Must be `> 0` when set — `0` or negative fails options validation at startup. |
+| `Beacon:Mcp:Audit:RetentionDays` | `null` | Days audit rows are kept. `null` keeps them forever. Must be `> 0` when set; `0` or a negative value fails options validation at startup. |
 | `Beacon:Mcp:Audit:RequestIdHeader` | `X-Request-Id` | The upstream header read into `UpstreamRequestId`. Must be a valid HTTP header token, or startup fails. Set to `null`/empty to read none. |
 | `Beacon:Telemetry:CaptureContent` | `false` | Puts the tool input on the current span as `beacon.tool.input` — only where the project's own content retention also allows content (double opt-in, never from this setting alone). |
 
@@ -166,8 +169,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
 }
 ```
 
-With no `OTEL_EXPORTER_OTLP_ENDPOINT`, none of this runs and the host behaves exactly as it does today — no OTel
-registration at all. Everything else is driven by the standard `OTEL_*` environment variables Beacon never reads
+With no `OTEL_EXPORTER_OTLP_ENDPOINT`, none of this runs: there is no OpenTelemetry registration at all. Everything else is driven by the standard `OTEL_*` environment variables Beacon never reads
 itself: `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and
 so on. No endpoint, header or credential is ever hardcoded in Beacon.
 
@@ -283,5 +285,5 @@ retention settings keep, though the Auditor role grants no other project data. R
 | `page` | No (default `1`) | Must be `≥ 1`. |
 | `pageSize` | No (default `100`) | Must be between `1` and `500`. |
 
-Any other caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI for this endpoint and
-no NSwag client is generated for it — it's an operational export, not a product surface.
+Any other caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI page for this endpoint;
+the generated TypeScript client exposes it as `getMcpAuditLogs`. It is an operational export, not a product surface.

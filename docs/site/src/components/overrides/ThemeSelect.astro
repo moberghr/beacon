@@ -1,0 +1,56 @@
+---
+// A two-state light/dark toggle. Moberg brand: light by default, dark only by choice,
+// never following the operating system.
+import { Icon } from '@astrojs/starlight/components';
+---
+
+<beacon-theme-toggle>
+	<button type="button" class="theme-toggle" aria-label="Switch between light and dark theme" title="Switch theme">
+		<Icon name="moon" class="to-dark" size="1.05rem" />
+		<Icon name="sun" class="to-light" size="1.05rem" />
+	</button>
+</beacon-theme-toggle>
+
+<style>
+	.theme-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border: 1px solid var(--sl-color-hairline-shade);
+		border-radius: 8px;
+		background: transparent;
+		color: var(--sl-color-gray-2);
+		cursor: pointer;
+		transition: color 0.15s, border-color 0.15s;
+	}
+	.theme-toggle:hover {
+		color: var(--sl-color-accent);
+		border-color: var(--sl-color-accent);
+	}
+	:global(:root[data-theme='light']) .to-light,
+	:global(:root[data-theme='dark']) .to-dark {
+		display: none;
+	}
+</style>
+
+<script>
+	const storageKey = 'starlight-theme';
+
+	class BeaconThemeToggle extends HTMLElement {
+		constructor() {
+			super();
+			this.querySelector('button')?.addEventListener('click', () => {
+				const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+				document.documentElement.dataset.theme = next;
+				try {
+					localStorage.setItem(storageKey, next);
+				} catch {
+					// Storage blocked (private mode): the choice lasts for this page only.
+				}
+			});
+		}
+	}
+	customElements.define('beacon-theme-toggle', BeaconThemeToggle);
+</script>

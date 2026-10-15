@@ -18,7 +18,7 @@ change data become tools only when the host opts in with `AllowWriteTools` (see 
 builder.Services.AddBeaconMcp()
     .AddHostEndpointTools(o =>
     {
-        o.ProjectName = "Netgiro";                     // the tools belong to this Beacon project
+        o.ProjectName = "Back Office";                 // the tools belong to this Beacon project
         o.MaxResponseBytes = 1_048_576;                // default 1 MiB
         o.NamedToolLimit = 20;                         // above this: search_api + call_api
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
@@ -37,7 +37,7 @@ Mark a controller action:
 ```csharp
 [HttpPost]
 [Authorize]                                           // required: [Permission] is a filter, not authorization metadata
-[Permission(AdminPermission.ViewLoans)]               // Netgiro's filter: runs in the action pipeline (needs a dispatch middleware, below)
+[Permission(AdminPermission.ViewLoans)]               // the host's own filter: runs in the action pipeline (needs a dispatch middleware, below)
 [BeaconTool("customer_loans", Description = "Loans of one customer, newest first.", ReadOnly = true)]
 public IActionResult CustomerLoans([DataSourceRequest] DataSourceRequest request, int customerId)
 {
@@ -58,9 +58,9 @@ The tool is exposed as `api_customer_loans` (or `api_loan_by_id`).
 
 The endpoint must carry authorization metadata (`[Authorize]` on the action or controller, a policy, or
 `[AllowAnonymous]`), or the host must have a fallback authorization policy — otherwise startup refuses it. A
-permission check implemented as a filter (like Netgiro's `[Permission]`) is not metadata. Netgiro Web.Admin has
-neither `[Authorize]` on its controllers nor a fallback policy, so every exposed action carries `[Authorize]` next to
-`[BeaconTool]` and `[Permission]`, as above.
+permission check implemented as a filter (like the `[Permission]` filter above) is not metadata. A host that has
+neither `[Authorize]` on its controllers nor a fallback policy puts `[Authorize]` on every exposed action, next to
+`[BeaconTool]` and its own permission filter, as above.
 
 ### Authentication schemes
 
@@ -74,7 +74,7 @@ host lists each scheme in `TrustedAuthenticationSchemes`:
 ```csharp
 .AddHostEndpointTools(o =>
 {
-    o.ProjectName = "Netgiro";
+    o.ProjectName = "Back Office";
     o.TrustedAuthenticationSchemes = ["Cookies"];      // only if the MCP caller is an acceptable stand-in for it
 });
 ```
@@ -131,7 +131,7 @@ leave from Claude Desktop. This is off unless the host opts in, and each endpoin
 ```csharp
 .AddHostEndpointTools(o =>
 {
-    o.ProjectName = "Inventhor";
+    o.ProjectName = "Employee Portal";
     o.AllowWriteTools = true;                          // without it, ReadOnly = false fails startup
 });
 
@@ -193,17 +193,17 @@ project does not exist.
   your own factory.
 - `null` → the call is refused.
 
-A host whose permissions live in its own user store registers its own factory. Netgiro maps the Entra user to its
-admin user and `AdminPermission` set. Netgiro's permission claim is `NetgiroClaimTypes.Permission`
-(`http://schemas.netgiro.is/identity/claims/permission`) and its value is the permission's **integer** value
-(`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what `Identity.HasPermission` compares against.
-The admin lookup below is a **placeholder** — use whatever service Web.Admin already has for loading an active admin
-and their permissions:
+A host whose permissions live in its own user store registers its own factory. The example below maps the Entra user
+to the host's admin user and its `AdminPermission` set. The host's permission claim is `HostClaimTypes.Permission`
+(`http://schemas.example.com/claims/permission`) and its value is the permission's **integer** value
+(`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what the host's `Identity.HasPermission` compares
+against. The admin lookup is a **placeholder** — use whatever service the host already has for loading an active
+admin and their permissions:
 
 ```csharp
-builder.Services.AddSingleton<IMcpHostPrincipalFactory, NetgiroMcpHostPrincipalFactory>();
+builder.Services.AddSingleton<IMcpHostPrincipalFactory, HostPrincipalFactory>();
 
-internal sealed class NetgiroMcpHostPrincipalFactory(IServiceScopeFactory scopes) : IMcpHostPrincipalFactory
+internal sealed class HostPrincipalFactory(IServiceScopeFactory scopes) : IMcpHostPrincipalFactory
 {
     public async Task<ClaimsPrincipal?> CreateAsync(McpCaller caller, ClaimsPrincipal mcpPrincipal, CancellationToken ct)
     {
@@ -224,7 +224,7 @@ internal sealed class NetgiroMcpHostPrincipalFactory(IServiceScopeFactory scopes
         }
 
         var claims = admin.Permissions                 // IEnumerable<AdminPermission>
-            .Select(x => new Claim(NetgiroClaimTypes.Permission, x.ToValueString()))
+            .Select(x => new Claim(HostClaimTypes.Permission, x.ToValueString()))
             .Append(new Claim(ClaimTypes.Name, admin.UserName));
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "BeaconMcpUser"));
@@ -237,10 +237,10 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 
 ```json
 "Beacon": { "Mcp": { "Callers": { "Systems": [ {
-  "Name": "kvika-routines",
-  "ClientId": "<kvika-routines-app-client-id>",
+  "Name": "routine-runner",
+  "ClientId": "<routine-runner-app-client-id>",
   "ProjectIds": [ 3 ],
-  "HostClaims": [ { "Type": "http://schemas.netgiro.is/identity/claims/permission", "Value": "1007" } ]
+  "HostClaims": [ { "Type": "http://schemas.example.com/claims/permission", "Value": "1007" } ]
 } ] } } }
 ```
 
@@ -250,7 +250,7 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 2. A **new DI scope** and a new `HttpContext` are created. The request carries the method, the route filled from the
    endpoint's route pattern, the query string, the declared headers only, and a JSON or
    `application/x-www-form-urlencoded` body. **Nothing of the MCP request is forwarded**: no `Authorization` header,
-   no cookies, no connection info. It also sends `Accept: application/json` and `X-Requested-With: XMLHttpRequest`.
+   no cookies, no connection info. It also sends an `Accept` header preferring JSON (`application/json, text/plain;q=0.9, */*;q=0.1`) and `X-Requested-With: XMLHttpRequest`.
 3. The endpoint and route values are set as routing would set them.
 4. **Authorization** runs before the endpoint, exactly as the authorization middleware would, against the host
    principal: the endpoint's `[Authorize]` / policy / requirement metadata combined through the host's
@@ -287,15 +287,15 @@ fine. A middleware that does not call `next` refuses the call; one that throws f
 error and are audited. The dispatch runs in its own execution context, so the MCP request's own ambient principal is
 never changed.
 
-Netgiro's `[Permission(AdminPermission.X)]` is an `IAsyncAuthorizationFilter` that checks
-`Identity.Current.HasPermission(...)`, and `Identity.Current` reads `Thread.CurrentPrincipal`, which Web.Admin's
+Take a host whose `[Permission(AdminPermission.X)]` is an `IAsyncAuthorizationFilter` that checks
+`Identity.Current.HasPermission(...)`, where `Identity.Current` reads `Thread.CurrentPrincipal`, which the host's own
 middleware sets with `Identity.Set(identity)` — it takes a `ClaimsIdentity`, not a principal. Without a dispatch middleware every tool call would be denied. The
 factory above maps the Entra user to admin permissions; the middleware makes that principal ambient:
 
 ```csharp
-builder.Services.AddSingleton<IHostEndpointDispatchMiddleware, NetgiroIdentityMiddleware>();
+builder.Services.AddSingleton<IHostEndpointDispatchMiddleware, HostIdentityMiddleware>();
 
-internal sealed class NetgiroIdentityMiddleware : IHostEndpointDispatchMiddleware
+internal sealed class HostIdentityMiddleware : IHostEndpointDispatchMiddleware
 {
     public async Task InvokeAsync(HttpContext ctx, McpCaller caller, Func<Task> next, CancellationToken cancellationToken)
     {

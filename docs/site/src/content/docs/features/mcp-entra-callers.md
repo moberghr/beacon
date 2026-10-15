@@ -3,7 +3,7 @@ title: Entra ID callers on MCP
 description: Let an agent platform call Beacon's MCP endpoint with Microsoft Entra ID tokens, either on behalf of a user or as a system identity, with projects and scope decided by Beacon configuration.
 ---
 
-Besides [API keys](/features/api-keys/), the [MCP server](/features/mcp-server/) at `/beacon/mcp` accepts **Microsoft Entra ID bearer tokens**. This is how an agent platform (for example AIProxy / Kvika Work) calls a Beacon that is embedded in a host application. It supports two modes, and both are first-class:
+Besides [API keys](/features/api-keys/), the [MCP server](/features/mcp-server/) at `/beacon/mcp` accepts **Microsoft Entra ID bearer tokens**. This is how an agent platform calls a Beacon that is embedded in a host application. It supports two modes, and both are first-class:
 
 | Mode | Token | Identified by |
 |------|-------|---------------|
@@ -34,6 +34,8 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 4. The route's Execute-scope policy then applies to JWT callers exactly as it does to API keys. **`Read` callers and unknown callers get `403`**, and `Execute` callers pass.
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
+
+The mapped principal carries `auth_method=mcp_caller`, so the Execute-scope rules for scoped callers apply to it as they do to API keys. A browser session (cookie or SSO) is not a scoped caller and reaches no project on `/beacon/mcp`; browsers use the [MCP Playground](/features/mcp-server/#mcp-playground).
 
 ### What a caller reaches
 
@@ -85,7 +87,7 @@ its tokens carry `roles`. A client-credentials token with neither is rejected.
 
 ## Configuration
 
-Bearer JWT validation has to be on. In the sample host, turn it on by setting `Beacon:Authentication:Oidc:Enabled` and `McpJwksEndpoint`. In your own host, call `AddBeaconJwtAuthentication(x => { x.EnableBearerAuthentication = true; ... })` and `app.UseBeaconJwtBearerAuthentication()`. The token audience must be Beacon's app registration.
+Bearer JWT validation has to be on. In the sample host, turn it on by setting `Beacon:Authentication:Oidc:Enabled` and `Beacon:Authentication:Oidc:McpJwksEndpoint`; the sample then validates the issuer against the OIDC `Authority` and the audience against the OIDC `ClientId`, which may not match the v1/v2 issuer and audience pairs Entra puts in its tokens. A host that configures `Callers` usually sets `ValidIssuers` and `ValidAudiences` itself, as below. In your own host, call `AddBeaconJwtAuthentication(x => { x.EnableBearerAuthentication = true; ... })` and `app.UseBeaconJwtBearerAuthentication()`. The token audience must be Beacon's app registration.
 
 **Issuer and audience are mandatory once any caller is configured.** Entra's JWKS signs tokens for every tenant and
 every resource, so a valid signature proves nothing about who the token is for. When `Users:Enabled` is on or any
@@ -127,12 +129,12 @@ The callers are configured under `Beacon:Mcp:Callers`:
           },
           "Scope": "Execute",                            // Read | Execute
           "AutoProvision": true,                         // find or create a Beacon user keyed on oid
-          "DefaultRoleName": "Viewer"                    // role for a newly provisioned user
+          "DefaultRoleName": "Viewer"                    // global role for a newly provisioned user
         },
         "Systems": [
           {
-            "Name": "aiproxy",
-            "ClientId": "<aiproxy-app-client-id>",       // app-only token (azp / appid)
+            "Name": "agent-platform",
+            "ClientId": "<agent-platform-app-client-id>", // app-only token (azp / appid)
             "ProjectIds": [1, 2],
             "Scope": "Execute",
             "HostClaims": [ { "Type": "permission", "Value": "ViewReports" } ]
@@ -163,7 +165,7 @@ The callers are configured under `Beacon:Mcp:Callers`:
 | `Systems[]:ClientId` / `ObjectId` | none | **Set exactly one per entry.** The host refuses to start otherwise |
 | `Systems[]:HostClaims` | empty | The permission set this identity gets inside the host application. It is carried on the caller for in-process API dispatch |
 
-Validation runs at startup. A system entry with both `ClientId` and `ObjectId`, or with neither, a duplicate name, or a non-positive project id, stops the host with a message that names the entry. So do, once any caller is configured: an empty `AllowedTenants`, bearer validation without issuer or audience, and user mode with no role or group requirement and no `AllowAnyTenantUser`.
+Validation runs at startup. A system entry with both `ClientId` and `ObjectId`, or with neither, a duplicate name, or a non-positive project id, stops the host with a message that names the entry. So do, once any caller is configured: an empty `AllowedTenants`, bearer validation without issuer or audience, and user mode with no role or group requirement and no `AllowAnyTenantUser`. With user mode and `AutoProvision` on, `DefaultRoleName` must be set and must not be the Admin role or the role of a functional permission (every provisioned user would administer Beacon).
 
 With `AutoProvision`, two first requests from the same new user can race to create the Beacon user; the loser
 re-reads the row the winner created instead of failing.
@@ -186,7 +188,7 @@ Beacon's [discovery documents](/features/mcp-server/#discovery-endpoints):
    signs the user in, and requests a token for those scopes, sending the resource URL as the RFC 8707 `resource`
    parameter.
 
-By default the document lists Beacon's internal scope names (`Execute`, `Admin`) and no authorization server unless
+By default the document lists Beacon's internal scope name (`Execute`) and no authorization server unless
 Beacon's own OIDC login is on — neither is something Entra understands. Configure it under
 `Beacon:Mcp:ProtectedResource`.
 
@@ -256,10 +258,9 @@ builder.Services.AddBeaconJwtAuthentication(x =>
 |---------|---------|---------|
 | `AuthorizationServers` | empty | Issuers published as `authorization_servers`, verbatim and in order (clients use the first). Use the **v2** issuer: it equals the `issuer` in Entra's v2 metadata and the `iss` of the tokens. Wins over everything below |
 | `DeriveAuthorizationServerFromJwtIssuer` | `false` | With no explicit list, publish the bearer JWT issuer (`Validation.ValidIssuer(s)`). With several, the one ending in `/v2.0` is chosen; templated issuers (`{tenantid}`) are skipped |
-| `ScopesSupported` | empty | Scopes published in `scopes_supported` (and the server card) instead of `Execute`, `Admin` |
+| `ScopesSupported` | empty | Scopes published in `scopes_supported` (and the server card) instead of `Execute` |
 
-With none of these set the document is unchanged from earlier versions (Beacon's OIDC authority when SSO is on,
-`Execute`/`Admin` scopes). An explicit authorization server without `ScopesSupported`, or derivation with no usable
+With none of these set the document lists Beacon's OIDC authority when SSO is on, and the `Execute` scope. An explicit authorization server without `ScopesSupported`, or derivation with no usable
 issuer, is logged as a warning at startup. The `WWW-Authenticate` challenge, the `resource` in the metadata and the
 server card's `endpoint` and `resource_metadata` all derive from the same `PublicBaseUrl` (or the forwarded request
 host when it is unset), so they always agree.
@@ -299,7 +300,7 @@ Things to check when the connection fails, none of which Beacon can see:
 Every MCP tool call writes an audit row, as before. For a JWT caller, the row also records:
 
 - `CallerKind`: `User` or `System`.
-- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{oid}` (or of `{tid}:{appid}` when there is no `oid`). It is stable per identity and never the raw value. The HMAC key is derived for this purpose only from `Beacon:Mcp:CallerHashKey` when it is set, else from `Beacon:EncryptionKey`, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Without `CallerHashKey`, changing the encryption key changes every caller's hash, so rows written before and after the change no longer group together: before changing the encryption key, set `Beacon:Mcp:CallerHashKey` (a secret) to the key in use now, and the hashes stay the same (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
+- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{subject}`, where the subject is the token's `oid`, else its `azp` / `appid`, else its `sub`. It is stable per identity and never the raw value. The HMAC key is derived for this purpose only from `Beacon:Mcp:CallerHashKey` when it is set, else from `Beacon:EncryptionKey`, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Without `CallerHashKey`, changing the encryption key changes every caller's hash, so rows written before and after the change no longer group together: before changing the encryption key, set `Beacon:Mcp:CallerHashKey` (a secret) to the key in use now, and the hashes stay the same (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 - `UserId`: the provisioned Beacon user, in user mode.
 
 Logs carry only the caller hash, never the raw `oid`, email or token.
@@ -309,7 +310,7 @@ Logs carry only the caller hash, never the raw `oid`, email or token.
 A host can replace the default mapping. For example, it can map an Entra user to its own admin user and permission set. To do this, register an `IMcpCallerMapper` before `AddBeaconServices`, which registers the default with `TryAdd`, or replace the registration afterwards:
 
 ```csharp
-builder.Services.AddScoped<IMcpCallerMapper, NetgiroMcpCallerMapper>();
+builder.Services.AddScoped<IMcpCallerMapper, AcmeMcpCallerMapper>();
 ```
 
 The mapper receives the raw token claims (`oid`, `tid`, `groups`, and so on) and returns an `McpCaller`, or `null` to reject the caller. `ConfiguredMcpCallerMapper` is public, so a custom mapper can delegate to it and adjust the result. Inject `McpCallerSubjectHasher`, which `AddBeaconServices` registers as a singleton, to produce the same audit hash.
@@ -344,9 +345,9 @@ The gateway release changes how JWT callers reach MCP. Before upgrading a host t
   `AddHostManagedDataSources`, `AddProjectImportedDocuments`, `AddQueryMcpTools` and `AddHostManagedProjects`
   (`Project.HostManagedKey`). Apply them before the new version starts.
 
-### Netgiro: cookie authentication and `/beacon/mcp`
+### Hosts whose cookie authentication redirects
 
-Web.Admin's MVC cookie authentication answers an unauthenticated request with a `302` to its login page. An MCP
+A host whose MVC cookie authentication answers an unauthenticated request with a `302` to its login page breaks MCP clients: an MCP
 client cannot follow that, and an agent then sees an HTML login page instead of an auth error. Make the cookie
 events return status codes for the MCP path:
 

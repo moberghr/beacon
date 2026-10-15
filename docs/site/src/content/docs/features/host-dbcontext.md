@@ -12,7 +12,7 @@ metadata comes from the model, and only the tables you allow-list can be read.
 ```csharp
 var beacon = builder.Services.AddBeaconServices(builder.Configuration, o => { /* as today */ });
 
-beacon.ExposeDbContext<NetgiroContext>(o => o
+beacon.ExposeDbContext<ShopDbContext>(o => o
     .ReadOnlyConnection("BeaconReadOnly")            // ConnectionStrings:BeaconReadOnly — a read-only SQL login
     .AllowTables("Loan", "LoanInstallment", "Customer")
     .AllowEntity<Merchant>()
@@ -134,22 +134,22 @@ UI is refused; restart the host (or call the sync again) instead.
   stays `false`; the parser gates plus the dedicated read-only login are the guarantee. On PostgreSQL the
   `READ ONLY` transaction backstop applies as usual.
 
-### Known limits
+### Behaviour to know
 
-- Columns that exist in the database but not in the EF model are unknown to Beacon. Every reference to them is
-  rejected, but grant the read-only login `SELECT` only on the allow-listed tables (and `DENY` secret columns) as a
-  second layer.
-- A function added with `AllowFunctions` runs with the read-only login's rights; the policy cannot see what it
-  reads. Do not grant the login `EXECUTE` on anything else.
-- Masked columns still reveal whether a value is `NULL` (`IS NULL`, `COUNT(col)`); exclude a column when even that
-  must stay hidden.
-- On case-sensitive SQL Server collations, identifiers are still compared case-insensitively (a mismatch fails on
-  the server rather than widening access).
-- Some valid SQL is refused on purpose: unqualified correlated references, the same alias in an inner and an outer
-  query, `NATURAL` joins, `DISTINCT`/set operations over masked columns, and on PostgreSQL two identifiers that share
-  their first 63 bytes or an unquoted one with a non-ASCII letter that changes case.
-- The 63-byte limit assumes a stock PostgreSQL build (`NAMEDATALEN` 64) and counts UTF-8 bytes; SQL Server keeps names
-  up to 128 characters as written (a longer one is an error on the server), so no length rule applies there.
+- Beacon knows the columns of the EF model. A statement that references a column the model does not have is
+  rejected. Grant the read-only login `SELECT` only on the allow-listed tables (and `DENY` secret columns) so the
+  database applies the same boundary.
+- A function added with `AllowFunctions` runs with the read-only login's rights. Grant the login `EXECUTE` only on
+  the functions you allow.
+- A masked column still answers `IS NULL` and `COUNT(col)`. Exclude the column instead when its presence must stay
+  hidden too.
+- Identifiers are compared case-insensitively, also on case-sensitive SQL Server collations; a name whose case does
+  not match fails on the server.
+- These forms are refused with a validation message: unqualified correlated references, the same alias in an inner
+  and an outer query, `NATURAL` joins, `DISTINCT` or set operations over masked columns, and on PostgreSQL two
+  identifiers that share their first 63 bytes or an unquoted identifier with a non-ASCII letter that changes case.
+- The 63-byte rule assumes a stock PostgreSQL build (`NAMEDATALEN` 64) and counts UTF-8 bytes. SQL Server keeps
+  names up to 128 characters as written, so no length rule applies there.
 
 :::caution[Upgrading]
 Host column masking now works by output position. On PostgreSQL host data sources, a statement with two identifiers
@@ -161,13 +161,13 @@ names differently than the check derived is now masked (the MCP `query` tool not
 result whose columns do not match the statement now fails instead of being returned.
 :::
 
-## Netgiro-style example
+## Example: restricted tables and masked columns
 
 ```csharp
-beacon.ExposeDbContext<NetgiroContext>(o =>
+beacon.ExposeDbContext<ShopDbContext>(o =>
 {
-    o.Name = "Netgiro";
-    o.ProjectName = "Netgiro Back Office";
+    o.Name = "Shop";
+    o.ProjectName = "Shop Back Office";
     o.ReadOnlyConnection("BeaconReadOnly")
         .AllowTables("Loan", "LoanInstallment", "Merchant", "Customer")
         .ExcludeColumns(x => x.Table == "Customer" && x.Name.StartsWith("Kyc"))
@@ -175,6 +175,6 @@ beacon.ExposeDbContext<NetgiroContext>(o =>
 });
 ```
 
-`User.Secret`, `ProviderIntegrationKey.SecretKey` and `Customer.KvikaAuthorizationToken` are excluded by the
-hard-exclude even if their tables are allow-listed; the kennitala (`SSN`) columns are visible to the agent as
+`User.Secret`, `ProviderIntegrationKey.SecretKey` and `Customer.PartnerAuthorizationToken` are excluded by the
+hard-exclude even if their tables are allow-listed; the national-id (`SSN`) columns are visible to the agent as
 PII-flagged columns and masked in every result.

@@ -1,81 +1,56 @@
-# Beacon.Core.SqlServer
+# Moberg.Beacon.Core.SqlServer
 
-SQL Server database provider for Beacon.
+Stores Beacon's own metadata in SQL Server. This package holds the SQL Server EF Core migrations and the
+`UseSqlServer` registration. It does not let Beacon query SQL Server as a data source; that is
+`Moberg.Beacon.Connector.SqlServer`.
 
-## Overview
+Tables live in the fixed `beacon` schema. There is no pgvector column on SQL Server: semantic retrieval computes
+similarity over the stored embedding bytes instead of a vector index.
 
-This package provides Entity Framework Core configuration and migrations for using SQL Server as the Beacon metadata database. It supports SQL Server 2019+ and Azure SQL Database.
-
-## Installation
+## Install
 
 ```bash
-dotnet add package Beacon.Core.SqlServer
-dotnet add package Beacon.UI
+dotnet add package Moberg.Beacon.Core.SqlServer
 ```
 
-## Quick Start
+## Register
 
-### 1. Configure in Program.cs
+`UseSqlServer` ends the `BeaconBuilder` chain, so call connectors, `ExposeDbContext` and `ExposeDocs` before it.
 
 ```csharp
 using Beacon.Core;
-using Beacon.UI;
+using Beacon.Core.SqlServer;
 
-// Single method call for all Beacon configuration
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UseSqlServer(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-    options.AddBeaconScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com";
-});
+builder.Services
+    .AddBeaconServices(builder.Configuration, options =>
+    {
+        options.AddBeaconScheduler<MyBeaconScheduler>();
+    })
+    .UseSqlServer(); // reads ConnectionStrings:BeaconContext
 
 var app = builder.Build();
 
-app.UseStaticFiles(); // Required for Beacon UI assets
-
-// Serve the React SPA (Vite + TypeScript + Tailwind) at the root URL "/".
-// Authentication is cookie-based with a pluggable IBeaconAuthenticationProvider
-// (login form, OIDC/SSO, JWT for MCP, SHA256-hashed API keys).
-app.UseBeaconUI();
-app.MapBeaconApi();
+// Beacon does not migrate itself: create the schema if missing, then apply pending migrations.
+Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 ```
 
-### 2. Add Connection String
+| Overload | What it does |
+|---|---|
+| `UseSqlServer()` | Connection string from `ConnectionStrings:BeaconContext`, schema from `Beacon:Schema`. |
+| `UseSqlServer(string connectionString, string schema = "beacon")` | Same, with the connection string passed in. |
 
-In `appsettings.json`:
-
-```json
-{
-  "ConnectionStrings": {
-    "BeaconContext": "Server=localhost;Database=beacon;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True"
-  }
-}
-```
-
-## Features
-
-- SQL Server 2019+ support
-- Azure SQL Database support
-- Entity Framework Core integration
-- Automatic schema creation and migrations
-- Multi-tenant support via schema isolation
-
-## Database Setup
-
-```sql
-CREATE DATABASE beacon;
-GO
-USE beacon;
-GO
-CREATE SCHEMA beacon;
-GO
-```
+The `schema` argument and `Beacon:Schema` accept only `beacon`; any other value throws at registration. With
+`createSchema: true`, `UseBeacon` creates the `beacon` schema when it does not exist. The migration history table
+is `beacon.__EFMigrationsHistory`.
 
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/beacon)
-- [Installation Guide](https://moberghr.github.io/beacon)
+- [Metadata database](https://moberghr.github.io/beacon/integrate/database/)
+- [Host setup](https://moberghr.github.io/beacon/integrate/host-setup/)
+- [Packages](https://moberghr.github.io/beacon/integrate/packages/) and the [integration overview](https://moberghr.github.io/beacon/integrate/)
+- For coding agents: [llms-integrate.txt](https://moberghr.github.io/beacon/llms-integrate.txt)
 
 ## License
 
-GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/moberghr/beacon/blob/main/LICENSE)
+Dual-licensed under AGPL-3.0 or a commercial license. See
+[LICENSING.md](https://github.com/moberghr/beacon/blob/main/LICENSING.md).

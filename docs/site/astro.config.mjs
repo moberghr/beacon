@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
+import { sidebar } from './src/sidebar.mjs';
 
 const BASE = '/beacon';
 
@@ -53,7 +54,8 @@ export default defineConfig({
       description:
         'Semantic database monitoring, alerting, and orchestration for .NET — with a governed MCP server for AI assistants.',
       logo: {
-        src: './src/assets/beacon-logo.svg',
+        light: './src/assets/beacon-logo.svg',
+        dark: './src/assets/beacon-logo-dark.svg',
         replacesTitle: true,
       },
       favicon: '/favicon.svg',
@@ -67,6 +69,11 @@ export default defineConfig({
       components: {
         // Append the Moberg attribution beneath the default doc footer.
         Footer: './src/components/DocFooter.astro',
+        // Light by default, dark only by choice (Moberg brand); never follows the OS.
+        ThemeProvider: './src/components/overrides/ThemeProvider.astro',
+        ThemeSelect: './src/components/overrides/ThemeSelect.astro',
+        // "Copy as Markdown" / "View .md" beneath every page title.
+        PageTitle: './src/components/overrides/PageTitle.astro',
       },
       head: [
         {
@@ -78,59 +85,7 @@ export default defineConfig({
           attrs: { name: 'twitter:card', content: 'summary_large_image' },
         },
       ],
-      sidebar: [
-        {
-          label: 'Getting Started',
-          items: [
-            { label: 'Overview', link: '/getting-started/' },
-            { label: 'Installation', link: '/getting-started/installation/' },
-            { label: 'Quick Start', link: '/getting-started/quick-start/' },
-            { label: 'Configuration', link: '/getting-started/configuration/' },
-          ],
-        },
-        {
-          label: 'Core Features',
-          items: [
-            { label: 'Data Sources', link: '/features/data-sources/' },
-            { label: 'Queries', link: '/features/queries/' },
-            { label: 'Subscriptions', link: '/features/subscriptions/' },
-            { label: 'Notifications', link: '/features/notifications/' },
-            { label: 'Data Migration', link: '/features/data-migration/' },
-          ],
-        },
-        {
-          label: 'Operations & Quality',
-          items: [
-            { label: 'Control Tower', link: '/features/control-tower/' },
-            { label: 'Tasks', link: '/features/tasks/' },
-            { label: 'Anomaly Detection', link: '/features/anomaly-detection/' },
-            { label: 'Data Quality', link: '/features/data-quality/' },
-          ],
-        },
-        {
-          label: 'AI & MCP',
-          items: [
-            { label: 'MCP Server', link: '/features/mcp-server/' },
-            { label: 'Entra ID Callers', link: '/features/mcp-entra-callers/' },
-            { label: 'Host DbContext', link: '/features/host-dbcontext/' },
-            { label: 'Host Docs', link: '/features/host-docs/' },
-            { label: 'Host Endpoint Tools', link: '/features/host-endpoint-tools/' },
-            { label: 'Saved Query Tools', link: '/features/saved-query-tools/' },
-            { label: 'Knowledge Base & Grounding', link: '/features/knowledge-base/' },
-            { label: 'AI Integration', link: '/features/ai-integration/' },
-            { label: 'AI Actors', link: '/features/ai-actors/' },
-          ],
-        },
-        {
-          label: 'Platform & Admin',
-          items: [
-            { label: 'User Management', link: '/features/user-management/' },
-            { label: 'Authorization', link: '/features/authorization/' },
-            { label: 'API Keys', link: '/features/api-keys/' },
-            { label: 'Admin Settings', link: '/features/admin-settings/' },
-          ],
-        },
-      ],
+      sidebar,
     }),
   ],
 });

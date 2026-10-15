@@ -1,243 +1,120 @@
 ---
 title: Admin Settings
-description: Runtime application configuration via the Admin Settings UI — hot-swap LLM providers, manage the base URL, and review a change-history audit trail.
+description: The Admin settings page — the base URL and the LLM provider, changed at runtime and swapped without a restart, who may read or change each setting, and the settings change history.
 ---
 
-Manage runtime application configuration through the Admin Settings UI without restarting the application.
+**Admin settings** (`/beacon/admin-settings`) holds the base URL Beacon puts in outgoing links and the LLM provider connection. A save applies to the running process at once, without a restart. Every change is recorded in a change history that also covers MCP settings and migration-write-target changes.
 
-## Overview
+## Who may do what
 
-Admin Settings provides:
-
-- **Runtime Configuration** - Change settings without redeploying or restarting
-- **LLM Provider Management** - Configure and hot-swap AI providers at runtime
-- **Change History** - Full audit trail of all setting changes with user attribution
-- **Encrypted Storage** - Sensitive values (API keys, endpoints) encrypted in the database
-- **Role-Restricted** - Admins, and the [functional roles](/features/authorization/#functional-permissions) Auditor (read) and SecurityAdmin (read and change), reach the settings; the LLM connection stays an Admin's
-
-## Accessing Admin Settings
-
-1. Log in as an Admin, an Auditor or a SecurityAdmin
-2. Navigate to **Admin Settings** in the navigation menu (`/admin-settings`)
-3. Configure settings across the available tabs
-
-### Who may do what
+The page is open to Admins and to two [functional permissions](/features/authorization/#functional-permissions): an **Auditor** reads it, a **SecurityAdmin** reads and changes it. The LLM connection and the base URL stay an Admin's.
 
 | Action | Route | Admin | SecurityAdmin | Auditor |
 |---|---|---|---|---|
-| Read the settings (secrets shown only as set or not set) and their history | `GET /beacon/api/admin-settings` | ✓ | ✓ | ✓ |
-| Change the models and the rate and budget limits | `PUT /beacon/api/admin-settings` | ✓ | ✓ | – |
+| Read the settings (secrets shown only as set or not set) and the change history | `GET /beacon/api/admin-settings` | ✓ | ✓ | ✓ |
+| Change the models and the rate and budget values | `PUT /beacon/api/admin-settings` | ✓ | ✓ | – |
 | Change the **Base URL** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
-| Change the LLM **provider**, **endpoint**, **region**, Bedrock **authentication mode** or any **credential** (API key, session token, AWS keys) | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
+| Change the LLM **provider**, **endpoint**, **region**, Bedrock **authentication mode** or any **credential** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
 | Test the stored LLM connection | `POST /beacon/api/admin-settings/test-llm` | ✓ | ✓ | – |
 | Test with another provider, endpoint, region, authentication mode or credential | `POST /beacon/api/admin-settings/test-llm` | ✓ | – (`403`) | – |
 
-The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests, with the stored credentials: were they a SecurityAdmin's to change or test, the credentials would follow an endpoint the SecurityAdmin chose. The Base URL is the address of every link Beacon sends out (notifications, invitations), so it is an Admin's too. A SecurityAdmin's save sends the stored values back unchanged (the UI sends credentials and the endpoint as `null`, "leave as is", and the stored Base URL, whose field is read-only for them); a request that changes any of them answers `403` and saves nothing. The refusal is logged with ids only.
+The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests with the stored credentials, and the base URL is the address of every link Beacon sends out, so only an Admin changes them. For anyone else the page shows those fields disabled with a note, and a request that changes any of them answers `403` and saves nothing. An Auditor sees the page read-only. API keys never reach these routes.
 
-## Configuration Tabs
+## The page
 
-### General Settings
+### General
 
-| Setting | Description | Example |
-|---------|-------------|---------|
-| **Base URL** | Application URL for notification links | `https://yourdomain.com` |
+| Field | What it does |
+|---|---|
+| **Base URL** | The address Beacon puts in notification links (`{BaseUrl}/notifications/{id}` in Teams, Slack and webhook messages). The UI is served under `/beacon`, so include it: `https://beacon.example.com/beacon` |
 
-The Base URL is used to generate clickable links in Teams/Slack notifications that take users to the Beacon UI (the React app is served at the root URL).
+### AI provider
 
-### AI Configuration
+Pick the provider; the page shows only the fields it needs.
 
-Configure the LLM provider for AI-powered features (documentation generation, natural language alerts).
+| Provider (UI) | `AiProvider` value (API `llmProvider`, `Beacon:LLM:Provider`) | Fields |
+|---|---|---|
+| **OpenAI** | `OpenAI` (0) | API key, Model, Fast model |
+| **Anthropic** | `Claude` (1) | API key, Model, Fast model |
+| **Azure OpenAI** | `AzureOpenAI` (2) | Endpoint, API key, Deployment (model), Fast deployment |
+| **AWS Bedrock** | `Bedrock` (3) | Region, Credentials, Model, Fast model |
 
-| Setting | Description | Required |
-|---------|-------------|----------|
-| **Provider** | LLM provider (OpenAI, Anthropic, AzureOpenAI, Bedrock) | Yes |
-| **API Key** | Authentication key for the provider | Yes |
-| **Endpoint** | Custom API endpoint URL | No |
-| **Region** | AWS region (Bedrock only) | Bedrock only |
-| **Model** | Primary model name | Yes |
-| **Fast Model** | Lightweight model for quick operations | No |
-| **Max Concurrent Requests** | Parallel request limit | No (default: 50) |
-| **Tokens Per Minute** | Rate limit | No (default: 80,000) |
-| **Requests Per Minute** | Rate limit | No (default: 1,000) |
-| **Monthly Budget** | Cost cap in USD | No (default: $100) |
+**Bedrock credentials.** Leave the API key empty to use the default AWS credential chain (instance role, environment); **IAM role** under **Credentials** is this setting. For explicit credentials, set the API key to `accessKey:secretKey`, plus a session token for temporary credentials: `llmApiKey` and `llmSessionToken` on `PUT /beacon/api/admin-settings`, or `Beacon:LLM:ApiKey` and `Beacon:LLM:SessionToken` in configuration (see [Configuration → LLM](/getting-started/configuration/#ai--llm)). The role or keys need the `bedrock:InvokeModel` permission for the chosen model.
 
-:::caution
-API keys are encrypted before storage and masked in the UI. They are never exposed in plain text after saving.
-:::
+**Test connection** sends a tiny request (at most 16 output tokens) with the stored connection and the models on the form, without saving.
 
-### Change History
+Credentials and the Azure endpoint are encrypted at rest with `Beacon:EncryptionKey` and never returned: the page shows only whether each is set. Over the API, `null` for a credential or the endpoint keeps the stored value. The REST API sends enums as integers; configuration takes the names.
 
-View a complete audit log of all settings changes:
+### Rate limits & budget
 
-- **Setting Key** - Which setting was changed
-- **Old Value / New Value** - Previous and new values (masked for sensitive fields)
-- **Changed By** - User who made the change
-- **Changed At** - Timestamp
+**Max concurrent requests**, **Tokens per minute**, **Requests per minute** and **Monthly budget (USD)** (defaults 50, 80,000, 1,000 and 100) are recorded and shown in settings. The LLM request queue takes its concurrency from `Beacon:LLM:Limits:MaxConcurrentRequests` when the host starts.
 
-## Hot-Swap LLM Providers
+### Recent changes
 
-Admin Settings can change the LLM provider at runtime without restarting the application.
+The page lists the latest changes from the settings history: when, which key, and who.
 
-### How It Works
+## How a save applies
 
-1. An Admin updates LLM settings via the UI
-2. `AppSettingsService` saves encrypted values to the database
-3. `LlmProviderManager` receives the update via `ILlmConfigurationUpdater`
-4. A new provider instance is created with the updated configuration
-5. `DelegatingLlmProvider` (the proxy injected throughout the app) automatically delegates to the new provider
-6. All subsequent AI requests use the new provider immediately
+1. The page sends `PUT /beacon/api/admin-settings`.
+2. `AppSettingsService` writes the values to `app_settings` (sensitive ones encrypted), records each changed key in `app_setting_history`, and clears its cache.
+3. The base URL in the running process (`BeaconConfiguration.BaseUrl`) is replaced.
+4. `ILlmConfigurationUpdater.UpdateConfiguration` hands the settings to `LlmProviderManager`, which builds a new provider and swaps it in atomically. `DelegatingLlmProvider`, the proxy every feature holds, uses the new provider for the next request.
 
-### Architecture
+**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. Keep `Beacon:LLM` and the base URL in your configuration in step with Admin settings, or save the settings again after a restart. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
 
-```
-AppSettingsService.SaveSettingsAsync()
-    │
-    ├── Save to database (encrypted)
-    ├── Invalidate cache
-    ├── Update BeaconConfiguration singleton
-    │
-    └── ILlmConfigurationUpdater.UpdateConfiguration()
-            │
-            └── LlmProviderManager
-                    ├── Mutate LlmConfiguration singleton
-                    └── Recreate ILlmProvider via factory
-                            │
-                            └── DelegatingLlmProvider (proxy)
-                                    └── All consumers use new provider
-```
+Settings are cached in memory for one hour; a save clears the cache.
 
-### Example: Switching from OpenAI to Anthropic
+## Change history
 
-1. Go to **Admin Settings** > **AI Configuration**
-2. Change **Provider** to `Anthropic`
-3. Update **API Key** to your Anthropic key
-4. Change **Model** to `claude-3-5-sonnet-20241022`
-5. Click **Save**
-6. AI features immediately use Anthropic — no restart needed
+`app_setting_history` records one row per changed value: `setting_key`, `old_value`, `new_value` (`***` for sensitive values), `changed_at` and `changed_by_user_id`. It is returned with `GET /beacon/api/admin-settings` (the latest 200 rows), so Auditors, SecurityAdmins and Admins read it. Three families of keys are written:
 
-## Initial Configuration
+| Keys | Written when |
+|---|---|
+| `General.BaseUrl`, `LLM.*` (for example `LLM.Provider`, `LLM.ApiKey`, `LLM.Model`) | Admin settings are saved |
+| `Mcp.{Setting}`, `Mcp.Project.{projectId}.{Setting}` | an MCP setting changes, globally or for a project |
+| `DataSource.{id}.AllowMigrationWrites` | an Admin marks or unmarks a data source as a [migration write target](/features/data-migration/) |
 
-Settings can be pre-configured in two ways.
+Security-relevant actions outside settings (role changes, membership changes, sign-ins refused) are structured log events, not history rows; see [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
 
-### Via appsettings.json (Startup Defaults)
-
-```json
-{
-  "Beacon": {
-    "BaseUrl": "https://yourdomain.com",
-    "LLM": {
-      "Provider": "OpenAI",
-      "ApiKey": "sk-your-api-key",
-      "Model": "gpt-4o"
-    }
-  }
-}
-```
-
-On startup, if Admin Settings in the database are empty, values from `appsettings.json` are used as defaults. Once saved via the Admin Settings UI, database values take precedence.
-
-### Via First-Run Setup
-
-After creating the super admin during first-run setup, navigate to Admin Settings to configure the LLM provider and other settings.
-
-## Database Storage
-
-Settings are stored in two tables.
-
-### app_settings
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `key` | string | Setting identifier (e.g., `LLM.ApiKey`) |
-| `value` | string? | Setting value (encrypted if sensitive) |
-| `category` | string | Grouping (General, LLM) |
-| `is_sensitive` | bool | If true, value is encrypted |
-
-### app_setting_history
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `setting_key` | string | Which setting changed |
-| `old_value` | string? | Previous value (`***` if sensitive) |
-| `new_value` | string? | New value (`***` if sensitive) |
-| `changed_at` | DateTime | When the change occurred |
-| `changed_by_user_id` | string? | Who made the change |
-
-## Programmatic Access
-
-### Reading Settings
+## Programmatic access
 
 ```csharp
-public class MyService
+public sealed class MyService(IAppSettingsService settingsService)
 {
-    private readonly IAppSettingsService _settingsService;
-
-    public MyService(IAppSettingsService settingsService)
+    public async Task UseAsync(CancellationToken ct)
     {
-        _settingsService = settingsService;
-    }
+        var settings = await settingsService.GetSettingsAsync(ct);   // BaseUrl, LlmProvider, LlmModel, …
 
-    public async Task DoSomethingAsync()
-    {
-        var settings = await _settingsService.GetSettingsAsync();
+        settings.LlmModel = "<model-id>";
+        await settingsService.SaveSettingsAsync(settings, userId: "<the caller's external id>", ct);
 
-        var baseUrl = settings.BaseUrl;
-        var llmProvider = settings.LlmProvider;
-        var llmModel = settings.LlmModel;
+        var llmHistory = await settingsService.GetHistoryAsync(key: "LLM.Model", ct);
     }
 }
 ```
 
-### Saving Settings
+`SaveSettingsAsync` applies no permission check: the REST route does. Code that calls it directly is responsible for who may.
 
-```csharp
-var settings = await _settingsService.GetSettingsAsync();
-settings.BaseUrl = "https://new-domain.com";
+`ILlmConfigurationUpdater` (`void UpdateConfiguration(AppSettingsData settings)`) lives in `Beacon.Core` so `AppSettingsService` can call it without referencing `Beacon.AI`; `LlmProviderManager` implements it.
 
-await _settingsService.SaveSettingsAsync(settings, userId: currentUser.Id);
-```
+## MCP settings
 
-### Viewing History
+MCP behaviour has its own page, **MCP settings** (`/beacon/mcp-settings`): an Auditor or a SecurityAdmin reads it, a SecurityAdmin changes it, Admins do both. Turning read-only enforcement or PII detection off, globally or for a project, is an Admin's alone (`403` otherwise). Its tabs are **Pre-prompt**, **Tool descriptions**, **Guardrails** and **Context preview**; a scope selector switches between the global defaults and a project's overrides.
 
-```csharp
-var history = await _settingsService.GetHistoryAsync();
+The deployment can pin settings no one can change at runtime, through `Beacon:Mcp`:
 
-// Filter by setting key
-var llmHistory = await _settingsService.GetHistoryAsync(key: "LLM.ApiKey");
-```
+| Lock | Default | Pins |
+|---|---|---|
+| `ForceReadOnly` | `true` | read-only enforcement on, globally and for every project |
+| `ForcePiiDetection` | `true` | PII detection on |
+| `ForceNoContentRetention` | `false` | content retention off (questions, SQL and free-text errors never persisted) |
+| `ForbidRowDataToLlm` | `false` | sample-value collection, value grounding and the eval judge off |
 
-## Implementing ILlmConfigurationUpdater
+On the global settings a locked switch is shown **disabled** with a lock and a note naming the configuration key; in a project's scope locked fields are not offered and a banner names them. A write that contradicts a lock answers `409`, an Admin's included; `GET /beacon/api/mcp/settings/locks` lists the pinned settings. `Beacon:Mcp:Ceilings` clamp numeric settings downward: `MaxRowLimit` caps the row limit the MCP tools apply, and `MaxSqlChars` and `MaxQuestionChars` are always-on length limits; the other ceilings clamp the recorded setting shown on this page. Every MCP settings change is recorded in the history above. See [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks) and [MCP server](/features/mcp-server/).
 
-If you build custom services that need to react to LLM configuration changes, implement `ILlmConfigurationUpdater`:
+## See also
 
-```csharp
-public interface ILlmConfigurationUpdater
-{
-    void UpdateConfiguration(AppSettingsData settings);
-}
-```
-
-This interface lives in `Beacon.Core` so that `AppSettingsService` can call it without depending on `Beacon.AI`. The implementation (`LlmProviderManager`) lives in the AI project.
-
-## Caching
-
-Settings are cached in memory for 1 hour to minimize database queries. The cache is invalidated immediately when settings are saved via the Admin Settings UI.
-
-## MCP Settings
-
-MCP server behavior has its own page at `/mcp-settings` (an Auditor or a SecurityAdmin reads it, a SecurityAdmin changes it, and Admins do both; turning read-only enforcement or PII detection off, globally or for a project, is an Admin's alone, `403` otherwise), organised into four tabs — **Pre-prompt** (SQL-generation system prompt, global instruction), **Tool descriptions** (overrides applied to the live `tools/list` response), **Guardrails** (max row limit, read-only enforcement, PII detection with custom patterns, the execution limits, the content-retention switches, and the learning knobs), and **Context preview** (see the grounding context for a project exactly as the tools assemble it).
-
-A scope selector switches between the global defaults and a single project. Per project, each guardrail can either inherit the global value or carry its own override. Prompts and tool descriptions stay global — `tools/list` is answered before a project is known.
-
-A deployment can also pin settings the UI cannot change, through the `Beacon:Mcp` configuration section: `ForceReadOnly` and `ForceNoContentRetention` lock a value outright (locked fields are hidden and a write returns HTTP 409), and `Ceilings` clamp numeric settings downward. See [Deployment locks and ceilings](/features/mcp-server/#deployment-locks-and-ceilings).
-
-See the [MCP Server Guide](/features/mcp-server/#configuration) for details. Additional retrieval, exemplar, and eval settings that aren't on this page are settable through `PUT /beacon/api/mcp/settings` — see the [Knowledge Base guide](/features/knowledge-base/#settings-reference). Like LLM settings, MCP settings apply immediately — no restart required.
-
-## See Also
-
-- [AI Integration](/features/ai-integration/) - AI features that use LLM configuration
-- [MCP Server](/features/mcp-server/) - MCP settings, guardrails, and the learning loop
-- [Knowledge Base & Grounding](/features/knowledge-base/) - Retrieval, exemplar, and eval settings
-- [User Management](/features/user-management/) - Role-based access to Admin Settings
-- [Authorization](/features/authorization/#functional-permissions) - The functional permissions (Auditor, SecurityAdmin)
-- [Configuration Guide](/getting-started/configuration/) - Startup configuration reference
+- [AI integration](/features/ai-integration/) — the features that use the LLM connection
+- [MCP server](/features/mcp-server/) — MCP settings and guardrails
+- [Authorization](/features/authorization/#functional-permissions) — Auditor and SecurityAdmin
+- [Configuration](/getting-started/configuration/) — `Beacon:LLM` and the startup values

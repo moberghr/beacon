@@ -1,571 +1,187 @@
 ---
 title: AI Integration
-description: Experimental LLM-powered features that auto-generate data source documentation and turn plain-English descriptions into SQL alerts.
+description: How Beacon connects to an LLM provider (OpenAI, Anthropic, Azure OpenAI, AWS Bedrock), what it uses the model for, and what it sends.
 ---
 
 :::caution[Experimental feature]
-AI-powered features are experimental and may produce incorrect, incomplete, or misleading results. Large language models can hallucinate facts, miss important details, or generate invalid SQL. Always review and validate all AI-generated content before using in production environments.
+Features that use a large language model can produce incorrect, incomplete or misleading results, including invalid
+SQL. Review generated documentation and SQL before you rely on it.
 :::
 
-AI-powered features that leverage large language models (LLMs) to automate documentation generation and simplify alert creation.
+Beacon uses one configured LLM provider for every AI feature. This page covers what Beacon uses the provider for and what reaches
+it; full provider configuration for a host is in [Integrate → AI](/integrate/ai/).
 
-## Purpose
+## Turning AI on
 
-AI integration in Beacon provides:
-- **Automatic Documentation**: Generate comprehensive data source documentation by analyzing schemas
-- **Natural Language Alerts**: Create complex SQL queries from plain English descriptions
-- **Smart Insights**: AI-powered data analysis and recommendations
-- **Multiple Export Formats**: Export documentation as Markdown, HTML with ERD diagrams, or PDF
+The AI layer lives in the `Beacon.AI` package. A host turns it on in two places:
 
-## Supported LLM Providers
+```csharp
+var beacon = builder.Services.AddBeaconServices(builder.Configuration, options =>
+{
+    options.UseAI = true;                       // default false
+});
 
-Beacon supports multiple LLM providers through a pluggable architecture:
+builder.Services.AddBeaconAI(builder.Configuration);
+```
 
-| Provider | Recommended Models | Configuration |
-|----------|-------------------|---------------|
-| **OpenAI** | gpt-4o (recommended), gpt-4 | API key + model name |
-| **Anthropic Claude** | claude-3-5-sonnet-20241022 (recommended) | API key + model name |
-| **Azure OpenAI** | Latest models only | Custom base URL + deployment name |
+With `UseAI` off (the default), Beacon registers stand-ins for the AI-backed services it needs elsewhere, so the host
+starts and the non-AI features work; **Test connection** and the eval harness report that AI is unavailable.
 
-:::note[Model recommendations]
-Use the latest models only (gpt-4o, claude-3-5-sonnet). Older models like gpt-3.5-turbo and claude-3-opus are not recommended and may produce lower quality results.
-:::
+## Providers
+
+| Provider | `Provider` value | Admin Settings card | What it needs |
+|---|---|---|---|
+| OpenAI | `OpenAI` | OpenAI | API key, model |
+| Anthropic | `Claude` | Anthropic | API key, model |
+| Azure OpenAI | `AzureOpenAI` | Azure OpenAI | Endpoint (your resource), API key, deployment name as the model |
+| AWS Bedrock | `Bedrock` | AWS Bedrock | Region, model id, AWS credentials |
+
+The model is the string you enter: Beacon does not restrict or recommend model ids. OpenAI and Anthropic are called on
+their public API endpoints; there is no base-URL or proxy setting for them. Azure OpenAI uses your resource's endpoint,
+and Bedrock your AWS region, so you choose where requests go.
+
+For Bedrock, the provider uses the host's default AWS credentials (an IAM role, environment variables) unless
+`ApiKey` holds an access key pair as `accessKey:secretKey`, optionally with `SessionToken` for temporary credentials.
 
 ## Configuration
 
-### Prerequisites
+### Admin Settings
 
-AI features require:
-- LLM provider API key
-- Appropriate model access
-- Network connectivity to provider APIs
+An Admin configures the provider at runtime in **Admin Settings** (`/beacon/admin-settings`), section **AI provider**:
+pick a provider card, fill in the fields it shows, use **Test connection**, then **Save changes**. Only an Admin changes
+the connection (provider, endpoint, region, credentials); a SecurityAdmin can change the models and the other settings
+and test the stored connection. Secrets are stored encrypted. The REST routes are `GET /beacon/api/admin-settings`
+(Auditor or SecurityAdmin), `PUT /beacon/api/admin-settings` and `POST /beacon/api/admin-settings/test-llm`
+(SecurityAdmin). See [Admin Settings](/features/admin-settings/).
 
-### Runtime Configuration via Admin Settings (Recommended)
+A save swaps the provider in place: every caller injects `ILlmProvider`, registered as `DelegatingLlmProvider`, which
+forwards to the provider `LlmProviderManager` currently holds. When the new configuration cannot build a provider, the
+manager keeps the previous one and logs a warning.
 
-The easiest way to configure AI is through the **Admin Settings** UI at runtime - no restart required:
-
-1. Navigate to **Admin Settings** > **AI Configuration**
-2. Select your provider (OpenAI, Anthropic, Azure OpenAI, Bedrock)
-3. Enter your API key and model name
-4. Configure rate limits and budget
-5. Click **Save**
-
-Changes take effect immediately. You can switch providers at runtime without restarting.
-
-:::note
-Admin Settings requires the [User Management](/features/user-management/) system to be enabled with an Admin user. See the [Admin Settings Guide](/features/admin-settings/) for details.
+:::caution[After a restart]
+At startup the provider is built from `Beacon:LLM`; saving Admin Settings swaps it immediately. Keep `Beacon:LLM` in
+step with Admin Settings, or save them again after a restart.
 :::
 
-### appsettings.json Configuration
-
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "Provider": "OpenAI",
-      "ApiKey": "sk-your-api-key-here",
-      "Model": "gpt-4o",
-      "BaseUrl": "https://api.openai.com/v1",
-      "Limits": {
-        "MaxConcurrentRequests": 5,
-        "RequestsPerMinute": 60,
-        "MaxTokensPerRequest": 4000
-      }
-    }
-  }
-}
-```
-
-### Configuration Options
-
-| Option | Description | Default | Required |
-|--------|-------------|---------|----------|
-| `Provider` | LLM provider (OpenAI, Anthropic, AzureOpenAI) | - | Yes |
-| `ApiKey` | API key for authentication | - | Yes |
-| `Model` | Model name or deployment ID | - | Yes |
-| `BaseUrl` | API endpoint URL | Provider default | No |
-| `Limits.MaxConcurrentRequests` | Max parallel requests | 5 | No |
-| `Limits.RequestsPerMinute` | Rate limit per minute | 60 | No |
-| `Limits.MaxTokensPerRequest` | Max tokens per request | 4000 | No |
-
-## AI Documentation Generation
-
-### Overview
-
-Automatically generate comprehensive documentation by analyzing database schemas with AI.
-
-### How It Works
-
-1. **Schema Analysis**: Beacon fetches schema metadata (tables, columns, data types, constraints, relationships)
-2. **Sample Data Collection**: Retrieves first 10 rows from each table for context
-3. **AI Processing**: Sends schema structure and samples to LLM with specialized prompts
-4. **Documentation Generation**: AI generates table descriptions, column explanations, relationships, and insights
-5. **Storage**: Documentation is stored with versioning and edit history
-
-### Generated Content
-
-AI-generated documentation includes:
-- **Table Descriptions**: Purpose and usage of each table
-- **Column Details**: Meaning, data type explanation, and usage patterns
-- **Relationships**: Foreign key relationships and join patterns
-- **Data Quality Observations**: Potential issues, null patterns, constraint violations
-- **Business Context**: Inferred business meaning from names and data
-
-:::caution[Review required]
-AI-generated descriptions may be inaccurate or incomplete. Always validate documentation against actual schema and business requirements before relying on it.
-:::
-
-:::note[Documentation feeds retrieval]
-Generated documentation is not just for humans. It is chunked, optionally embedded, and retrieved as grounding context when an AI assistant asks a question through the MCP server — so improving a table description measurably improves generated SQL. See [Knowledge Base & Grounding](/features/knowledge-base/#documentation-chunking).
-:::
-
-### Export Formats
-
-#### Markdown Export
-
-Clean markdown format compatible with GitHub, GitLab, and documentation platforms.
-
-```markdown
-# Database Documentation
-
-## Users Table
-
-**Purpose**: Stores user account information
-
-### Columns
-- `id` (INT): Primary key, auto-increment
-- `email` (VARCHAR): User email address, unique
-- `created_at` (TIMESTAMP): Account creation timestamp
-```
-
-#### HTML Export with ERD Diagrams
-
-Interactive HTML with:
-- Collapsible sections for each table
-- Table of contents with anchor navigation
-- Embedded Mermaid ERD diagrams showing relationships
-- Professional styling
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Data Source Documentation</title>
-    <script src="mermaid.min.js"></script>
-</head>
-<body>
-    <h1>Database Schema</h1>
-    <div class="mermaid">
-    erDiagram
-        USERS ||--o{ ORDERS : places
-        USERS {
-            int id PK
-            string email
-            timestamp created_at
-        }
-    </div>
-</body>
-</html>
-```
-
-#### PDF Export
-
-Professional PDF document with:
-- Table of contents
-- Schema diagrams
-- Formatted tables
-- Page numbers and headers
-
-### Usage Example
-
-**Via UI:**
-1. Navigate to Data Sources
-2. Select a data source
-3. Click "Generate Documentation"
-4. Configure options (tables to include, export format)
-5. Review and export
-
-**Via Service:**
-```csharp
-public class DocumentationExample
-{
-    private readonly IAiDocumentationService _docService;
-
-    public async Task GenerateAsync(int dataSourceId)
-    {
-        var options = new GenerationOptions
-        {
-            Title = "Production Database Documentation",
-            TableFilter = null, // All tables
-            IncludeSampleData = true,
-            Temperature = 0.3m, // Lower = more focused
-            MaxTokens = 4000
-        };
-
-        var documentation = await _docService.GenerateDocumentationAsync(
-            dataSourceId,
-            userId: 1,
-            options,
-            CancellationToken.None);
-
-        // Export as HTML
-        var html = await _docService.ExportAsHtmlAsync(documentation.Id);
-
-        // Export as PDF
-        var pdf = await _docService.ExportAsPdfAsync(documentation.Id);
-    }
-}
-```
-
-## AI Alert Generation
-
-### Overview
-
-Create sophisticated SQL queries from natural language descriptions without writing SQL.
-
-### How It Works
-
-1. **Natural Language Input**: User describes alert in plain English
-2. **Schema Context**: System provides data source schema to AI
-3. **Query Generation**: AI generates appropriate SQL query
-4. **Validation**: Generated SQL is validated for syntax correctness
-5. **Review**: User reviews natural language description + generated SQL
-6. **Integration**: Approved query integrates with existing Subscription system
-
-### Example Transformations
-
-:::caution[Validation required]
-AI-generated SQL queries must be reviewed and tested before use. Queries may contain errors, inefficiencies, or may not accurately reflect the natural language intent.
-:::
-
-#### Example 1: Threshold Alert
-
-**Natural Language:**
-> "Alert me when error rates exceed 5% of total requests in the last hour"
-
-**Generated SQL:**
-```sql
-SELECT
-    (COUNT(CASE WHEN status_code >= 500 THEN 1 END) * 100.0 / COUNT(*)) AS error_rate
-FROM requests
-WHERE created_at > NOW() - INTERVAL '1 hour'
-HAVING (COUNT(CASE WHEN status_code >= 500 THEN 1 END) * 100.0 / COUNT(*)) > 5;
-```
-
-#### Example 2: Percentage Change Alert
-
-**Natural Language:**
-> "Notify me when today's sales drop more than 20% compared to yesterday"
-
-**Generated SQL:**
-```sql
-WITH today AS (
-    SELECT SUM(amount) as total
-    FROM sales
-    WHERE DATE(created_at) = CURRENT_DATE
-),
-yesterday AS (
-    SELECT SUM(amount) as total
-    FROM sales
-    WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day'
-)
-SELECT
-    today.total as today_sales,
-    yesterday.total as yesterday_sales,
-    ((today.total - yesterday.total) / yesterday.total * 100) as pct_change
-FROM today, yesterday
-WHERE ((today.total - yesterday.total) / yesterday.total * 100) < -20;
-```
-
-#### Example 3: Orphaned Records Alert
-
-**Natural Language:**
-> "Find orders that don't have a matching customer"
-
-**Generated SQL:**
-```sql
-SELECT o.id, o.customer_id, o.created_at
-FROM orders o
-LEFT JOIN customers c ON o.customer_id = c.id
-WHERE c.id IS NULL;
-```
-
-### Usage Example
-
-**Via Service:**
-```csharp
-public class AlertGenerationExample
-{
-    private readonly IAiAlertGenerationService _alertService;
-
-    public async Task CreateAlertAsync(int dataSourceId)
-    {
-        var request = new AlertGenerationRequest
-        {
-            DataSourceId = dataSourceId,
-            Description = "Alert when error rates exceed 5% in the last hour"
-        };
-
-        var result = await _alertService.GenerateAlertAsync(
-            request,
-            CancellationToken.None);
-
-        Console.WriteLine($"Generated SQL: {result.GeneratedQuery}");
-        Console.WriteLine($"Explanation: {result.Explanation}");
-
-        // User reviews and approves...
-        // Then creates subscription with generated query
-    }
-}
-```
-
-## Cost and Usage Tracking
-
-### Token Usage
-
-Each AI request consumes tokens based on:
-- Schema size (number of tables/columns)
-- Sample data included
-- Response length
-
-Typical token usage:
-- Documentation generation (20 tables): ~3,000-5,000 tokens
-- Alert generation: ~500-1,500 tokens
-
-### Cost Estimation
-
-Costs vary by provider and model:
-
-| Provider | Model | Cost per 1M Tokens (Input/Output) |
-|----------|-------|-----------------------------------|
-| OpenAI | gpt-4o | $5.00 / $15.00 |
-| OpenAI | gpt-3.5-turbo | $0.50 / $1.50 |
-| Anthropic | claude-3-5-sonnet | $3.00 / $15.00 |
-
-**Example calculation:**
-- Documentation generation: 3,500 input tokens, 1,500 output tokens
-- Using gpt-4o: ($5 × 3.5k/1M) + ($15 × 1.5k/1M) = $0.04 per generation
-
-### Tracking
-
-Usage metrics stored per request:
-- `TokensUsed`: Total tokens consumed
-- `EstimatedCost`: Calculated cost based on provider pricing
-- `GeneratedByModel`: Model used for generation
-- `GeneratedAt`: Timestamp
-
-Query usage history:
-```csharp
-var documentations = await context.DataSourceDocumentations
-    .Where(d => d.DataSourceId == dataSourceId)
-    .Select(d => new {
-        d.TokensUsed,
-        d.EstimatedCost,
-        d.GeneratedAt
-    })
-    .ToListAsync();
-
-var totalCost = documentations.Sum(d => d.EstimatedCost);
-```
-
-## Rate Limiting
-
-### Configuration
-
-Rate limits prevent abuse and control costs:
-
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "Limits": {
-        "MaxConcurrentRequests": 5,
-        "RequestsPerMinute": 60,
-        "MaxTokensPerRequest": 4000
-      }
-    }
-  }
-}
-```
-
-### Implementation
-
-**Request Queue** (`LlmRequestQueue`):
-- Enforces max concurrent requests
-- Queues requests when limit reached
-- Processes requests FIFO
-
-**Provider Rate Limits**:
-- OpenAI: Tier-based limits (tier 1: 500 RPM, tier 2: 5000 RPM)
-- Anthropic: 50 requests/minute (free tier), higher for paid
-- Azure: Configurable per deployment
-
-### Handling Rate Limit Errors
-
-```csharp
-try
-{
-    var result = await _llmProvider.CompleteAsync(request, cancellationToken);
-}
-catch (RateLimitException ex)
-{
-    // Wait and retry
-    await Task.Delay(ex.RetryAfterSeconds * 1000);
-    // Retry logic...
-}
-```
-
-## Security Considerations
-
-### API Key Security
-
-:::caution
-Never commit API keys to source control.
-:::
-
-**Best practices:**
-1. Store API keys in environment variables
-2. Use secrets management (Azure Key Vault, AWS Secrets Manager)
-3. Rotate keys regularly
-4. Use different keys for dev/staging/production
-
-```json
-{
-  "Beacon": {
-    "LLM": {
-      "ApiKey": "${LLM_API_KEY}"  // Environment variable
-    }
-  }
-}
-```
-
-### Data Privacy
-
-AI providers receive:
-- Database schema structure (table/column names)
-- Sample data (first 10 rows)
-- Natural language descriptions
-
-**Recommendations:**
-1. Exclude sensitive tables from AI analysis
-2. Filter sensitive columns before sending to AI
-3. Use de-identified sample data when possible
-4. Review provider data retention policies
-5. Consider self-hosted LLM for sensitive data
-
-### Project-scoped grounding
-
-Everything Beacon sends to an LLM about a data source is read through the caller's authorized project: the schema context, documentation, code references, glossary, golden examples, learned patterns and value matches. The AI services take that project as a parameter (`projectId` on `IKnowledgeGraphService`, `IValueGroundingService` and `ISemanticSearchService.AskAsync`), read a data source only through a project that links it, and never mix in another project's material from a shared data source. `ISemanticSearchService.AskAsync` also checks that the caller may query in the project (`404` for a project it may not read, `403` without the Query action) before any LLM call. See [Project isolation](/features/knowledge-base/#project-isolation).
-
-### Configuration Example with Filtering
-
-```csharp
-var options = new GenerationOptions
-{
-    TableFilter = t => !t.Name.Contains("sensitive"),
-    ExcludeColumns = new[] { "password", "ssn", "credit_card" }
-};
-```
+### Host configuration and limits
+
+The `Beacon:LLM` section (`Provider` = `OpenAI`, `Claude`, `AzureOpenAI` or `Bedrock`; `ApiKey`, `Endpoint`, `Region`,
+`SessionToken`, `Model`, `FastModel`, `Limits`) is described key by key in
+[Integrate → AI](/integrate/ai/). Never put a provider key in source or a committed `appsettings.json`.
+
+Every LLM call goes through `LlmRequestQueue`. It allows at most `Limits:MaxConcurrentRequests` calls at once (default
+50, read once when the host starts) and retries a call that fails with a rate-limit, timeout, `503`/`504` or transient
+network error, up to three attempts with exponential backoff; a call that still fails surfaces as
+`AiServiceException`. The other values under **Rate limits & budget** on the Admin Settings page (tokens per minute,
+requests per minute, monthly budget) and the **Fast model** are recorded and shown in settings.
+
+## What Beacon uses the model for
+
+| Feature | Where it is described |
+|---|---|
+| The MCP `ask` tool and knowledge answers: routing, SQL generation and repair | [MCP Server](/features/mcp-server/#ask) |
+| The learning loop's lesson extraction, the optional eval judge and contextual-retrieval blurbs | [Knowledge Base & Grounding](/features/knowledge-base/) |
+| Project documentation | [below](#project-documentation) |
+| AI actors | [AI Actors](/features/ai-actors/) |
+
+Local embeddings for semantic search do not use the LLM provider: they run in-process from an ONNX model (see
+[Local embeddings](/features/knowledge-base/#local-embeddings)).
+
+## Project documentation
+
+Beacon generates documentation per **project**, from the metadata of the data sources the project links and the code
+references found in its repositories. Generation runs as a background job. The result has these sections:
+Project Overview, Business Domains, Data Model, Data Flows, Code Lineage, Data Quality, API Documentation (for API
+data sources) and Glossary.
+
+| Action | Route | Needs |
+|---|---|---|
+| Read the latest documentation and its history | `GET /beacon/api/projects/{id}/documentation` | Read in the project |
+| Generate or regenerate | `POST /beacon/api/projects/{id}/generate-documentation` | Curate in the project |
+| Edit a section | `PUT /beacon/api/projects/documentation-sections/{id}` | Curate in the project |
+| Ask the LLM to rewrite a section (returns the new text, saves nothing) | `POST /beacon/api/projects/documentation-sections/{id}/instruct` | Query in the project |
+| Export as Markdown, or HTML with `asHtml=true` | `GET /beacon/api/projects/documentation/{id}/export` | Read in the project |
+
+Curate is held by project admin members and Admins (see [Who curates grounding](/features/knowledge-base/#who-curates-grounding)).
+In the UI, the **Documentation** tab of a project (`/beacon/projects/{id}`) shows the latest documentation and lets a
+curator edit its sections.
+
+The documentation is also grounding: it is chunked, optionally embedded, and retrieved when an agent asks a question
+over MCP, so a better table description improves generated SQL (see
+[Documentation chunking](/features/knowledge-base/#documentation-chunking)).
+
+**Column values.** Generation lists distinct values of enum-like columns only while sample-value collection is on for
+the project and every project sharing the data source (off by default), never from PII or secret-like columns, and
+never under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`. Each prompt that carries such values is logged as
+event `7123`.
+
+## Natural-language alerts (host API)
+
+`IAiAlertGenerationService` turns a plain-English description into SQL for a data source. It is a service a host can
+call; Beacon exposes no REST endpoint or UI page for it. Its methods are `GenerateAlertAsync(dataSourceId,
+naturalLanguageDescription, createdBy, options, cancellationToken)`, `RefineAlertAsync`, `ValidateQuerySyntaxAsync`
+and `ApproveAndActivateAlertAsync`; each generation records its token usage in `AiUsageMetrics`.
+
+## What reaches the provider
+
+A prompt carries the question, schema (table and column names, types, descriptions, join paths) and your curated
+knowledge (documentation, glossary, verified examples, learned patterns). Row data — sample values, value matches,
+discovered column values, eval-judge rows, database errors — is off by default or screened, and every prompt that
+carries it is logged as event `7123` (`RowDataSentToLlm`, category `Beacon.AI.Services.LlmProviders.LlmRowDataEgress`)
+with identifiers only. The full table, and the lock `Beacon:Mcp:ForbidRowDataToLlm` that keeps all row data from the
+provider, are in [What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
+
+Everything Beacon sends about a data source is read through the caller's authorized project: schema context,
+documentation, code references, glossary, golden examples, learned patterns and value matches. The AI services take
+that project as a parameter (`projectId` on `IKnowledgeGraphService`, `IValueGroundingService` and
+`ISemanticSearchService.AskAsync`), read a data source only through a project that links it, and never mix in another
+project's material from a shared data source. `ISemanticSearchService.AskAsync` also checks that the caller may query
+in the project (`404` for a project it may not read, `403` without the Query action) before any LLM call. See
+[Project isolation](/features/knowledge-base/#project-isolation).
+
+## Usage and cost records
+
+Beacon records token counts and estimated cost where a feature stores them: AI actor think cycles and plans (and the
+actor's totals), and `AiUsageMetrics` rows for natural-language alert generation. Documentation generation records no
+cost. Use your provider's own usage reporting for billing.
 
 ## Troubleshooting
 
-### Common Issues
+**"No active LLM provider" on Admin Settings.** No provider has been saved in Admin Settings yet. Pick a provider,
+test it and save.
 
-**Issue:** "LLM configuration not found"
-**Solution:** Ensure `Beacon:LLM` section exists in appsettings.json
+**AI calls fail after a restart although Admin Settings looks right.** The provider was built from `Beacon:LLM` at
+startup, which logs a warning when it cannot build one (for example Azure OpenAI without `Endpoint`, Bedrock without
+`Region`). Save Admin Settings again, and bring `Beacon:LLM` in step.
 
-**Issue:** "Invalid API key"
-**Solution:** Verify API key is correct and has appropriate permissions
+**Test connection fails.** Check the key, the model or deployment name, and for Azure OpenAI the endpoint. For Bedrock,
+check the region, the model id and that the host's AWS credentials may invoke the model.
 
-**Issue:** Rate limit exceeded
-**Solution:** Reduce `RequestsPerMinute` or increase provider tier
+**Test connection reports that AI is unavailable.** The host did not set `UseAI = true` or did not call `AddBeaconAI`.
 
-**Issue:** Generated SQL is invalid
-**Solution:** AI is probabilistic and experimental - always review and test queries before use. Manual adjustment may be required.
+**Calls fail after retries.** Rate-limit and transient errors are retried three times; persistent failures usually mean
+the provider's own quota. Lower `Beacon:LLM:Limits:MaxConcurrentRequests` and restart, or raise the quota with the
+provider.
 
-### Debugging
+**Debug logging.** Raise the log level for the AI namespaces:
 
-Enable verbose logging:
 ```json
 {
   "Logging": {
     "LogLevel": {
-      "Beacon.Core.Services.Ai": "Debug",
-      "Beacon.Core.Services.LlmProviders": "Debug"
+      "Beacon.AI.Services.LlmProviders": "Debug",
+      "Beacon.AI.Services.Ai": "Debug",
+      "Beacon.AI.Services.Documentation": "Debug"
     }
   }
 }
 ```
 
-## Architecture
+## Related features
 
-### Service Layer
-
-```
-IAiDocumentationService
-├── GenerateDocumentationAsync()
-├── ExportAsMarkdownAsync()
-├── ExportAsHtmlAsync()
-└── ExportAsPdfAsync()
-
-IAiAlertGenerationService
-├── GenerateAlertAsync()
-└── RefineAlertAsync()
-
-ILlmProvider (interface)
-├── DelegatingLlmProvider (proxy - injected everywhere)
-│   └── Delegates to LlmProviderManager.CurrentProvider
-├── OpenAiProvider
-├── AnthropicProvider
-├── AzureOpenAiProvider
-└── BedrockProvider
-
-LlmProviderFactory
-└── CreateProvider() -> ILlmProvider
-
-LlmProviderManager (implements ILlmConfigurationUpdater)
-├── CurrentProvider (hot-swappable)
-└── UpdateConfiguration() (called by Admin Settings)
-```
-
-### Hot-Swap Flow
-
-All consumers inject `ILlmProvider`, which is registered as `DelegatingLlmProvider`. This proxy delegates to the current provider held by `LlmProviderManager`. When Admin Settings saves a new LLM configuration, `LlmProviderManager` recreates the provider and all subsequent requests use the new provider automatically.
-
-### Data Model
-
-```
-DataSourceDocumentation
-├── Id
-├── DataSourceId
-├── Title
-├── GeneratedByModel
-├── GeneratedAt
-├── TokensUsed
-├── EstimatedCost
-└── Sections (List<DocumentationSection>)
-
-DocumentationSection
-├── Id
-├── DocumentationId
-├── SectionType (Table, Column, Relationship, etc.)
-├── Content (markdown)
-└── IsAiGenerated
-
-AiAlertConfiguration
-├── Id
-├── DataSourceId
-├── NaturalLanguageDescription
-├── GeneratedQuery
-├── Explanation
-└── CreatedAt
-```
-
-## Related Features
-
-- [Admin Settings](/features/admin-settings/) - Configure and hot-swap LLM providers at runtime
-- [Knowledge Base & Grounding](/features/knowledge-base/) - How generated docs, join paths, and glossary terms ground SQL generation
-- [MCP Server](/features/mcp-server/) - Expose all of this to AI assistants over the Model Context Protocol
-- [Data Sources](/features/data-sources/) - Configure data sources for AI analysis
-- [Subscriptions](/features/subscriptions/) - Use AI-generated queries in subscriptions
-- [Anomaly Detection](/features/anomaly-detection/) - Statistical anomaly detection complement to AI
+- [Integrate → AI](/integrate/ai/) — host configuration of the provider
+- [Admin Settings](/features/admin-settings/) — the runtime provider configuration
+- [Knowledge Base & Grounding](/features/knowledge-base/) — how documentation, join paths and glossary terms ground SQL generation
+- [MCP Server](/features/mcp-server/) — the tools that use the provider
+- [AI Actors](/features/ai-actors/) — LLM-driven monitoring agents
+- [Anomaly Detection](/features/anomaly-detection/) — statistical detection, without an LLM

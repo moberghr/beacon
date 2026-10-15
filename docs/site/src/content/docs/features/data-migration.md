@@ -1,33 +1,25 @@
 ---
 title: Data Migration
-description: Extract, transform, and load data between databases with multi-step queries, scheduling, and multiple write modes.
+description: Copy rows from a read source into a database marked as a migration write target, in Insert, Upsert or Truncate mode.
 ---
 
-Data Migration extracts data from source databases and synchronizes it to destination databases using the same query execution layer used for notifications.
+A migration job reads rows from a source through the same read-only path every Beacon query uses, then writes them into
+a table of a destination database. It is the only Beacon feature that writes to a connected database, so it is off
+unless the host turns it on, and it writes only into a data source an Admin marked for it.
 
-## Purpose
+What a job does:
 
-Data Migration allows you to:
-- Transfer data between databases (same or different database engines)
-- Execute multi-step queries across multiple databases for complex data extraction
-- Synchronize data with multiple modes (Insert, Upsert, Truncate, Sync with Delete)
-- Schedule automated data transfers with cron expressions
-- Track execution history with detailed performance metrics
-- Handle failures with automatic retry mechanism
+- reads one source query (plain SQL, or a JSON list of steps across data sources) within its own row budget;
+- writes the rows into one destination table in one of three modes: **Insert only**, **Insert or update** (Upsert) or
+  **Truncate & insert**;
+- records every run in its history: rows read, written and failed, duration and error.
 
-## Use Cases
-
-- **Data Warehouse ETL**: Extract data from production databases and load into analytics databases
-- **Multi-Tenant Data Sync**: Synchronize data between tenant databases
-- **Cross-Database Reporting**: Consolidate data from PostgreSQL, MySQL, and SQL Server databases
-- **Backup & Archival**: Copy data to backup databases on a schedule
-- **Data Distribution**: Distribute master data to multiple downstream systems
-- **Database Migration**: Migrate data between different database engines
+Typical uses: copy reference data into an analytics database, keep a reporting table refreshed, move rows between
+PostgreSQL, MySQL and SQL Server.
 
 ## Turning data migration on
 
-Data migration is the one Beacon feature that writes to a connected database, so it is **off unless the host turns it
-on**:
+Data migration is off by default. The host turns it on in configuration:
 
 ```json
 {
@@ -40,788 +32,271 @@ on**:
 }
 ```
 
-While `Beacon:Migrations:Enabled` is `false` (the default) it is a deployment lock, not a setting:
+| Key | Default | What it does |
+|-----|---------|--------------|
+| `Beacon:Migrations:Enabled` | `false` | Deployment lock. While `false`, nobody can create or run a job, an Admin included. |
+| `Beacon:Migrations:MaxRows` | `100000` | Row budget of a migration's source read (1 to 10,000,000), used in place of `Beacon:Query:MaxExecutionRows`. |
 
-- the `/beacon/api/migrations/*` endpoints are not mapped — every one answers `404` — and the shell shows no Data
-  Migration entry, page or Home card;
-- no job is created or run, whoever asks (an Admin included) and from any in-process caller (`409` from a handler);
-- no data source can be marked as a migration write target (`409`); an existing target can still be returned to a read
+While `Enabled` is `false`:
+
+- the `/beacon/api/migrations/*` routes are not mapped (every one answers `404`), and the UI shows no **Data Migration**
+  entry, page or Home card;
+- the migration handlers refuse every request (`409`), also for an in-process caller that does not use the routes;
+- no data source can be marked as a migration write target (`409`). An existing target can still be returned to a read
   source.
 
-`MaxRows` is the migration's own row budget (see [Step 3](#step-3-configure-source-query)).
+See [Configuration](/getting-started/configuration/#data-migration).
 
-:::note[Upgrading]
-A host that used data migration before must set `Beacon:Migrations:Enabled` to `true`, and an Admin must mark each
-destination as a migration write target. Until both are done its jobs do not run.
-:::
+## Migration write targets
 
-### Migration write targets
+A job writes only into a data source an Admin marked as a **migration write target**: on the data source's page, choose
+**Mark as migration write target**, or call `PUT /beacon/api/data-sources/{id}/migration-writes` (Admin only).
 
-A migration writes only to a data source an Admin marked as a **migration write target** (data source page →
-**Migration writes** → **Mark as migration write target**, or `PUT /beacon/api/data-sources/{id}/migration-writes`;
-Admin only). Beacon never reads a write target: query steps, previews, subscriptions, data quality, MCP tools, AI
-grounding, documentation and metadata scans refuse it or leave it out, and only the migration writer connects with its
-credentials. Its connection may therefore use a login with the [grants a migration needs](#destination-privileges),
-while every data source Beacon reads keeps a login that can only read.
-
-- Only a PostgreSQL, MySQL or SQL Server database can be a write target — not a host-managed data source and not one
-  marked read-only, whatever its flag says.
+- Only a PostgreSQL, MySQL or SQL Server database can be a write target. A host-managed data source or one marked
+  read-only cannot.
+- Beacon never reads a write target. Query steps, previews, subscriptions, data quality, MCP tools, AI grounding,
+  documentation and metadata scans refuse it or leave it out. Only the migration writer connects with its credentials, so
+  only its login holds [write grants](#destination-privileges); every data source Beacon reads keeps a read-only login.
 - A job's declared source and the data source of every step it runs may not be a write target. To copy within one
-  database, register it twice: with a read-only login (the source) and with the write login (the target).
-- The flag is checked when a job is created, again before every run, and once more by the writer before it decrypts the
-  destination's credentials. A run whose destination is not (or no longer) a write target, or that reads one, reads and
-  writes nothing: started from the page or the API it is refused with the reason (`400`); refused by the migration
-  service itself (a host calling `IMigrationService` in-process, or a flag changed between the two checks) it is recorded
-  in the job's history as failed, with the reason. A run refused because migrations are off, or of a job that is missing
-  or disabled, is answered to its caller only.
-- Every change is recorded in the settings history (`DataSource.{id}.AllowMigrationWrites`, the value before and after,
-  and who) and in the security log (`MigrationWritesChanged`, 7115, ids only).
-- Returning a write target to a read source asks for confirmation: Beacon reads it again with its login, so change that
-  login to one that can only read first.
-- Marking a source that live queries, subscriptions or data contracts read is refused (`409`, naming how many of each)
-  unless the Admin confirms it (`"force": true`; the page asks a second time): they fail once Beacon stops reading the
-  source. The security log records the counts of a confirmed mark.
-- While the host does not run migrations, the migration handlers refuse every request (`409`) — listing, showing and
-  deleting jobs and listing runs included — also for an in-process caller that does not go through the unmapped routes.
+  database, register it twice: once with a read-only login (the source) and once with the write login (the target).
+- Marking a data source that live queries, subscriptions or data contracts read is refused (`409`, with the count of
+  each) unless the Admin confirms it (`"force": true`; the page asks a second time). Those readers fail once Beacon stops
+  reading the source.
+- Returning a target to a read source asks for confirmation: Beacon reads it again with its stored login, so change that
+  login to a read-only one first.
+- Every change is recorded in the settings history (`DataSource.{id}.AllowMigrationWrites`, before and after, and who)
+  and as the `MigrationWritesChanged` security log event (7115, ids only).
 
-See [Data Sources: migration write targets](/features/data-sources/#migration-write-targets).
+The flag is checked when a job is created, before every run, and by the writer before it decrypts the destination's
+credentials. A run started from the page or the API whose destination is not (or no longer) a write target, or that reads
+one, is refused with the reason (`400`). A run refused inside the migration service itself (an in-process caller, or a
+flag changed between the two checks) is recorded in the job's history as failed, with the reason.
 
-## Creating a Migration Job
+See [Data Sources](/features/data-sources/) for the data source side.
 
-### Step 1: Navigate to Data Migration
+## Who can use it
 
-1. Log in to Beacon at the React UI (`/login`)
-2. Click **Data Migration** in the left navigation menu (`/data-migration`)
-3. Click **Create New Migration Job**
+Data migration needs the **MigrationOperator** permission (an Admin holds every permission; see
+[Security model](/features/security-model/)). Listing jobs, opening one, creating, running and deleting jobs and reading
+the run history all need it. The **Data Migration** entry is hidden from other users.
 
-### Step 2: Fill Basic Information
+A MigrationOperator gets no bypass of project access. A job reads its declared source and the data source of every step
+in its query. Creating it, every run of it and deleting it need:
 
-| Field | Description | Required | Example |
-|-------|-------------|----------|---------|
-| **Name** | Descriptive migration job name | Yes | `Daily User Sync` |
-| **Description** | Purpose of this migration | No | `Sync active users to analytics database` |
+- **Query** on each of those data sources and **Write** on the destination, through the projects that link them
+  (`404` for a data source the caller cannot read, `403` for one it reads but may not query or write);
+- a destination that is **no more widely reachable** than any source: every live project that links the destination must
+  link each source too, and an openly reachable destination needs openly reachable sources (`403` otherwise). Copying data
+  never makes it readable to more people.
 
-### Step 3: Configure Source Query
+The job list, a job and the run history show a MigrationOperator only jobs whose source and destination they can read
+(another job is not found, `404`). A failed run's error text, which can quote any data source the job reads, is replaced
+by a note unless the caller reads every one of them. An Admin is not checked. Refusals are logged with ids only.
 
-The source query extracts data from one or more databases using multi-step queries. It is read the way every query runs (see [How a query runs](/features/queries/#how-a-query-runs)): through the read-only execution gate and the source's read-only path, and within `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds) per statement. A migration has its own row budget, `Beacon:Migrations:MaxRows` (default 100,000, between 1 and 10,000,000; see [Data Migration](/getting-started/configuration/#data-migration)), in place of `Beacon:Query:MaxExecutionRows`: the cap is written into the source SQL and the read stops one row past it, and a larger source fails the run (with a message naming `Beacon:Migrations:MaxRows`) before anything is written rather than migrating part of it (so does a source read that fails or runs out of time in any step or in the final query: the run is recorded as failed and the destination is not opened, so a Truncate-mode job never empties its table on a failed read) — split it (for example by date range or key range across jobs) or raise the budget. A run holds every row it copies in memory, so size the budget to the host. No source may be a [migration write target](#migration-write-targets).
+The Home page's migration summary shows Admins the totals of every job, MigrationOperators the totals of the jobs their
+list shows, and zeros to everyone else.
 
-#### Single-Step Query
+## Create a job
 
-For simple data extraction from one database:
+1. Open **Data Migration** (`/beacon/migration-jobs`).
+2. Click **New job**.
+3. Fill in the form and click **Create migration job**.
 
-1. Click **Add Query Step**
-2. Fill in step details:
-   - **Step Name**: Descriptive name (e.g., "Extract Active Users")
-   - **Description**: What this step does
-   - **Project**: Select source database project
-   - **SQL Query**: Write your SELECT query
+| Field | Required | Default | What it does |
+|-------|----------|---------|--------------|
+| **Job name** | Yes | | Up to 200 characters. |
+| **Description** | Yes | | Up to 1,000 characters. |
+| **Source data source** | Yes | | The data source the job reads. Cannot be a write target. |
+| **Source SQL** | Yes | | The source query. See [Source query](#source-query). |
+| **Destination data source** | Yes | | Lists migration write targets only. |
+| **Destination table** | Yes | | For example `public.target_table`. |
+| **Migration mode** | Yes | Insert only | **Insert only**, **Insert or update** or **Truncate & insert**. See [Modes](#modes). |
+| **Cron schedule** | No | empty | Standard 5-field cron, stored with the job. See [Schedules](#schedules). |
+| **Max retries** | No | 3 | 0 to 10. Stored with the job and shown on each run as **Retry**. A failed run is not retried automatically. |
+| **Timeout (minutes)** | No | 30 | 1 to 1,440. Stored with the job. |
+| **Enable migration job** | No | on | A disabled job does not run. |
+| **Validate query before execution** | No | on | Stored with the job. |
+| **Transformation script (optional)** | No | empty | Leave it empty — a job with a script fails when it runs. |
 
-**Example:**
-```sql
-SELECT user_id, username, email, created_at, last_login
-FROM users
-WHERE active = true
-  AND last_login > CURRENT_DATE - INTERVAL '30 days'
-```
+The job is saved when the form is valid; its SQL is not run at creation. The destination table is checked for existence
+on every run.
 
-#### Multi-Step Queries
-
-For complex data extraction across multiple databases:
-
-**Step 1 - Extract Users:**
-```sql
--- Project: Production PostgreSQL
-SELECT user_id, username, email
-FROM users
-WHERE active = true
-```
-
-**Step 2 - Enrich with Orders:**
-```sql
--- Project: Orders MySQL
--- Reference previous step results with @result1
-SELECT
-    u.user_id,
-    u.username,
-    u.email,
-    COUNT(o.order_id) as total_orders,
-    SUM(o.amount) as total_spent
-FROM @result1 u
-LEFT JOIN orders o ON u.user_id = o.user_id
-GROUP BY u.user_id, u.username, u.email
-```
-
-**Step 3 - Add Analytics:**
-```sql
--- Project: Analytics SQL Server
--- Reference any previous step: @result1, @result2
-SELECT
-    r.*,
-    a.page_views,
-    a.session_count
-FROM @result2 r
-LEFT JOIN user_analytics a ON r.user_id = a.user_id
-```
-
-:::note[Multi-Step Features]
-- Reference previous results using `@result1`, `@result2`, etc.
-- Each step can use a different project/database
-- Mix any of Beacon's connectors in the same pipeline
-- Visual flow diagram shows step dependencies
-- Cross-database joins materialize intermediate results into an in-memory SQLite database, where the final join runs
+:::note
+A job cannot be edited after it is created; no route changes one. To change its query, destination, mode, schedule or
+whether it is enabled, create a new job and delete the old one. The old job's run history is kept.
 :::
 
-#### Test Your Query
+### Source query
 
-1. Click **Preview Query** to test execution
-2. Review results in the preview panel
-3. Verify data structure matches destination table
-4. Check for any errors
+The source is read the way every query runs (see [Queries](/features/queries/)): through the read-only execution gate
+and the source's read-only path, within `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds) per statement.
 
-### Step 4: Configure Destination
+- **Row budget.** `Beacon:Migrations:MaxRows` replaces `Beacon:Query:MaxExecutionRows`. The cap is written into the
+  source SQL and the read stops one row past it. A larger source fails the run, with a message naming
+  `Beacon:Migrations:MaxRows`, before anything is written. Split the job (for example by date or key range) or raise the
+  budget. A run holds every row it copies in memory, so size the budget to the host.
+- **Failed reads write nothing.** If any step or the final query fails or times out, the run is recorded as failed and the
+  destination is not opened. A Truncate-mode job never empties its table on a failed read.
+- **Columns map by name.** The source's column names are used as the destination column names.
+- **Parameters.** A run from **Run now** or `POST /beacon/api/migrations/jobs/{id}/run` passes no parameter values.
 
-The destination picker lists [migration write targets](#migration-write-targets) only.
+**Several data sources in one job.** The job's query text can also be a JSON array of steps, each naming its own data
+source. The form takes a single SQL statement; send the JSON form through `POST /beacon/api/migrations/jobs`:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| **Destination data source** | A migration write target | Analytics Database (write) |
-| **Destination Table** | Target table name | `user_summary` or `schema.user_summary` |
-| **Migration Mode** | How to write data | See modes below |
+```json
+[
+  { "Name": "Users",  "DataSourceId": 3, "SqlValue": "SELECT user_id, email FROM users WHERE active = true" },
+  { "Name": "Orders", "DataSourceId": 7, "SqlValue": "SELECT user_id, COUNT(*) AS order_count FROM orders GROUP BY user_id" }
+]
+```
 
-#### Migration Modes
+Each step is a read on its own data source, and the caller needs **Query** on each. Results of several data sources are
+joined in an in-memory SQLite database, as for any multi-step query. Anything that is not a JSON array is read as one
+step of plain SQL.
 
-**Insert Only**
-- Inserts new rows only
-- Skips rows that already exist
-- Use for: Append-only logs, historical data
+### Modes
 
-**Upsert (Insert or Update)**
-- Inserts new rows
-- Updates existing rows based on primary key
-- Use for: Maintaining current state, incremental updates
-
-**Truncate and Load**
-- Clears destination table completely
-- Inserts all rows from source
-- Use for: Full data refresh, replacing entire dataset
-
-**Sync with Delete**
-- Inserts new rows
-- Updates existing rows
-- Deletes rows missing from source
-- Use for: Perfect synchronization, removing obsolete data
+| Mode (UI label) | What it does | Needs |
+|-----------------|--------------|-------|
+| **Insert only** | Inserts every source row. A row that violates a key or constraint fails the write. | |
+| **Insert or update** (Upsert) | Stages the rows in a temporary table, then inserts new rows and updates existing ones by primary key. | A primary key on the destination table, and every key column in each source row (otherwise the run fails). Without a primary key the job inserts, as in Insert only. |
+| **Truncate & insert** | Empties the destination table, then inserts every source row. | |
 
 :::caution
-Truncate and Sync with Delete modes permanently delete data. Test thoroughly before using in production.
+**Truncate & insert** deletes every row in the destination table on each run. Run the job by hand against a test table
+before you enable it on real data.
 :::
 
-### Step 5: Configure Execution Options
+How the write is done per engine:
 
-| Field | Description | Default | Range |
-|-------|-------------|---------|-------|
-| **Schedule** | Cron expression for automated execution | Empty (manual only) | Valid cron |
-| **Max Retries** | Retry attempts on failure | 3 | 0-10 |
-| **Timeout (minutes)** | Maximum execution time | 30 | 1-1440 |
-| **Enabled** | Enable automatic scheduled execution | Unchecked | - |
-| **Validate Before Execution** | Test query and table before running | Checked | - |
+| Engine | Insert | Upsert |
+|--------|--------|--------|
+| PostgreSQL | `COPY … FROM STDIN (FORMAT BINARY)` | `COPY` into a temporary table, then `INSERT … ON CONFLICT` |
+| SQL Server | bulk copy | bulk merge, staged in a session temporary table |
+| MySQL | bulk insert; if it fails, row by row | bulk insert into a temporary table, then `INSERT … ON DUPLICATE KEY UPDATE` |
 
-**Common Schedules:**
+On PostgreSQL and SQL Server a failed write fails the run. On MySQL, when the bulk insert fails, Beacon inserts the rows
+one at a time: rows that fail are counted and listed in the run's error, and the run ends as **Partial**. It stops after
+more than 100 failed rows.
 
-| Expression | Description |
-|------------|-------------|
-| `0 2 * * *` | Daily at 2:00 AM |
-| `0 */6 * * *` | Every 6 hours |
-| `0 0 * * 0` | Weekly on Sunday at midnight |
-| `0 0 1 * *` | Monthly on the 1st at midnight |
+### Schedules
 
-:::note
-Use [crontab.guru](https://crontab.guru/) to build and validate cron expressions.
-:::
+The cron schedule is stored with the job and shown on it. Beacon does not start migration runs from it by itself: a run
+starts from **Run now** or from `POST /beacon/api/migrations/jobs/{id}/run`. A host that wants scheduled runs starts them
+from its own background job (see [Background jobs](/integrate/background-jobs/)); the approval and write-target checks
+apply to those runs too.
 
-### Step 6: Advanced Options (Optional)
+## Run a job
 
-**Transformation Script**
-- Apply data transformations using @result syntax
-- Modify column values before writing to destination
-- Currently in development
+1. Open the job from the jobs list.
+2. Click **Run now**.
 
-### Step 7: Save Migration Job
+**Run now** is disabled while the job is disabled or awaiting approval. The run happens in the request; the page then
+shows it in the job's runs.
 
-Click **Save** to create the migration job.
+## Jobs and run history
 
-## Managing Migration Jobs
+The jobs list (`/beacon/migration-jobs`) is paged on the server and shows **Id**, **Name**, **Source → destination**,
+**Mode**, **Enabled**, **Schedule** and **Created**, with a delete action per row. **History** opens the run history of
+all jobs.
 
-Data migration is a MigrationOperator's (and an Admin's, see [Functional permissions](/features/authorization/#functional-permissions)): creating, running and deleting jobs, and reading the job list, a job and its run history, need that permission. The **Data Migration** entry is hidden from other users, and from everyone while the host does not run migrations ([Turning data migration on](#turning-data-migration-on)). The Home page's migration summary shows Admins the totals of every job, MigrationOperators those of the jobs their list shows, and zeros to everyone else.
+A job's page shows its definition (source, destination, mode, schedule, enabled, created), **Status**, **Last run** and
+the successes and failures among its recent runs, and its runs with **Started**, **Status**, **Duration**, **Rows**,
+**Retry** and **Error**.
 
-A MigrationOperator goes through project access like any other user, with no bypass. A job reads the source it declares and the data source of **every step** in its query text (a JSON list of steps, each naming its data source; plain SQL names none). Creating a job, every run of it and deleting it need:
+The run history page (`/beacon/migration-history`) lists runs of every job you can read with **Started**, **Job**,
+**Status**, **Rows**, **Failed** and **Rows/s**.
 
-- **Query** on each of those data sources (a step is SQL of its own, so running saved SQL is not enough) and **Write** on the destination, through the projects that link them (`404` for a data source the operator cannot read, `403` for one it reads but may not query or write);
-- a destination **no more widely reachable** than any of those sources: every live project that links the destination must link each source too, and an openly reachable destination needs openly reachable sources (`403` otherwise). A source that is also the destination widens nothing, but the job's other steps are still checked. Copying data never makes it readable to more people.
+| Status | Meaning |
+|--------|---------|
+| Running | The run has started. |
+| Completed | Every row was written. |
+| Partial | Some rows failed (MySQL row-by-row fallback); see the run's error. The job page labels it **Partial success**. |
+| Failed | The read or the write failed, or the run was refused (not approved, not a write target). The error says why. |
 
-The steps are checked once more as they run: each step's data source needs Query for the caller. The job list, a job and the run history show a MigrationOperator only the jobs whose source and destination data sources they can read (a job they cannot read is not found, `404`); a failed run's error text, which can quote any data source the job reads, is replaced by a note unless the caller reads every one of them. An Admin is not checked. Refusals are logged with ids only.
+### Delete a job
 
-:::caution[Upgrading]
-`GET /migrations/jobs`, `GET /migrations/jobs/{id}` and `GET /migrations/executions` need the Admin role or the MigrationOperator permission.
-:::
+Click the delete action on the row, or **Delete** on the job's page, and confirm. The job is archived; its run history is
+kept.
 
-### View Migration Jobs
+## Approval of new jobs
 
-The Data Migration page shows all configured jobs with:
-- Job name and description
-- Source and destination projects
-- Destination table
-- Schedule (if configured)
-- Last execution status
-- Enabled/disabled state
-- Actions (Delete; open a job to run it)
+The [approval workflow](/features/approvals/) is off by default; a host turns it on in code with
+`options.EnableApprovalWorkflow(...)`. While it is on, its `CoversMigrationJobs` switch (on by default) makes every new
+job wait for a second person's approval before it writes anything:
 
-### Execute Job Manually
-
-Test or run a job on-demand without waiting for the schedule:
-
-1. Click **Execute** (play icon) on the job row
-2. Execution starts immediately
-3. Monitor progress in execution history
-4. Check destination database for results
-
-:::note
-Manual executions don't affect the cron schedule. Scheduled executions continue as configured.
-:::
-
-### View Execution History
-
-Review past executions with detailed metrics:
-
-1. Click **History** (clock icon) on the job row
-2. Or navigate to **Data Migration → History** for all jobs
-3. Filter by:
-   - Status (Completed, Failed, Running, etc.)
-   - Date Range (Start Date, End Date)
-
-**Execution History Shows:**
-- Start time and duration
-- Status with color-coded indicator
-- Rows read from source
-- Rows written to destination
-- Rows failed (with error details)
-- Performance (rows/second)
-- Retry attempt number
-
-### Approval of new jobs
-
-While the [change approval workflow](/features/queries/#approval-workflow) is on and covers migration jobs
-(`ApprovalWorkflow.CoversMigrationJobs`, on by default — see
-[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)), a job writes nothing until a
-second person has approved what it does:
-
-- **A job created is submitted for approval** (its creator is the requester) and stored with nothing approved. The
-  create answers with `awaitingApproval: true` and the message *"Submitted for approval: the job does not run, manually
-  or on its schedule, until a second person approves it."*, which the **New migration job** page shows. A caller Beacon
-  cannot name (an API key without an active owner, say) creates nothing (`403`) unless the host sets
-  `AllowSelfApproval`.
-- **An Approver (or an Admin) other than the creator reviews it** on the **Approvals** page under **Migration jobs**,
-  which shows its definition — source and destination data sources, the source query (SQL or JSON steps), the
-  destination table, the mode and the transformation script — and approves exactly that definition. The job's name,
-  description, schedule, retry and timeout settings and whether it is enabled are not part of it. Someone without the
-  Approver permission who may read both of the job's data sources can open the request too (from the job's page or the
-  Approvals page) to see what waits; they cannot decide it.
-- **No run starts before the approval**, whoever runs the job and however (**Run now**, or a host's scheduler): the run
-  is refused and recorded as a failed run with *"Not run: the job's definition waits for approval. A second person
-  approves it on the approvals page; until then the job does not run."*, and a Warning is logged with the job id. The
-  jobs list and the job's page show **Awaiting approval** (with a link to the pending request), and **Run now** is
+- **A new job is submitted for approval**, with its creator as the requester. The create answers with
+  `awaitingApproval: true` and the message *"Submitted for approval: the job does not run, manually or on its schedule,
+  until a second person approves it."* A caller Beacon cannot name (an API key without an active owner, for example)
+  creates nothing (`403`) unless the host sets `AllowSelfApproval`.
+- **An Approver (or an Admin) other than the creator reviews it** on the **Approvals** page under **Migration jobs**. The
+  review shows the definition: source and destination data sources, the source query (SQL or JSON steps), the destination
+  table, the mode and the transformation script. The approval covers exactly that definition. Name, description,
+  schedule, retry, timeout and enabled are not part of it. Someone without the Approver permission who reads both of the
+  job's data sources can open the request to see what waits, but cannot decide it.
+- **No run starts before the approval.** A run is refused and recorded as failed with *"Not run: the job's definition
+  waits for approval. A second person approves it on the approvals page; until then the job does not run."*, and a
+  Warning is logged with the job id. The job shows **Awaiting approval** with a link to the request, and **Run now** is
   disabled.
-- **A job runs only the definition that was approved.** A job whose stored definition differs from the approved one (a
-  change made outside Beacon) does not run until a matching definition is approved; jobs cannot be changed through
-  Beacon, so create a new job instead, which is submitted again.
-- **A rejected job never runs as it is.** Its page and the jobs list say **Rejected — delete and recreate the job**,
-  with the reviewer's comment and the time of the decision (the job's read model carries it as `lastApprovalDecision`
-  while no request of the job is pending). Delete it and create the job again with the corrected definition, which is
-  submitted again.
-- **Withdrawing a request.** There is no withdraw action: an Approver rejects the request, or the creator deletes the
-  job (its request can then only be rejected, which clears it from the Approvals list).
-- Nobody approves their own job (unless the host sets `AllowSelfApproval`), and a request is decided once — see
-  [Authorization → Upgrading: change governance](/features/authorization/#upgrading-change-governance).
+- **A job runs only the definition that was approved.** If the stored definition differs from the approved one (a change
+  made outside Beacon), the job does not run until a matching definition is approved.
+- **A rejected job never runs.** Its page shows that the definition was rejected, with the reviewer's comment and the
+  time of the decision (`lastApprovalDecision` on the job). Delete it and create the job again with a corrected
+  definition, which is submitted again.
+- There is no withdraw action: an Approver rejects the request, or the creator deletes the job.
+- Nobody approves their own job unless the host sets `AllowSelfApproval`, and a request is decided once.
 
 :::caution[Upgrading]
-Jobs that exist when you upgrade are not governed: they run as before, with no approval and no data change. Once the
-workflow is on, every new job waits for a second person's approval before its first run. A job created while the
-workflow is off is not reviewed later. Turning `CoversMigrationJobs` (or the workflow) off again lets the jobs that wait
-— and the rejected ones — run as they are; startup warns with their count (see
-[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)).
+Jobs that exist when the workflow is turned on are not reviewed: they run as before. A job created while the workflow is
+off is not reviewed later. Turning `CoversMigrationJobs` (or the workflow) off again lets waiting and rejected jobs run as
+they are; startup logs their count.
 :::
 
-### Change a Migration Job
+## Destination privileges
 
-A job is not edited once it is created: there is no route that changes one. To change its query, destination, schedule or whether it is enabled, create a new job with the new settings (which checks its data sources again) and delete the old one; the old job's execution history is kept.
-
-### Enabled and Disabled Jobs
-
-Whether a job is enabled is set when it is created. A disabled job does not run: a run of it fails as disabled, and its page does not offer **Run now**.
-
-### Delete Migration Job
-
-1. Click **Delete** (trash icon) on the job row
-2. Confirm deletion in the dialog
-3. Job is archived (soft delete)
-4. Execution history is preserved
-
-## Examples
-
-### Example 1: Daily User Sync
-
-**Scenario**: Sync active users from production to analytics database every night.
-
-**Configuration:**
-- **Name**: `Daily Active User Sync`
-- **Source Project**: Production PostgreSQL
-- **Query**:
-  ```sql
-  SELECT user_id, username, email, created_at, last_login, subscription_tier
-  FROM users
-  WHERE active = true
-  ```
-- **Destination Project**: Analytics PostgreSQL
-- **Destination Table**: `analytics.active_users`
-- **Mode**: Truncate and Load
-- **Schedule**: `0 2 * * *` (daily at 2 AM)
-- **Timeout**: 60 minutes
-
-**Purpose**: Provide analytics team with fresh daily snapshot of active users.
-
-### Example 2: Multi-Database Order Summary
-
-**Scenario**: Combine user data from PostgreSQL, orders from MySQL, and analytics from SQL Server.
-
-**Configuration:**
-- **Name**: `Multi-DB Order Summary`
-
-**Step 1 - Extract Users:**
-```sql
--- Project: Users DB (PostgreSQL)
-SELECT user_id, username, email, signup_date
-FROM users
-WHERE active = true
-```
-
-**Step 2 - Join Orders:**
-```sql
--- Project: Orders DB (MySQL)
-SELECT
-    u.*,
-    COUNT(o.order_id) as order_count,
-    SUM(o.total_amount) as lifetime_value,
-    MAX(o.order_date) as last_order_date
-FROM @result1 u
-LEFT JOIN orders o ON u.user_id = o.user_id
-WHERE o.status = 'completed'
-GROUP BY u.user_id, u.username, u.email, u.signup_date
-```
-
-**Step 3 - Add Web Analytics:**
-```sql
--- Project: Analytics DB (SQL Server)
-SELECT
-    r.*,
-    a.total_sessions,
-    a.total_pageviews,
-    a.avg_session_duration
-FROM @result2 r
-LEFT JOIN web_analytics a ON r.user_id = a.user_id
-```
-
-- **Destination Project**: Data Warehouse
-- **Destination Table**: `dwh.customer_360`
-- **Mode**: Upsert
-- **Schedule**: `0 */6 * * *` (every 6 hours)
-
-**Purpose**: Create unified customer view across systems.
-
-### Example 3: Incremental Log Migration
-
-**Scenario**: Copy application logs from production to archive database, only new entries.
-
-**Configuration:**
-- **Name**: `Incremental Log Archive`
-- **Source Project**: Production DB
-- **Query**:
-  ```sql
-  SELECT log_id, timestamp, level, message, user_id, request_id
-  FROM application_logs
-  WHERE timestamp > CURRENT_TIMESTAMP - INTERVAL '1 hour'
-    AND level IN ('ERROR', 'WARN')
-  ORDER BY timestamp DESC
-  ```
-- **Destination Project**: Archive DB
-- **Destination Table**: `logs.application_errors`
-- **Mode**: Insert Only
-- **Schedule**: `0 * * * *` (every hour)
-- **Timeout**: 15 minutes
-
-**Purpose**: Archive error logs for long-term retention and compliance.
-
-### Example 4: Weekly Tenant Data Sync
-
-**Scenario**: Synchronize master data to multiple tenant databases weekly.
-
-**Configuration:**
-- **Name**: `Tenant A Product Sync`
-- **Source Project**: Master DB
-- **Query**:
-  ```sql
-  SELECT product_id, sku, name, description, price, category, active
-  FROM products
-  WHERE active = true
-    AND tenant_id = 'tenant_a'
-  ```
-- **Destination Project**: Tenant A DB
-- **Destination Table**: `public.products`
-- **Mode**: Sync with Delete
-- **Schedule**: `0 0 * * 0` (Sunday at midnight)
-- **Timeout**: 30 minutes
-
-**Purpose**: Keep tenant product catalogs in sync with master, removing discontinued items.
-
-## Migration Modes in Detail
-
-### Insert Only Mode
-
-**Behavior:**
-- Attempts to insert each row from source
-- If row already exists (primary key conflict), skips it
-- Continues processing remaining rows
-- No updates, no deletes
-
-**Performance:**
-- Fastest mode (no lookups required)
-- Minimal database load
-
-**Best For:**
-- Append-only data (logs, events, history)
-- One-time data loads
-- When updates never happen
-
-**Example:**
-```sql
--- Source: New user registrations from last hour
-SELECT user_id, email, signup_date
-FROM users
-WHERE signup_date > NOW() - INTERVAL '1 hour'
-```
-
-### Upsert Mode
-
-**Behavior:**
-- Attempts to insert each row
-- If row exists (primary key conflict), updates it
-- No deletes
-
-**Requirements:**
-- Destination table must have a primary key
-- Source query must include primary key column(s)
-
-**Best For:**
-- Maintaining current state
-- Incremental updates
-- Slowly changing dimensions
-
-**Example:**
-```sql
--- Source: Current user profile data
-SELECT user_id, username, email, last_login, profile_updated_at
-FROM users
-WHERE active = true
-```
-
-### Truncate and Load Mode
-
-**Behavior:**
-1. Deletes ALL rows from destination table
-2. Inserts all rows from source query
-3. Atomic operation (transaction-based)
-
-:::caution[Destructive]
-All existing data is deleted before insert. Rollback occurs only if insert fails.
-:::
-
-**Best For:**
-- Complete data refresh
-- Small to medium datasets
-- When destination has no dependencies (no foreign keys)
-
-**Example:**
-```sql
--- Source: Complete current product catalog
-SELECT product_id, name, price, stock_quantity
-FROM products
-WHERE active = true
-```
-
-### Sync with Delete Mode
-
-**Behavior:**
-1. Inserts rows that don't exist in destination
-2. Updates rows that exist in destination
-3. Deletes rows in destination that aren't in source
-4. Perfect synchronization
-
-**Requirements:**
-- Destination table must have a primary key
-- Source query must include primary key column(s)
-
-:::caution[Destructive]
-Deletes rows missing from source. Ensure source query is correct.
-:::
-
-**Best For:**
-- Perfect replica synchronization
-- Master data distribution
-- Removing obsolete data automatically
-
-**Example:**
-```sql
--- Source: Current active customer list
-SELECT customer_id, name, email, status
-FROM customers
-WHERE status IN ('active', 'pending')
--- Inactive customers will be DELETED from destination
-```
-
-## Error Handling & Retry
-
-### Row-Level Error Handling
-
-Migration jobs handle errors at the row level:
-- Failed rows are recorded in execution history
-- Processing continues for remaining rows
-- Status becomes "Partial Success" if some rows fail
-- Error limiting: Stops after 100 consecutive failures
-
-**Common Row Errors:**
-- Data type mismatch
-- Constraint violations (foreign key, check, unique)
-- Column count mismatch
-- NULL in NOT NULL column
-
-### Automatic Retry
-
-Failed jobs can automatically retry:
-- Configure **Max Retries** (0-10) in job settings
-- Retry uses same query and parameters
-- Execution history tracks retry chain
-- Exponential backoff between retries (future enhancement)
-
-**Retry Scenarios:**
-- Source database temporarily unavailable
-- Destination database connection timeout
-- Network interruption
-- Query timeout (execution exceeds configured limit)
-
-### Viewing Error Details
-
-1. Navigate to **Data Migration → History**
-2. Find failed or partial success execution
-3. Click **Error Details** to view:
-   - Full error message
-   - Exception stack trace
-   - Row-specific failures
-   - Timestamp of failure
-
-## Performance Tracking
-
-### Execution Metrics
-
-Each execution records:
-- **Start Time**: When execution began
-- **Completion Time**: When execution finished
-- **Duration**: Total execution time (formatted: 1h 23m 45s)
-- **Source Rows Read**: Total rows extracted from source
-- **Destination Rows Written**: Rows successfully inserted/updated
-- **Rows Failed**: Rows that failed to write
-- **Throughput**: Rows per second
-
-### Performance Optimization Tips
-
-**For Slow Source Queries:**
-- Add indexes on filter columns
-- Reduce result set size with WHERE clauses
-- Break into smaller multi-step queries
-- Increase query timeout if complex aggregations needed
-
-**For Slow Destination Writes:**
-- Ensure destination has appropriate indexes
-- Use Insert Only mode when possible (fastest)
-- Avoid Upsert/Sync modes for large datasets (require lookups)
-- Check destination database load during execution
-
-**For Large Datasets:**
-- Schedule during off-peak hours
-- Increase timeout setting appropriately
-- Consider batch processing (multiple jobs with date ranges)
-- Monitor row-level errors for constraints
-
-:::note
-Bulk inserts and updates are performed via `EFCore.BulkExtensions` for high-throughput writes to the destination.
-:::
-
-## Validation
-
-### Pre-Execution Validation
-
-When **Validate Before Execution** is enabled, Beacon checks:
-1. Source query syntax is valid
-2. Source database is accessible
-3. Destination table exists
-4. Destination database is accessible
-5. Column count/types are compatible (basic check)
-
-:::note
-Validation runs the query in a transaction and rolls back immediately. No data is written.
-:::
-
-### Connection Validation
-
-Test connectivity before saving:
-1. Click **Test Query** in source configuration
-2. Review preview results
-3. Verify destination project is connectable
-4. Check destination table exists with correct schema
-
-## Troubleshooting
-
-### Job Not Executing on Schedule
-
-**Check:**
-1. Job is enabled (toggle in edit page)
-2. Schedule cron expression is valid
-3. Next execution time shows correct schedule
-4. Application background job service is running
-
-**Verify:**
-- Check application logs for job scheduling errors
-- Ensure system time zone is configured correctly
-
-### Source Query Fails
-
-**Common Issues:**
-- Syntax error in SQL query
-- Table or column doesn't exist
-- Source database connection failed
-- Query timeout (exceeds configured limit)
-- Insufficient permissions (need SELECT)
-
-**Solutions:**
-- Use **Preview Query** to test before saving
-- Check source project connection string
-- Verify database user has SELECT permissions
-- Increase timeout for complex queries
-
-### Destination Write Fails
-
-**Common Issues:**
-- Destination table doesn't exist
-- Column mismatch (count or names differ)
-- Data type incompatibility
-- Constraint violations (foreign key, unique, check)
-- Insufficient permissions on the destination (see [Destination privileges](#destination-privileges))
-- The destination is not (or no longer) a [migration write target](#migration-write-targets)
-
-**Solutions:**
-- Verify destination table schema matches source query columns
-- Check the destination data source's connection
-- Verify its login has the [destination privileges](#destination-privileges) of the job's mode
-
-### Destination privileges
-
-Only a [migration write target](#migration-write-targets)'s login needs write grants; every data source Beacon reads,
-including a migration's source, keeps a login that can only read. Grant the target's login only what the job's mode
+Only a [migration write target](#migration-write-targets)'s login needs write grants. Grant it only what the job's mode
 uses, on the destination table only:
 
 | Mode | PostgreSQL | MySQL | SQL Server |
 |------|------------|-------|------------|
-| Insert | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy) |
-| Upsert | `INSERT`, `UPDATE`, and `TEMPORARY` on the database (rows are staged in a temporary table) | `INSERT`, `UPDATE`, `CREATE TEMPORARY TABLES` | `INSERT`, `UPDATE` (staged in a session temporary table) |
-| Truncate and Load | the `TRUNCATE` privilege, `INSERT` | `DROP` on the table (MySQL requires it to truncate), `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
+| Insert only | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy) |
+| Insert or update | `INSERT`, `UPDATE`, and `TEMPORARY` on the database (rows are staged in a temporary table) | `INSERT`, `UPDATE`, `CREATE TEMPORARY TABLES` | `INSERT`, `UPDATE` (staged in a session temporary table) |
+| Truncate & insert | the `TRUNCATE` privilege, `INSERT` | `DROP` on the table (MySQL requires it to truncate), `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
 
-Every mode also reads `information_schema` to check that the table exists (and, for Upsert, its primary key), which a
-login with privileges on the table can do. Some of these grants are DDL-grade (`ALTER`, `DROP`, the `TRUNCATE`
-privilege), which is why such a login belongs on a write target that Beacon never reads, not on an ordinary data source.
+Every mode also reads `information_schema` to check that the table exists (and, for Upsert, its primary key). Some of
+these grants are DDL-grade (`ALTER`, `DROP`, the `TRUNCATE` privilege), which is why such a login belongs on a write
+target that Beacon never reads, not on an ordinary data source.
 
-### Partial Success Status
+## REST API
 
-**When It Happens:**
-- Some rows written successfully
-- Some rows failed (constraint violations, data errors)
-- Execution completed but with errors
+All routes are under `/beacon/api/migrations`, mapped only while `Beacon:Migrations:Enabled` is `true`, and need the
+MigrationOperator permission.
 
-**Action:**
-1. View execution history
-2. Click **Error Details**
-3. Review failed row errors
-4. Fix data issues in source or schema in destination
-5. Re-run job
+| Method | Route | What it does |
+|--------|-------|--------------|
+| `GET` | `/jobs` | List jobs (paged: `page`, `pageSize`, `sort`). |
+| `GET` | `/jobs/{id}` | One job. |
+| `POST` | `/jobs` | Create a job. |
+| `POST` | `/jobs/{id}/run` | Run a job now. |
+| `DELETE` | `/jobs/{id}` | Archive a job. |
+| `GET` | `/executions` | List runs (paged). |
 
-### Performance Issues
+## Troubleshooting
 
-**Symptoms:**
-- Execution consistently times out
-- Duration much longer than expected
-- High rows/second but still slow overall
+| Symptom | Check |
+|---------|-------|
+| No **Data Migration** entry | `Beacon:Migrations:Enabled` is `true`, and you hold MigrationOperator (or are an Admin). |
+| The destination picker is empty | An Admin has marked the destination as a migration write target. |
+| **Run now** is disabled | The job is enabled and not awaiting approval. |
+| Run failed on a job with a transformation script | Create the job again with **Transformation script** empty. |
+| Run failed: row budget exceeded | The source returned more than `Beacon:Migrations:MaxRows` rows. Split the job or raise the budget. |
+| Run failed: table does not exist | The destination table exists in the write target's database, and the name includes its schema if needed. |
+| Run failed: missing primary key columns | In Upsert mode, the source query returns every primary key column of the destination table. |
+| Run failed: permission denied on the destination | The write target's login has the [destination privileges](#destination-privileges) of the job's mode. |
 
-**Diagnosis:**
-1. Check execution history duration trends
-2. Review source query execution plan
-3. Check destination database load
-4. Monitor network latency between databases
+## Related
 
-**Solutions:**
-- Optimize source query (add indexes, reduce complexity)
-- Increase timeout setting
-- Schedule during off-peak hours
-- Split into multiple smaller jobs
-- Use faster migration mode (Insert vs Upsert)
-
-## Best Practices
-
-### Query Design
-
-1. **Use WHERE Clauses**: Filter unnecessary data at source
-2. **Select Only Needed Columns**: Avoid SELECT *
-3. **Test with LIMIT**: Test queries with small datasets first
-4. **Index Source Tables**: Ensure filter columns are indexed
-5. **Use Multi-Step for Complexity**: Break complex logic into steps
-
-### Scheduling
-
-1. **Off-Peak Hours**: Schedule large migrations during low-traffic periods
-2. **Stagger Jobs**: Don't schedule multiple large jobs simultaneously
-3. **Match Frequency to Freshness**: Don't over-schedule if data changes slowly
-4. **Allow Time Windows**: Use buffers between dependent jobs
-
-### Error Prevention
-
-1. **Test Before Production**: Execute manually several times before enabling schedule
-2. **Validate Data Types**: Ensure source and destination schemas match
-3. **Use Transactions**: Rely on atomic operations (built-in)
-4. **Monitor First Runs**: Watch initial scheduled executions closely
-5. **Enable Validation**: Keep "Validate Before Execution" checked
-
-### Monitoring
-
-1. **Check History Regularly**: Review execution history weekly
-2. **Set Up Alerts**: Create notifications for failed migrations (future enhancement)
-3. **Track Performance**: Monitor duration trends over time
-4. **Review Errors**: Don't ignore partial success statuses
-
-### Security
-
-1. **Use Read-Only Users for Sources**: every data source Beacon reads, the source of a migration included, keeps a login that can only read
-2. **Write Grants on Write Targets Only**: only a [migration write target](#migration-write-targets)'s login holds the [destination privileges](#destination-privileges) its jobs' modes need, on the destination tables only
-3. **Avoid Sensitive Data**: Don't migrate passwords, tokens, or PII unless necessary
-4. **Audit Regularly**: Review job configurations and execution history
-
-## Related Documentation
-
-- [Queries](/features/queries/) - Understanding the query execution layer
-- [Data Sources](/features/data-sources/) - Managing database connections
-- [Subscriptions](/features/subscriptions/) - Scheduling and automation concepts
-- [Configuration](/getting-started/configuration/) - Connection string reference
+- [Data Sources](/features/data-sources/): connections and the write-target flag
+- [Queries](/features/queries/): how a source query is read
+- [Approvals](/features/approvals/): the change approval workflow
+- [Configuration](/getting-started/configuration/#data-migration): `Beacon:Migrations`

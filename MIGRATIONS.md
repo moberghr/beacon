@@ -1,99 +1,87 @@
-# Database Migrations in Beacon
+# Database migrations
 
-This document provides instructions on how to create and apply database migrations in the Beacon project.
+How to add and apply EF Core migrations for Beacon's own metadata database. This is a contributor guide; for
+running Beacon in a host, see [Metadata database](https://moberghr.github.io/beacon/integrate/database/).
 
-Beacon ships **dual-provider** migrations: every schema change requires a NEW migration in **both**
-`Beacon.Core.PostgreSql` and `Beacon.Core.SqlServer`. The two providers have different SQL syntax, so their
-migrations live in separate projects and must be kept in lockstep. **Never edit a migration that has already
-been committed — always add a new one.**
+## Rules
 
-## Creating Migrations
+- **Dual provider.** Every schema change needs a new migration in both `src/Beacon.Core.PostgreSql` and
+  `src/Beacon.Core.SqlServer`. Give both the same name.
+- **Append-only.** Never edit a migration that has been committed. Add a new one.
+- Migrations live in `Data/Migrations/` of each provider project, next to `PostgreSqlBeaconContextModelSnapshot.cs`
+  and `SqlServerBeaconContextModelSnapshot.cs`.
+- PostgreSQL-only objects (the pgvector `embedding vector(384)` column and its HNSW index) go in through
+  `migrationBuilder.Sql(...)` and stay out of the EF model and both snapshots.
 
-When you need to make changes to the database schema, follow these steps:
+## Prerequisites
 
-1. Make the necessary changes to the entity models in `Beacon.Core` (entities + fluent configuration in
-   `BeaconContext.OnModelCreating`).
-2. Create a migration for **each** provider:
+- The EF Core CLI: `dotnet tool install --global dotnet-ef` (it is not a local tool in this repo).
+- Run every command from the repository root.
+- `src/Beacon.SampleProject` is the startup project. It must start far enough to build its services, so it needs
+  `ConnectionStrings:BeaconContext` and `Beacon:EncryptionKey` in its configuration (user secrets work).
+
+## Add a migration
+
+1. Change the entities and their fluent configuration in `BeaconContext.OnModelCreating` (`src/Beacon.Core`).
+2. Scaffold the PostgreSQL migration:
+
+   ```bash
+   dotnet ef migrations add AddWidgetTable \
+     --project src/Beacon.Core.PostgreSql \
+     --startup-project src/Beacon.SampleProject \
+     --context PostgreSqlBeaconContext \
+     --output-dir Data/Migrations
+   ```
+
+3. Write the SQL Server migration by hand. The same command with `--project src/Beacon.Core.SqlServer
+   --context SqlServerBeaconContext` fails with `Unable to resolve service for type
+   'DbContextOptions<SqlServerBeaconContext>'`: the sample host registers only `UsePostgreSql()`, and
+   `src/Beacon.Core.SqlServer` has no `IDesignTimeDbContextFactory`. Add three things under
+   `src/Beacon.Core.SqlServer/Data/Migrations/`:
+   - the migration, timestamped one second after the PostgreSQL one (`20261014120000_…` → `20261014120001_…`);
+   - the matching change in `SqlServerBeaconContextModelSnapshot.cs`;
+   - its `.Designer.cs`: copy the updated SQL Server snapshot, change the class to
+     `[Migration("<timestamp>_<Name>")] partial class <Name>` with `BuildTargetModel`, and add
+     `using Microsoft.EntityFrameworkCore.Migrations;`.
+
+Set a `defaultValue:` on every non-nullable `AddColumn`, and prefer `.HasDefaultValue(...)` in the fluent
+configuration so the model, the snapshot and the migration agree.
+
+To undo a migration you have not committed yet:
 
 ```bash
-# PostgreSQL
-dotnet ef migrations add MigrationName --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
-
-# SQL Server
-dotnet ef migrations add MigrationName --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject
+dotnet ef migrations remove --project src/Beacon.Core.PostgreSql --startup-project src/Beacon.SampleProject --context PostgreSqlBeaconContext
 ```
 
-Replace `MigrationName` with a descriptive name for your migration (e.g., `AddUserTable`, `UpdateProductSchema`).
-Use the same name for both providers so the pair is easy to correlate.
+## Apply migrations
 
-## Common Migration Scenarios
-
-### Adding a New Property to an Entity
-
-1. Add the property to the entity class
-2. Create a migration (both providers) as described above
-3. The migration will include an `AddColumn` operation
-
-### Renaming a Property
-
-1. Use the `RenameColumn` method in the migration's `Up` method
-2. Add the reverse operation in the `Down` method
-
-### Custom Data Transformations
-
-For complex data transformations, you can add raw SQL in the migration:
+Beacon does not migrate itself, and the sample host does not migrate Beacon's schema either (it only migrates
+Warp's). A host applies Beacon's migrations by calling, after `builder.Build()`:
 
 ```csharp
-migrationBuilder.Sql(@"
-    UPDATE tablename
-    SET column = value
-    WHERE condition
-");
+Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 ```
 
-## Applying Migrations
+`createSchema: true` creates the `beacon` schema if it is missing, then `Database.Migrate()` runs.
 
-To apply pending migrations to the database (run against the provider your deployment uses):
+From the CLI (PostgreSQL), create the schema first on a fresh database (`CREATE SCHEMA IF NOT EXISTS beacon;`),
+then:
 
 ```bash
-# PostgreSQL
-dotnet ef database update --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
-
-# SQL Server
-dotnet ef database update --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject
+dotnet ef database update --project src/Beacon.Core.PostgreSql --startup-project src/Beacon.SampleProject --context PostgreSqlBeaconContext
 ```
 
-> Note: in normal operation `UseBeacon()` calls `context.Database.Migrate()` at startup, so the host applies
-> pending migrations automatically. The explicit `database update` commands are mainly for tooling and CI.
->
-> A host that registers PostgreSQL with `UsePostgreSql(NpgsqlDataSource)` or `UsePostgreSql(sp => ...)` (for
-> example an Aspire data source on passwordless Entra auth) is migrated through that data source too; Beacon sets
-> `search_path` to `beacon, public` on each connection it opens, because the migrations' raw SQL
-> (`AddMcpEmbedding`'s pgvector column and HNSW index) names `mcp_embeddings` and `vector` unqualified. The
-> database still needs the `vector` extension available (`azure.extensions` must include `VECTOR` on Azure
-> Flexible Server).
+Pass a migration name after `update` to move the database to that migration (reverting later ones). The CLI path
+does not work for SQL Server through the sample host, for the reason above; apply SQL Server migrations through a
+host that registers `UseSqlServer()` and calls `UseBeacon`.
 
-## Reverting Migrations
+The PostgreSQL migration `AddMcpEmbedding` runs `CREATE EXTENSION IF NOT EXISTS vector`, so the migrating login
+must be able to create pgvector or it must already be installed (on Azure Flexible Server, allow `VECTOR` in
+`azure.extensions`). Beacon puts `beacon, public` on the search path of its connections, including a host-owned
+`NpgsqlDataSource`, so the migration's unqualified `mcp_embeddings` and `vector` resolve.
 
-To revert to a specific migration:
+## List migrations
 
 ```bash
-dotnet ef database update MigrationName --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
-```
-
-To revert the most recent migration, update to the previous one:
-
-```bash
-dotnet ef database update PreviousMigrationName --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
-```
-
-(Use the matching `--project Beacon.Core.SqlServer` invocation for SQL Server.)
-
-## Migration History
-
-To list all migrations and their status:
-
-```bash
-dotnet ef migrations list --project Beacon.Core.PostgreSql --startup-project Beacon.SampleProject
-dotnet ef migrations list --project Beacon.Core.SqlServer --startup-project Beacon.SampleProject
+dotnet ef migrations list --project src/Beacon.Core.PostgreSql --startup-project src/Beacon.SampleProject --context PostgreSqlBeaconContext
 ```

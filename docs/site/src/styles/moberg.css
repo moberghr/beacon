@@ -101,6 +101,10 @@ h1#_top {
 
 /* ── Landing (splash): suppress the auto page-title H1; the hero carries it ── */
 body:has(main.bx) .sl-container > h1:first-child { display: none; }
+body:has(main.bx) .content-panel:has(> .sl-container > h1#_top) { display: none; }
+body:has(main.bx) .content-panel { padding: 0; border-top: none; }
+body:has(main.bx) .content-panel > .sl-container { max-width: none; margin: 0; }
+body:has(main.bx) .sl-markdown-content { margin: 0; }
 /* Let the custom landing footer span full width, flush to the page edges. */
 body:has(main.bx) .sl-container { padding-bottom: 0; }
 
@@ -118,3 +122,100 @@ body:has(main.bx) .sl-container { padding-bottom: 0; }
 }
 .moberg-doc-footer a { color: var(--sl-color-accent-high); }
 .moberg-doc-footer .sep { opacity: 0.4; }
+
+/* ── Tables: Moberg dark header, 12px frame ────────────────────────────── */
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 0.875rem;
+}
+.sl-markdown-content :is(th, td) {
+  border: none;
+  border-bottom: 1px solid var(--sl-color-hairline);
+  padding: 0.6rem 0.9rem;
+  vertical-align: top;
+}
+.sl-markdown-content thead th {
+  background: #121212;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+:root[data-theme='dark'] .sl-markdown-content thead th {
+  background: #262d38;
+  color: #f0f2f5;
+}
+.sl-markdown-content tbody tr:last-child td { border-bottom: none; }
+.sl-markdown-content tbody tr:hover td { background: var(--sl-color-gray-7, rgba(0, 0, 0, 0.02)); }
+@media (max-width: 50rem) {
+  .sl-markdown-content table { display: block; overflow-x: auto; }
+}
+
+/* ── Headings: numbered-section feel for H2 ────────────────────────────── */
+.sl-markdown-content h2:not(:where(.not-content *)) {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+/* ── Asides: calmer, brand-tinted ──────────────────────────────────────── */
+.starlight-aside {
+  border-radius: 10px;
+}
+
+/* ── Sidebar: uppercase group labels ───────────────────────────────────── */
+.sidebar-content .group-label .large {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--sl-color-gray-3);
+}
+
+/* ── Copy-for-AI button on page titles ─────────────────────────────────── */
+.bx-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.bx-page-actions button,
+.bx-page-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--sl-color-hairline-shade);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--sl-color-gray-2);
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s;
+}
+.bx-page-actions button:hover,
+.bx-page-actions a:hover {
+  color: var(--sl-color-accent);
+  border-color: var(--sl-color-accent);
+}
+
+/* Landing: the custom footer replaces Starlight's doc footer. */
+body:has(main.bx) footer.sl-flex,
+body:has(main.bx) .moberg-doc-footer { display: none; }
+
+/* Code: no ligatures — `=>` and `--` must look like what you type. */
+code, pre, kbd, .expressive-code, .expressive-code * { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+
+/* Dark theme: readable current-page item in the sidebar. */
+:root[data-theme='dark'] .sidebar-content a[aria-current='page'],
+:root[data-theme='dark'] .sidebar-content a[aria-current='page']:hover {
+  color: #13181e;
+}

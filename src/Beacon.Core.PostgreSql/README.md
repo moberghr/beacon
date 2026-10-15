@@ -1,78 +1,65 @@
-# Beacon.Core.PostgreSql
+# Moberg.Beacon.Core.PostgreSql
 
-PostgreSQL database provider for Beacon.
+Stores Beacon's own metadata in PostgreSQL. This package holds the PostgreSQL EF Core migrations and the
+`UsePostgreSql` registration. It does not let Beacon query PostgreSQL as a data source; that is
+`Moberg.Beacon.Connector.PostgreSql`.
 
-## Overview
+## Requirements
 
-This package provides Entity Framework Core configuration and migrations for using PostgreSQL as the Beacon metadata database. It includes snake_case naming conventions and full support for PostgreSQL-specific features.
+- The `pgvector` extension. A Beacon migration runs `CREATE EXTENSION IF NOT EXISTS vector`, so either the
+  migrating login can create it or it is already installed. On Azure Database for PostgreSQL Flexible Server,
+  allow `VECTOR` in `azure.extensions`.
+- Tables live in the fixed `beacon` schema, with snake_case names.
 
-## Installation
+## Install
 
 ```bash
-dotnet add package Beacon.Core.PostgreSql
-dotnet add package Beacon.UI
+dotnet add package Moberg.Beacon.Core.PostgreSql
 ```
 
-## Quick Start
+## Register
 
-### 1. Configure in Program.cs
+`UsePostgreSql` ends the `BeaconBuilder` chain, so call connectors, `ExposeDbContext` and `ExposeDocs` before it.
 
 ```csharp
 using Beacon.Core;
-using Beacon.UI;
+using Beacon.Core.PostgreSql;
 
-// Single method call for all Beacon configuration
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-    options.AddBeaconScheduler<YourScheduler>();
-    options.BaseUrl = "https://your-domain.com";
-});
+builder.Services
+    .AddBeaconServices(builder.Configuration, options =>
+    {
+        options.AddBeaconScheduler<MyBeaconScheduler>();
+    })
+    .UsePostgreSql(); // reads ConnectionStrings:BeaconContext
 
 var app = builder.Build();
 
-app.UseStaticFiles(); // Required for Beacon UI assets
-
-// Serve the React SPA (Vite + TypeScript + Tailwind) at the root URL "/".
-// Authentication is cookie-based with a pluggable IBeaconAuthenticationProvider
-// (login form, OIDC/SSO, JWT for MCP, SHA256-hashed API keys).
-app.UseBeaconUI();
-app.MapBeaconApi();
+// Beacon does not migrate itself: create the schema if missing, then apply pending migrations.
+Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 ```
 
-### 2. Add Connection String
+## Overloads
 
-In `appsettings.json`:
+| Overload | Search path |
+|---|---|
+| `UsePostgreSql()` | Connection string from `ConnectionStrings:BeaconContext`. Beacon builds its own `NpgsqlDataSource` with `SearchPath = beacon,public`. |
+| `UsePostgreSql(string connectionString, string schema = "beacon")` | Same, with the connection string passed in. |
+| `UsePostgreSql(NpgsqlDataSource dataSource, string schema = "beacon")` | Your data source (for example one using Entra tokens). Beacon runs `SET search_path TO "beacon", public` on each connection it opens. |
+| `UsePostgreSql(Func<IServiceProvider, NpgsqlDataSource> factory, string schema = "beacon")` | Resolved once from the root provider, e.g. `sp => sp.GetRequiredService<NpgsqlDataSource>()` for an Aspire data source. Same per-connection search path. |
 
-```json
-{
-  "ConnectionStrings": {
-    "BeaconContext": "Host=localhost;Database=beacon;Username=postgres;Password=yourpassword"
-  }
-}
-```
+`public` follows `beacon` so a pgvector already installed in `public` resolves. A host-owned data source must keep
+connection reset on (no `No Reset On Close`) and must not use `Multiplexing`. It needs no `UseVector()`.
 
-## Features
-
-- PostgreSQL 12+ support
-- Entity Framework Core integration
-- Automatic schema creation and migrations
-- Snake_case naming conventions
-- Multi-tenant support via schema isolation
-
-## Database Setup
-
-```sql
-CREATE DATABASE beacon;
-CREATE SCHEMA beacon;
-GRANT ALL ON SCHEMA beacon TO postgres;
-```
+The `schema` argument and `Beacon:Schema` accept only `beacon`; any other value throws at registration.
 
 ## Documentation
 
-- [Full Documentation](https://moberghr.github.io/beacon)
-- [Installation Guide](https://moberghr.github.io/beacon)
+- [Metadata database](https://moberghr.github.io/beacon/integrate/database/)
+- [Host setup](https://moberghr.github.io/beacon/integrate/host-setup/)
+- [Packages](https://moberghr.github.io/beacon/integrate/packages/) and the [integration overview](https://moberghr.github.io/beacon/integrate/)
+- For coding agents: [llms-integrate.txt](https://moberghr.github.io/beacon/llms-integrate.txt)
 
 ## License
 
-GNU AGPL v3.0 or Commercial license - see [LICENSE](https://github.com/moberghr/beacon/blob/main/LICENSE)
+Dual-licensed under AGPL-3.0 or a commercial license. See
+[LICENSING.md](https://github.com/moberghr/beacon/blob/main/LICENSING.md).
