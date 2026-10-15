@@ -226,6 +226,54 @@ public class MigrationServiceWriteTargetTests
             Times.Once);
     }
 
+    // The job form sends plain SQL with the source in DataSourceId: the run reads it from that source, the data source its
+    // access and write policy were decided on.
+    [Test]
+    public async Task APlainSqlJob_RunsItsSqlOnTheJobsSource()
+    {
+        Job(ReadSource, WriteTarget, "SELECT id FROM accounts");
+        QueryData? read = null;
+        _preview
+            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback<QueryData, List<ParameterValue>?, int, CancellationToken>((x, _, _, _) => read = x)
+            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = NoRows() });
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        read!.Steps.Should().ContainSingle().Which.Should().Match<QueryStepData>(
+            x => x.DataSourceId == ReadSource && x.SqlValue == "SELECT id FROM accounts");
+    }
+
+    [Test]
+    public async Task AJsonStepsJob_RunsEachStepOnItsOwnDataSource()
+    {
+        Job(ReadSource, WriteTarget, StepsOn(ReadSource, OrdinarySource));
+        QueryData? read = null;
+        _preview
+            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback<QueryData, List<ParameterValue>?, int, CancellationToken>((x, _, _, _) => read = x)
+            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = NoRows() });
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        read!.Steps.Select(x => x.DataSourceId).Should().Equal(ReadSource, OrdinarySource);
+    }
+
+    // A plain-SQL job whose source is a write target is refused like a step that reads one: the run reads nothing.
+    [Test]
+    public async Task APlainSqlJobReadingAWriteTarget_ReadsNothing_AndConnectsToNothing()
+    {
+        Job(WriteTarget, WriteTarget, "SELECT id FROM accounts");
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationWriteTargets.ReadRefusedMessage);
+        RefusedAndRecorded(MigrationWriteTargets.ReadRefusedMessage);
+    }
+
     // A source read that ran out of time has no rows. Written in Truncate mode they would empty the destination and the
     // run would read as completed; instead the run fails before the destination is opened, and its history says so.
     [Test]

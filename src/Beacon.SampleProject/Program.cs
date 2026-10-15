@@ -124,7 +124,7 @@ builder.Services.AddBeaconHostInfrastructure<SampleClaimsTransformation>();
 builder.Services.AddBeaconServices(builder.Configuration, options =>
     {
         options.AddBeaconScheduler<BeaconScheduler>();
-        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"] ?? "https://localhost:7187"; // For notification links
+        options.BaseUrl = builder.Configuration["Beacon:BaseUrl"] ?? "https://localhost:7187/beacon"; // For notification links
         options.UseAI = true;
 
         options.AddEmailAdapter<BeaconMailSender>();
@@ -136,7 +136,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
         options.Authentication.EnableLoginForm = true;
         options.AddAuthenticationProvider<DatabaseAuthenticationProvider>();
         // First-run setup asks for a setup token: Beacon:UserManagement:SetupToken when configured, otherwise the
-        // token Beacon writes to this host's log at startup while no user exists yet.
+        // token Beacon prints once to the process console (stderr, not the logger) at startup while no user exists yet.
         options.UserManagement = new UserManagementOptions
         {
             // For demo purposes, allow user registration. In production, you would likely disable this.
@@ -158,7 +158,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .UsePostgreSql()
     ;
 
-// Step 2: Cookie authentication (React shell at root)
+// Step 2: Cookie authentication (React shell at /beacon)
 builder.Services.AddBeaconCookieAuthentication(BeaconUiEndpointRouteBuilderExtensions.BasePath);
 
 // Step 2a: Data Protection (protects the session cookie). Beacon's default: the key ring in the Beacon database under

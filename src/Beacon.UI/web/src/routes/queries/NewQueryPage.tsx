@@ -346,7 +346,7 @@ export default function NewQueryPage() {
         suffix="query."
         sub={
           <>
-            Chain SQL steps across data sources, pipe results between steps using{' '}
+            Chain SQL steps across data sources, pipe earlier step results into the final query with{' '}
             <span className="mono">@result1</span>, and parameterize with{' '}
             <span className="mono">{`{name}`}</span>.
           </>
@@ -483,8 +483,7 @@ export default function NewQueryPage() {
                               <>First step has no upstream results. Use <span className="mono tok-prm">{`{param_name}`}</span> for parameters.</>
                             ) : (
                               <>
-                                Reference earlier steps as <span className="mono tok-ref">@result{idx}</span>
-                                {idx > 1 && <> … <span className="mono tok-ref">@result1</span></>}.
+                                Earlier steps' results (<span className="mono tok-ref">@result1</span>…) can be referenced only in the final query, not in step SQL.
                               </>
                             )}
                           </div>
@@ -645,7 +644,7 @@ export default function NewQueryPage() {
             <div className="text-sm">
               <div className="font-medium">Tip · pipe results</div>
               <div className="text-xs text-text-muted mt-0.5">
-                Reference a previous step using <span className="mono">@result1</span> in your{' '}
+                Reference a previous step using <span className="mono">@result1</span> in the final query's{' '}
                 <span className="mono">FROM</span> clause to chain across sources.
               </div>
             </div>

@@ -3,6 +3,7 @@ using Beacon.Core;
 using Beacon.Core.Services;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
+using Beacon.Api.Endpoints;
 
 namespace Beacon.Api.Authentication;
 
@@ -60,6 +61,13 @@ public sealed class FirstRunSetupMiddleware(
         // to /setup would corrupt them for remote MCP clients probing the server. ONLY the exact
         // mapped paths (shared constants, R6-2) are excluded, never all of /.well-known.
         if (McpDiscoveryPaths.AnonymousDiscoveryPaths.Contains(path, StringComparer.Ordinal))
+        {
+            return true;
+        }
+
+        // Load-balancer probes must reach the health check on a new deployment before an admin exists.
+        // Only the exact route is excluded, never a prefix of it.
+        if (string.Equals(path, HealthEndpoints.RequestPath, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

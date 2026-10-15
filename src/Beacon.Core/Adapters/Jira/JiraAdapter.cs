@@ -9,6 +9,9 @@ internal class JiraAdapter(
 {
     public NotificationType NotificationType => NotificationType.Jira;
 
+    /// <summary>The summary of the issue a subscription's deliveries go to; later deliveries find the issue by it.</summary>
+    internal static string IssueSummary(string subscriptionName) => $"BEACON: {subscriptionName}";
+
     public async Task SendNotificationAsync(
         RecipientQueryResult recipientQueryResult,
         int? lastNotificationResultCount,
@@ -28,7 +31,7 @@ internal class JiraAdapter(
         var issues = await jiraApiAdapter.SearchTickets(credentials, jqlQuery, 50, cancellationToken);
 
         var existingIssue = issues
-            .Where(x => x.Summary == recipientQueryResult.QueryResult.SubscriptionName)
+            .Where(x => x.Summary == IssueSummary(recipientQueryResult.QueryResult.SubscriptionName))
             .FirstOrDefault();
 
         if (recipientQueryResult.QueryResult.TotalRecords == 0)
@@ -57,7 +60,7 @@ internal class JiraAdapter(
         var result = await jiraApiAdapter.CreateWorkItem(
             credentials: credentials,
             sessionId: recipientQueryResult.QueryResult.SubscriptionName,
-            title: $"BEACON: {recipientQueryResult.QueryResult.SubscriptionName}",
+            title: IssueSummary(recipientQueryResult.QueryResult.SubscriptionName),
             description: description,
             issueType: "Task",
             label: "Beacon",

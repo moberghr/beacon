@@ -219,7 +219,7 @@ public static class McpDiscoveryEndpoints
         if (options.ScopesSupported.Count == 0 && (options.AuthorizationServers.Count > 0 || options.DeriveAuthorizationServerFromJwtIssuer))
         {
             logger.LogWarning(
-                "{Section} publishes an external authorization server but no ScopesSupported — clients will request Beacon's internal scope names (Execute, Admin), which the external identity provider does not know.",
+                "{Section} publishes an external authorization server but no ScopesSupported — clients will request Beacon's internal scope name (Execute), which the external identity provider does not know.",
                 McpProtectedResourceOptions.SectionName);
         }
     }

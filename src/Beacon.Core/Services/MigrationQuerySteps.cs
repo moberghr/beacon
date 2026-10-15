@@ -6,12 +6,12 @@ namespace Beacon.Core.Services;
 
 /// <summary>
 /// The steps a migration job's <c>QueryText</c> runs, read one way for running the job and for deciding who may create or
-/// run it: a JSON array of steps, each naming its own data source; anything else is one step of plain SQL that names no
-/// data source.
+/// run it: a JSON array of steps, each naming its own data source; anything else (what the job form sends) is one step of
+/// plain SQL that runs on the job's declared source.
 /// </summary>
 internal static class MigrationQuerySteps
 {
-    public static List<QueryStepData> Parse(string? queryText)
+    public static List<QueryStepData> Parse(int declaredSourceId, string? queryText)
     {
         if (string.IsNullOrWhiteSpace(queryText))
         {
@@ -40,7 +40,7 @@ internal static class MigrationQuerySteps
         }
         catch
         {
-            // Fallback: treat as plain SQL (old format)
+            // Plain SQL: one step on the job's declared source.
             return
             [
                 new QueryStepData
@@ -50,8 +50,8 @@ internal static class MigrationQuerySteps
                     Name = "Migration Query",
                     Description = "Data extraction query",
                     SqlValue = queryText,
-                    DataSourceId = 0, // Will need to be resolved
-                    DataSourceName = "Unknown",
+                    DataSourceId = declaredSourceId,
+                    DataSourceName = "",
                     DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                     Parameters = []
                 }
@@ -61,11 +61,12 @@ internal static class MigrationQuerySteps
 
     /// <summary>
     /// Every data source a job reads: the source it declares (<paramref name="declaredSourceId"/>) and the data source of
-    /// each step its <paramref name="queryText"/> runs. A step naming no data source reads none.
+    /// each step its <paramref name="queryText"/> runs (plain SQL runs on the declared source). A JSON step naming no data
+    /// source reads none.
     /// </summary>
     public static IReadOnlyList<int> SourceIds(int declaredSourceId, string? queryText)
     {
-        return Parse(queryText)
+        return Parse(declaredSourceId, queryText)
             .Select(x => x.DataSourceId)
             .Where(x => x > 0)
             .Prepend(declaredSourceId)

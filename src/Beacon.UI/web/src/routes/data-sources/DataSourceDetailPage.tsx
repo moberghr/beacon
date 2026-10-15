@@ -210,7 +210,7 @@ export default function DataSourceDetailPage() {
         open={confirmDelete}
         title="Delete data source"
         message={
-          <>Delete data source <strong>{entry.name}</strong>? This removes related queries and migrations. This cannot be undone.</>
+          <>Delete data source <strong>{entry.name}</strong>? The data source is archived; deletion is refused while a live query or migration job still uses it.</>
         }
         confirmLabel="Delete"
         destructive
