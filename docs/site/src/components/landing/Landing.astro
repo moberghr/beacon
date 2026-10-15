@@ -3,7 +3,7 @@
 // sections, dark footer), light-first. The hero trace and the gate diagram show how every AI
 // query is checked, bounded, masked and audited.
 import { Image } from 'astro:assets';
-import beaconLogo from '../../assets/beacon-logo.svg';
+import SiteFooter from '../SiteFooter.astro';
 import homeDark from '../../assets/screenshots/home-dark.png';
 import homeLight from '../../assets/screenshots/home-light.png';
 import controlTower from '../../assets/screenshots/control-tower-dark.png';
@@ -32,22 +32,22 @@ const TRACE = [
 // ── 01 · What Beacon does ───────────────────────────────────────────────
 const JOBS = [
 	{
-		num: '01', name: 'Watch', tag: 'scheduled SQL',
+		num: '01', name: 'Watch', tag: 'scheduled SQL', link: '/explore/monitoring/', more: 'Explore monitoring',
 		desc: 'Scheduled, multi-step SQL checks detect broken business rules, data-quality issues and unhealthy databases. Steps can span engines and are joined in memory.',
 		code: "SELECT count(*) FROM orders\nWHERE status = 'pending'\n  AND created < now() - '1 day';",
 	},
 	{
-		num: '02', name: 'Alert', tag: 'multi-channel',
+		num: '02', name: 'Alert', tag: 'multi-channel', link: '/explore/alerting/', more: 'Explore alerting',
 		desc: 'Results are delivered by email with CSV or Excel attachments, Microsoft Teams, Slack, Jira or webhook. Destinations are restricted by policy, and tasks are opened and resolved automatically.',
 		code: 'rows > 0  →  Teams + Email(csv)\n          →  open task\nrows = 0  →  resolve task',
 	},
 	{
-		num: '03', name: 'Serve AI', tag: 'governed MCP',
+		num: '03', name: 'Serve AI', tag: 'governed MCP', link: '/explore/ai-and-mcp/', more: 'Explore AI and MCP',
 		desc: 'Claude, Cursor, VS Code and other MCP clients ask questions in natural language. Beacon grounds and validates the SQL, runs it read-only, masks sensitive values and records the call.',
 		code: 'ask("Which orders have been\n     pending for over a day?")',
 	},
 	{
-		num: '04', name: 'Move', tag: 'audited ETL',
+		num: '04', name: 'Move', tag: 'audited ETL', link: '/explore/data-movement/', more: 'Explore data movement',
 		desc: 'Insert, Upsert and Truncate-Load jobs move data between engines. The feature is disabled by default, writes only to targets an Admin has designated, and can require a second approval.',
 		code: 'orders (PostgreSQL)\n  → warehouse.orders (Upsert)',
 	},
@@ -218,13 +218,14 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 			</p>
 			<div class="grid4">
 				{JOBS.map((j) => (
-					<div class="card">
+					<a class="card" href={href(j.link)}>
 						<span class="cardNum">{j.num}</span>
 						<h3 class="cardName">{j.name}</h3>
 						<span class="badge">{j.tag}</span>
 						<p class="cardDesc">{j.desc}</p>
 						<div class="cardCode"><pre>{j.code}</pre></div>
-					</div>
+						<span class="cardMore">{j.more} →</span>
+					</a>
 				))}
 			</div>
 		</div>
@@ -251,7 +252,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 			<p class="gateFoot">
 				Database-level read-only enforcement is available on PostgreSQL and MySQL. On other engines, Beacon
 				relies on the gate and a read-only login, and marks the data source accordingly.
-				&nbsp;<a href={href('/features/security-model/')}>Read the security model →</a>
+				&nbsp;<a href={href('/explore/governance/')}>Explore security and governance →</a>
 			</p>
 			<div class="grid3 govGrid">
 				{GOVERNANCE.map((f) => (
@@ -378,40 +379,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</div>
 	</section>
 
-	<!-- ── Footer ──────────────────────────────────────────────────────── -->
-	<footer class="siteFooter">
-		<div class="wrap footerInner">
-			<div class="footerBrand">
-				<img src={beaconLogo.src} alt="Beacon" height="26" />
-				<p>Database monitoring, alerting and data movement for .NET, with a governed MCP server for AI assistants.</p>
-				<p class="tagline">A Moberg product · <em>Serious engineering, infinite possibilities.</em></p>
-			</div>
-			<div class="footerCols">
-				<div>
-					<h4>Start</h4>
-					<a href={href('/getting-started/')}>Overview</a>
-					<a href={href('/getting-started/quick-start/')}>Quick start</a>
-					<a href={href('/getting-started/concepts/')}>Core concepts</a>
-					<a href={href('/getting-started/configuration/')}>Configuration</a>
-				</div>
-				<div>
-					<h4>Integrate</h4>
-					<a href={href('/integrate/')}>Integration guide</a>
-					<a href={href('/integrate/mcp/')}>Connect AI clients</a>
-					<a href={href('/integrate/production/')}>Production checklist</a>
-					<a href={href('/llms.txt')}>llms.txt</a>
-				</div>
-				<div>
-					<h4>Project</h4>
-					<a href={repo}>GitHub</a>
-					<a href={`${repo}/issues`}>Issues</a>
-					<a href={`${repo}/discussions`}>Discussions</a>
-					<a href={`${repo}/blob/main/LICENSING.md`}>Licensing</a>
-				</div>
-			</div>
-		</div>
-		<div class="wrap footerBottom">© 2026 Moberg d.o.o. · Dual-licensed AGPL-3.0 or commercial</div>
-	</footer>
+	<SiteFooter />
 </main>
 
 <script>
@@ -523,8 +491,9 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 
 	/* 01 cards */
 	.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-	.card { background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 24px; display: flex; flex-direction: column; transition: border-color .15s; }
-	.card:hover { border-color: var(--bx-border-bright); }
+	.card { background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 24px; display: flex; flex-direction: column; text-decoration: none; transition: border-color .15s, transform .15s; }
+	.card:hover { border-color: var(--bx-accent); transform: translateY(-1px); }
+	.cardMore { margin-top: 16px; font-size: 13px; font-weight: 600; color: var(--bx-accent); }
 	.cardNum { font-family: var(--sl-font-mono); font-size: 11px; color: var(--bx-text-dim); margin-bottom: 12px; }
 	.cardName { font-size: 21px; font-weight: 700; color: var(--bx-text); margin: 0 0 8px; }
 	.badge { align-self: flex-start; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; background: var(--bx-accent-dim); color: var(--bx-accent); margin-bottom: 14px; }
@@ -598,19 +567,6 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	.calloutBtnSecondary { color: #fff; border-color: rgba(255, 255, 255, 0.45); }
 	.calloutBtnSecondary:hover { border-color: #fff; }
 
-	/* Footer */
-	.siteFooter { background: #0e1218; color: rgba(255, 255, 255, 0.62); }
-	.footerInner { display: grid; grid-template-columns: 1.3fr 1.7fr; gap: 40px; padding-top: 52px; padding-bottom: 36px; }
-	.footerBrand img { height: 30px; width: auto; margin-bottom: 16px; filter: brightness(0) invert(1); opacity: 0.92; }
-	.footerBrand p { font-size: 14px; line-height: 1.6; margin: 0 0 10px; max-width: 420px; }
-	.footerBrand .tagline { font-size: 12.5px; color: rgba(255, 255, 255, 0.5); }
-	.footerBrand .tagline em { color: rgba(255, 255, 255, 0.72); }
-	.footerCols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
-	.footerCols h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: rgba(255, 255, 255, 0.45); margin: 0 0 14px; }
-	.footerCols a { display: block; font-size: 14px; color: rgba(255, 255, 255, 0.68); text-decoration: none; margin: 0 0 9px; }
-	.footerCols a:hover { color: #fff; }
-	.footerBottom { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 20px; padding-bottom: 28px; font-size: 12px; color: rgba(255, 255, 255, 0.4); }
-
 	/* Responsive */
 	@media (max-width: 1100px) {
 		.gate { grid-template-columns: repeat(4, 1fr); }
@@ -625,7 +581,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	}
 	@media (max-width: 900px) {
 		.grid3 { grid-template-columns: repeat(2, 1fr); }
-		.paths, .footerInner { grid-template-columns: minmax(0, 1fr); }
+		.paths { grid-template-columns: minmax(0, 1fr); }
 	}
 	@media (max-width: 640px) {
 		.hero { padding: 56px 0 52px; }
@@ -640,7 +596,6 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		.traceKey { grid-column: 2; }
 		.traceVal { grid-column: 2; font-size: 11.5px; }
 		.callout { padding: 36px 24px; }
-		.footerCols { grid-template-columns: 1fr 1fr; }
 		.llmsLinks a { flex-direction: column; gap: 2px; }
 	}
 </style>

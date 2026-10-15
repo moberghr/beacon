@@ -16,7 +16,7 @@ export async function orderedDocs(sectionLabels?: string[]): Promise<Doc[]> {
 	const seen = new Set<string>();
 	const result: Doc[] = [];
 	for (const section of SECTIONS) {
-		if (sectionLabels && !sectionLabels.includes(section.label)) {
+		if (section.agents === false || (sectionLabels && !sectionLabels.includes(section.label))) {
 			continue;
 		}
 		for (const item of section.items) {
@@ -48,7 +48,7 @@ export async function llmsIndex(): Promise<string> {
 		`- [Full documentation (one file)](${SITE_URL}/llms-full.txt): every page of these docs`,
 		'',
 	];
-	for (const section of SECTIONS) {
+	for (const section of SECTIONS.filter((x) => x.agents !== false)) {
 		lines.push(`## ${section.label}`, '', section.summary, '');
 		for (const item of section.items) {
 			const entry = byId.get(item.slug);

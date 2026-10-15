@@ -1,0 +1,489 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+
+const CONFIG = `{
+  "Beacon": {
+    "Migrations": {
+      "Enabled": true,
+      "MaxRows": 100000
+    }
+  }
+}`;
+
+const SOURCE_SQL = `SELECT c.customer_id,
+       c.country,
+       SUM(o.total) AS lifetime_value
+FROM shop.customers c
+JOIN shop.orders o ON o.customer_id = c.customer_id
+WHERE o.status = 'paid'
+GROUP BY c.customer_id, c.country;`;
+
+const GRANT = `-- Only the write target's login holds write grants.
+GRANT INSERT, UPDATE ON dbo.customer_summary TO beacon_migrator;`;
+
+type Row = { id: string; country: string; value: string; mark?: 'new' | 'changed' | 'failed' | 'kept' };
+const BEFORE: Row[] = [
+	{ id: '1001', country: 'HR', value: '1,240.00' },
+	{ id: '1002', country: 'SI', value: '380.50' },
+	{ id: '1003', country: 'AT', value: '2,915.10' },
+];
+const SOURCE: Row[] = [
+	{ id: '1002', country: 'SI', value: '412.00', mark: 'changed' },
+	{ id: '1004', country: 'HR', value: '96.20', mark: 'new' },
+];
+const MODES = [
+	{
+		label: 'Insert only',
+		what: 'Inserts every source row. A row that violates a key or constraint fails the write.',
+		needs: 'Needs INSERT on the destination table.',
+		status: { tone: 'warn', text: 'Partial (MySQL)' },
+		after: [
+			{ id: '1001', country: 'HR', value: '1,240.00' },
+			{ id: '1002', country: 'SI', value: '380.50', mark: 'failed' },
+			{ id: '1003', country: 'AT', value: '2,915.10' },
+			{ id: '1004', country: 'HR', value: '96.20', mark: 'new' },
+		] as Row[],
+		foot: 'Row 1002 already exists. On PostgreSQL and SQL Server the write fails and the run is Failed. On MySQL Beacon falls back to inserting row by row: 1004 is written, 1002 is counted and listed in the run\'s error, and the run ends as Partial.',
+	},
+	{
+		label: 'Insert or update',
+		what: 'Stages the rows in a temporary table, then inserts new rows and updates existing ones by primary key.',
+		needs: 'A primary key on the destination, and every key column in each source row. Without a primary key the job inserts, as in Insert only.',
+		status: { tone: 'ok', text: 'Completed' },
+		after: [
+			{ id: '1001', country: 'HR', value: '1,240.00', mark: 'kept' },
+			{ id: '1002', country: 'SI', value: '412.00', mark: 'changed' },
+			{ id: '1003', country: 'AT', value: '2,915.10', mark: 'kept' },
+			{ id: '1004', country: 'HR', value: '96.20', mark: 'new' },
+		] as Row[],
+		foot: 'Row 1002 is updated, 1004 is inserted, and rows the source did not return stay as they were.',
+	},
+	{
+		label: 'Truncate & insert',
+		what: 'Empties the destination table, then inserts every source row.',
+		needs: 'Deletes every row in the destination on each run. Try it by hand against a test table first.',
+		status: { tone: 'ok', text: 'Completed' },
+		after: [
+			{ id: '1002', country: 'SI', value: '412.00', mark: 'new' },
+			{ id: '1004', country: 'HR', value: '96.20', mark: 'new' },
+		] as Row[],
+		foot: 'The table holds exactly what the source returned this run. A failed read never empties it: the destination is not opened.',
+	},
+];
+
+const RUNS = [
+	{ started: '2026-10-14 02:00', status: 'Failed', tone: 'crit', rows: '0', failed: '0', rate: '0' },
+	{ started: '2026-10-15 02:00', status: 'Completed', tone: 'ok', rows: '48,210', failed: '0', rate: '7,533' },
+];
+---
+
+<ExploreLayout
+	area="data-movement"
+	eyebrow="Explore · Data movement"
+	title="Copy data between engines, <em>reviewed</em> before it writes."
+	lede="A migration job reads rows through the same read-only gate as every query, then writes them into one table of a database an Admin marked as a write target. It is the only feature that writes to your databases, so it is off until the host turns it on."
+	facts={[
+		{ value: '3', label: 'write modes' },
+		{ value: '100,000', label: 'rows per run, default budget' },
+		{ value: 'Off', label: 'until the host enables it' },
+	]}
+	deeper={[
+		{ title: 'Data migration', href: '/features/data-migration/', desc: 'Jobs, modes, write targets, run history and the REST API.' },
+		{ title: 'Data sources', href: '/features/data-sources/', desc: 'Read-only logins and the migration write-target flag.' },
+		{ title: 'Approvals', href: '/features/approvals/', desc: 'Four-eyes review of job definitions before any run.' },
+	]}
+>
+	<figure slot="hero" class="move" aria-label="Rows travel from a source database with a read-only login, through Beacon's read-only gate, into a migration write target.">
+		<svg viewBox="0 0 520 300" aria-hidden="true">
+			<g class="cyl src">
+				<path d="M40 70 v150 a60 18 0 0 0 120 0 v-150" class="cylBody" />
+				<ellipse cx="100" cy="70" rx="60" ry="18" class="cylTop" />
+				<path d="M40 120 a60 18 0 0 0 120 0" class="cylLine" />
+				<path d="M40 170 a60 18 0 0 0 120 0" class="cylLine" />
+			</g>
+			<g class="cyl dst">
+				<path d="M360 70 v150 a60 18 0 0 0 120 0 v-150" class="cylBody" />
+				<ellipse cx="420" cy="70" rx="60" ry="18" class="cylTop" />
+				<path d="M360 120 a60 18 0 0 0 120 0" class="cylLine" />
+				<path d="M360 170 a60 18 0 0 0 120 0" class="cylLine" />
+				<rect x="372" y="196" width="96" height="10" rx="3" class="fill f1" />
+				<rect x="372" y="182" width="96" height="10" rx="3" class="fill f2" />
+				<rect x="372" y="168" width="96" height="10" rx="3" class="fill f3" />
+			</g>
+			<line x1="168" y1="150" x2="352" y2="150" class="pipe" />
+			<g class="rows">
+				{[0, 1, 2, 3].map((i) => (
+					<g class="row" style={`--i:${i}; --x:${i * 37}px`}>
+						<rect x="176" y="142" width="28" height="16" rx="4" />
+						<line x1="185" y1="142" x2="185" y2="158" />
+						<line x1="194" y1="142" x2="194" y2="158" />
+					</g>
+				))}
+			</g>
+			<g class="gateMark">
+				<rect x="198" y="118" width="30" height="64" rx="8" />
+				<path d="M213 136 l7 3.5 v6 c0 4.5 -3 8 -7 9 c-4 -1 -7 -4.5 -7 -9 v-6 z" />
+			</g>
+			<text x="100" y="268" class="cap">Shop · PostgreSQL</text>
+			<text x="100" y="285" class="sub">read-only login</text>
+			<text x="420" y="268" class="cap">Reporting · SQL Server</text>
+			<text x="420" y="285" class="sub">migration write target</text>
+			<text x="213" y="106" class="tag">gate</text>
+			<text x="310" y="132" class="tag">Insert or update</text>
+			<text x="213" y="200" class="tag mono">≤ MaxRows</text>
+		</svg>
+	</figure>
+
+	<Section num="01" label="Three gates before a write" title="Three decisions stand between a job and its first write." lede="Data migration is off by default. Before a job writes a single row, the host enables it, an Admin marks the destination, and, with the approval workflow enabled, a second person approves the job. The job's operator still needs project access to both ends.">
+		<ol class="gates">
+			<li class="gateCard">
+				<div class="gateTop"><span class="gateNum">1</span><span class="badge neutral">Host</span></div>
+				<h3>Enable data migration</h3>
+				<p>The host sets <code>Beacon:Migrations:Enabled</code> to <code>true</code>. It is a deployment lock: while it is <code>false</code>, nobody can create or run a job, an Admin included.</p>
+				<ul class="otherwise">
+					<li>Routes under <code>/beacon/api/migrations</code> are not mapped (404).</li>
+					<li>The UI shows no <b>Data Migration</b> entry, page or Home card.</li>
+					<li>No data source can be marked as a write target (409).</li>
+				</ul>
+			</li>
+			<li class="gateCard">
+				<div class="gateTop"><span class="gateNum">2</span><span class="badge neutral">Admin</span></div>
+				<h3>Mark a write target</h3>
+				<p>On the data source page, <b>Migration writes</b> → <b>Mark as migration write target</b>. Only a PostgreSQL, MySQL or SQL Server database; never a host-managed data source or one marked read-only.</p>
+				<ul class="otherwise">
+					<li>The <b>Destination data source</b> picker lists write targets only.</li>
+					<li>Recorded in the settings history and as event 7115.</li>
+					<li>A source that live queries read is marked only on a second confirmation.</li>
+				</ul>
+			</li>
+			<li class="gateCard">
+				<div class="gateTop"><span class="gateNum">3</span><span class="badge neutral">Approver</span></div>
+				<h3>Approve the definition</h3>
+				<p>When the approval workflow is enabled, a second person approves each new job on <b>Approvals</b> under <b>Migration jobs</b>: source, query, destination, table, mode and transformation script.</p>
+				<ul class="otherwise">
+					<li>Until then the job shows <b>Awaiting approval</b> and <b>Run now</b> is disabled.</li>
+					<li>Any run is refused and recorded as failed.</li>
+					<li>Nobody approves their own job.</li>
+				</ul>
+			</li>
+		</ol>
+		<div class="cols2 who">
+			<Code code={CONFIG} lang="json" title="appsettings.json (host)" />
+			<div class="card">
+				<h3>Who runs a job</h3>
+				<p>Data migration needs the <b>MigrationOperator</b> permission (Admins hold it too), and it grants no bypass of project access. Creating a job, every run of it and deleting it need <b>Query</b> on the source and on every step's data source, and <b>Write</b> on the destination.</p>
+				<p class="note">The destination may be no more widely reachable than any source: every project that links it must link each source too. Copying data never makes it readable to more people.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="02" label="Modes" title="Three ways to write the same rows." alt lede="Each job writes in one mode. The same two source rows, one changed and one new, land differently in each. Columns map by name: the source's column names are the destination's.">
+		<div class="inputs">
+			<div class="mini">
+				<div class="miniHead"><span>Destination before the run</span><span class="mono">dbo.customer_summary</span></div>
+				<table class="mockTable">
+					<thead><tr><th>customer_id</th><th>country</th><th>lifetime_value</th></tr></thead>
+					<tbody>{BEFORE.map((r) => <tr><td class="mono">{r.id}</td><td>{r.country}</td><td class="mono">{r.value}</td></tr>)}</tbody>
+				</table>
+			</div>
+			<div class="plus" aria-hidden="true">+</div>
+			<div class="mini">
+				<div class="miniHead"><span>Source rows this run</span><span class="legend"><i class="changed"></i>changed<i class="new"></i>new</span></div>
+				<table class="mockTable">
+					<thead><tr><th>customer_id</th><th>country</th><th>lifetime_value</th></tr></thead>
+					<tbody>{SOURCE.map((r) => <tr class={r.mark}><td class="mono">{r.id}</td><td>{r.country}</td><td class="mono">{r.value}</td></tr>)}</tbody>
+				</table>
+			</div>
+		</div>
+
+		<div class="cols3 modes">
+			{
+				MODES.map((m) => (
+					<div class="card mode">
+						<div class="modeHead"><h3>{m.label}</h3><span class={`badge ${m.status.tone}`}>{m.status.text}</span></div>
+						<p>{m.what}</p>
+						<table class="mockTable after">
+							<thead><tr><th>id</th><th>country</th><th>value</th></tr></thead>
+							<tbody>
+								{m.after.map((r) => (
+									<tr class={r.mark}>
+										<td class="mono">{r.id}</td>
+										<td>{r.country}</td>
+										<td class="mono">{r.value}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+						<p class="foot">{m.foot}</p>
+						<p class="needs">{m.needs}</p>
+					</div>
+				))
+			}
+		</div>
+
+		<div class="mock engineTable">
+			<div class="mockBar"><span>HOW EACH ENGINE WRITES</span><span>destination engine</span></div>
+			<div class="mockBody scrollX">
+				<table class="mockTable">
+					<thead><tr><th>Engine</th><th>Insert</th><th>Insert or update</th></tr></thead>
+					<tbody>
+						<tr><td>PostgreSQL</td><td><code>COPY … FROM STDIN (FORMAT BINARY)</code></td><td><code>COPY</code> into a temporary table, then <code>INSERT … ON CONFLICT</code></td></tr>
+						<tr><td>SQL Server</td><td>bulk copy</td><td>bulk merge, staged in a session temporary table</td></tr>
+						<tr><td>MySQL</td><td>bulk insert; if it fails, row by row</td><td>bulk insert into a temporary table, then <code>INSERT … ON DUPLICATE KEY UPDATE</code></td></tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="03" label="Worked example" title="A nightly customer summary for the reporting database." lede="Lifetime value per customer lives in the shop database (PostgreSQL). The reporting team reads it from SQL Server. Ana Horvat, a MigrationOperator, creates a job that copies it across; Marko Kovač reviews it.">
+		<div class="example">
+			<div class="mock form">
+				<div class="mockBar"><span>DATA MIGRATION · NEW JOB</span><span>form</span></div>
+				<div class="mockBody">
+					<dl class="fields">
+						<dt>Job name</dt><dd>Customer summary to reporting</dd>
+						<dt>Description</dt><dd>Lifetime value per customer for the reporting team</dd>
+						<dt>Source data source</dt><dd>Shop (PostgreSQL)</dd>
+						<dt>Source SQL</dt><dd class="sqlField"><Code code={SOURCE_SQL} lang="sql" /></dd>
+						<dt>Destination data source</dt><dd>Reporting (SQL Server) <span class="badge">Migration write target</span></dd>
+						<dt>Destination table</dt><dd class="mono">dbo.customer_summary</dd>
+						<dt>Migration mode</dt><dd>Insert or update</dd>
+						<dt>Cron schedule</dt><dd class="mono">0 2 * * *</dd>
+						<dt>Max retries</dt><dd class="mono">3</dd>
+						<dt>Timeout (minutes)</dt><dd class="mono">30</dd>
+						<dt>Enable migration job</dt><dd><span class="switch on" aria-hidden="true"><i /></span> on</dd>
+						<dt>Validate query before execution</dt><dd><span class="switch on" aria-hidden="true"><i /></span> on</dd>
+						<dt>Transformation script (optional)</dt><dd class="dim">empty</dd>
+					</dl>
+					<div class="formFoot"><span class="btn">Create migration job</span></div>
+				</div>
+			</div>
+
+			<ol class="timeline">
+				<li class="tl warn" style="--i:0">
+					<span class="tlTime">Oct 13 · 10:04</span>
+					<b>Created, submitted for approval</b>
+					<span class="quote">Submitted for approval: the job does not run, manually or on its schedule, until a second person approves it.</span>
+				</li>
+				<li class="tl crit" style="--i:1">
+					<span class="tlTime">Oct 14 · 02:00</span>
+					<b>The host's nightly job starts a run: refused</b>
+					<span class="quote">Not run: the job's definition waits for approval. A second person approves it on the approvals page; until then the job does not run.</span>
+				</li>
+				<li class="tl ok" style="--i:2">
+					<span class="tlTime">Oct 14 · 09:12</span>
+					<b>Marko Kovač approves the definition</b>
+					<span class="small">Source, SQL, destination, table, mode and the empty transformation script. Name, schedule, retries and timeout are not part of it.</span>
+				</li>
+				<li class="tl ok" style="--i:3">
+					<span class="tlTime">Oct 15 · 02:00</span>
+					<b>Run completes</b>
+					<span class="small">48,210 rows read through the gate, within the 100,000-row budget, then merged into <code>dbo.customer_summary</code>.</span>
+				</li>
+			</ol>
+		</div>
+
+		<div class="history mock">
+			<div class="mockBar"><span>MIGRATION HISTORY</span><span>/beacon/migration-history</span></div>
+			<div class="mockBody scrollX">
+				<table class="mockTable">
+					<thead><tr><th>Started</th><th>Job</th><th>Status</th><th>Rows</th><th>Failed</th><th>Rows/s</th></tr></thead>
+					<tbody>
+						{
+							RUNS.slice().reverse().map((r) => (
+								<tr>
+									<td class="mono">{r.started}</td>
+									<td>Customer summary to reporting</td>
+									<td><span class={`badge ${r.tone}`}>{r.status}</span></td>
+									<td class="mono">{r.rows}</td>
+									<td class="mono">{r.failed}</td>
+									<td class="mono">{r.rate}</td>
+								</tr>
+							))
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+		<div class="cols2 exampleFoot">
+			<Code code={GRANT} lang="sql" title="Reporting (SQL Server) · write target login" />
+			<div class="statuses">
+				<div><span class="badge neutral">Running</span><span>The run has started.</span></div>
+				<div><span class="badge ok">Completed</span><span>Every row was written.</span></div>
+				<div><span class="badge warn">Partial</span><span>Some rows failed (MySQL row-by-row fallback).</span></div>
+				<div><span class="badge crit">Failed</span><span>The read or the write failed, or the run was refused. The error says why.</span></div>
+			</div>
+		</div>
+		<p class="note">Every mode also reads <code>information_schema</code> to check that the table exists and, for Insert or update, its primary key. A job cannot be edited after it is created: to change it, create a new job and delete the old one. The old job's run history is kept.</p>
+	</Section>
+
+	<Section num="04" label="Guarantees" title="What every migration can rely on." alt>
+		<div class="cols2">
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12s3.5-6 9-6c1.6 0 3 .5 4.2 1.2M21 12s-3.5 6-9 6c-1.6 0-3-.5-4.2-1.2" /><path d="M4 20L20 4" /></svg></div>
+				<h3>Beacon never reads a write target</h3>
+				<p>Query steps, previews, subscriptions, data quality, MCP tools, AI grounding, documentation and metadata scans refuse it or leave it out. Only the migration writer connects with its credentials, so every data source Beacon reads keeps a read-only login.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h9" /></svg></div>
+				<h3>A row budget, checked before writing</h3>
+				<p><code>Beacon:Migrations:MaxRows</code> (100,000 by default, 1 to 10,000,000) is written into the source SQL, and the read stops one row past it. A larger source fails the run before anything is written.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4z" /></svg></div>
+				<h3>Failed reads write nothing</h3>
+				<p>If any step or the final query fails or times out, the run is recorded as failed and the destination is not opened. A Truncate &amp; insert job never empties its table on a failed read.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6" /></svg></div>
+				<h3>Every run recorded</h3>
+				<p>Each run keeps rows read, written and failed, its duration and its error. A run refused because the job is not approved is recorded as Failed, with the reason.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="05" label="Good to know" title="How runs start and what a job keeps.">
+		<div class="cols3">
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></div>
+				<h3>Scheduled runs start from the host</h3>
+				<p>The cron schedule is stored with the job and shown on it. A run starts from <b>Run now</b>, from the API, or from the host's own background job, and the approval and write-target checks apply to every run.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" /><path d="M18 3v4h-4M6 21v-4h4" /></svg></div>
+				<h3>A failed run waits for a person</h3>
+				<p><b>Max retries</b> is stored with the job and shown on each run as <b>Retry</b>. A failed run stays failed: read the error, fix the cause, then use <b>Run now</b>.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M9 12h6" /></svg></div>
+				<h3>Transformation script left empty</h3>
+				<p>Create jobs with <b>Transformation script (optional)</b> empty; a job with a script fails when it runs. To change one, create the job again with the field empty.</p>
+			</div>
+		</div>
+	</Section>
+</ExploreLayout>
+
+<style>
+	/* Hero: two databases and rows in transit */
+	.move { margin: 0 0 0 auto; max-width: 520px; }
+	.move svg { display: block; width: 100%; height: auto; }
+	.cylBody { fill: var(--bx-surface); stroke: var(--bx-border-bright, var(--bx-border)); stroke-width: 1.5; }
+	.cylTop { fill: var(--bx-surface2); stroke: var(--bx-border-bright, var(--bx-border)); stroke-width: 1.5; }
+	.cylLine { fill: none; stroke: var(--bx-border); stroke-width: 1.2; }
+	.dst .cylBody, .dst .cylTop { stroke: var(--bx-accent); stroke-opacity: 0.6; }
+	.dst .cylTop { fill: var(--bx-accent-dim); }
+	.fill { fill: var(--bx-accent); opacity: 0.18; animation: fillUp 4s ease-in-out infinite; }
+	.f2 { animation-delay: 1.3s; }
+	.f3 { animation-delay: 2.6s; }
+	@keyframes fillUp {
+		0%, 100% { opacity: 0.18; }
+		20% { opacity: 0.55; }
+	}
+	.pipe { stroke: var(--bx-accent); stroke-opacity: 0.35; stroke-width: 2; stroke-dasharray: 3 6; }
+	.gateMark rect { fill: var(--bx-surface); stroke: var(--bx-accent); stroke-width: 1.5; }
+	.gateMark path { fill: none; stroke: var(--bx-accent); stroke-width: 1.6; stroke-linejoin: round; }
+	.row { transform: translateX(var(--x)); animation: travel 4s linear infinite; animation-delay: calc(var(--i) * -1s); }
+	.row rect { fill: var(--bx-accent); }
+	.row line { stroke: var(--bx-surface); stroke-width: 1.2; }
+	@keyframes travel {
+		0% { transform: translateX(0); opacity: 0; }
+		12% { opacity: 1; }
+		85% { opacity: 1; }
+		100% { transform: translateX(148px); opacity: 0; }
+	}
+	.cap { fill: var(--bx-text); font-size: 13px; font-weight: 600; text-anchor: middle; }
+	.sub { fill: var(--bx-text-dim); font-size: 11.5px; text-anchor: middle; }
+	.tag { fill: var(--bx-text-dim); font-size: 11px; text-anchor: middle; letter-spacing: 0.3px; }
+	.tag.mono { font-family: var(--sl-font-mono); }
+
+	/* 01 Gates */
+	.gates { list-style: none; margin: 0 0 28px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; counter-reset: none; }
+	.gateCard { position: relative; margin: 0; background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 10px; animation: xpFadeUp .5s ease backwards; }
+	.gateCard:nth-child(2) { animation-delay: .15s; }
+	.gateCard:nth-child(3) { animation-delay: .3s; }
+	.gateCard:not(:last-child)::after { content: '→'; position: absolute; right: -14px; top: 30px; width: 14px; text-align: center; color: var(--bx-accent); font-weight: 700; }
+	.gateTop { display: flex; align-items: center; justify-content: space-between; }
+	.gateNum { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--sl-font-mono); font-weight: 700; font-size: 13px; border: 2px solid var(--bx-accent); color: var(--bx-accent); background: var(--bx-accent-dim); }
+	.gateCard h3 { margin: 4px 0 0; }
+	.gateCard p { font-size: 14px; line-height: 1.6; color: var(--bx-text-muted); }
+	.otherwise { margin: 4px 0 0; padding: 12px 0 0 18px; border-top: 1px solid var(--bx-border); display: flex; flex-direction: column; gap: 5px; font-size: 13px; line-height: 1.5; color: var(--bx-text-muted); }
+	.otherwise li { margin: 0; }
+	.who .card p + p { margin-top: 10px; }
+
+	/* 02 Modes */
+	.inputs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; align-items: center; margin-bottom: 24px; }
+	.mini { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); padding: 12px 14px 6px; overflow-x: auto; }
+	.miniHead { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 600; color: var(--bx-text-dim); margin-bottom: 4px; }
+	.plus { font-size: 22px; font-weight: 300; color: var(--bx-accent); }
+	.legend { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+	.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-left: 6px; }
+	.legend .changed { background: var(--xp-warn); }
+	.legend .new { background: var(--xp-ok); }
+	tr.changed td { background: var(--xp-warn-dim); }
+	tr.new td { background: var(--xp-ok-dim); }
+	tr.failed td { background: var(--xp-crit-dim); }
+	tr.failed td:first-child { box-shadow: inset 3px 0 0 var(--xp-crit); }
+	tr.changed td:first-child { box-shadow: inset 3px 0 0 var(--xp-warn); }
+	tr.new td:first-child { box-shadow: inset 3px 0 0 var(--xp-ok); }
+	.mode { display: flex; flex-direction: column; gap: 10px; }
+	.modeHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.modeHead h3 { margin: 0; }
+	.mode p { font-size: 13.5px !important; }
+	.after { font-size: 12.5px; }
+	.after td, .after th { padding: 6px 8px; }
+	.foot { color: var(--bx-text) !important; }
+	.needs { font-size: 12.5px !important; color: var(--bx-text-dim) !important; padding-top: 8px; border-top: 1px solid var(--bx-border); margin-top: auto !important; }
+	.engineTable { margin-top: 28px; }
+	.scrollX { overflow-x: auto; }
+	.scrollX .mockTable { min-width: 560px; }
+
+	/* 03 Worked example */
+	.example { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 16px; margin: 0; font-size: 13.5px; align-items: baseline; }
+	.fields dt { color: var(--bx-text-dim); }
+	.fields dd { margin: 0; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.sqlField { display: block !important; }
+	.sqlField :global(.expressive-code) { margin: 0; }
+	.dim { color: var(--bx-text-dim); font-style: italic; }
+	.switch { display: inline-block; width: 30px; height: 17px; border-radius: 9px; background: var(--bx-accent); position: relative; }
+	.switch i { position: absolute; top: 2px; left: 15px; width: 13px; height: 13px; border-radius: 50%; background: #fff; }
+	.formFoot { display: flex; justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--bx-border); }
+	.btn { font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 8px; background: var(--bx-accent); color: #fff; }
+	.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+	.tl { position: relative; margin: 0; padding: 0 0 22px 28px; display: flex; flex-direction: column; gap: 4px; animation: xpFadeUp .45s ease backwards; animation-delay: calc(var(--i) * 0.2s); }
+	.tl::before { content: ''; position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--bx-accent); background: var(--bx-surface); }
+	.tl:not(:last-child)::after { content: ''; position: absolute; left: 6px; top: 20px; bottom: 0; width: 2px; background: var(--bx-border); }
+	.tl.ok::before { border-color: var(--xp-ok); background: var(--xp-ok); }
+	.tl.warn::before { border-color: var(--xp-warn); }
+	.tl.crit::before { border-color: var(--xp-crit); background: var(--xp-crit); }
+	.tlTime { font-family: var(--sl-font-mono); font-size: 11.5px; color: var(--bx-text-dim); }
+	.tl b { font-size: 15px; }
+	.quote { font-size: 13.5px; line-height: 1.55; color: var(--bx-text); background: var(--bx-surface2); border-left: 3px solid var(--bx-border); padding: 8px 12px; border-radius: 0 8px 8px 0; }
+	.tl.crit .quote { border-left-color: var(--xp-crit); }
+	.tl.warn .quote { border-left-color: var(--xp-warn); }
+	.small { font-size: 13px; line-height: 1.55; color: var(--bx-text-muted); }
+	.history { margin-top: 28px; }
+	.exampleFoot { margin-top: 28px; }
+	.statuses { display: flex; flex-direction: column; gap: 10px; }
+	.statuses div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: 13.5px; color: var(--bx-text-muted); }
+	.statuses .badge { justify-self: start; }
+
+	@media (max-width: 1024px) {
+		.move { margin: 0 auto; }
+		.example { grid-template-columns: minmax(0, 1fr); }
+		.gates { grid-template-columns: minmax(0, 1fr); }
+		.gateCard:not(:last-child)::after { content: '↓'; right: auto; left: 32px; top: auto; bottom: -14px; }
+	}
+	@media (max-width: 860px) {
+		.inputs { grid-template-columns: minmax(0, 1fr); }
+		.plus { text-align: center; }
+	}
+	@media (max-width: 640px) {
+		.fields { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+		.fields dd { margin-bottom: 8px; }
+	}
+</style>

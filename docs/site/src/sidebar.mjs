@@ -1,7 +1,7 @@
 // The docs navigation. Shared by astro.config.mjs (Starlight sidebar) and the
 // llms*.txt endpoints, so the AI-readable bundles follow the same order as the site.
 
-/** @type {{ label: string, slug: string, summary: string, items: { label: string, slug: string }[] }[]} */
+/** @type {{ label: string, slug: string, summary: string, agents?: boolean, items: { label: string, slug: string }[] }[]} */
 export const SECTIONS = [
   {
     label: 'Start here',
@@ -12,6 +12,22 @@ export const SECTIONS = [
       { label: 'Core concepts', slug: 'getting-started/concepts' },
       { label: 'Quick start', slug: 'getting-started/quick-start' },
       { label: 'Run the sample host', slug: 'getting-started/installation' },
+    ],
+  },
+  {
+    label: 'Explore Beacon',
+    slug: 'explore',
+    agents: false,
+    summary: 'Showcase pages for each product area, with worked examples.',
+    items: [
+      { label: 'Monitoring', slug: 'explore/monitoring' },
+      { label: 'Alerting & tasks', slug: 'explore/alerting' },
+      { label: 'Data quality', slug: 'explore/data-quality' },
+      { label: 'AI & MCP', slug: 'explore/ai-and-mcp' },
+      { label: 'Grounding & learning', slug: 'explore/grounding' },
+      { label: 'Security & governance', slug: 'explore/governance' },
+      { label: 'Data movement', slug: 'explore/data-movement' },
+      { label: 'Extending your app', slug: 'explore/extending' },
     ],
   },
   {
