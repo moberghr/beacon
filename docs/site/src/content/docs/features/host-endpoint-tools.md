@@ -1,15 +1,16 @@
 ---
 title: Host Endpoint Tools
-description: Expose selected read-only endpoints of the host application as MCP tools, invoked in-process as the caller through the endpoint's own model binding, filters and authorization policies.
+description: Expose selected endpoints of the host application as MCP tools (read-only by default, write tools behind an explicit opt-in) invoked in-process as the caller through the endpoint's own model binding, filters and authorization policies.
 ---
 
-A host application already has endpoints that answer the questions an agent asks — a back-office grid of a
+A host application already has endpoints that answer the questions an agent asks: a back-office grid of a
 customer's loans, a lookup by id. `AddHostEndpointTools` turns the endpoints you mark into MCP tools. Each call runs
 **in-process, through the endpoint's real pipeline** (model binding, action filters, authorization policies), as a
-host identity built for the MCP caller — never as Beacon, and never with the caller's own token.
+host identity built for the MCP caller, never as Beacon, and never with the caller's own token.
 
-v1 is **read-only only**: an endpoint is exposed only when the host declares it read-only. The HTTP verb is not
-trusted, because back offices read over POST (Kendo grids, `[FromForm]` filters).
+Every exposed endpoint **declares** whether it is read-only. The HTTP verb is never trusted, because back offices
+read over POST (Kendo grids, `[FromForm]` filters). By default only read-only endpoints are exposed; endpoints that
+change data become tools only when the host opts in with `AllowWriteTools` (see [Write tools](#write-tools)).
 
 ## Quick start
 
@@ -17,11 +18,12 @@ trusted, because back offices read over POST (Kendo grids, `[FromForm]` filters)
 builder.Services.AddBeaconMcp()
     .AddHostEndpointTools(o =>
     {
-        o.ProjectName = "Netgiro";                     // the tools belong to this Beacon project
+        o.ProjectName = "Back Office";                 // the tools belong to this Beacon project
         o.MaxResponseBytes = 1_048_576;                // default 1 MiB
         o.NamedToolLimit = 20;                         // above this: search_api + call_api
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
         // o.TrustedAuthenticationSchemes = ["..."];   // default none; see "Authentication schemes" below
+        // o.AllowWriteTools = true;                   // default false; see "Write tools" below
     });
 ```
 
@@ -35,7 +37,7 @@ Mark a controller action:
 ```csharp
 [HttpPost]
 [Authorize]                                           // required: [Permission] is a filter, not authorization metadata
-[Permission(AdminPermission.ViewLoans)]               // Netgiro's filter: runs in the action pipeline (needs a dispatch middleware, below)
+[Permission(AdminPermission.ViewLoans)]               // the host's own filter: runs in the action pipeline (needs a dispatch middleware, below)
 [BeaconTool("customer_loans", Description = "Loans of one customer, newest first.", ReadOnly = true)]
 public IActionResult CustomerLoans([DataSourceRequest] DataSourceRequest request, int customerId)
 {
@@ -55,24 +57,24 @@ app.MapGet("/api/loans/{id:int}", (int id, LoanService loans) => loans.Find(id))
 The tool is exposed as `api_customer_loans` (or `api_loan_by_id`).
 
 The endpoint must carry authorization metadata (`[Authorize]` on the action or controller, a policy, or
-`[AllowAnonymous]`), or the host must have a fallback authorization policy — otherwise startup refuses it. A
-permission check implemented as a filter (like Netgiro's `[Permission]`) is not metadata. Netgiro Web.Admin has
-neither `[Authorize]` on its controllers nor a fallback policy, so every exposed action carries `[Authorize]` next to
-`[BeaconTool]` and `[Permission]`, as above.
+`[AllowAnonymous]`), or the host must have a fallback authorization policy; otherwise startup refuses it. A
+permission check implemented as a filter (like the `[Permission]` filter above) is not metadata. A host that has
+neither `[Authorize]` on its controllers nor a fallback policy puts `[Authorize]` on every exposed action, next to
+`[BeaconTool]` and its own permission filter, as above.
 
 ### Authentication schemes
 
 Beacon authorizes the dispatched call against the host principal it built for the MCP caller; it never runs an
 authentication handler. A policy that names **authentication schemes** (`[Authorize(AuthenticationSchemes = "StepUp")]`,
 `new AuthorizationPolicyBuilder("PartnerApi")`, a default or fallback policy with schemes) would therefore be
-evaluated as if that scheme had authenticated the caller — a step-up or MFA scheme would be bypassed. So an exposed
+evaluated as if that scheme had authenticated the caller: a step-up or MFA scheme would be bypassed. So an exposed
 endpoint whose combined policy names any scheme **fails startup**, naming the endpoint and the schemes, unless the
 host lists each scheme in `TrustedAuthenticationSchemes`:
 
 ```csharp
 .AddHostEndpointTools(o =>
 {
-    o.ProjectName = "Netgiro";
+    o.ProjectName = "Back Office";
     o.TrustedAuthenticationSchemes = ["Cookies"];      // only if the MCP caller is an acceptable stand-in for it
 });
 ```
@@ -83,8 +85,9 @@ MFA or partner scheme.
 ## What gets exposed
 
 - Only endpoints carrying `[BeaconTool]` / `.WithBeaconTool(...)`. Everything else is invisible.
-- The name must match `^[a-z][a-z0-9_]{2,47}$` and be unique. `ReadOnly = true` is mandatory: a missing or `false`
-  flag **fails startup** with a message naming the endpoint. So do bad or duplicate names, file-upload parameters,
+- The name must match `^[a-z][a-z0-9_]{2,47}$` and be unique. `ReadOnly` must be declared: a missing flag **fails
+  startup** with a message naming the endpoint, and so does `ReadOnly = false` unless `AllowWriteTools` is on (see
+  [Write tools](#write-tools)). So do bad or duplicate names, `Destructive = true` on a read-only tool, file-upload parameters,
   `[AsParameters]`, an endpoint with no authorization at all, and an endpoint whose policy names an authentication
   scheme that is not in `TrustedAuthenticationSchemes` (see above).
 - Endpoints are discovered when the host's pipeline is built (they do not exist at DI time), from the
@@ -113,13 +116,68 @@ Unknown and missing required arguments are rejected before anything is dispatche
 
 Up to `NamedToolLimit` tools, each is its own MCP tool. Above it, agents get two tools instead, so a large host does
 not flood the tool list: `search_api` (keywords → matching tools with their input schemas) and `call_api` (a name
-plus arguments). All of them carry `readOnlyHint = true`, `destructiveHint = false`, `openWorldHint = false`. The
-eight built-in tools are unaffected.
+plus arguments). Read-only tools carry `readOnlyHint = true`, `destructiveHint = false`, `idempotentHint = true`,
+`openWorldHint = false`; write tools carry the hints in [Write tools](#write-tools). `search_api` is always read-only.
+`call_api` is read-only only while every tool it can reach for this caller is; once it can reach a write tool it
+carries `readOnlyHint = false` (and `destructiveHint = true` if any of them is destructive), so clients confirm every
+`call_api` call. Each `search_api` result carries `read_only` (and, for a write tool, `destructive` and `idempotent`).
+The eight built-in tools are unaffected.
+
+## Write tools
+
+A host can let agents change data through its own endpoints: an HR app letting a user book or withdraw their own
+leave from Claude Desktop. This is off unless the host opts in, and each endpoint still declares itself:
+
+```csharp
+.AddHostEndpointTools(o =>
+{
+    o.ProjectName = "Employee Portal";
+    o.AllowWriteTools = true;                          // without it, ReadOnly = false fails startup
+});
+
+[HttpPost("leave")]
+[Authorize(Policy = "Employee")]
+[BeaconTool("book_leave", Description = "Book leave for yourself.", ReadOnly = false)]
+public IActionResult BookLeave([FromBody] BookLeaveRequest request) { ... }
+
+[HttpDelete("leave/{id:int}")]
+[Authorize(Policy = "Employee")]
+[BeaconTool("withdraw_leave", Description = "Withdraw one of your leave requests.",
+    ReadOnly = false, Destructive = true, Idempotent = true)]
+public IActionResult WithdrawLeave(int id) { ... }
+
+// Minimal API: .WithBeaconTool("withdraw_leave", "...", readOnly: false, destructive: true, idempotent: true)
+```
+
+- **Opt-in.** `AllowWriteTools` (default `false`) is the host-level switch. `ReadOnly` must still be declared on every
+  endpoint; Beacon never infers it from the verb, in either direction.
+- **Annotations.** A write tool carries `readOnlyHint = false`, `destructiveHint = Destructive` (default `false`),
+  `idempotentHint = Idempotent` (default `false`) and `openWorldHint = false`. Declare `Destructive = true` for an
+  endpoint that deletes or irreversibly overwrites data. Its description says it changes data and should be called
+  only when the user asked for the change.
+- **Confirmation is the client's.** `readOnlyHint = false` is what makes MCP clients (Claude Desktop, Claude Code) ask
+  the user before running the tool. Beacon does not add its own confirmation step: MCP elicitation is not used for
+  write tools, so a client that auto-approves tools runs them without asking.
+- **User callers only.** A write tool is listed to, and runs for, a mapped Entra **user** caller only. A **system**
+  caller (an app-only token or service user) never sees write tools (not in the tool list, not in `search_api`) 
+  and a call to one is refused with `Forbidden: api_<name> changes data in the host application, and write tools run
+  only for a signed-in user; a system caller cannot call them.`, whatever `HostClaims` it holds. A system identity
+  acts with standing permissions and has no person who asked for the change and no client to confirm it. API-key
+  callers cannot call any endpoint tool.
+- **The endpoint is the authority.** Beacon checks the caller, the project and the endpoint's authorization policy,
+  exactly as for reads, and adds nothing else. The endpoint must do its own input validation, business rules and
+  record-level authorization ("only your own leave") against the host principal your `IMcpHostPrincipalFactory`
+  builds: treat a tool call like any other request from that user. Antiforgery passes the same way as for reads
+  (see [Antiforgery](#antiforgery)), so it is not a defence here.
+- **Audit.** Write calls are audited under the tool name `api_<name>:write` (see [Audit and privacy](#audit-and-privacy)).
+
+`IBeaconToolMetadata.Destructive` and `Idempotent` are default interface members: a host's own implementation of the
+interface keeps compiling and behaves as `false` for both.
 
 ## Who the call runs as
 
-Endpoint tools need a **mapped MCP caller** — an Entra user or system identity from
-[Entra ID callers](/features/mcp-entra-callers/) — configured for the tools' project and allowed to read it by its
+Endpoint tools need a **mapped MCP caller**, an Entra user or system identity from
+[Entra ID callers](/features/mcp-entra-callers/), configured for the tools' project and allowed to read it by its
 [project access](/features/authorization/#project-access): a user caller reaches a restricted project only while its
 Beacon user is a member (see [What a caller reaches](/features/mcp-entra-callers/#what-a-caller-reaches)). API-key
 callers and callers outside the project neither see nor can call them (fail closed); neither can anyone while the
@@ -135,23 +193,23 @@ project does not exist.
   your own factory.
 - `null` → the call is refused.
 
-A host whose permissions live in its own user store registers its own factory. Netgiro maps the Entra user to its
-admin user and `AdminPermission` set. Netgiro's permission claim is `NetgiroClaimTypes.Permission`
-(`http://schemas.netgiro.is/identity/claims/permission`) and its value is the permission's **integer** value
-(`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what `Identity.HasPermission` compares against.
-The admin lookup below is a **placeholder** — use whatever service Web.Admin already has for loading an active admin
-and their permissions:
+A host whose permissions live in its own user store registers its own factory. The example below maps the Entra user
+to the host's admin user and its `AdminPermission` set. The host's permission claim is `HostClaimTypes.Permission`
+(`http://schemas.example.com/claims/permission`) and its value is the permission's **integer** value
+(`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what the host's `Identity.HasPermission` compares
+against. The admin lookup is a **placeholder**: use whatever service the host already has for loading an active
+admin and their permissions:
 
 ```csharp
-builder.Services.AddSingleton<IMcpHostPrincipalFactory, NetgiroMcpHostPrincipalFactory>();
+builder.Services.AddSingleton<IMcpHostPrincipalFactory, HostPrincipalFactory>();
 
-internal sealed class NetgiroMcpHostPrincipalFactory(IServiceScopeFactory scopes) : IMcpHostPrincipalFactory
+internal sealed class HostPrincipalFactory(IServiceScopeFactory scopes) : IMcpHostPrincipalFactory
 {
     public async Task<ClaimsPrincipal?> CreateAsync(McpCaller caller, ClaimsPrincipal mcpPrincipal, CancellationToken ct)
     {
         if (caller.Kind == McpCallerKind.System)
         {
-            // HostClaims come from Beacon:Mcp:Callers:Systems[*]:HostClaims — keep the set minimal.
+            // HostClaims come from Beacon:Mcp:Callers:Systems[*]:HostClaims: keep the set minimal.
             return new ClaimsPrincipal(new ClaimsIdentity(caller.HostClaims, "BeaconMcpSystem"));
         }
 
@@ -166,7 +224,7 @@ internal sealed class NetgiroMcpHostPrincipalFactory(IServiceScopeFactory scopes
         }
 
         var claims = admin.Permissions                 // IEnumerable<AdminPermission>
-            .Select(x => new Claim(NetgiroClaimTypes.Permission, x.ToValueString()))
+            .Select(x => new Claim(HostClaimTypes.Permission, x.ToValueString()))
             .Append(new Claim(ClaimTypes.Name, admin.UserName));
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "BeaconMcpUser"));
@@ -179,10 +237,10 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 
 ```json
 "Beacon": { "Mcp": { "Callers": { "Systems": [ {
-  "Name": "kvika-routines",
-  "ClientId": "<kvika-routines-app-client-id>",
+  "Name": "routine-runner",
+  "ClientId": "<routine-runner-app-client-id>",
   "ProjectIds": [ 3 ],
-  "HostClaims": [ { "Type": "http://schemas.netgiro.is/identity/claims/permission", "Value": "1007" } ]
+  "HostClaims": [ { "Type": "http://schemas.example.com/claims/permission", "Value": "1007" } ]
 } ] } } }
 ```
 
@@ -192,7 +250,7 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 2. A **new DI scope** and a new `HttpContext` are created. The request carries the method, the route filled from the
    endpoint's route pattern, the query string, the declared headers only, and a JSON or
    `application/x-www-form-urlencoded` body. **Nothing of the MCP request is forwarded**: no `Authorization` header,
-   no cookies, no connection info. It also sends `Accept: application/json` and `X-Requested-With: XMLHttpRequest`.
+   no cookies, no connection info. It also sends an `Accept` header preferring JSON (`application/json, text/plain;q=0.9, */*;q=0.1`) and `X-Requested-With: XMLHttpRequest`.
 3. The endpoint and route values are set as routing would set them.
 4. **Authorization** runs before the endpoint, exactly as the authorization middleware would, against the host
    principal: the endpoint's `[Authorize]` / policy / requirement metadata combined through the host's
@@ -204,7 +262,7 @@ System identity host claims, in configuration (the value is the integer `AdminPe
    `[AllowAnonymous]` is exposable and runs without an authorization check: the host itself declared it public, so
    exposing it to an authorized MCP caller grants nothing new.
 5. The registered `IHostEndpointDispatchMiddleware` chain runs, in registration order, around the endpoint (see below).
-6. The endpoint's `RequestDelegate` runs — for MVC that is the whole action pipeline: model binding, validation,
+6. The endpoint's `RequestDelegate` runs; for MVC that is the whole action pipeline: model binding, validation,
    authorization/action/exception filters, the result.
 7. The response is captured into a buffer capped at `MaxResponseBytes`; the request is aborted after
    `RequestTimeout` or when the MCP call is cancelled.
@@ -214,7 +272,7 @@ context, so the MCP request's context (and the audit identity) is untouched.
 
 ### Host middleware and ambient state: dispatch middleware
 
-Host **middleware does not run** on dispatch — only the endpoint's own pipeline. When the endpoint depends on state a
+Host **middleware does not run** on dispatch: only the endpoint's own pipeline. When the endpoint depends on state a
 middleware sets, register an `IHostEndpointDispatchMiddleware`:
 
 ```csharp
@@ -224,20 +282,20 @@ Task InvokeAsync(HttpContext syntheticContext, McpCaller caller, Func<Task> next
 Registered middlewares are chained in registration order, with the endpoint's request delegate as the innermost
 `next`. The chain starts after `User`, `RequestServices`, the endpoint and route values are set and after Beacon's
 authorization check. As in ASP.NET Core middleware, ambient state set before `await next()`
-(`Thread.CurrentPrincipal`, an `AsyncLocal`) is visible to the endpoint and its filters — async work before it is
+(`Thread.CurrentPrincipal`, an `AsyncLocal`) is visible to the endpoint and its filters; async work before it is
 fine. A middleware that does not call `next` refuses the call; one that throws fails it. Both return a generic tool
 error and are audited. The dispatch runs in its own execution context, so the MCP request's own ambient principal is
 never changed.
 
-Netgiro's `[Permission(AdminPermission.X)]` is an `IAsyncAuthorizationFilter` that checks
-`Identity.Current.HasPermission(...)`, and `Identity.Current` reads `Thread.CurrentPrincipal`, which Web.Admin's
-middleware sets with `Identity.Set(identity)` — it takes a `ClaimsIdentity`, not a principal. Without a dispatch middleware every tool call would be denied. The
+Take a host whose `[Permission(AdminPermission.X)]` is an `IAsyncAuthorizationFilter` that checks
+`Identity.Current.HasPermission(...)`, where `Identity.Current` reads `Thread.CurrentPrincipal`, which the host's own
+middleware sets with `Identity.Set(identity)`: it takes a `ClaimsIdentity`, not a principal. Without a dispatch middleware every tool call would be denied. The
 factory above maps the Entra user to admin permissions; the middleware makes that principal ambient:
 
 ```csharp
-builder.Services.AddSingleton<IHostEndpointDispatchMiddleware, NetgiroIdentityMiddleware>();
+builder.Services.AddSingleton<IHostEndpointDispatchMiddleware, HostIdentityMiddleware>();
 
-internal sealed class NetgiroIdentityMiddleware : IHostEndpointDispatchMiddleware
+internal sealed class HostIdentityMiddleware : IHostEndpointDispatchMiddleware
 {
     public async Task InvokeAsync(HttpContext ctx, McpCaller caller, Func<Task> next, CancellationToken cancellationToken)
     {
@@ -252,8 +310,8 @@ internal sealed class NetgiroIdentityMiddleware : IHostEndpointDispatchMiddlewar
 
 Beacon **mints a real antiforgery token pair** for the host principal with the host's own `IAntiforgery` and puts it
 on the dispatched request (the cookie token as a cookie, the request token in the configured header, or the form
-field when the header is disabled). The host's own validation — `[ValidateAntiForgeryToken]`, a global
-`AutoValidateAntiforgeryTokenAttribute`, minimal API form endpoints — therefore runs and passes. For minimal API
+field when the header is disabled). The host's own validation (`[ValidateAntiForgeryToken]`, a global
+`AutoValidateAntiforgeryTokenAttribute`, minimal API form endpoints) therefore runs and passes. For minimal API
 endpoints that require validation, Beacon validates the request the way `UseAntiforgery()` does and records the
 result. Nothing is exempted and real browser requests are validated exactly as before: the tokens are minted
 server-side and never leave the process (CSRF cannot apply to a request that never came from a browser). A host
@@ -272,18 +330,23 @@ request) must make sure it accepts these requests.
 
 ## Audit and privacy
 
-Every call — success, forbidden, refused, invalid arguments, timeout, error — writes an MCP audit row with the tool
-name `api_<name>` (or `search_api`), the project, the duration, the caller kind and hash, and the outcome. The
+Every call (success, forbidden, refused, invalid arguments, timeout, error) writes an MCP audit row with the tool
+name `api_<name>` (or `search_api`), the project, the duration, the caller kind and hash, and the outcome. A call to a
+**write tool** is recorded as `api_<name>:write` (whether it was called by name or through `call_api`, and also when
+it was refused) so writes can be filtered in the audit log (`tool=api_book_leave:write`) without a schema change.
+Metrics still bucket it under `api_*`. The
 arguments are stored only as the project's content-retention settings allow: under the
 [retention lock](/features/mcp-server/) they are reduced to their size. Argument values and response bodies are
 never written to logs.
 
-`get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line).
+`get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line);
+write tools are marked *(writes)*.
 
 ## Limits
 
-- Read-only only (writes come later, behind approval).
-- Host **middleware does not run** — only the endpoint's own pipeline. Recreate what the endpoint needs from it (an
+- Write tools are off unless `AllowWriteTools` is on, run for user callers only, and rely on the client's tool
+  approval for confirmation (no Beacon-side approval or elicitation step).
+- Host **middleware does not run**: only the endpoint's own pipeline. Recreate what the endpoint needs from it (an
   ambient principal, a tenant, a culture, an admin user loaded into `HttpContext.Items`) in an
   `IHostEndpointDispatchMiddleware`.
   A global MVC `AuthorizeFilter` whose policy names authentication schemes re-authenticates by scheme, finds no

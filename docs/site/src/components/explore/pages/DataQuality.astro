@@ -1,0 +1,490 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+import Flow from '../Flow.astro';
+import Ring from './DataQualityRing.astro';
+
+const SEVERITY: Record<string, number> = { Low: 1, Medium: 2, High: 3, Critical: 4 };
+
+// Worked example: a contract on public.customers. Each rule's score follows the
+// scoring rules in features/data-quality.md (Null rate and Range score partially,
+// Custom SQL returns its own score, everything else is 100 or 0).
+const RULES = [
+	{ name: 'Fresh updates', type: 'Freshness', config: '{"column": "updated_at", "maxAgeMinutes": 60}', severity: 'Critical', weight: 1, passed: true, score: 100, actual: 'newest row 12 minutes old' },
+	{ name: 'Expected size', type: 'Volume', config: '{"minRows": 40000}', severity: 'Medium', weight: 1, passed: true, score: 100, actual: '48,000 rows' },
+	{ name: 'Unique ids', type: 'Uniqueness', config: '{"column": "id"}', severity: 'Critical', weight: 1, passed: true, score: 100, actual: 'no duplicates' },
+	{ name: 'Email present', type: 'Null rate', config: '{"column": "email", "maxNullPercent": 2}', severity: 'High', weight: 1.5, passed: false, score: 96.5, actual: '5.5% null: 100 − (5.5 − 2)' },
+	{ name: 'Plausible age', type: 'Range', config: '{"column": "age", "min": "0", "max": "120"}', severity: 'Low', weight: 1, passed: false, score: 99, actual: '480 of 48,000 out of range: (1 − 0.01) × 100' },
+	{ name: 'Email format', type: 'Pattern', config: '{"column": "email", "pattern": "^[^@]+@[^@]+$"}', severity: 'Medium', weight: 1, passed: false, score: 0, actual: '214 values do not match' },
+	{ name: 'Known country', type: 'Referential', config: '{"column": "country_id", "referenceTable": "countries", "referenceColumn": "id"}', severity: 'High', weight: 1, passed: true, score: 100, actual: 'no orphans' },
+	{ name: 'Active have signup date', type: 'Custom SQL', config: '{"sql": "SELECT … AS passed, … AS score FROM public.customers …"}', severity: 'Medium', weight: 1, passed: false, score: 70, actual: '30 active customers without one' },
+];
+const eff = (r: (typeof RULES)[number]) => r.weight * SEVERITY[r.severity];
+const SUM_W = RULES.reduce((a, r) => a + eff(r), 0);
+const SUM_S = RULES.reduce((a, r) => a + r.score * eff(r), 0);
+const OVERALL = Math.round((SUM_S / SUM_W) * 100) / 100;
+const PREVIOUS = 91.2;
+const THRESHOLD = 80;
+const trendOf = (score: number) => (score > PREVIOUS + 1 ? 'Improving' : score < PREVIOUS - 1 ? 'Degrading' : 'Stable');
+const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+const HERO = [
+	{ name: 'Customers', table: 'public.customers', score: OVERALL, trend: trendOf(OVERALL) },
+	{ name: 'Orders freshness and volume', table: 'public.orders', score: 96.4, trend: 'Improving' },
+	{ name: 'Invoice lines', table: 'public.invoice_lines', score: 73.5, trend: 'Stable' },
+];
+const AVG = HERO.reduce((a, h) => a + h.score, 0) / HERO.length;
+const trendTone = (t: string) => (t === 'Improving' ? 'ok' : t === 'Degrading' ? 'warn' : 'neutral');
+
+const RULE_TYPES = [
+	{ type: 'Freshness', what: 'The newest value in a timestamp column is no older than a maximum age.', config: '{"column": "updated_at", "maxAgeMinutes": 60}' },
+	{ type: 'Volume', what: 'The row count is within an expected range: minRows, maxRows, or both.', config: '{"minRows": 100}' },
+	{ type: 'Null rate', what: 'The percentage of NULLs in a column stays at or below a threshold.', config: '{"column": "email", "maxNullPercent": 5}', scoring: 'Small overruns cost little.' },
+	{ type: 'Uniqueness', what: 'A column contains no duplicate values.', config: '{"column": "id"}' },
+	{ type: 'Referential', what: 'Every non-null value exists in a reference table: no orphans.', config: '{"column": "user_id", "referenceTable": "users", "referenceColumn": "id"}' },
+	{ type: 'Range', what: 'Numeric values stay between min and max; either bound is optional.', config: '{"column": "age", "min": "0", "max": "150"}', scoring: 'Scores by the share of rows in range.' },
+	{ type: 'Pattern', what: 'All values match a pattern: a regular expression on PostgreSQL and MySQL, LIKE on SQL Server.', config: '{"column": "email", "pattern": "^[^@]+@[^@]+$"}' },
+	{ type: 'Custom SQL', what: 'Any check you can express as one read-only SELECT. Created only by an Admin.', config: '{"sql": "SELECT … AS passed FROM …"}', scoring: 'Returns its own score.' },
+];
+
+const CUSTOM_SQL = `SELECT
+  CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS passed,
+  GREATEST(0, 100 - COUNT(*))              AS score,
+  COUNT(*)                                 AS actual_value,
+  'Active customers without a signup date' AS message
+FROM public.customers
+WHERE status = 'active'
+  AND signed_up_at IS NULL;`;
+---
+
+<ExploreLayout
+	area="data-quality"
+	eyebrow="Explore · Data quality"
+	title="Agree on what a good table looks like, then <em>score</em> it."
+	lede="A data contract states the expected state of one table: how fresh, how large, which columns must be unique, present or valid. Beacon checks it on a schedule, turns the rule results into one weighted score, keeps the history and the trend, and alerts when the score drops below the agreed threshold."
+	facts={[
+		{ value: '8', label: 'rule types' },
+		{ value: '0–100%', label: 'weighted score' },
+		{ value: '3', label: 'database engines' },
+	]}
+	deeper={[
+		{ title: 'Data quality', href: '/features/data-quality/', desc: 'Contracts, rule types, scoring, alerting and the REST API.' },
+		{ title: 'Notifications', href: '/features/notifications/', desc: 'The recipients and channels contract alerts use.' },
+		{ title: 'Approvals', href: '/features/approvals/', desc: 'Review of Custom SQL rules when the workflow is enabled.' },
+	]}
+>
+	<div slot="hero" class="mock heroCard">
+		<div class="mockBar"><span>DATA QUALITY · SHOP DB</span><span>PostgreSQL</span></div>
+		<div class="mockBody">
+			<div class="heroRings">
+				{
+					HERO.map((h, i) => (
+						<div class="heroRing">
+							<Ring score={h.score} label={h.name} size={104} delay={0.15 + i * 0.15} />
+							<b>{h.name}</b>
+							<span class="mono">{h.table}</span>
+							<span class={`badge ${trendTone(h.trend)}`}>{h.trend}</span>
+						</div>
+					))
+				}
+			</div>
+			<div class="heroStats">
+				<div><b>{AVG.toFixed(1)}%</b><span>average score</span></div>
+				<div><b>{HERO.length}</b><span>tables</span></div>
+				<div><b>{HERO.filter((h) => h.score >= 80).length}</b><span>healthy</span></div>
+				<div><b>{HERO.filter((h) => h.trend === 'Degrading').length}</b><span>degrading</span></div>
+			</div>
+			<p class="heroFoot"><span class="tick" aria-hidden="true"></span> The tick on each ring marks the 80% failure threshold.</p>
+		</div>
+	</div>
+
+	<Section num="01" label="Anatomy" title="A table, a set of weighted rules, one score." lede="A contract targets one table on one database data source and runs on a cron schedule. Each rule has a type, an optional column, a JSON configuration, a severity and a weight. Together they produce one score per evaluation.">
+		<div class="anatomy">
+			<div class="mock">
+				<div class="mockBar"><span>TARGET</span><span>1 table</span></div>
+				<div class="mockBody">
+					<dl class="kv">
+						<dt>Data source</dt><dd>Shop DB (PostgreSQL)</dd>
+						<dt>Table</dt><dd class="mono">public.customers</dd>
+						<dt>Schedule</dt><dd class="mono">0 */6 * * *</dd>
+						<dt>Failure threshold</dt><dd>{THRESHOLD}%</dd>
+						<dt>Alert on failure</dt><dd>on · #data-team</dd>
+						<dt>Owner</dt><dd>Ana Horvat</dd>
+					</dl>
+				</div>
+			</div>
+			<div class="joint" aria-hidden="true"></div>
+			<div class="mock">
+				<div class="mockBar"><span>RULES</span><span>{RULES.length} enabled</span></div>
+				<div class="mockBody ruleChips">
+					{
+						RULES.map((r) => (
+							<div class="chip">
+								<span>{r.type}</span>
+								<span class={`sev sev-${r.severity.toLowerCase()}`}>{r.severity} ×{SEVERITY[r.severity]}</span>
+								{r.weight !== 1 && <span class="mono w">w {r.weight}</span>}
+							</div>
+						))
+					}
+				</div>
+			</div>
+			<div class="joint" aria-hidden="true"></div>
+			<div class="mock scoreBox">
+				<div class="mockBar"><span>SCORE</span><span>stored</span></div>
+				<div class="mockBody">
+					<Ring score={OVERALL} label="Customers contract" size={120} />
+					<span class={`badge ${trendTone(trendOf(OVERALL))}`}>{trendOf(OVERALL)} from {PREVIOUS.toFixed(1)}%</span>
+					<p>Every evaluation is stored. The table keeps a latest score and a trend.</p>
+				</div>
+			</div>
+		</div>
+		<div class="sevScale">
+			<span class="sevLabel">Severity multiplies influence</span>
+			{Object.entries(SEVERITY).map(([k, v]) => <span class={`sev sev-${k.toLowerCase()}`}>{k} ×{v}</span>)}
+			<span class="sevLabel">Weight: 0.1 to 10, default 1.0</span>
+		</div>
+	</Section>
+
+	<Section num="02" label="Rule types" title="Eight checks, from freshness to your own SQL." alt lede="Rules stay on the contract's data source: Beacon takes the schema and table from the contract, checks every table and column a rule names against the data source's stored metadata, and quotes them as identifiers, so a rule cannot reach another schema, database or catalog.">
+		<div class="cols4 types">
+			{
+				RULE_TYPES.map((t) => (
+					<div class="card typeCard">
+						<h3>{t.type}</h3>
+						<p>{t.what}</p>
+						<code class="cfg">{t.config}</code>
+						{t.scoring && <span class="scoring">{t.scoring}</span>}
+					</div>
+				))
+			}
+		</div>
+		<p class="note">Most rules score 100 on pass and 0 on fail. Null rate scores <code>max(0, 100 − (actual − max))</code>, Range scores the share of rows within range, and Custom SQL returns its own score.</p>
+	</Section>
+
+	<Section num="03" label="Worked example" title="Scoring the customers table." lede="Eight rules on public.customers, each with a severity and a weight. Toggle rules off to see how the weighted average moves: a disabled rule is skipped and does not affect the score.">
+		<div class="dqCalc" data-calc data-previous={PREVIOUS} data-threshold={THRESHOLD}>
+			<div class="mock">
+				<div class="mockBar"><span>LATEST RESULTS · public.customers</span><span>evaluation of 12:00</span></div>
+				<div class="scrollX">
+					<table class="mockTable calcTable">
+						<thead>
+							<tr><th>On</th><th>Rule</th><th>Result</th><th>Score</th><th>Severity</th><th>Weight</th><th>Effective</th><th>Score × effective</th></tr>
+						</thead>
+						<tbody>
+							{
+								RULES.map((r, i) => (
+									<tr data-rule data-score={r.score} data-eff={eff(r)}>
+										<td><input type="checkbox" checked aria-label={`Rule ${r.name} enabled`} /></td>
+										<td>
+											<b>{r.name}</b>
+											<span class="ruleType">{r.type}</span>
+										</td>
+										<td>
+											<span class={`badge ${r.passed ? 'ok' : 'crit'}`}>{r.passed ? 'Pass' : 'Fail'}</span>
+											<span class="actual">{r.actual}</span>
+										</td>
+										<td class="mono">{fmt(r.score)}</td>
+										<td><span class={`sev sev-${r.severity.toLowerCase()}`}>{r.severity} ×{SEVERITY[r.severity]}</span></td>
+										<td class="mono">{fmt(r.weight)}</td>
+										<td class="mono">{fmt(eff(r))}</td>
+										<td class="mono">{fmt(r.score * eff(r))}</td>
+									</tr>
+								))
+							}
+						</tbody>
+					</table>
+				</div>
+			</div>
+
+			<div class="calcResult">
+				<div class="formula mono" aria-live="polite">
+					<span>Σ(score × effective) / Σ(effective)</span>
+					<span>= <b data-sum-s>{fmt(SUM_S)}</b> / <b data-sum-w>{fmt(SUM_W)}</b></span>
+					<span class="big">= <b data-overall>{OVERALL.toFixed(2)}</b>%</span>
+				</div>
+				<div class="thresholdBar" aria-hidden="true">
+					<span class="fill" data-fill style={`width:${OVERALL}%`}></span>
+					<span class="th" style={`left:${THRESHOLD}%`}></span>
+				</div>
+				<div class="calcVerdicts">
+					<span class={`badge ${trendTone(trendOf(OVERALL))}`} data-trend>{trendOf(OVERALL)}</span>
+					<span class="dimTxt">previous score {PREVIOUS.toFixed(2)}%; more than 1 point lower is Degrading</span>
+				</div>
+				<p class="verdict" data-verdict>At or above the {THRESHOLD}% threshold: no alert.</p>
+				<p class="note">Effective weight is the rule's weight times its severity multiplier. The overall score is rounded to two decimals. Alerts are sent only by scheduled evaluations, never by <b>Evaluate now</b>.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="04" label="Evaluation" title="What happens on every run." alt lede="Each enabled contract is a recurring job on the host's scheduler, and Evaluate now runs one on demand. A scheduled evaluation runs as the contract's owner.">
+		<Flow
+			seconds={7}
+			steps={[
+				{ label: 'Schedule fires', detail: 'The cron expression, or Evaluate now on the contract page.' },
+				{ label: 'Check the owner', detail: 'The owner must still run saved SQL in a project that links the data source.' },
+				{ label: 'Run each rule', detail: 'Engine-specific SQL per enabled rule, read-only, 60 seconds each.' },
+				{ label: 'Score', detail: 'Pass or fail, a rule score, expected and actual values, a message.' },
+				{ label: 'Store', detail: 'The evaluation with every rule result; the table score and trend.' },
+				{ label: 'Alert', detail: 'Below the threshold, a scheduled run notifies the recipients.', tone: 'warn' },
+			]}
+		/>
+		<div class="cols3" style="margin-top: 40px">
+			<div class="card">
+				<h3>One failing rule stays contained</h3>
+				<p>A rule with a bad configuration, a missing column or a timeout is recorded as failed with score 0, and the other rules still run.</p>
+			</div>
+			<div class="card">
+				<h3>Skipped when the owner lost access</h3>
+				<p>No rule runs and no score, history or alert is written. The contract shows <b>Owner not authorized</b>, and an Admin or UserAdmin can assign a new owner with <b>Change owner</b>.</p>
+			</div>
+			<div class="card">
+				<h3>PostgreSQL, SQL Server and MySQL</h3>
+				<p>Contracts evaluate on these three database engines. Pattern rules follow each engine's own matching: regular expressions, or <code>LIKE</code> on SQL Server.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="05" label="Custom SQL rules" title="Any check you can write as one SELECT." lede="A Custom SQL rule runs your query and reads the first row of the result. Only an Admin creates, changes or deletes a contract that contains one, and when the approval workflow is enabled, a second person approves its SQL before it is evaluated.">
+		<div class="cols2">
+			<div class="stack">
+				<Code code={CUSTOM_SQL} lang="sql" title="Custom SQL rule · Active have signup date" />
+				<table class="mockTable colsTable">
+					<thead><tr><th>Column</th><th>Required</th><th>Meaning</th></tr></thead>
+					<tbody>
+						<tr><td class="mono">passed</td><td>Yes</td><td><span class="mono">1</span> pass, <span class="mono">0</span> fail</td></tr>
+						<tr><td class="mono">score</td><td>No</td><td>0 to 100; defaults to 100 on pass, 0 on fail</td></tr>
+						<tr><td class="mono">actual_value</td><td>No</td><td>Shown as the observed value</td></tr>
+						<tr><td class="mono">message</td><td>No</td><td>Shown as the result message</td></tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="stack">
+				<div class="card">
+					<h3>Read-only and bounded</h3>
+					<p>One read-only <code>SELECT</code> in the data source's dialect, checked when the contract is saved and on every evaluation. Beacon caps the result at one row itself, so the query sets no outer <code>LIMIT</code>, <code>TOP</code> or <code>FETCH</code>, and it names only the data source's own database.</p>
+				</div>
+				<div class="card">
+					<h3>Masked observations</h3>
+					<p><code>actual_value</code> and <code>message</code> reach the history and alerts. A PII column read into them is masked first, under the strictest PII setting of the projects that link the data source.</p>
+				</div>
+				<div class="mock approval">
+					<div class="mockBar"><span>WHEN THE APPROVAL WORKFLOW IS ENABLED</span></div>
+					<div class="mockBody">
+						<div class="apRow"><span class="badge warn">Awaiting approval</span><span>A new or changed Custom SQL rule is left out of evaluations; the other rules keep running.</span></div>
+						<div class="apRow"><span class="badge neutral">Partial</span><span>An evaluation that left rules out does not replace the table's score, so a held rule never improves it silently.</span></div>
+						<div class="apRow"><span class="badge ok">Approved</span><span>An Approver other than the requester approves exactly that SQL on that data source.</span></div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="06" label="Where scores surface" title="Scores where people and assistants look." alt>
+		<div class="cols2 surfaces">
+			<div class="mock">
+				<div class="mockBar"><span>ALERT · SCHEDULED EVALUATION</span><span class="badge crit">Below threshold</span></div>
+				<div class="mockBody">
+					<div class="alTitle">[Data Quality] Invoice lines</div>
+					<dl class="kv">
+						<dt>Overall score</dt><dd><b>73.50%</b> (threshold 80%)</dd>
+						<dt>Table</dt><dd class="mono">public.invoice_lines</dd>
+						<dt>Rules</dt><dd>5 passed, 2 failed</dd>
+					</dl>
+					<div class="scrollX"><table class="mockTable">
+						<thead><tr><th>Failed rule</th><th>Score</th><th>Expected</th><th>Actual</th></tr></thead>
+						<tbody>
+							<tr><td>Line totals in range</td><td class="mono">88</td><td class="mono">0 to 100,000</td><td class="mono">12% out of range</td></tr>
+							<tr><td>Fresh lines</td><td class="mono">0</td><td class="mono">≤ 60 min</td><td class="mono">7 h old</td></tr>
+						</tbody>
+					</table></div>
+					<p class="note">Delivered to the contract's recipients on any channel: email, Teams, Slack, Jira or a webhook.</p>
+				</div>
+			</div>
+			<div class="stack">
+				<div class="card surf">
+					<h3>Data Quality page</h3>
+					<p>Overview cards per data source: average score, tables, Healthy tables (80 or more), Degrading tables and contracts, then the contracts list with each latest score.</p>
+				</div>
+				<div class="card surf">
+					<h3>Contract page</h3>
+					<p><b>Rules</b>, <b>Evaluations</b> (history with scores, pass and fail counts) and <b>Latest results</b> per rule, with <b>Evaluate now</b> in the header.</p>
+				</div>
+				<div class="card surf">
+					<h3>AI assistants over MCP</h3>
+					<p>Table scores appear in <code>get_documentation</code>, so an assistant sees a table's quality next to its schema, and <code>get_context</code> shows each data source's overall score.</p>
+				</div>
+				<div class="card surf">
+					<h3>Control Tower</h3>
+					<p>When contracts are not evaluated because their owner may no longer run them, the Control Tower shows how many and links to Data Quality.</p>
+				</div>
+			</div>
+		</div>
+	</Section>
+</ExploreLayout>
+
+<script>
+	// Worked example: recompute the weighted score from the enabled rules.
+	document.querySelectorAll<HTMLElement>('[data-calc]').forEach((root) => {
+		const previous = Number(root.dataset.previous);
+		const threshold = Number(root.dataset.threshold);
+		const rows = Array.from(root.querySelectorAll<HTMLElement>('[data-rule]'));
+		const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+		const q = (s: string) => root.querySelector<HTMLElement>(s);
+		const render = () => {
+			let sumS = 0;
+			let sumW = 0;
+			rows.forEach((row) => {
+				const on = row.querySelector<HTMLInputElement>('input')?.checked ?? true;
+				row.classList.toggle('off', !on);
+				if (on) {
+					sumS += Number(row.dataset.score) * Number(row.dataset.eff);
+					sumW += Number(row.dataset.eff);
+				}
+			});
+			const trend = q('[data-trend]');
+			const verdict = q('[data-verdict]');
+			const fill = q('[data-fill]');
+			q('[data-sum-s]')!.textContent = fmt(sumS);
+			q('[data-sum-w]')!.textContent = fmt(sumW);
+			if (sumW === 0) {
+				q('[data-overall]')!.textContent = '–';
+				if (fill) {
+					fill.style.width = '0%';
+				}
+				if (trend) {
+					trend.textContent = 'Not evaluated';
+					trend.classList.remove('ok', 'warn');
+					trend.classList.add('neutral');
+				}
+				if (verdict) {
+					verdict.textContent = 'No enabled rules: the contract is not evaluated and keeps its last score.';
+				}
+				return;
+			}
+			const score = Math.round((sumS / sumW) * 100) / 100;
+			q('[data-overall]')!.textContent = score.toFixed(2);
+			if (fill) {
+				fill.style.width = `${score}%`;
+				fill.classList.toggle('below', score < threshold);
+			}
+			if (trend) {
+				const t = score > previous + 1 ? 'Improving' : score < previous - 1 ? 'Degrading' : 'Stable';
+				trend.textContent = t;
+				trend.classList.remove('ok', 'warn', 'neutral');
+				trend.classList.add(t === 'Improving' ? 'ok' : t === 'Degrading' ? 'warn' : 'neutral');
+			}
+			if (verdict) {
+				verdict.textContent =
+					score < threshold
+						? `Below the ${threshold}% threshold: a scheduled evaluation alerts the recipients.`
+						: `At or above the ${threshold}% threshold: no alert.`;
+			}
+		};
+		rows.forEach((row) => row.querySelector('input')?.addEventListener('change', render));
+	});
+</script>
+
+<style>
+	.dimTxt { color: var(--bx-text-dim); }
+	.scrollX { overflow-x: auto; }
+
+	/* ── Hero ────────────────────────────────────────────────────────────── */
+	.heroCard { max-width: 540px; margin-left: auto; }
+	.heroRings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+	.heroRing { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
+	.heroRing b { font-size: 13px; line-height: 1.3; margin-top: 6px; }
+	.heroRing .mono { font-size: 10.5px; color: var(--bx-text-dim); overflow-wrap: anywhere; }
+	.heroRing .badge { margin-top: 4px; }
+	.heroStats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+	.heroStats div { border: 1px solid var(--bx-border); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; }
+	.heroStats b { font-size: 18px; }
+	.heroStats span { font-size: 11px; color: var(--bx-text-dim); }
+	.heroFoot { margin-top: 12px !important; font-size: 12px; color: var(--bx-text-dim); display: flex; align-items: center; gap: 8px; }
+	.tick { width: 2px; height: 10px; background: var(--bx-text-dim); display: inline-block; }
+
+	/* ── Severity chips ──────────────────────────────────────────────────── */
+	.sev { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+	.sev-low { background: var(--bx-surface2); color: var(--bx-text-muted); border: 1px solid var(--bx-border); }
+	.sev-medium { background: var(--bx-accent-dim); color: var(--bx-accent); }
+	.sev-high { background: var(--xp-warn-dim); color: var(--xp-warn); }
+	.sev-critical { background: var(--xp-crit-dim); color: var(--xp-crit); }
+
+	/* ── 01 Anatomy ──────────────────────────────────────────────────────── */
+	.anatomy { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1.1fr) 28px minmax(0, 0.8fr); align-items: stretch; }
+	.joint { position: relative; }
+	.joint::before { content: ''; position: absolute; left: 0; right: 6px; top: 50%; height: 2px; background: var(--bx-accent); opacity: 0.5; }
+	.joint::after { content: ''; position: absolute; right: 0; top: calc(50% - 5px); border: 5px solid transparent; border-left: 7px solid var(--bx-accent); opacity: 0.8; }
+	.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 7px 14px; margin: 0; font-size: 13px; }
+	.kv dt { color: var(--bx-text-dim); }
+	.kv dd { margin: 0; color: var(--bx-text); overflow-wrap: anywhere; }
+	.ruleChips { display: flex; flex-direction: column; gap: 6px; }
+	.chip { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--bx-border); border-radius: 8px; font-size: 13px; }
+	.chip > span:first-child { flex: 1; min-width: 0; }
+	.chip .w { color: var(--bx-text-dim); }
+	.scoreBox .mockBody { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+	.scoreBox p { font-size: 12.5px; color: var(--bx-text-muted); line-height: 1.5; }
+	.sevScale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 22px; }
+	.sevLabel { font-size: 12.5px; color: var(--bx-text-dim); margin-right: 4px; }
+	.sevLabel:last-child { margin-left: 12px; }
+
+	/* ── 02 Rule types ───────────────────────────────────────────────────── */
+	.typeCard { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; }
+	.typeCard h3 { margin: 0; }
+	.typeCard p { font-size: 13.5px; }
+	.cfg { display: block; font-family: var(--sl-font-mono); font-size: 11px !important; line-height: 1.5; padding: 8px 10px !important; border-radius: 8px !important; overflow-wrap: anywhere; white-space: pre-wrap; margin-top: auto; }
+	.scoring { font-size: 12px; font-weight: 600; color: var(--xp-warn); }
+
+	/* ── 03 Worked example ───────────────────────────────────────────────── */
+	.dqCalc { display: flex; flex-direction: column; gap: 24px; }
+	.calcTable td { vertical-align: top; font-size: 13px; }
+	.calcTable td:first-child { width: 36px; }
+	.calcTable input { width: 16px; height: 16px; accent-color: var(--bx-accent); margin: 2px 0 0; }
+	.calcTable input:focus-visible { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.calcTable th, .calcTable td.mono { white-space: nowrap; }
+	.ruleType { display: block; font-size: 11.5px; color: var(--bx-text-dim); }
+	.actual { display: block; font-size: 11.5px; color: var(--bx-text-dim); margin-top: 4px; min-width: 160px; }
+	.calcTable tr:global(.off) td:not(:first-child) { opacity: 0.38; text-decoration: line-through; text-decoration-color: var(--bx-text-dim); }
+	.calcResult { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 28px; align-items: center; }
+	.formula { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--bx-text-muted); }
+	.formula b { color: var(--bx-text); }
+	.formula .big { font-size: 26px; color: var(--bx-text); font-family: var(--sl-font); font-weight: 300; }
+	.formula .big b { font-weight: 600; }
+	.thresholdBar { position: relative; height: 12px; border-radius: 6px; background: var(--bx-surface2); border: 1px solid var(--bx-border); }
+	.thresholdBar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: var(--xp-ok); transition: width .3s ease, background .3s; }
+	.thresholdBar .fill:global(.below) { background: var(--xp-crit); }
+	.thresholdBar .th { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--bx-text); }
+	.calcVerdicts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12.5px; }
+	.verdict { font-size: 14px; font-weight: 600; color: var(--bx-text); }
+	.calcResult .note { grid-column: 1 / -1; margin-top: 0; }
+
+	/* ── 05 Custom SQL ───────────────────────────────────────────────────── */
+	.colsTable { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+	.colsTable td { font-size: 13px; }
+	.approval .mockBody { display: flex; flex-direction: column; gap: 10px; }
+	.apRow { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 13px; color: var(--bx-text-muted); line-height: 1.5; }
+	.apRow .badge { justify-self: start; }
+
+	/* ── 06 Surfaces ─────────────────────────────────────────────────────── */
+	.alTitle { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+	.surfaces .kv { margin-bottom: 14px; }
+	.surfaces .mockTable td { font-size: 12.5px; }
+	.surf { padding: 16px 20px; }
+	.surf p { font-size: 13.5px; }
+
+	@media (max-width: 1024px) {
+		.heroCard { margin: 0; max-width: none; }
+		.anatomy { grid-template-columns: minmax(0, 1fr); }
+		.joint { height: 28px; }
+		.joint::before { left: 50%; right: auto; top: 0; bottom: 6px; width: 2px; height: auto; }
+		.joint::after { left: calc(50% - 4px); right: auto; top: auto; bottom: -4px; border: 5px solid transparent; border-top: 7px solid var(--bx-accent); }
+		.calcResult { grid-template-columns: minmax(0, 1fr); }
+	}
+	@media (max-width: 640px) {
+		.heroRings { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+		.heroRing .mono { display: none; }
+		.heroStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		.apRow { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+		.sevLabel:last-child { margin-left: 0; }
+	}
+</style>

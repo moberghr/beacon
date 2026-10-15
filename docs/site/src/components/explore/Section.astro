@@ -1,0 +1,21 @@
+---
+// A numbered Explore section: "01 · LABEL", a heading, a lede and the content.
+interface Props {
+	num: string;
+	label: string;
+	title: string;
+	lede?: string;
+	alt?: boolean;
+	id?: string;
+}
+const { num, label, title, lede, alt = false, id } = Astro.props;
+---
+
+<section class={`xpSection${alt ? ' alt' : ''}`} id={id}>
+	<div class="wrap">
+		<div class="secHead"><span class="secNum">{num}</span>{label}</div>
+		<h2 class="h2">{title}</h2>
+		{lede && <p class="lede">{lede}</p>}
+		<slot />
+	</div>
+</section>

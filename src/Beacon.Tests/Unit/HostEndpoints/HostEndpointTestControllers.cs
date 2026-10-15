@@ -229,6 +229,36 @@ public sealed class StepUpSchemeController : ControllerBase
     public IActionResult Get() => Ok();
 }
 
+/// <summary>Write tools (an HR host's own leave): exposed only with <c>AllowWriteTools</c>.</summary>
+[Route("leave")]
+public sealed class LeaveController : ControllerBase
+{
+    public static int Bookings;
+
+    [HttpPost("book")]
+    [Authorize(Policy = HostEndpointTestHost.ViewThingPolicy)]
+    [BeaconTool("leave_book", Description = "Book leave for yourself.", ReadOnly = false)]
+    public IActionResult Book([FromForm] string from, [FromForm] string to)
+    {
+        Interlocked.Increment(ref Bookings);
+
+        return Ok(new { from, to, user = User.Identity?.Name });
+    }
+
+    [HttpPost("withdraw/{id:int}")]
+    [Authorize(Policy = HostEndpointTestHost.ViewThingPolicy)]
+    [BeaconTool("leave_withdraw", Description = "Withdraw one of your leave requests.", ReadOnly = false, Destructive = true, Idempotent = true)]
+    public IActionResult Withdraw(int id) => Ok(new { withdrawn = id });
+}
+
+public sealed class DestructiveReadOnlyController : ControllerBase
+{
+    [HttpGet("bad/destructive-read")]
+    [Authorize]
+    [BeaconTool("destructive_read", ReadOnly = true, Destructive = true)]
+    public IActionResult Get() => Ok();
+}
+
 internal static class HostEndpointTestClaims
 {
     public static Claim Permission(string value) => new(HostEndpointTestHost.PermissionClaim, value);

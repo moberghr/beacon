@@ -4,6 +4,8 @@ using FluentAssertions;
 using Moq;
 using ModelContextProtocol.Server;
 using NUnit.Framework;
+using Beacon.Core.Authentication;
+using Beacon.Core.Configuration;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
 using Beacon.MCP.Services;
@@ -49,6 +51,75 @@ public class McpDiscoveryDocumentTests
         document["authorization_servers"]!.AsArray()
             .Select(x => x!.GetValue<string>())
             .Should().Equal(authority);
+    }
+
+    [Test]
+    public void ResolveAuthorizationServers_NothingConfigured_KeepsTheLegacyOidcAuthority()
+    {
+        var options = new McpProtectedResourceOptions();
+
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, EntraJwt(), "https://beacon-sso.example")
+            .Should().Equal(["https://beacon-sso.example"], "without the new section the document is unchanged");
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, EntraJwt(), null)
+            .Should().BeEmpty("a JWT issuer is never published unless the host opts in");
+        McpDiscoveryDocuments.ResolveScopesSupported(options).Should().Equal("Execute");
+    }
+
+    [Test]
+    public void ResolveAuthorizationServers_ExplicitList_WinsOverDerivationAndOidc()
+    {
+        var options = new McpProtectedResourceOptions
+        {
+            AuthorizationServers = [" https://login.microsoftonline.com/explicit/v2.0 ", ""],
+            DeriveAuthorizationServerFromJwtIssuer = true
+        };
+
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, EntraJwt(), "https://beacon-sso.example")
+            .Should().Equal("https://login.microsoftonline.com/explicit/v2.0");
+    }
+
+    [Test]
+    public void ResolveAuthorizationServers_Derived_PrefersTheEntraV2IssuerVerbatim()
+    {
+        var options = new McpProtectedResourceOptions { DeriveAuthorizationServerFromJwtIssuer = true };
+
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, EntraJwt(), "https://beacon-sso.example")
+            .Should().Equal("https://login.microsoftonline.com/tenant-1/v2.0");
+
+        var v1Only = EntraJwt();
+        v1Only.Validation.ValidIssuers = ["https://login.microsoftonline.com/{tenantid}/v2.0", "https://sts.windows.net/tenant-1/"];
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, v1Only, null)
+            .Should().Equal(["https://sts.windows.net/tenant-1/"], "templated issuers are skipped and the issuer is not trimmed");
+    }
+
+    [Test]
+    public void ResolveAuthorizationServers_DerivedWithoutBearerJwt_PublishesNone()
+    {
+        var options = new McpProtectedResourceOptions { DeriveAuthorizationServerFromJwtIssuer = true };
+        var disabled = EntraJwt();
+        disabled.EnableBearerAuthentication = false;
+
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, null, null).Should().BeEmpty();
+        McpDiscoveryDocuments.ResolveAuthorizationServers(options, disabled, null).Should().BeEmpty();
+    }
+
+    [Test]
+    public void ProtectedResourceMetadata_WithEntraScopes_ReplacesTheBeaconScopeNames()
+    {
+        var options = new McpProtectedResourceOptions { ScopesSupported = ["api://app-id/mcp.access", "offline_access"] };
+        var scopes = McpDiscoveryDocuments.ResolveScopesSupported(options);
+
+        var document = McpDiscoveryDocuments.BuildProtectedResourceMetadata(
+            BaseUrl, ["https://login.microsoftonline.com/tenant-1/v2.0"], scopes);
+        var card = McpDiscoveryDocuments.BuildServerCard(BaseUrl, scopes);
+
+        document["scopes_supported"]!.AsArray().Select(x => x!.GetValue<string>())
+            .Should().Equal("api://app-id/mcp.access", "offline_access");
+        document["authorization_servers"]!.AsArray().Select(x => x!.GetValue<string>())
+            .Should().Equal("https://login.microsoftonline.com/tenant-1/v2.0");
+        card["authentication"]!["scopes_supported"]!.AsArray().Select(x => x!.GetValue<string>())
+            .Should().Equal("api://app-id/mcp.access", "offline_access");
+        card["endpoint"]!.GetValue<string>().Should().Be(document["resource"]!.GetValue<string>());
     }
 
     [Test]
@@ -105,6 +176,18 @@ public class McpDiscoveryDocumentTests
         catalogTools.Should().Equal(
             liveTools,
             "McpToolCatalog is the single source for the server card and playground — a new/renamed [McpServerTool] must be reflected there");
+    }
+
+    private static JwtAuthenticationOptions EntraJwt()
+    {
+        return new JwtAuthenticationOptions
+        {
+            EnableBearerAuthentication = true,
+            Validation = new JwtValidationOptions
+            {
+                ValidIssuers = ["https://sts.windows.net/tenant-1/", "https://login.microsoftonline.com/tenant-1/v2.0"]
+            }
+        };
     }
 
     [Test]

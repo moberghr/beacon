@@ -1,0 +1,29 @@
+---
+// A product screenshot in a frame with a caption. `name` is a file in src/assets/screenshots.
+import { Image } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+	name: string;
+	alt: string;
+	caption?: string;
+}
+const { name, alt, caption } = Astro.props;
+const images = import.meta.glob<{ default: ImageMetadata }>('../../assets/screenshots/*.png', { eager: true });
+const image = images[`../../assets/screenshots/${name}.png`];
+if (!image) {
+	throw new Error(`Shot: unknown screenshot "${name}"`);
+}
+---
+
+<figure class="shot">
+	<div class="shotFrame"><Image src={image.default} alt={alt} densities={[1, 2]} /></div>
+	{caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+	.shot { margin: 0; }
+	.shotFrame { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); overflow: hidden; background: var(--bx-surface); box-shadow: 0 16px 48px -14px rgba(0, 0, 0, 0.16); }
+	.shotFrame :global(img) { display: block; width: 100%; height: auto; }
+	figcaption { margin-top: 12px; text-align: center; font-size: 13.5px; color: var(--bx-text-muted); }
+</style>

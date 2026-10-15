@@ -48,6 +48,7 @@ internal partial class MigrationService(
     IQueryService queryService,
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
+    MigrationBulkContextFactory bulkContextFactory,
     ILogger<MigrationService> logger,
     IOptions<MigrationOptions> migrationOptions,
     ChangeApprovalSubmitter changeApprovals,

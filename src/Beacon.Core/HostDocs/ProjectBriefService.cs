@@ -321,8 +321,12 @@ internal sealed class ProjectBriefService(
             return;
         }
 
+        var hasWrites = listing.Tools.Any(x => !x.ReadOnly);
+
         sb.Append("## Host application tools\n\n");
-        sb.Append("Read-only endpoints of the host application, run as your host identity: the host's own permissions decide what you may see. ");
+        sb.Append(hasWrites
+            ? "Endpoints of the host application, run as your host identity: the host's own permissions decide what you may see and change. Tools marked *(writes)* change data: call one only when the user asked for that change; they run only for a signed-in user. "
+            : "Read-only endpoints of the host application, run as your host identity: the host's own permissions decide what you may see. ");
         sb.Append(listing.CatalogMode
             ? "Find one with `search_api` (it returns the input schema) and run it with `call_api`.\n\n"
             : "Call them by name.\n\n");
@@ -331,6 +335,11 @@ internal sealed class ProjectBriefService(
         {
             var name = listing.CatalogMode ? tool.Name : tool.ToolName;
             sb.Append("- `").Append(name).Append('`');
+            if (!tool.ReadOnly)
+            {
+                sb.Append(" *(writes)*");
+            }
+
             if (!string.IsNullOrWhiteSpace(tool.Description))
             {
                 sb.Append(" — ").Append(tool.Description.Trim());

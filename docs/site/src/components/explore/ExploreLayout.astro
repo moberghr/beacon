@@ -1,0 +1,116 @@
+---
+// Frame for an Explore page: area navigation, hero (text + a visual in the "hero" slot),
+// the page's sections (default slot), "Go deeper" links, previous/next and the footer.
+import '../../styles/explore.css';
+import SiteFooter from '../SiteFooter.astro';
+import { AREAS } from './areas';
+
+interface Fact {
+	value: string;
+	label: string;
+}
+interface Link {
+	title: string;
+	href: string;
+	desc: string;
+}
+interface Props {
+	area: string;
+	eyebrow: string;
+	title: string;
+	lede: string;
+	facts?: Fact[];
+	deeper?: Link[];
+}
+
+const { area, eyebrow, title, lede, facts = [], deeper = [] } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (path: string) => `${base}${path}`;
+const index = AREAS.findIndex((x) => x.slug === area);
+const prev = index > 0 ? AREAS[index - 1] : null;
+const next = index < AREAS.length - 1 ? AREAS[index + 1] : null;
+---
+
+<main class="bx xp not-content">
+	<nav class="areaNav" aria-label="Explore Beacon">
+		<div class="wrap areaNavInner">
+			<span class="areaNavLabel">Explore</span>
+			{
+				AREAS.map((x) => (
+					<a class="areaPill" href={href(`/explore/${x.slug}/`)} aria-current={x.slug === area ? 'page' : undefined}>
+						{x.label}
+					</a>
+				))
+			}
+		</div>
+	</nav>
+
+	<header class="xpHero">
+		<div class="wrap xpHeroGrid">
+			<div>
+				<div class="xpEyebrow">{eyebrow}</div>
+				<h1 class="xpTitle" set:html={title} />
+				<p class="xpLede">{lede}</p>
+				{
+					facts.length > 0 && (
+						<ul class="xpFacts">
+							{facts.map((f) => (
+								<li>
+									<b>{f.value}</b>
+									<span>{f.label}</span>
+								</li>
+							))}
+						</ul>
+					)
+				}
+			</div>
+			<div class="xpHeroVisual">
+				<slot name="hero" />
+			</div>
+		</div>
+	</header>
+
+	<slot />
+
+	<section class="xpSection alt">
+		<div class="wrap">
+			{
+				deeper.length > 0 && (
+					<>
+						<div class="secHead">
+							<span class="secNum">→</span>Go deeper
+						</div>
+						<div class="deeper" style="margin-bottom: 40px">
+							{deeper.map((d) => (
+								<a href={href(d.href)}>
+									<b>{d.title}</b>
+									<span>{d.desc}</span>
+								</a>
+							))}
+						</div>
+					</>
+				)
+			}
+			<div class="pager">
+				{
+					prev && (
+						<a href={href(`/explore/${prev.slug}/`)}>
+							<small>Previous</small>
+							<b>{prev.label}</b>
+						</a>
+					)
+				}
+				{
+					next && (
+						<a class="next" href={href(`/explore/${next.slug}/`)}>
+							<small>Next</small>
+							<b>{next.label}</b>
+						</a>
+					)
+				}
+			</div>
+		</div>
+	</section>
+
+	<SiteFooter />
+</main>

@@ -1,0 +1,524 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+import Shot from '../Shot.astro';
+
+// Grounding layers, in the order the context presents them.
+const LAYERS = [
+	{
+		name: 'Schema',
+		block: 'Relevant Tables (full schema) · Other Tables · Coverage',
+		kind: 'machine',
+		adds: 'An M-Schema rendering of the tables that matter: column name, type, nullability and description. Other tables appear by name and primary key only, and a coverage note says when the neighbourhood was capped.',
+		knobs: 'Sample values and value matches: opt-in, off by default',
+	},
+	{
+		name: 'Relationships',
+		block: 'Join Paths (verified) · Join Paths (UNVERIFIED)',
+		kind: 'verified',
+		adds: 'Foreign keys and curator-confirmed joins as trusted paths. Inferred or user-added joins sit in a separate block that tells the model to confirm them first.',
+		knobs: 'Origins: foreign key, inferred, manual',
+	},
+	{
+		name: 'Business glossary',
+		block: 'Business Glossary',
+		kind: 'curated',
+		adds: 'What your terms mean in your schema: definition, synonyms, the table and column they map to, and the SQL expression of a metric.',
+		knobs: 'GlossaryTopK = 5',
+	},
+	{
+		name: 'Golden examples',
+		block: 'Verified query examples (authoritative)',
+		kind: 'authoritative',
+		adds: 'Human-verified question and SQL pairs for the data source, ranked above learned patterns. The same cases are the regression suite for eval runs.',
+		knobs: 'GoldenExemplarTopK = 4 · 2,000 chars',
+	},
+	{
+		name: 'Learned patterns',
+		block: 'Learned Patterns (from usage)',
+		kind: 'learned',
+		adds: 'Corrections, column clarifications, join patterns, common queries, business-term mappings and documentation gaps, mined from real usage.',
+		knobs: 'LearningInjectionBudgetChars = 1,500',
+	},
+	{
+		name: 'Semantic retrieval',
+		block: 'Ranking for search, exemplars and documentation chunks',
+		kind: 'machine',
+		adds: 'A local ONNX model embeds schema, exemplars and documentation; reciprocal rank fusion merges it with keyword matching, so "revenue" finds net_amount. It ranks the exemplars for the context, the search tool, and the documentation chunks (overlapping 5-sentence windows) that knowledge answers draw on.',
+		knobs: 'bge-small-en-v1.5 · 384 dimensions · off until configured',
+	},
+];
+const KIND: Record<string, { label: string; tone: string }> = {
+	machine: { label: 'machine-derived', tone: 'neutral' },
+	verified: { label: 'verified + flagged', tone: '' },
+	curated: { label: 'curated', tone: '' },
+	authoritative: { label: 'authoritative', tone: 'ok' },
+	learned: { label: 'learned, reviewed', tone: 'warn' },
+};
+
+const LOOP = [
+	{ name: 'Signals', text: 'Every ask, query and dry_run call records the question, SQL, tables, routing and outcome.' },
+	{ name: 'Mining', text: 'Every 6 hours, ask and query signals are clustered per project and data source. dry_run is excluded.' },
+	{ name: 'Lessons', text: 'An LLM diagnoses failure-then-correction clusters; a deterministic path takes over when it cannot.' },
+	{ name: 'NeedsEvidence', text: 'Every new pattern lands here. Confidence alone never approves anything.' },
+	{ name: 'Replay', text: "The project's golden cases run with and without the candidate injected." },
+	{ name: 'Injected', text: 'Approved and auto-approved patterns ground future SQL for the same project.' },
+];
+
+const REPLAY = [
+	{ id: 12, q: 'Active customers per country', without: 'fail', with: 'pass' },
+	{ id: 15, q: 'Orders per customer last month', without: 'pass', with: 'pass' },
+	{ id: 21, q: 'Refund rate by week', without: 'pass', with: 'pass' },
+	{ id: 27, q: 'Revenue by sales channel', without: 'fail', with: 'fail' },
+];
+
+const BEFORE = `SELECT count(*) AS active_customers
+FROM shop.customers
+WHERE is_active = true
+  AND country_code = 'DE';`;
+
+const AFTER = `SELECT count(DISTINCT c.customer_id) AS active_customers
+FROM shop.customers c
+JOIN shop.orders o ON o.customer_id = c.customer_id
+WHERE c.country_code = 'DE'
+  AND o.status = 'paid'
+  AND o.placed_at >= now() - interval '90 days';`;
+
+const GOLD = `SELECT c.country_code,
+       count(DISTINCT c.customer_id) AS active_customers
+FROM shop.customers c
+JOIN shop.orders o ON o.customer_id = c.customer_id
+WHERE o.status = 'paid'
+  AND o.placed_at >= now() - interval '90 days'
+GROUP BY c.country_code;`;
+---
+
+<ExploreLayout
+	area="grounding"
+	eyebrow="Explore · Grounding & learning"
+	title="Generated SQL grounded in what your team <em>knows</em>."
+	lede="Beacon never hands a model a bare schema dump. Every question is answered against an assembled context: the tables that matter, the joins that are real, the terms your organisation uses and examples a person has verified. A learning loop adds what usage teaches, and only what replay proves helps."
+	facts={[
+		{ value: 'Replay', label: 'decides auto-approval' },
+		{ value: 'Per project', label: 'retrieval, hard-filtered' },
+		{ value: 'Local', label: 'embeddings, no egress' },
+	]}
+	deeper={[
+		{ title: 'Knowledge base & grounding', href: '/features/knowledge-base/', desc: 'Every block, the learning loop, curation rules and settings.' },
+		{ title: 'MCP server', href: '/features/mcp-server/', desc: 'get_query_context, the ask accuracy stack and what reaches the provider.' },
+		{ title: 'AI integration', href: '/features/ai-integration/', desc: 'Providers, project documentation and what the model is used for.' },
+	]}
+>
+	<div slot="hero" class="ctx mock" aria-label="A grounding context assembled from layers">
+		<div class="mockBar"><span>GROUNDING CONTEXT · shop-db</span><span>PostgreSQL</span></div>
+		<div class="mockBody ctxBody">
+			<div class="q">"How many active customers do we have in Germany?"</div>
+			<div class="blk" style="--i:0">
+				<div class="blkHead"><span>## Relevant Tables (full schema)</span><span class="badge neutral">derived</span></div>
+				<pre>shop.customers  customer_id int PK
+                country_code char(2) · is_active bool
+shop.orders     order_id int PK · customer_id int
+                status text  Examples: ['paid', …] <i>opt-in</i>
+                placed_at timestamptz</pre>
+			</div>
+			<div class="blk" style="--i:1">
+				<div class="blkHead"><span>## Join Paths (verified)</span><span class="badge">verified</span></div>
+				<pre>shop.orders.customer_id → shop.customers.customer_id</pre>
+			</div>
+			<div class="blk" style="--i:2">
+				<div class="blkHead"><span>## Business Glossary</span><span class="badge">curated</span></div>
+				<pre>active customer: at least one paid order in the last 90 days</pre>
+			</div>
+			<div class="blk auth" style="--i:3">
+				<div class="blkHead"><span>## Verified query examples (authoritative)</span><span class="badge ok">human-verified</span></div>
+				<pre>Q: How many active customers per country?
+SELECT c.country_code, count(DISTINCT c.customer_id) …</pre>
+			</div>
+			<div class="blk learned" style="--i:4">
+				<div class="blkHead"><span>## Learned Patterns (from usage)</span><span class="badge warn">approved</span></div>
+				<pre>ColumnClarification: customers.is_active is the account flag</pre>
+			</div>
+		</div>
+	</div>
+
+	<Section num="01" label="Grounding layers" title="Six layers, each with a job." lede="For a question and a data source, Beacon assembles the context in blocks and labels each one: human-verified sections are marked authoritative, everything else says it is machine-derived. Glossary terms, golden examples and learned patterns each have their own limit, and other tables appear by name only, so the context stays focused on the question.">
+		<ol class="layers">
+			{
+				LAYERS.map((l, i) => (
+					<li class="layer">
+						<span class="layerNum">{String(i + 1).padStart(2, '0')}</span>
+						<div class="layerName">
+							<b>{l.name}</b>
+							<span class="mono">{l.block}</span>
+						</div>
+						<p class="layerAdds">{l.adds}</p>
+						<div class="layerSide">
+							<span class={`badge ${KIND[l.kind].tone}`}>{KIND[l.kind].label}</span>
+							<span class="layerKnob">{l.knobs}</span>
+						</div>
+					</li>
+				))
+			}
+		</ol>
+		<div class="cols2" style="margin-top: 28px">
+			<p class="note"><b>Sample values are row data.</b> They make filters land on real formats (<code>'shipped'</code> rather than <code>'SHIPPED'</code>), and they are sent to the LLM provider, so collection is off by default and turned on per project. PII, secret-like and financial-amount columns are never sampled.</p>
+			<p class="note"><b>Agents see the same context.</b> The MCP tool <code>get_query_context</code> returns exactly what <code>ask</code> would use, so an agent can write its own SQL against the same grounding and validate it with <code>dry_run</code>.</p>
+		</div>
+	</Section>
+
+	<Section num="02" label="The learning loop" title="Usage becomes knowledge, but only with evidence." alt lede="Every SQL-carrying call leaves a usage signal. A recurring job mines signals into candidate patterns, and a candidate is promoted automatically only when replaying the project's golden cases shows that it helps.">
+		<div class="loopGrid">
+			<div class="loop">
+				<svg class="ring" viewBox="0 0 600 600" aria-hidden="true">
+					<circle cx="300" cy="300" r="240" class="ringTrack" />
+					<g class="ringSpin">
+						<circle cx="300" cy="60" r="7" class="ringDot" />
+					</g>
+				</svg>
+				<ol class="loopNodes">
+					{
+						LOOP.map((n, i) => (
+							<li class={`node n${i}`}>
+								<span class="nodeNum">{i + 1}</span>
+								<b>{n.name}</b>
+								<span>{n.text}</span>
+							</li>
+						))
+					}
+				</ol>
+				<div class="loopCenter">
+					<span class="eyebrowSm">The replay rule</span>
+					<p>A candidate is auto-approved only if it flips at least <b>N</b> failing golden cases to passing, with no regression.</p>
+					<span class="mono">N = LearningReplayMinFlips, default 1</span>
+				</div>
+			</div>
+			<div class="stack">
+				<div class="mock">
+					<div class="mockBar"><span>REPLAY · candidate #318</span><span class="badge ok">AutoApproved</span></div>
+					<div class="mockBody tight scrollX">
+						<table class="mockTable replayTable">
+							<thead><tr><th>Golden case</th><th>Without</th><th>With</th></tr></thead>
+							<tbody>
+								{REPLAY.map((r) => (
+									<tr class={r.without !== r.with ? 'flip' : ''}>
+										<td><span class="mono dim">#{r.id}</span> {r.q}</td>
+										<td><span class={`badge ${r.without === 'pass' ? 'ok' : 'crit'}`}>{r.without}</span></td>
+										<td><span class={`badge ${r.with === 'pass' ? 'ok' : 'crit'}`}>{r.with}</span></td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+						<div class="replaySum"><span><b>1</b> flip</span><span><b>0</b> regressions</span><span>scoped to the candidate's project and data source</span></div>
+					</div>
+				</div>
+				<div class="card">
+					<h3>Or a curator decides</h3>
+					<p>On the MCP Learning page, a curator of the pattern's project approves, rejects or sets it back to pending. The decision carries the <code>contentHash</code> the reviewer saw; if the content changed since, it is refused with <code>409</code>. With replay verification off, nothing is auto-approved and every candidate waits for a person.</p>
+				</div>
+			</div>
+		</div>
+		<div style="margin-top: 36px">
+			<Shot name="mcp-learning-dark" alt="The MCP Learning page in the dark theme" caption="MCP Learning: usage signals, success rate, learned patterns awaiting review and proposed documentation patches." />
+		</div>
+	</Section>
+
+	<Section num="03" label="Worked example" title="What “active customer” means here." lede="A sales lead asks for the number of active customers in Germany. The schema has an is_active column, and without more context the model reasonably uses it. In this company, active means something else: a customer who has actually bought recently.">
+		<div class="exQ">
+			<span class="badge">ask</span>
+			<span>"How many active customers do we have in Germany?"</span>
+		</div>
+
+		<div class="cols2 exGrid">
+			<div class="stack">
+				<div class="exLabel"><span class="exStep">A</span>Schema only</div>
+				<Code code={BEFORE} lang="sql" title="Generated without curated grounding" />
+				<p class="verdict bad"><b>Counts accounts, not buyers.</b> <code>is_active</code> is the account flag, set at sign-up. Example result: 18,402.</p>
+			</div>
+			<div class="stack">
+				<div class="exLabel"><span class="exStep ok">B</span>With a glossary term and a golden example</div>
+				<Code code={AFTER} lang="sql" title="Generated with the grounding below" />
+				<p class="verdict good"><b>Counts customers with a paid order in 90 days.</b> The definition comes from the glossary, the join and filter shape from the verified example. Example result: 6,117.</p>
+			</div>
+		</div>
+
+		<div class="cols2 exGrid">
+			<div class="mock">
+				<div class="mockBar"><span>GLOSSARY TERM · project 4</span><span>Admin, through the API</span></div>
+				<div class="mockBody">
+					<dl class="fields">
+						<dt>Term</dt><dd>active customer</dd>
+						<dt>Synonyms</dt><dd>active buyer, active client</dd>
+						<dt>Definition</dt><dd>A customer with at least one paid order in the last 90 days. Not the <span class="mono">is_active</span> account flag.</dd>
+						<dt>Target</dt><dd><span class="mono">shop.orders.customer_id</span></dd>
+						<dt>Metric</dt><dd><span class="mono">count(DISTINCT customer_id)</span> over paid orders in 90 days</dd>
+						<dt>Active</dt><dd><span class="badge ok">IsActive</span></dd>
+					</dl>
+				</div>
+			</div>
+			<div class="mock">
+				<div class="mockBar"><span>GOLDEN EXAMPLE · shop-db</span><span class="badge ok">authoritative</span></div>
+				<div class="mockBody stack">
+					<div class="goldQ">How many active customers per country?</div>
+					<Code code={GOLD} lang="sql" title="Gold SQL, stored without comments" />
+					<p class="goldMeta">Rated <span class="badge ok">correct</span>, then promoted from <b>Golden candidates</b> by Ana Horvat (Admin). Promotion records who promoted it.</p>
+				</div>
+			</div>
+		</div>
+		<p class="note">With sample-value collection turned on for the project, the schema block would also show that <code>status</code> holds <code>'paid'</code>, so the filter matches the stored value exactly. Eval runs judge the result by its rows (a result-set fingerprint), not by matching the gold SQL text.</p>
+	</Section>
+
+	<Section num="04" label="Who curates" title="What lands in every prompt needs a narrower right than writing." alt lede="Grounding a person approves reaches every caller's prompts, so curating it is reserved. Curate is held by a project admin member of the project, or an Admin, in a signed-in session.">
+		<div class="tiers">
+			<div class="tier">
+				<div class="tierHead"><span class="badge">Curate in the project</span></div>
+				<p class="tierWho">Project admin members, Admins</p>
+				<ul>
+					<li>Approve, reject or set back learned patterns</li>
+					<li>Edit or regenerate the project documentation</li>
+					<li>Apply documentation patches to a section</li>
+				</ul>
+			</div>
+			<div class="tier">
+				<div class="tierHead"><span class="badge">Curate in every linking project</span></div>
+				<p class="tierWho">Curators of every live project that links the source, a DataSourceAdmin, Admins</p>
+				<ul>
+					<li>Verify, un-verify or delete a verified relationship</li>
+					<li>Apply or reject column and table description patches</li>
+				</ul>
+			</div>
+			<div class="tier admin">
+				<div class="tierHead"><span class="badge ok">Admins only</span></div>
+				<p class="tierWho">The Admin role</p>
+				<ul>
+					<li>Promote, edit and deactivate golden examples</li>
+					<li>Manage the business glossary (API only)</li>
+					<li>Run the grounding recheck</li>
+				</ul>
+			</div>
+		</div>
+		<div class="never">
+			<span class="neverLabel">Never curates</span>
+			<span class="chip">API keys, any scope</span>
+			<span class="chip">MCP callers, user or system</span>
+			<span class="chip">Owners of scheduled work</span>
+			<span class="chip">An open project</span>
+			<span class="chip">Beacon's background jobs</span>
+		</div>
+		<p class="note">The learning job stores new patterns as NeedsEvidence, auto-approves only through replay and proposes documentation patches without applying them. Over MCP, the <code>feedback</code> tool records a verdict and nothing else.</p>
+	</Section>
+
+	<Section num="05" label="Project scoping" title="Retrieval is not authorization, so it is scoped like it." lede="Two projects can share a data source. What describes the data source is shared; what a project teaches Beacon stays in that project. Every grounding path filters on the caller's authorized project, not on the data source.">
+		<div class="scope">
+			<div class="proj">
+				<div class="projHead"><b>Finance</b><span class="mono">project 7</span></div>
+				<ul>
+					<li>Glossary: "net revenue"</li>
+					<li>Golden examples · 14</li>
+					<li>Learned patterns · 9</li>
+					<li>Documentation and code references</li>
+				</ul>
+				<div class="prompt">Finance prompts carry Finance material only</div>
+			</div>
+			<div class="shared">
+				<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.5" /><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6" /><path d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5" /></svg>
+				<b>warehouse</b>
+				<span>shared data source</span>
+				<ul>
+					<li>Schema metadata</li>
+					<li>Column and table descriptions</li>
+					<li>Verified relationships</li>
+				</ul>
+				<span class="sharedNote">Strictest guardrails of the linking projects apply</span>
+			</div>
+			<div class="proj">
+				<div class="projHead"><b>Sales</b><span class="mono">project 4</span></div>
+				<ul>
+					<li>Glossary: "active customer"</li>
+					<li>Golden examples · 22</li>
+					<li>Learned patterns · 17</li>
+					<li>Documentation and code references</li>
+				</ul>
+				<div class="prompt">Sales prompts carry Sales material only</div>
+			</div>
+		</div>
+		<div class="cols3" style="margin-top: 28px">
+			<div class="card">
+				<h3>Unlinked means invisible</h3>
+				<p>A data source the project does not link is not searched, described or catalogued: its schema catalog is empty, so SQL against it fails the schema check.</p>
+			</div>
+			<div class="card">
+				<h3>Live probes need Query</h3>
+				<p>Value grounding probes live data only for a caller who may query the project. A Viewer is grounded with the stored sample values alone.</p>
+			</div>
+			<div class="card">
+				<h3>Replay stays home</h3>
+				<p>Replay verification runs a candidate against its own project's golden cases on its own data source, never another project's.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="06" label="Good to know" title="Details that keep grounding trustworthy." alt>
+		<div class="cols3">
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l2.5 2.5L16 9" /><circle cx="12" cy="12" r="9" /></svg></div>
+				<h3>Grounding SQL is checked</h3>
+				<p>Gold SQL, corrected SQL and a pattern's example SQL pass the read-only gate and the catalog check in their dialect, and are stored without comments. Nothing runs.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12z" /></svg></div>
+				<h3>Nothing a reviewer cannot see</h3>
+				<p>Bidirectional overrides, zero-width characters and tag characters are refused in grounding SQL and questions, a literal or a comment included.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></svg></div>
+				<h3>Approval binds to content</h3>
+				<p>The refresh job never rewrites the content of a pattern a person decided on; only its counts refresh. An auto-approved pattern whose content changes goes back to NeedsEvidence and is replayed again.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 9l4 4 3-3 5 5" /></svg></div>
+				<h3>Corrections decay</h3>
+				<p>When a schema refresh shows a column is gone, the corrections that point at it are superseded and never injected again. The rows stay for audit.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg></div>
+				<h3>Signals expire</h3>
+				<p>Usage signals are kept for 90 days by default (<code>LearningSignalRetentionDays</code>) and removed by the nightly cleanup job.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l3-7 2 14 3-7h4" /></svg></div>
+				<h3>Semantic search fails open</h3>
+				<p>Without an embedder, or before rows are indexed, retrieval falls back to keyword matching and still returns results. On PostgreSQL, pgvector with an HNSW index does the search.</p>
+			</div>
+		</div>
+	</Section>
+</ExploreLayout>
+
+<style>
+	/* Hero context card */
+	.ctx { max-width: 540px; margin-left: auto; }
+	.ctxBody { display: flex; flex-direction: column; gap: 8px; }
+	.q { font-size: 13.5px; color: var(--bx-text); background: var(--bx-accent-dim); border-radius: 8px; padding: 8px 12px; margin-bottom: 4px; }
+	.blk { border: 1px solid var(--bx-border); border-left: 3px solid var(--bx-accent); border-radius: 8px; padding: 8px 10px; background: var(--bx-surface); animation: layerIn .5s ease backwards; animation-delay: calc(var(--i) * 0.35s + 0.25s); }
+	.blk.auth { border-left-color: var(--xp-ok); }
+	.blk.learned { border-left-color: var(--xp-warn); }
+	.blkHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-family: var(--sl-font-mono); font-size: 11.5px; font-weight: 600; color: var(--bx-text); }
+	.blkHead .badge { font-family: var(--sl-font-sans, inherit); font-size: 10px; padding: 2px 8px; flex-shrink: 0; }
+	.blk pre { margin: 6px 0 0; padding: 0; background: transparent; border: 0; font-family: var(--sl-font-mono); font-size: 11px; line-height: 1.55; color: var(--bx-text-muted); white-space: pre; overflow-x: auto; }
+	.blk pre i { font-style: normal; color: var(--xp-warn); }
+	@keyframes layerIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+
+	/* Layers */
+	.layers { list-style: none; margin: 0; padding: 0; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); overflow: hidden; }
+	.layer { margin: 0; display: grid; grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 0.9fr); gap: 18px; align-items: start; padding: 18px 22px; border-top: 1px solid var(--bx-border); }
+	.layer:first-child { border-top: 0; }
+	.layerNum { font-family: var(--sl-font-mono); font-size: 13px; font-weight: 700; color: var(--bx-accent); padding-top: 2px; }
+	.layerName { display: flex; flex-direction: column; gap: 4px; }
+	.layerName b { font-size: 15px; color: var(--bx-text); }
+	.layerName .mono { font-size: 11px; color: var(--bx-text-dim); line-height: 1.45; }
+	.layerAdds { font-size: 14px; line-height: 1.6; color: var(--bx-text-muted); }
+	.layerSide { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+	.layerKnob { font-family: var(--sl-font-mono); font-size: 11px; color: var(--bx-text-dim); line-height: 1.45; }
+	.note b { color: var(--bx-text); font-weight: 600; }
+
+	/* Learning loop */
+	.loopGrid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 32px; align-items: center; }
+	.loop { position: relative; width: 100%; max-width: 600px; aspect-ratio: 1 / 1; margin: 0 auto; }
+	.ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+	.ringTrack { fill: none; stroke: var(--bx-border); stroke-width: 2; stroke-dasharray: 6 8; }
+	.ringDot { fill: var(--bx-accent); }
+	.ringSpin { transform-box: view-box; transform-origin: 50% 50%; animation: spin 12s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+	.loopNodes { list-style: none; margin: 0; padding: 0; }
+	.node { position: absolute; margin: 0; width: 32%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); box-shadow: 0 8px 24px -14px rgba(14, 10, 50, 0.25); }
+	.node b { font-size: 13.5px; color: var(--bx-text); }
+	.node span:not(.nodeNum) { font-size: 11.5px; line-height: 1.45; color: var(--bx-text-muted); }
+	.nodeNum { position: absolute; top: -10px; left: -10px; width: 22px; height: 22px; border-radius: 50%; background: var(--bx-accent); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+	.n0 { left: 50%; top: 10%; }
+	.n1 { left: 82%; top: 30%; }
+	.n2 { left: 82%; top: 70%; }
+	.n3 { left: 50%; top: 90%; border-color: var(--xp-warn); }
+	.n4 { left: 18%; top: 70%; border-color: var(--bx-accent); }
+	.n5 { left: 18%; top: 30%; border-color: var(--xp-ok); }
+	.loopCenter { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 36%; text-align: center; display: flex; flex-direction: column; gap: 6px; }
+	.loopCenter p { font-size: 13.5px; line-height: 1.5; color: var(--bx-text); }
+	.loopCenter .mono { font-size: 10.5px; color: var(--bx-text-dim); }
+	.eyebrowSm { font-size: 10.5px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--bx-accent); }
+	.tight { padding: 6px 8px 12px; }
+	.scrollX { overflow-x: auto; }
+	.replayTable td { font-size: 13px; }
+	.replayTable tr.flip td { background: var(--xp-ok-dim); }
+	.dim { color: var(--bx-text-dim); }
+	.replaySum { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 10px 0; font-size: 12.5px; color: var(--bx-text-muted); }
+	.replaySum b { color: var(--bx-text); }
+
+	/* Worked example */
+	.exQ { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 17px; color: var(--bx-text); padding: 16px 20px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); margin-bottom: 28px; }
+	.exGrid { margin-bottom: 28px; }
+	.exLabel { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--bx-text); }
+	.exStep { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; border: 2px solid var(--xp-crit); color: var(--xp-crit); }
+	.exStep.ok { border-color: var(--xp-ok); color: var(--xp-ok); }
+	.verdict { font-size: 13.5px; line-height: 1.55; color: var(--bx-text-muted); padding: 10px 14px; border-radius: 10px; }
+	.verdict.bad { background: var(--xp-crit-dim); }
+	.verdict.good { background: var(--xp-ok-dim); }
+	.verdict b { color: var(--bx-text); }
+	.fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 16px; margin: 0; font-size: 13.5px; }
+	.fields dt { color: var(--bx-text-dim); }
+	.fields dd { margin: 0; color: var(--bx-text); line-height: 1.5; }
+	.goldQ { font-size: 15px; font-weight: 600; color: var(--bx-text); }
+	.goldMeta { font-size: 13px; line-height: 1.55; color: var(--bx-text-muted); }
+
+	/* Curators */
+	.tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+	.tier { background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 20px 22px; border-top: 3px solid var(--bx-accent); }
+	.tier.admin { border-top-color: var(--xp-ok); }
+	.tier .tierWho { font-size: 13px; color: var(--bx-text-dim); margin: 10px 0 12px; line-height: 1.5; }
+	.tier ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+	.tier li { margin: 0; font-size: 14px; line-height: 1.5; color: var(--bx-text-muted); }
+	.never { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 20px; padding: 14px 16px; border: 1px dashed color-mix(in srgb, var(--xp-crit) 45%, var(--bx-border)); border-radius: var(--bx-radius); }
+	.neverLabel { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--xp-crit); margin-right: 6px; }
+	.chip { font-size: 12.5px; padding: 4px 12px; border-radius: 20px; background: var(--xp-crit-dim); color: var(--bx-text-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--xp-crit) 60%, transparent); }
+
+	/* Scope */
+	.scope { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr); gap: 0; align-items: stretch; }
+	.proj { background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+	.projHead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+	.projHead b { font-size: 16px; }
+	.projHead .mono { color: var(--bx-text-dim); }
+	.proj ul, .shared ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+	.proj li, .shared li { margin: 0; font-size: 13.5px; color: var(--bx-text-muted); }
+	.prompt { margin-top: auto; font-size: 12.5px; font-weight: 600; color: var(--xp-ok); background: var(--xp-ok-dim); border-radius: 8px; padding: 7px 10px; }
+	.shared { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 18px 24px; color: var(--bx-accent); }
+	.shared::before, .shared::after { content: ''; position: absolute; top: 50%; width: 22px; height: 2px; background: var(--bx-accent); opacity: 0.5; }
+	.shared::before { left: 0; }
+	.shared::after { right: 0; }
+	.shared b { font-size: 15px; color: var(--bx-text); }
+	.shared > span { font-size: 12px; color: var(--bx-text-dim); }
+	.shared ul { text-align: left; margin-top: 8px; }
+	.sharedNote { margin-top: 8px; font-size: 11.5px !important; }
+
+	@media (max-width: 1024px) {
+		.ctx { margin: 0; max-width: none; }
+		.loopGrid { grid-template-columns: minmax(0, 1fr); }
+		.layer { grid-template-columns: 34px minmax(0, 1fr); }
+		.layerAdds, .layerSide { grid-column: 2; }
+		.tiers { grid-template-columns: minmax(0, 1fr); }
+	}
+	@media (max-width: 860px) {
+		.scope { grid-template-columns: minmax(0, 1fr); gap: 0; }
+		.shared { padding: 24px 16px; }
+		.shared::before { left: 50%; top: 0; width: 2px; height: 18px; }
+		.shared::after { left: 50%; right: auto; top: auto; bottom: 0; width: 2px; height: 18px; }
+	}
+	@media (max-width: 700px) {
+		.loop { aspect-ratio: auto; max-width: none; }
+		.ring { display: none; }
+		.loopNodes { display: flex; flex-direction: column; gap: 14px; padding-left: 10px; }
+		.node { position: relative; left: auto; top: auto; width: auto; transform: none; padding-left: 22px; }
+		.loopCenter { position: static; transform: none; width: auto; margin-top: 18px; padding: 14px 16px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); }
+		.layer { padding: 16px; gap: 10px 12px; }
+	}
+	@media (max-width: 640px) {
+		.blk pre { font-size: 10.5px; }
+	}
+</style>

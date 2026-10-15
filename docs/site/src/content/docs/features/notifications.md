@@ -1,819 +1,406 @@
 ---
 title: Notifications
-description: Deliver query results to recipients via Email, Microsoft Teams, Slack, or Jira, with delivery tracking and history.
+description: Deliver subscription results through five channels (Email, Microsoft Teams, Slack, Jira and a generic webhook) to vetted, encrypted recipients, with a delivery history.
 ---
 
-Notifications deliver query results to recipients via Email, Microsoft Teams, Slack, or Jira.
+When a subscription run [notifies](/features/subscriptions/#which-runs-notify), Beacon sends the result to each of the
+subscription's **recipients**. A recipient is one destination on one channel: an email address, a Slack or Teams
+webhook, a Jira project, or any HTTPS endpoint. Data-quality alerts use the same recipients.
 
-## Purpose
+## Channels
 
-Notifications allow you to:
-- Deliver query results automatically
-- Support multiple delivery channels (Email, Teams, Slack, Jira)
-- Format results as tables or CSV attachments
-- Track delivery status and history
-- Handle delivery failures gracefully
+| Channel | What Beacon sends | Inline rows | Attachment |
+|---|---|---|---|
+| **Email** | An HTML email through the host's `IEmailAdapter` | The preview rows, as an HTML table | CSV or XLSX, when the subscription includes one |
+| **Teams** | An Adaptive Card (1.5) posted to a Teams webhook | First 10 rows, first 3 columns | None |
+| **Slack** | A Block Kit message posted to an incoming webhook, the rows as a fixed-width text table in a code block | First 25 rows, first 5 columns, each column cut to 20 characters | None |
+| **Jira** | An issue (type Task) or a comment on it, through the Jira Cloud REST API | The preview rows, as a table | None |
+| **Webhook** | A JSON `POST` to any allowed HTTPS URL | The preview rows, as JSON | None |
 
-## Notification Channels
+What every channel gets from a run:
 
-Beacon supports four notification channels:
+- **Title.** `[Beacon] {data source} - {query name}` (Email subject, Slack header; the Teams card shows the data source
+  and query name).
+- **Preview rows.** A short preview of the result's first rows (at most 20), cut further by the subscription's **Max
+  rows**, and then by the channel's own limits above. The total row count is always stated.
+- **Query text**, only when the subscription has **Show query text in notification** on.
+- **Anomaly details** (Slack and webhook), when [anomaly detection](/features/anomaly-detection/) flagged the run.
+- **A link back to Beacon**, `{BaseUrl}/notifications/{id}`; see [Links back to Beacon](#links-back-to-beacon).
 
-| Channel | Format | Use Case |
-|---------|--------|----------|
-| **Email** | HTML table + **CSV attachment with full results** | Scheduled reports, data exports, stakeholder delivery |
-| **Microsoft Teams** | Adaptive card with formatted table | Real-time alerts, team collaboration |
-| **Slack** | Rich Table Blocks with 20 columns, 100 rows | Real-time alerts, team collaboration, superior table formatting |
-| **Jira** | Issue creation with results | Incident tracking, workflow integration |
+Rows are [PII-masked](/features/subscriptions/#what-a-run-reads-and-delivers) before they reach any channel, the
+attachment included.
 
-:::note[Reporting]
-Email is the only channel that delivers complete query results as attachments. This makes it suited to scheduled reporting where stakeholders need full datasets for analysis in Excel or other tools.
-:::
+### Attachments
 
-:::caution[Upgrading]
-Recipients and deliveries are locked down in this version; read the [upgrade notes](/getting-started/configuration/#notification-destinations-optional) before upgrading. In short: recipients outside the destination policy (plain `http://` webhooks, private hosts, an on-premises Jira, retired Office 365 connector URLs, unlisted webhook headers, email display names) stop delivering until they are allowed or re-saved; the system proxy is ignored unless `UseSystemProxy` is on; recipients saved on this version cannot be read by an earlier one, so a rollback means re-entering their secrets; stored secrets are encrypted only when you run `IRecipientSecretEncryptionService` yourself, once every node runs this version (nothing runs it automatically); only Admins and SecurityAdmins manage recipients; changing subscriptions needs the Execute scope; failures show a generic reason; API responses no longer contain destinations.
-:::
+A subscription with **Include results as attachment** builds one file per run, **CSV** or **XLSX** as its **Attachment
+format** says. The file holds the result's rows up to the subscription's **Max rows** (and never more than
+`Beacon:Query:MaxExecutionRows`, since a larger result fails the run), PII-masked like every other row. Only email
+delivers it: Teams, Slack and webhooks ignore it, and Jira logs a warning and posts its comment without it.
 
-:::note[Who manages recipients]
-Only Admins and SecurityAdmins create, change or delete recipients. A SecurityAdmin changes where a recipient delivers (its type, destination or headers) only when it can read every subscription and data contract the recipient is attached to (`403` otherwise); renaming it is always allowed. Other users can attach existing recipients to subscriptions and data contracts (with write permission and, for API keys, the Execute scope), but never see their destinations; Admins and SecurityAdmins see them masked. Destinations must use `https` and, for Slack, Teams and Jira, the vendor's own hosts; see [Notification Destinations](/getting-started/configuration/#notification-destinations-optional).
+### Links back to Beacon
 
-Notification calls connect directly by default, and Beacon connects only to an address it has checked. Hosts whose outbound traffic must go through a corporate proxy set `Beacon:Notifications:UseSystemProxy` to `true`. Beacon then checks each destination's addresses before sending, but the proxy resolves the name again and connects wherever its own answer points: in proxy mode the destination guarantee is enforced by the proxy's resolution and egress policy, not pinned by Beacon.
+Messages link to the run's notification page as `{BaseUrl}/notifications/{id}` (Teams **View Query Results**, Slack
+**View Full Results**, the webhook's `notificationUrl`). Without a base URL, messages carry no link.
 
-A failed delivery shows a generic reason in the notification history, never the destination's response; a run that fails for some recipients still notifies the others and names the failed recipient ids. Failures recorded by earlier versions may still show the old detail.
-:::
+The React app is served under `/beacon`, so **the base URL must include `/beacon`**:
+`https://beacon.example.com/beacon`, not `https://beacon.example.com`. The host sets it in code:
+
+```csharp
+builder.Services.AddBeaconServices(builder.Configuration, options =>
+{
+    options.BaseUrl = builder.Configuration["Beacon:BaseUrl"]; // e.g. https://beacon.example.com/beacon
+});
+```
+
+An Admin can change it at runtime under **Admin Settings** → **Base URL** (see [Admin Settings](/features/admin-settings/)).
+
+## Recipients
+
+Recipients are managed on the **Recipients** page (`/beacon/recipients`). Only an Admin or a **SecurityAdmin** creates,
+changes or deletes them (`POST`, `PUT`, `DELETE /beacon/api/recipients`). Everyone else with Write on a subscription or
+data contract can attach existing recipients to it (an API key also needs the Execute scope), but never sees their
+destinations; Admins and SecurityAdmins see them masked. A SecurityAdmin changes where a recipient delivers (its type,
+destination or headers) only when it can read every subscription and data contract the recipient is attached to (`403`
+otherwise); renaming is always allowed.
+
+Click **Add recipient** and fill in:
+
+| Field | What it holds |
+|---|---|
+| **Notification type** | Email, Slack, Teams, Jira or Webhook. |
+| **Name** | How the recipient is listed and picked. |
+| Destination | Depends on the type; see the table below. |
+| **Description** | Optional. |
+| **Custom headers (JSON)** | Webhook only: a JSON object of HTTP headers (see [Webhook](#webhook)). |
+| **Body template** | Webhook only: a custom request body (see [Body templates](#body-templates)). |
+
+| Type | Destination field | Example |
+|---|---|---|
+| Email | **Email address** | `ops@example.com` (a bare address, no display name) |
+| Slack | **Slack webhook URL** | `https://hooks.slack.com/services/T…/B…/…` |
+| Teams | **Teams webhook URL** | A Teams Workflows webhook URL (see [Microsoft Teams](#microsoft-teams)) |
+| Jira | **Jira connection string** | `example;OPS;bot@example.com;<api-token>` |
+| Webhook | **Webhook URL** | `https://hooks.example.com/beacon` |
+
+There is no test button: create the recipient, attach it to a subscription, and use **Test now** on the subscription to
+send a delivery.
+
+Destinations and header values are secrets: they are encrypted when saved, shown masked, and never returned by the API
+in full. Recipients saved before Beacon encrypted them keep working until re-saved or encrypted with
+`IRecipientSecretEncryptionService`, unless the host sets `Beacon:Notifications:RequireEncryptedSecrets`. A recipient whose stored destination cannot be decrypted (saved under another encryption key) is marked **Re-enter
+destination**; open it and enter the destination again.
+
+### Destination policy
+
+Every destination is checked when it is saved and again when Beacon connects
+(`Beacon:Notifications`, see [Notification Destinations](/getting-started/configuration/#notification-destinations-optional)):
+
+- **HTTPS only**, and no user name or password in the URL.
+- **Vendor hosts** for the vendor channels: Slack `hooks.slack.com`; Teams `*.webhook.office.com`, `*.logic.azure.com`
+  and `*.environment.api.powerplatform.com`; Jira `*.atlassian.net` and `api.atlassian.com`. `AllowedHosts:{Type}`
+  extends a list.
+- **Webhooks** may use any public HTTPS host, unless `AllowedHosts:Webhook` is set, which then is the whole list.
+- **No private networks.** Private, loopback and link-local addresses are unreachable unless listed in
+  `AllowedPrivateNetworks:{Webhook|Slack|Teams|Jira}`; Beacon connects only to an address it has checked.
+- **Email** takes bare addresses; `AllowedHosts:Email` limits the domains.
+- `DisabledTypes` turns channels off; `UseSystemProxy` sends deliveries through the system proxy, which then decides
+  where the name resolves.
+
+A failed delivery shows a generic reason in the history, never the destination's response; the details are in the
+server log.
 
 ### Approval of new and changed destinations
 
-While the [change approval workflow](/features/queries/#approval-workflow) is on and covers recipients
-(`ApprovalWorkflow.CoversRecipientDestinations`, on by default — see
-[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)), where a recipient delivers is a
-reviewed change:
+This applies only while the [approval workflow](/features/approvals/) is on (it is off by default; a host turns it on in
+code with `options.EnableApprovalWorkflow(...)`) and covers recipients (`CoversRecipientDestinations`, on by default
+once the workflow is on). Then where a recipient delivers is a reviewed change:
 
 - **A recipient created, or whose type, destination or custom headers change, receives nothing until a second person
-  approves exactly where it now delivers.** The save is stored and submits a change request (its saver is the
-  requester); a create answers with `awaitingApproval: true` and the message *"Submitted for approval: the recipient
-  receives no deliveries until a second person approves where it delivers."*, which the recipient dialog shows. An
-  Approver (or an Admin) other than the requester approves it on the **Approvals** page under **Recipients**. Approving
-  binds to the request the reviewer opened and to the destination the recipient holds then: a recipient changed again
-  since is not approved (`409`).
-- **Deliveries skip a recipient that waits.** Subscription runs and data-quality alerts deliver to every other recipient;
-  the skipped one gets no notification, each skip is logged as a Warning with ids only, and the recipients list and the
-  subscription page mark it **Awaiting approval**. A **governed** recipient (one created or changed under the workflow)
-  whose stored destination cannot be decrypted is skipped too; a recipient that is not governed fails at send time with
-  the "stored destination could not be read" reason, as before.
-- **Saves that change nothing where it delivers** (its name, description, body template) submit nothing. Putting back the
+  approves exactly where it now delivers.** The save is stored and submits a change request (the saver is the
+  requester); the dialog says *"Submitted for approval: the recipient receives no deliveries until a second person
+  approves where it delivers."* An Approver (or an Admin) other than the requester approves it on the **Approvals** page
+  under **Recipients**. A recipient changed again since the reviewer opened the request is not approved (`409`).
+- **Deliveries skip a recipient that waits.** Every other recipient is still notified; the skipped one is logged as a
+  Warning with ids only, and the recipients list and the subscription's **Recipients** tab mark it **Awaiting
+  approval**.
+- **Saves that change nothing where it delivers** (name, description, body template) submit nothing. Putting back the
   approved destination needs no approval and withdraws the requester's own pending change. A change made while another
-  person's change of the same recipient waits is refused (`409`) until that one is approved or rejected; the requester's
-  own earlier change is superseded (and they are told). No save supersedes another person's pending change: one that
-  would is refused (`409`).
-- **A rejected change** leaves the recipient skipped until it is changed back to its approved destination, or saved again
-  (which submits it again). The recipients list and the subscription's **Recipients** tab say **Rejected — change it and
-  save again**, with the reviewer's comment (`lastApprovalDecision` while no request of it is pending).
-- **Attaching an existing recipient** to a subscription or data contract is not reviewed: Editors attach recipients an
-  Admin or SecurityAdmin created and a second person approved.
-- `IRecipientService.CreateRecipient` and `UpdateRecipient` follow the same rules, with the request's caller as the
-  requester: a caller Beacon cannot name is refused (`BeaconForbiddenException`) and nothing is written, and a change
-  made while another person's change of the recipient waits comes back unsuccessful (`Success = false`, the reason in
-  `Message`) with nothing written. A create submitted for approval says so in its `Message`.
+  person's change of the same recipient waits is refused (`409`).
+- **A rejected change** leaves the recipient skipped until it is changed back to its approved destination or saved
+  again; the recipients list and the **Recipients** tab show **Rejected: change it and save again** with the
+  reviewer's comment.
+- **Attaching an existing recipient** to a subscription or data contract is not reviewed.
+- **Rotating a credential** (a new webhook token, a new header value) is a change of where it delivers and waits for
+  approval like any other.
+
+Recipients that existed before the workflow was turned on are not governed and keep delivering. Turning the workflow
+(or `CoversRecipientDestinations`) off again lets waiting and rejected recipients receive deliveries as they are; startup
+warns with their count.
 
 #### What reviewers see
 
-A reviewer must see where data will go without seeing any credential. The change request shows, before and after:
+A reviewer sees where data will go without seeing any credential. The change request shows, before and after:
 
 - the **type**, and what **identifies the destination**: a webhook's scheme, host and port, with each path segment
-  shown as a mask (so the path's shape is visible) and user info, query values (their names are kept) and a fragment
-  masked. Only the parts a known provider documents as not secret are shown: Slack's workspace and webhook ids
-  (`hooks.slack.com/services/T…/B…/…`, the token masked); a Teams workflow's (Logic Apps or Power Automate) fixed path
-  words and workflow id, its signature (in the query) masked; a legacy Teams connector's group and tenant ids, every
-  segment after them masked. Email addresses are shown as they are; a Jira destination shows its site, project and email;
+  masked (so the path's shape is visible) and user info, query values and a fragment masked. Only the parts a provider
+  documents as not secret are shown: Slack's workspace and webhook ids (the token masked); a Teams workflow's fixed path
+  words and workflow id (its signature masked); a legacy Teams connector's group and tenant ids. Email addresses are
+  shown as they are; a Jira destination shows its site, project and email;
 - the **custom header names**, each with a **fingerprint** of its value (12 hex characters), never the value;
 - a **fingerprint of the whole definition** (type, destination and headers).
 
-A fingerprint is a short keyed digest (an HMAC under a key derived from `Beacon:EncryptionKey`): equal fingerprints mean
-equal values, and without the key it reveals nothing about them. Admins and SecurityAdmins see the same fingerprints for
-each recipient on the **Recipients** page, so the requester and the reviewer can compare them out of band (by phone,
-say) before the approval.
+A fingerprint is a keyed digest (an HMAC under a key derived from `Beacon:EncryptionKey`): equal fingerprints mean equal
+values, and without the key it reveals nothing. Admins and SecurityAdmins see the same fingerprints on the
+**Recipients** page, so requester and reviewer can compare them out of band before the approval.
 
-When the before and after look the same — same type, same destination as shown, same header names — but the
-fingerprints differ, the change lies only in a masked part (a new path, token or signature, a new header value). The approval
-page says so prominently, and **approving it requires a comment** saying how the reviewer checked the change (`400`
-without one; the page requires it too). A request whose proposed destination cannot be read cannot be approved
-(`mayApprove: false` with the reason); reject it and submit the change again. Recipient requests are visible to
-Approvers (and Admins) only: recipients belong to no project.
+When the before and after look the same but the fingerprints differ, the change lies only in a masked part (a new path,
+token, signature or header value). The approval page says so, and **approving it requires a comment** saying how the
+reviewer checked the change (`400` without one). Recipient requests are visible to Approvers and Admins only: recipients
+belong to no project.
 
 #### When a delivery is checked
 
-The check sits in `INotificationService.SendNotification`, the single path to every channel adapter: the very copy of
-the destination and headers about to be sent is decrypted, hashed and compared with the recipient's approved hash read
-at that moment (archived recipients included). A recipient changed or archived after a run loaded it is therefore never
-sent the unapproved copy, and a recipient that no longer exists receives nothing. This also covers a host that calls
-`SendNotification` itself with a `RecipientId`: a recipient that waits fails with *"Skipped: where the recipient
-delivers waits for approval. Approve its change on the Approvals page, or put back its approved destination."*
-(`NotificationFailureReasons.AwaitingApproval`). A delivery without a `RecipientId` — an address no stored recipient
-holds — is not a governed recipient's and is not checked, by design.
+The check sits in `INotificationService.SendNotification`, the single path to every channel: the copy of the
+destination and headers about to be sent is decrypted, hashed and compared with the recipient's approved hash read at
+that moment. A recipient changed or archived after a run loaded it is therefore never sent the unapproved copy, and a
+recipient that no longer exists receives nothing. A host that calls `SendNotification` itself with a `RecipientId` gets
+the same check; a delivery without a `RecipientId` is not a governed recipient's and is not checked.
 
-The approved hash is keyed: an HMAC-SHA256 under a key derived for this purpose from `Beacon:EncryptionKey` (stored with
-a version prefix), never a plain hash of the destination, so reading the database does not let anyone test guesses of a
-destination or header value. **Replacing the encryption key holds no recipient**: a hash written under a key listed in
-`Beacon:PreviousEncryptionKeys` still matches, and the re-encryption run (`IStoredValueReEncryptionService`, see
+The approved hash is an HMAC-SHA256 under a key derived from `Beacon:EncryptionKey`, never a plain hash of the
+destination. A hash written under a key listed in `Beacon:PreviousEncryptionKeys` still matches, and the re-encryption
+run (`IStoredValueReEncryptionService`, see
 [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)) recomputes the approved hashes of
-governed recipients, and those of their pending requests, under the current key — remove the previous key only after it
-reports nothing left. A pending request whose hash was written under a previous key still proposes the destination it
-names: a save that leaves where the recipient delivers as it is keeps that request and its requester. A hash of a
-destination the recipient no longer holds (an approved destination it has moved away from while a change waits) cannot
-be recomputed, as its plaintext is not stored, and nothing tells which key wrote it: it keeps matching only while the
-previous key is configured, so the run counts it as an **unresolved key dependency** (logged with the recipient's id)
-and does not report the previous keys removable while one remains. Resolve it by deciding the recipient's pending change
-— an approval writes the approved hash under the current key — or by saving the recipient back to its approved
-destination, then run the re-encryption again. Rotating a recipient's own credential (a new
-webhook token, a new header value) is a change of where it delivers: it waits for approval like any other.
+governed recipients and their pending requests under the current key. A hash it cannot recompute (an approved
+destination the recipient has since moved away from while a change waits) is reported as an unresolved key dependency:
+decide the pending change, or save the recipient back to its approved destination, then run the re-encryption again
+before removing the previous key.
 
 #### Runs that notified nobody
 
-A subscription run whose every recipient waits for approval notifies nobody: it is recorded as **Skipped** with *"Skipped:
-every recipient waits for approval of where it delivers, so nobody was notified. Approve the recipients' changes on the
-Approvals page."* (`NotificationFailureReasons.AllRecipientsAwaitApproval`), a Warning is logged, and a test delivery
-answers `409` with that reason. A run that notified some recipients records each skipped one in its comment (`Recipient
-7: Skipped: where the recipient delivers waits for approval. …`); the subscription's execution history shows these
-reasons readably, naming the held recipients.
+A run whose every recipient waits for approval notifies nobody: it is recorded as **Skipped** with *"Skipped: every
+recipient waits for approval of where it delivers, so nobody was notified. Approve the recipients' changes on the
+Approvals page."*, a Warning is logged, and **Test now** answers `409` with that reason. A run that notified some
+recipients names each skipped one in its comment. A skipped run is not a baseline for the result-count trigger or for
+anomaly detection.
 
-A skipped run is **not a baseline**: the result-count trigger (`OnResultCountChange`, `OnResultCountIncrease`) compares a
-run with the last run that was not skipped, and a run that notified nobody stores no anomaly-detection baseline. This
-holds for every skipped run — also those skipped because the owner was not authorized or because the query's change was
-not approved, which run no SQL and store nothing — so a run nobody was told about never hides the next change.
+## Email
 
-:::caution[Upgrading]
-Recipients that exist when you upgrade are not governed: they keep delivering where they do, with no approval and no data
-change. Once the workflow is on, a new recipient, or a new destination of an existing one, waits for a second person's
-approval before anything is delivered to it — plan for an Approver who is not the Admin or SecurityAdmin making the
-change, and for credential rotation (a new token or header value waits too). A change made while the workflow is off is
-not reviewed later. Turning `CoversRecipientDestinations` (or the workflow) off again lets the recipients that wait — and
-the rejected ones — receive deliveries as they are; startup warns with their count (see
-[Configuration → Approval Workflow](/getting-started/configuration/#approval-workflow)). The result-count trigger no
-longer compares a run with a skipped one, on any host.
-:::
-
-## Email Notifications
-
-### Prerequisites
-
-Email notifications require implementing `IEmailAdapter` in your application:
+Beacon does not send email itself: the host implements `IEmailAdapter` and registers it.
 
 ```csharp
+using Beacon.Core.Adapters;
 using Beacon.Core.Adapters.Mail;
 
-public class SmtpEmailAdapter : IEmailAdapter
+public sealed class SmtpEmailAdapter : IEmailAdapter
 {
     public async Task SendEmailAsync(string to, string subject, string body, QueryResultFile? queryResultAttachmentFile)
     {
-        // Implement using your email provider
-        // (SMTP, SendGrid, AWS SES, etc.)
+        // body is HTML. queryResultAttachmentFile, when present, has Name, ContentType and Data (bytes).
+        // Send with your provider (SMTP, SendGrid, Amazon SES, ...).
     }
 }
 ```
 
-Register in your Program.cs:
-
 ```csharp
-builder.Services.AddBeacon(builder.Configuration, options =>
+builder.Services.AddBeaconServices(builder.Configuration, options =>
 {
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-    options.AddBeaconScheduler<YourScheduler>();
     options.AddEmailAdapter<SmtpEmailAdapter>();
 });
 ```
 
-See the [complete email adapter implementation](/getting-started/configuration/#email-adapter).
+Register an adapter before you create email recipients. The email has the subject
+`[Beacon] {data source} - {query name}`, and an HTML body with the query text (when shown), the total row count and the
+preview rows as a table; every value in it is HTML-encoded. See also
+[Configuration → Email Adapter](/getting-started/configuration/#email-adapter).
 
-### Email Format
+## Microsoft Teams
 
-Emails include:
-- **Subject**: Query name and execution timestamp
-- **Body**:
-  - Query description
-  - Execution summary (rows returned, execution time)
-  - Results formatted as HTML table (first 20 rows)
-  - Link to execution history
-- **Attachment**: **CSV file with FULL results** (regardless of row count)
+Office 365 connector URLs on `outlook.office.com` are retired and refused by the default destination policy. Use a Teams
+**Workflows** webhook: in Teams, create a workflow (Power Automate) that starts when a webhook request is received and
+posts the card it receives to your channel, then copy its URL. Workflow URLs are on `*.logic.azure.com` or
+`*.environment.api.powerplatform.com`; legacy `*.webhook.office.com` URLs are still accepted.
 
-:::note[Reporting]
-Email attachments contain the complete query result set, so Beacon suits scheduled reports. Recipients can open the CSV directly in Excel for analysis.
-:::
+Beacon posts an Adaptive Card (version 1.5) as the request body: a "Beacon" title, `{data source}: {query name}`, the
+query text when shown, and a table of the first 10 rows and 3 columns (headed "First 10 records" when there are more),
+plus a **View Query Results** button when a [base URL](#links-back-to-beacon) is set.
 
-**Example email:**
+## Slack
 
-```
-Subject: Daily User Count Report - 2025-10-22 09:00:00
+Create a Slack app with **Incoming Webhooks** on, add a webhook to the channel, and copy its URL
+(`https://hooks.slack.com/services/T…/B…/…`). Anyone holding the URL can post to the channel.
 
-Beacon Query Execution
+Beacon posts a Block Kit message: a header `[Beacon] {data source} - {query name}`, an anomaly block when the run was
+flagged, the query in a code block when shown, the line *Results: Showing X of Y total records*, the rows as a
+fixed-width text table inside a code block (at most 25 rows and 5 columns, each column cut to 20 characters), and a
+**View Full Results** button when a [base URL](#links-back-to-beacon) is set.
 
-Query: Daily Active Users
-Description: Count of users active in last 24 hours
-Executed: 2025-10-22 09:00:15
-Execution Time: 0.34 seconds
-Rows Returned: 1
+## Jira
 
-Results:
-+---------------+
-| active_users  |
-+---------------+
-| 1,247         |
-+---------------+
+The destination is one string, **`domain;project-key;email;api-key`**:
 
-View full execution history:
-https://your-beacon-instance/notifications/12345
-(root-relative React route: /notifications/12345)
-
----
-Sent by Beacon
+```text
+example;OPS;beacon-bot@example.com;ATATT3xFfGF0...
+https://example.atlassian.net;OPS;beacon-bot@example.com;ATATT3xFfGF0...
+https://api.atlassian.com/ex/jira/<cloud-id>;OPS;beacon-bot@example.com;ATATT3xFfGF0...
 ```
 
-### Creating Email Recipient
+The email and API token are a Jira Cloud account's that may create issues in the project. Beacon uses the Jira Cloud
+REST API; an on-premises Jira is reachable only when the host allows its host (`AllowedHosts:Jira`) and network
+(`AllowedPrivateNetworks:Jira`).
 
-1. Navigate to **Recipients** → **Create New Recipient**
-2. Fill in details:
-   - **Name**: `DevOps Team`
-   - **Type**: Email
-   - **Email Address**: `devops@yourdomain.com`
-3. Click **Save**
+A delivery creates an issue of type **Task** in the project, with the summary `BEACON: {query name}`, the label
+`Beacon` and priority **Medium**, its description holding the total row count, the query text when shown and the preview
+rows as a table; the same content is added as a comment. A later delivery adds a comment to that issue when Beacon finds
+it, and creates a new one otherwise. Jira gets no attachment.
 
-### Adding to Subscription
+## Webhook
 
-1. Open your subscription
-2. In **Recipients** section, click **Add Recipient**
-3. Select your email recipient
-4. Click **Save**
-
-## Microsoft Teams Notifications
-
-### Prerequisites
-
-Teams notifications require a webhook URL from your Teams channel.
-
-### Getting Teams Webhook URL
-
-1. Open your Teams channel
-2. Click **...** (More options) next to channel name
-3. Select **Connectors**
-4. Search for **Incoming Webhook**
-5. Click **Configure**
-6. Enter webhook details:
-   - **Name**: `Beacon Alerts`
-   - **Upload Image**: (optional, Beacon logo)
-7. Click **Create**
-8. **Copy the webhook URL** (you'll need this)
-9. Click **Done**
-
-### Teams Card Format
-
-Teams notifications use Adaptive Cards with:
-- **Header**: Query name and icon
-- **Summary**: Execution details
-- **Results Table**: Formatted data (up to 20 rows)
-- **Actions**: "View Query Results" button linking to notification details (when BaseUrl is configured)
-
-**Example Teams card:**
-
-```
-┌─────────────────────────────────────┐
-│ 📊 Daily Active Users               │
-├─────────────────────────────────────┤
-│ Executed: 2025-10-22 09:00:15      │
-│ Execution Time: 0.34s               │
-│ Rows: 1                             │
-│                                     │
-│ Results:                            │
-│ ┌────────────────┐                 │
-│ │ active_users   │                 │
-│ ├────────────────┤                 │
-│ │ 1,247          │                 │
-│ └────────────────┘                 │
-│                                     │
-│ [View Full History →]              │
-└─────────────────────────────────────┘
-```
-
-### Creating Teams Recipient
-
-1. Navigate to **Recipients** → **Create New Recipient**
-2. Fill in details:
-   - **Name**: `Alerts Channel`
-   - **Type**: Teams
-   - **Webhook URL**: Paste your webhook URL
-3. Click **Test Webhook** to verify
-4. Click **Save**
-
-### Configuring Clickable Links in Teams Notifications
-
-To enable the **"View Query Results"** button in Teams notifications, configure the `BaseUrl` setting in your application:
-
-```csharp
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-    options.AddBeaconScheduler<YourScheduler>();
-    // Set your Beacon UI base URL (the React app is served at the root)
-    options.BaseUrl = "https://yourdomain.com";
-});
-```
-
-**Or from appsettings.json:**
+A webhook recipient receives an HTTPS `POST` with a JSON body (`Content-Type: application/json`). By default the body is:
 
 ```json
 {
-  "Beacon": {
-    "BaseUrl": "https://yourdomain.com"
-  }
+  "timestamp": "2026-10-15T09:00:04.512Z",
+  "source": "Beacon",
+  "subscriptionName": "Unpaid completed orders",
+  "subscriptionId": 42,
+  "dataSourceName": "Orders DB",
+  "sqlQuery": "SELECT id, status, payment_status FROM orders WHERE ...",
+  "totalRecords": 3,
+  "executionTimeMs": 184.2,
+  "previousResultCount": 1,
+  "timedOut": false,
+  "records": [
+    { "id": 1017, "status": "completed", "payment_status": "pending" }
+  ],
+  "anomaly": { "isAnomaly": true, "severity": "Medium", "explanation": "..." },
+  "notificationUrl": "https://beacon.example.com/beacon/notifications/981"
 }
 ```
 
-```csharp
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-    options.AddBeaconScheduler<YourScheduler>();
-    options.BaseUrl = builder.Configuration["Beacon:BaseUrl"];
-});
+| Field | What it holds |
+|---|---|
+| `timestamp` | When the message was built (UTC). |
+| `source` | Always `Beacon`. |
+| `subscriptionName`, `subscriptionId` | The query name the subscription is shown by, and the subscription id. |
+| `dataSourceName` | The data source the result came from. |
+| `sqlQuery` | The query text; present only when the subscription shows the query. |
+| `totalRecords` | The run's full row count. |
+| `executionTimeMs` | How long the run took. |
+| `previousResultCount` | The row count of the last run that was not skipped; absent on the first run. |
+| `timedOut` | Whether the run timed out. |
+| `records` | The preview rows (PII-masked), as objects keyed by column name. |
+| `anomaly` | `isAnomaly`, `severity`, `explanation`; present only when anomaly detection flagged the run. |
+| `notificationUrl` | The link back to Beacon; present only when a [base URL](#links-back-to-beacon) is set. |
+
+Fields without a value are left out.
+
+**Custom headers.** **Custom headers (JSON)** takes a JSON object of string values, at most 20 headers, each value at
+most 4,096 characters without control characters:
+
+```json
+{ "Authorization": "Bearer <token>" }
 ```
 
-When configured, Teams notifications will include a button that links to:
-```
-https://yourdomain.com/notifications/details/{notificationId}
-```
+Only these names are allowed: `Authorization`, `Api-Key`, `X-Api-Key` and `Ocp-Apim-Subscription-Key`, plus the names
+the host adds in `Beacon:Notifications:AllowedHeaders`. Headers that control the connection, routing, cookies or cloud
+metadata access (`Host`, `Content-Type`, `Cookie`, `X-Forwarded-For`, `Metadata-Flavor` and others) are never allowed.
+Header values are encrypted like the destination; when editing, a masked value keeps the stored one, and clearing the
+field removes all headers.
 
-This allows recipients to:
-- View complete query results (not just first 20 rows)
-- See execution metrics and history
-- Access full notification details
-- Explore related query executions
+### Body templates
 
-:::note
-If `BaseUrl` is not configured, Teams notifications are still sent but without the clickable button. The notification will contain the results table as usual.
-:::
+A recipient's **Body template** replaces the default message body. The dialog offers it for webhooks; the Teams and
+Slack channels honour one too when it is set through the API (`bodyTemplate` on `POST`/`PUT /beacon/api/recipients`),
+where the template must produce that channel's own JSON.
 
-See [BaseUrl configuration](/getting-started/configuration/#base-url-configuration) for details.
+Placeholders are written `{{Name}}`, case-insensitive: `{{Timestamp}}`, `{{Source}}`, `{{SubscriptionName}}`,
+`{{SubscriptionId}}`, `{{DataSourceName}}`, `{{SqlQuery}}`, `{{TotalRecords}}`, `{{ExecutionTimeMs}}`,
+`{{PreviousResultCount}}`, `{{TimedOut}}`, `{{Records}}`, `{{NotificationUrl}}`, and `{{Anomaly.IsAnomaly}}`,
+`{{Anomaly.Severity}}`, `{{Anomaly.Explanation}}`.
 
-### Testing Teams Webhook
-
-Send a test message:
-
-```bash
-curl -X POST 'https://outlook.office.com/webhook/...' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "@type": "MessageCard",
-    "text": "Test from Beacon"
-  }'
-```
-
-You should see the message in your Teams channel immediately.
-
-## Slack Notifications
-
-### Prerequisites
-
-Slack notifications require a webhook URL from your Slack workspace.
-
-### Getting Slack Webhook URL
-
-1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
-2. Click **Create New App** → **From scratch**
-3. Enter app details:
-   - **App Name**: `Beacon Alerts`
-   - **Pick a workspace**: Select your workspace
-4. Click **Create App**
-5. In the app settings, select **Incoming Webhooks** from the left menu
-6. Toggle **Activate Incoming Webhooks** to **On**
-7. Click **Add New Webhook to Workspace**
-8. Select the channel where notifications should be posted
-9. Click **Allow**
-10. **Copy the Webhook URL** (format: `https://hooks.slack.com/services/T00000000/B00000000/XXXX...`)
-
-:::note
-Keep your webhook URL secure. Anyone with this URL can post messages to your Slack channel.
-:::
-
-### Slack Message Format
-
-Slack notifications use Block Kit with the following table formatting:
-- **Header**: Query name
-- **Query Display** (optional): SQL query in code block with syntax highlighting
-- **Summary**: "Showing X of Y total records"
-- **Results Table**: Rich formatted table with:
-  - Up to **20 columns** (vs Teams' 3-column limit)
-  - Up to **100 rows** (vs Teams' 10-row limit)
-  - **Bold headers** using rich text formatting
-  - **Smart column alignment**: Numbers right-aligned, dates center-aligned, text left-aligned
-  - **Configurable text wrapping**: Enabled for long text, disabled for compact data
-- **Actions**: "View Full Results" button linking to notification details (when BaseUrl is configured)
-
-**Example Slack message:**
-
-```
-┌─────────────────────────────────────────────────────┐
-│ [Beacon] Production DB - Daily Sales Report     │
-├─────────────────────────────────────────────────────┤
-│ Query:                                              │
-│ ```sql                                              │
-│ SELECT product_name, category, quantity,           │
-│        revenue, created_at                          │
-│ FROM sales WHERE date = CURRENT_DATE                │
-│ ORDER BY revenue DESC                               │
-│ ```                                                 │
-├─────────────────────────────────────────────────────┤
-│ Results: Showing 10 of 247 total records           │
-│                                                     │
-│ ┌────────────┬──────────┬────────┬──────────┬──...│
-│ │ Product    │ Category │ Qty    │ Revenue  │ ... │
-│ ├────────────┼──────────┼────────┼──────────┼──...│
-│ │ Widget Pro │ Hardware │    342 │ $12,456  │ ... │
-│ │ Gadget X   │ Hardware │    198 │  $8,234  │ ... │
-│ │ Service Y  │ Software │     89 │  $5,672  │ ... │
-│ └────────────┴──────────┴────────┴──────────┴──...│
-│                                                     │
-│ [View Full Results →]                              │
-└─────────────────────────────────────────────────────┘
-```
-
-### Slack vs Teams Comparison
-
-Slack provides more table formatting options than Teams:
-
-| Feature | Microsoft Teams | Slack |
-|---------|----------------|-------|
-| **Max Columns** | 3 (self-imposed limit) | 20 |
-| **Max Rows** | 10 (truncated) | 100 |
-| **Header Formatting** | Basic bold text | Rich text with bold style |
-| **Column Alignment** | Limited | Full control (left/center/right) |
-| **Text Wrapping** | Always enabled | Configurable per column |
-| **Cell Formatting** | Plain text only | Rich text with links, emoji |
-
-:::note
-Slack's Table Block feature provides better formatting for query results with wide tables or many rows. Consider using Slack for data-heavy notifications.
-:::
-
-### Creating Slack Recipient
-
-1. Navigate to **Recipients** → **Create New Recipient**
-2. Fill in details:
-   - **Name**: `Alerts Channel`
-   - **Type**: Slack
-   - **Webhook URL**: Paste your webhook URL
-3. Click **Save**
-
-### Configuring Clickable Links in Slack Notifications
-
-To enable the **"View Full Results"** button in Slack notifications, configure the `BaseUrl` setting in your application:
-
-```csharp
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
-    options.AddBeaconScheduler<YourScheduler>();
-    // Set your Beacon UI base URL (the React app is served at the root)
-    options.BaseUrl = "https://yourdomain.com";
-});
-```
-
-**Or from appsettings.json:**
+- `{{Records}}` becomes compact JSON; add `_Pretty` to a placeholder (`{{Records_Pretty}}`) for indented JSON.
+- Dates are ISO 8601, booleans `true`/`false`, decimals two places; a missing value is empty.
+- Text values are inserted as they are, without JSON escaping: quote string placeholders yourself, and prefer
+  `{{Records}}` for row data.
+- An unknown placeholder is left as `{{UNKNOWN:Name}}`. If the template cannot be processed, Beacon sends the default
+  body.
 
 ```json
 {
-  "Beacon": {
-    "BaseUrl": "https://yourdomain.com"
-  }
+  "text": "{{SubscriptionName}}: {{TotalRecords}} rows",
+  "rows": {{Records}},
+  "link": "{{NotificationUrl}}"
 }
 ```
 
-When configured, Slack notifications will include a button that links to:
-```
-https://yourdomain.com/notifications/{notificationId}
-```
+## Notification history
 
-This allows recipients to:
-- View complete query results (not just first 100 rows)
-- See execution metrics and history
-- Access full notification details
-- Explore related query executions
+**Notifications** (`/beacon/notifications`) lists subscription runs: **When**, **Query**, **Recipients**, **Rows** and
+**Status**, filtered by status and paged on the server (20 rows per page, at most 200). The statuses are those of
+[Which runs notify](/features/subscriptions/#which-runs-notify): Created, Sent, Silenced, No results, Timeout, Below
+threshold, Failed and Skipped.
 
-:::note
-If `BaseUrl` is not configured, Slack notifications are still sent but without the clickable button. The notification will contain the results table as usual.
-:::
+A notification's page (`/beacon/notifications/{id}`) shows the delivery (type, created and sent times), the recipient,
+the query and subscription, the execution time and result count, and the **Stored results** when the subscription
+stores result rows.
 
-### Testing Slack Webhook
-
-Send a test message:
-
-```bash
-curl -X POST 'https://hooks.slack.com/services/T00000000/B00000000/XXXX...' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "text": "Test from Beacon",
-    "blocks": [
-      {
-        "type": "section",
-        "text": {
-          "type": "mrkdwn",
-          "text": "This is a test notification from *Beacon*"
-        }
-      }
-    ]
-  }'
-```
-
-You should see the message in your Slack channel immediately.
-
-### Advanced Table Features
-
-Slack automatically handles:
-- **Smart data type detection**: Numbers, dates, booleans, and text are detected and formatted appropriately
-- **Automatic alignment**: Numbers right-aligned, dates center-aligned, text left-aligned
-- **Text wrapping**: Long text automatically wraps within cells
-- **Date formatting**: Dates displayed as YYYY-MM-DD HH:mm:ss
-- **Boolean display**: True/False shown as Yes/No
-
-## Jira Notifications
-
-### Prerequisites
-
-Jira notifications require:
-- Jira Cloud or Server instance
-- API token or credentials
-- Project key and issue type
-
-### Creating Jira Recipient
-
-1. Navigate to **Recipients** → **Create New Recipient**
-2. Fill in details:
-   - **Name**: `Production Incidents`
-   - **Type**: Jira
-   - **Jira Configuration**: Enter details
-     - **Instance URL**: `https://yourcompany.atlassian.net`
-     - **Project Key**: `OPS`
-     - **Issue Type**: `Incident`
-     - **API Token**: Your Jira API token
-3. Click **Test Connection**
-4. Click **Save**
-
-### Jira Issue Format
-
-Issues created include:
-- **Summary**: Query name and timestamp
-- **Description**: Query results formatted as table
-- **Labels**: `beacon`, `automated`, query name
-- **Priority**: Configurable based on result thresholds
-
-## Notification History
-
-### Viewing History
-
-1. Click **Notifications** in left navigation (`/notifications`)
-2. View all notification deliveries with:
-   - Execution timestamp
-   - Query executed
-   - Recipients notified
-   - Delivery status (Success, Failed)
-   - Query results
-
-### Filtering History
-
-Filter by:
-- **Subscription**: Show only specific subscription
-- **Date Range**: Last 24 hours, week, month, custom
-- **Status**: Success, Failed, All
-- **Recipient**: Deliveries to specific recipient
-
-### Notification Details
-
-Click any notification to see:
-- The stored query results (when the subscription stores results)
-- Execution metrics (time, row count)
-- Recipient delivery status per channel
-- A generic reason when delivery failed (the details are in the server log)
+A failed run's comment is shown only when it is a recorded failure reason (for example `Recipient 7: Notification
+delivery failed: the destination did not respond in time.`); any other stored text is shown as a generic reason, and the
+details are in the server log.
 
 ### Who sees a run
 
-The notification list and details show stored runs, including their result rows; the Home activity feed, the Control Tower detail, a task's executions and result history (`GET /tasks/{id}/executions`, `/result-history`) and a subscription's anomaly chart (`GET /subscriptions/{id}/anomaly-chart`) list the same runs. Each run records the data sources it read when it ran. An API key or MCP caller restricted to projects sees a run only when **one** of its projects holds every data source the run read (by the projects' current data sources, the rule [saved-query tools](/features/saved-query-tools/) follow); other runs are not listed, and their details read as not found. Signed-in users with read permission see every run. An API key or MCP caller without a project restriction, like an anonymous request, sees none.
+The notification list and pages show stored runs, including their result rows; the Home activity feed, the Control
+Tower detail, a task's executions and result history and a subscription's anomaly chart list the same runs. Each run
+records the data sources it read, and a run is visible:
 
-A failed run's comment is shown only when it is a recorded failure reason (for example `Recipient 7: Notification delivery failed: the destination did not respond in time.`); any other stored text is shown as the generic reason, and the details are in the server log.
+- to an **Admin**, always;
+- to a **signed-in user**, when one project they may read holds every data source the run read, or when every data
+  source it read is openly reachable;
+- to an **API key or MCP caller restricted to projects**, only when one of its projects holds every data source the run
+  read (by the projects' current data sources). Runs recorded before Beacon kept their data sources are hidden from such
+  callers;
+- to an API key or MCP caller with no project, or an anonymous request: never.
 
-:::caution[Upgrading]
-- A new nullable column records the data sources a run read: `data_source_ids` (`integer[]`) on PostgreSQL, `DataSourceIds` (`nvarchar(max)`, JSON) on SQL Server, added by the `AddRunDataSourceIds` migration. Existing rows are not rewritten.
-- Runs recorded before this version have no recorded data sources and are **hidden from project-restricted callers**. Signed-in users still see them.
-- API keys and MCP callers without a project restriction no longer see any run (they get an empty list and 404 on the details), as they are already denied every project.
-- A run is now visible to a restricted caller when one allowed project holds all of its data sources; a run over a data source shared by several projects is visible from each of them that holds all of the run's sources.
-- `INotificationService.GetNotificationDetails` takes a `StoredRunScope`, `GetQueryExecutionHistoryRequest.Scope` is required, and `GetQueryExecutionHistoryDetails` was removed with `QueryExecutionHistoryDetailsData`. `IControlTowerService.GetSubscriptionDetail`, `ITaskService.GetTaskExecutionHistory`, `ITaskService.GetResultCountHistory` and `IAnomalyDetectionService.GetAnomalyChartDataAsync` take a `StoredRunScope` too. Subscription runs carry `QueryResult.DataSourceIds`.
-:::
+Runs you may not see are left out of lists, and their pages read as not found.
 
-## Result Formatting
+### Delivery failures
 
-### Table Size Limits
+Every recipient of a run is tried; one failing does not stop the others. A run with any failed delivery is recorded as
+**Failed**, naming the failed recipient ids with a generic reason. Beacon does not retry a failed delivery: fix the
+recipient, then use **Test now** on the subscription or wait for the next run.
 
-| Channel | Inline Display | Attachment |
-|---------|----------------|------------|
-| **Email** | 20 rows (HTML table) | **CSV with ALL rows** (complete dataset) |
-| **Teams** | 10 rows, 3 columns (adaptive card) | None |
-| **Slack** | 100 rows, 20 columns (table block) | None |
-| **Jira** | 50 rows (issue description) | CSV in description |
+### Real-time updates
 
-:::note[Reporting]
-Email notifications include a CSV attachment with the **complete query result set**, regardless of size. Stakeholders receive full datasets they can analyze in Excel without needing database access.
-:::
-
-**Example**: A query returning 5,000 product sales records will show the first 20 rows in the email body, but the CSV attachment will contain all 5,000 rows ready for Excel pivot tables and analysis.
-
-### Column Formatting
-
-Results are automatically formatted:
-- Numbers: Comma-separated thousands (1,247)
-- Dates: ISO 8601 format (2025-10-22)
-- Booleans: true/false
-- NULL: Displayed as "NULL"
-
-### Custom Formatting
-
-Use SQL to format results:
-
-**Format numbers:**
-```sql
-SELECT
-    TO_CHAR(revenue, 'FM$999,999,999.00') as formatted_revenue
-FROM sales
-```
-
-**Format dates:**
-```sql
-SELECT
-    TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') as formatted_date
-FROM events
-```
-
-## Delivery Status
-
-### Success
-
-Notification delivered successfully:
-- Email: Accepted by email provider (may still bounce)
-- Teams: 200 OK response from webhook
-- Slack: 200 OK response from webhook
-- Jira: Issue created successfully
-
-### Failed
-
-Delivery failed with error:
-- Email: Invalid recipient, email provider API error
-- Teams: Invalid webhook, channel deleted
-- Slack: Invalid webhook, channel deleted, webhook revoked
-- Jira: Authentication failed, project not found
-
-**Common failure reasons:**
-- Recipient configuration invalid
-- External service unavailable
-- Authentication expired
-- Rate limits exceeded
-
-### Retry Behavior
-
-Beacon does NOT automatically retry failed deliveries:
-- Check error message in history
-- Fix recipient configuration
-- Re-execute subscription manually
-
-:::note[Design Decision]
-No retries prevent notification storms and duplicate alerts. Manual re-execution gives control.
-:::
-
-### Real-Time Updates in the UI
-
-In addition to the delivery channels above, the React UI receives real-time updates over a SignalR hub at `/beacon/api/hub`. The `NotificationCreated` event (scoped to the current user) pushes new notifications to the UI as they occur, alongside `JobStatusChanged` and `ApprovalUpdated`. The hub is wired automatically — hosts that do not want real-time updates can disable it with `AddBeaconApiServices(x => x.Realtime = false)`, in which case the UI falls back to manual refresh. See [Real-time](/getting-started/installation/#real-time-signalr).
-
-## Examples
-
-### Example 1: Critical Alert to Teams
-
-**Use Case**: Notify team immediately of production errors
-
-**Subscription:**
-- Name: `Critical Error Alert`
-- Query: `SELECT * FROM errors WHERE severity = 'CRITICAL' AND created_at > NOW() - INTERVAL '5 minutes'`
-- Cron: `*/5 * * * *` (every 5 minutes)
-- Recipients: On-Call Channel (Teams)
-
-**Notification:**
-- Delivered to Teams within seconds
-- Team sees alert card with error details
-- Can discuss and assign immediately
-
-### Example 2: Daily Report via Email with Full Results
-
-**Use Case**: Send overnight sales report to management with complete data for Excel analysis
-
-**Subscription:**
-- Name: `Daily Sales Report`
-- Query: `SELECT product_name, category, SUM(quantity) as units_sold, SUM(revenue) as total_revenue, AVG(price) as avg_price FROM orders WHERE DATE(created_at) = CURRENT_DATE - 1 GROUP BY product_name, category ORDER BY total_revenue DESC`
-- Cron: `0 7 * * *` (every day at 7 AM)
-- Recipients: Management Team (Email)
-
-**Notification:**
-- HTML table in email body (first 20 rows preview)
-- **CSV attachment with ALL rows** (complete dataset for Excel)
-- Recipients can open CSV directly for pivot tables, charts, and analysis
-
-### Example 3: Incident Creation in Jira
-
-**Use Case**: Automatically create incidents for database issues
-
-**Subscription:**
-- Name: `Database Health Monitor`
-- Query: `SELECT tablename, pg_size_pretty(size) FROM table_sizes WHERE size > 10GB`
-- Cron: `0 */6 * * *` (every 6 hours)
-- Recipients: DBA Team (Jira)
-
-**Notification:**
-- Creates Jira issue in OPS project
-- Issue includes table size details
-- Assigned to DBA team queue
-- Tracked through resolution
-
-### Example 4: Multi-Channel Notification
-
-**Use Case**: Critical alerts to multiple channels for redundancy
-
-**Subscription:**
-- Name: `System Down Alert`
-- Query: `SELECT COUNT(*) as failures FROM health_checks WHERE status = 'DOWN'`
-- Cron: `*/1 * * * *` (every minute)
-- Recipients:
-  - On-Call Engineer (Teams)
-  - DevOps Team (Email)
-  - Incident Project (Jira)
-
-**Purpose**: Ensure critical alerts reach team through multiple channels.
+The React app receives updates over a SignalR hub at `/beacon/api/hub`: `NotificationCreated` (scoped to the current
+user) alongside `JobStatusChanged` and `ApprovalUpdated`. A host that does not want them sets
+`AddBeaconApiServices(x => x.Realtime = false)`, and the app falls back to manual refresh.
 
 ## Troubleshooting
 
-### Emails Not Arriving
+**Email does not arrive.** Check that the host registered an `IEmailAdapter` (`options.AddEmailAdapter<T>()`), the
+adapter's own logs and provider settings, the address, and the spam folder.
 
-**Check:**
-1. IEmailAdapter is implemented and registered
-2. Email adapter configuration is correct (SMTP host, credentials, etc.)
-3. Recipient email address is correct
-4. Check spam/junk folder
-5. Review application logs for email adapter errors
+**Saving a recipient is refused.** The destination is outside the [destination policy](#destination-policy): not HTTPS,
+not a vendor host, a private address, a display name in an email address, or a header that is not allowed. The message
+says which.
 
-**Debug your email adapter:**
-1. Add logging to your `SendEmailAsync` implementation
-2. Test email sending outside of Beacon
-3. Verify SMTP credentials and server settings
-4. Check firewall rules for SMTP ports (usually 587 or 465)
+**Teams delivers nothing.** Use a Workflows URL; `outlook.office.com` connector URLs are refused. Check that the
+workflow posts the card it receives to the channel.
 
-### Teams Webhook Not Working
+**Jira delivers nothing.** Check the four parts of the connection string, that the token's account may create issues in
+the project, and that the site is on `*.atlassian.net` (or allowed by the host).
 
-**Check:**
-1. Webhook URL is complete and correct
-2. Teams channel still exists
-3. Webhook connector not removed
-4. URL hasn't expired
+**The link in a message leads to a blank or wrong page.** The base URL is missing `/beacon`; see
+[Links back to Beacon](#links-back-to-beacon).
 
-**Test webhook manually:**
-```bash
-curl -X POST 'YOUR_WEBHOOK_URL' \
-  -H 'Content-Type: application/json' \
-  -d '{"text": "Test"}'
-```
+**A recipient shows Awaiting approval.** Its destination waits for a second person's approval on the **Approvals**
+page.
 
-If this fails, recreate the webhook in Teams.
+## Related
 
-### Jira Issues Not Creating
-
-**Check:**
-1. Jira credentials are valid
-2. Project key exists
-3. Issue type is valid for project
-4. API token has necessary permissions
-
-**Verify Jira connection:**
-- Check Jira API token hasn't expired
-- Ensure user has "Create Issue" permission
-- Verify project key is uppercase
-
-### Delivery Shows Success But Not Received
-
-**Email:**
-- Check spam folder
-- Verify recipient email address
-- Check SendGrid activity for bounces
-
-**Teams:**
-- Verify you're in the correct Teams channel
-- Check Teams notification settings
-- Refresh Teams client
-
-**Jira:**
-- Check correct Jira project
-- Verify issue type filter
-- Refresh Jira board
-
-## Related Documentation
-
-- [Subscriptions](/features/subscriptions/) - Schedule notifications and add recipients
-- [Configuration](/getting-started/configuration/) - SendGrid and webhook setup
+- [Subscriptions](/features/subscriptions/): which runs notify and what they carry
+- [Approvals](/features/approvals/): the change-review workflow
+- [Configuration → Notification Destinations](/getting-started/configuration/#notification-destinations-optional): the
+  `Beacon:Notifications` settings
+- [Data Quality](/features/data-quality/): contract alerts use the same recipients

@@ -146,8 +146,9 @@ public class HostEndpointDiscoveryTests
         tool.Annotations.OpenWorldHint.Should().BeFalse();
     }
 
-    [TestCase(typeof(MissingReadOnlyController), "ReadOnly must be declared true")]
-    [TestCase(typeof(FalseReadOnlyController), "ReadOnly must be declared true")]
+    [TestCase(typeof(MissingReadOnlyController), "ReadOnly must be declared explicitly")]
+    [TestCase(typeof(FalseReadOnlyController), "set HostEndpointToolOptions.AllowWriteTools = true")]
+    [TestCase(typeof(DestructiveReadOnlyController), "Destructive applies only to write tools")]
     [TestCase(typeof(BadNameController), "must match ^[a-z][a-z0-9_]{2,47}$")]
     [TestCase(typeof(DuplicateNameController), "tool name 'same_name' is already used by")]
     [TestCase(typeof(NoAuthorizationController), "declares no authorization")]
@@ -203,7 +204,7 @@ public class HostEndpointDiscoveryTests
             map: x => x.MapGet("/minimal/write", () => Results.Ok()).RequireAuthorization().WithBeaconTool("minimal_write", null, readOnly: false));
 
         (await start.Should().ThrowAsync<InvalidOperationException>())
-            .Which.Message.Should().Contain("minimal_write").And.Contain("ReadOnly must be declared true");
+            .Which.Message.Should().Contain("minimal_write").And.Contain("AllowWriteTools");
     }
 
     [Test]

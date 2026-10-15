@@ -1,0 +1,59 @@
+---
+// An animated pipeline: a row of steps with a pulse travelling along the connector.
+// Steps light up one after another; the animation loops. Stacks vertically on phones.
+interface Step {
+	label: string;
+	detail: string;
+	tone?: 'accent' | 'ok' | 'warn' | 'crit';
+}
+interface Props {
+	steps: Step[];
+	seconds?: number;
+}
+const { steps, seconds = 6 } = Astro.props;
+const n = steps.length;
+---
+
+<ol class="flow" style={`--n:${n}; --dur:${seconds}s`}>
+	{
+		steps.map((s, i) => (
+			<li class={`flowStep tone-${s.tone ?? 'accent'}`} style={`--i:${i}`}>
+				<span class="flowDot" aria-hidden="true">{i + 1}</span>
+				<span class="flowLabel">{s.label}</span>
+				<span class="flowDetail">{s.detail}</span>
+			</li>
+		))
+	}
+</ol>
+
+<style>
+	.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 0; position: relative; }
+	.flow::before { content: ''; position: absolute; left: calc(50% / var(--n)); right: calc(50% / var(--n)); top: 17px; height: 2px; background: var(--bx-border); }
+	.flow::after { content: ''; position: absolute; top: 14px; left: calc(50% / var(--n)); width: 8px; height: 8px; border-radius: 50%; background: var(--bx-accent); box-shadow: 0 0 0 4px var(--bx-accent-dim); animation: travel var(--dur) linear infinite; }
+	@keyframes travel {
+		0% { left: calc(50% / var(--n)); opacity: 0; }
+		5% { opacity: 1; }
+		90% { opacity: 1; }
+		100% { left: calc(100% - 50% / var(--n) - 8px); opacity: 0; }
+	}
+	.flowStep { position: relative; margin: 0; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 8px; gap: 6px; }
+	.flowDot { position: relative; z-index: 1; width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--sl-font-mono); font-size: 12px; font-weight: 600; background: var(--bx-surface); border: 2px solid var(--bx-accent); color: var(--bx-accent); animation: light var(--dur) linear infinite; animation-delay: calc(var(--dur) * var(--i) / var(--n)); }
+	.tone-ok .flowDot { border-color: var(--xp-ok); color: var(--xp-ok); }
+	.tone-warn .flowDot { border-color: var(--xp-warn); color: var(--xp-warn); }
+	.tone-crit .flowDot { border-color: var(--xp-crit); color: var(--xp-crit); }
+	@keyframes light {
+		0%, 12% { background: var(--bx-accent-dim); transform: scale(1.06); }
+		20%, 100% { background: var(--bx-surface); transform: none; }
+	}
+	.flowLabel { font-size: 14px; font-weight: 600; color: var(--bx-text); margin-top: 6px; }
+	.flowDetail { font-size: 12.5px; line-height: 1.5; color: var(--bx-text-muted); max-width: 190px; }
+	@media (max-width: 860px) {
+		.flow { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+		.flow::before { left: 17px; right: auto; top: 18px; bottom: 18px; width: 2px; height: auto; }
+		.flow::after { display: none; }
+		.flowStep { display: grid; grid-template-columns: 36px minmax(0, 1fr); grid-template-rows: auto auto; align-items: start; text-align: left; column-gap: 14px; row-gap: 2px; padding: 0; }
+		.flowDot { grid-row: 1 / span 2; }
+		.flowLabel { margin-top: 0; }
+		.flowDetail { max-width: none; }
+	}
+</style>

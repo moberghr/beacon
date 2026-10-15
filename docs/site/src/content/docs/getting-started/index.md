@@ -1,86 +1,86 @@
 ---
-title: Getting Started
-description: Overview of Beacon, a .NET 10 platform for semantic database monitoring, alerting, ETL, and cross-database queries.
+title: Overview
+description: What Beacon is, who it is for, the two ways to run it, and what you need before you start.
 ---
 
-Beacon is a .NET 10 platform for semantic database monitoring, alerting, ETL / data migration, and cross-database queries, with an AI layer and a built-in MCP server. This section takes you from zero to your first scheduled database alert.
+Beacon watches your databases and tells people when something is wrong. You write SQL against the databases you care about, schedule it, and Beacon delivers the rows to email, Microsoft Teams, Slack, Jira or a webhook. The same governed access to your data is offered to AI assistants through a built-in [MCP](https://modelcontextprotocol.io) server.
 
-## How Beacon Is Delivered
+Beacon is a set of .NET 10 libraries with a React UI. You either run the sample host from the repository, or embed the NuGet packages in your own ASP.NET Core application.
 
-Beacon ships two ways, and you can use either:
+## What it does
 
-1. **As a self-hostable application** — clone the repository and run the `Beacon.SampleProject` host (the composition root). It boots Kestrel, serves the React single-page app at the root URL, exposes the REST API, MCP server, and SignalR hub, and applies database migrations on first run.
-2. **As NuGet packages** — embed Beacon into your own ASP.NET Core application by referencing the `Beacon.*` packages and wiring them in `Program.cs`.
+| Capability | What you get |
+|---|---|
+| Database monitoring | Queries with one or more steps across nine connectors: PostgreSQL, SQL Server, MySQL, Azure Synapse, Snowflake, BigQuery, Databricks, AWS CloudWatch and REST APIs (OpenAPI). |
+| Alerting | Cron-scheduled subscriptions, notification triggers, tasks that stay open while a problem lasts, anomaly detection, data contracts, and a Control Tower view of their health. |
+| Data movement | Data migration jobs that copy data into a database an Admin marked as a write target. Off unless the deployment turns it on. |
+| Governed MCP server | `/beacon/mcp` for Claude, Cursor, VS Code and other MCP clients: eight built-in tools, saved queries published as tools, and optionally your own HTTP endpoints. SQL runs read-only, every call is scoped to the caller's projects and audited. |
 
-The [Installation](/getting-started/installation/) guide covers both paths in detail.
+## Who it is for
 
-## What You'll Learn
+- **Data and platform teams** who want SQL-based alerts on production data without writing a service for each one.
+- **Teams in regulated environments** who need read-only execution, project-level access control, four-eyes approvals and an audit trail.
+- **.NET teams** who want to give AI assistants access to their data through one governed endpoint instead of database credentials.
 
-- **Installation** — run the host or embed Beacon into your own ASP.NET Core app
-- **Quick Start** — create your first data source, query, subscription, and notification
-- **Configuration** — connection strings, encryption key, auth, AI/LLM, and scheduling
+## Two ways to run Beacon
 
-## Prerequisites
+| Path | Use it when | Start here |
+|---|---|---|
+| Run the sample host | You want to evaluate Beacon, or contribute to it. Clone the repository and run `Beacon.SampleProject`. | [Quick start](/getting-started/quick-start/) |
+| Embed the packages | You run Beacon for real. Add the `Moberg.Beacon.*` packages to your own ASP.NET Core application, with your sign-in, job runner and deployment. | [Integrate Beacon](/integrate/) |
 
-Before you begin, ensure you have:
+The sample host is a reference composition, not a product. Production deployments embed Beacon in their own host.
 
-- **.NET 10.0 SDK** or later
-- **PostgreSQL 12+** or **SQL Server 2019+** for Beacon's metadata database
-- **Node.js 18+** and npm (only if you build or run the React frontend from source)
-- An **encryption key** (`Beacon:EncryptionKey`) — required; generate with `openssl rand -base64 32`
-- Basic SQL knowledge
-
-## Architecture at a Glance
+## How the pieces fit
 
 ```mermaid
-flowchart TB
-    Browser["Browser<br/>React SPA (Vite + Tailwind v3.4)"]
-    MCPClient["MCP Client<br/>(Claude, IDE, agents)"]
+flowchart LR
+    Browser["Browser"]
+    Client["MCP client<br/>(Claude, Cursor, VS Code)"]
 
-    subgraph Host["Beacon.SampleProject (Kestrel host)"]
-        UI["Beacon.UI<br/>Razor Class Library<br/>serves SPA at /"]
-        API["REST API<br/>/beacon/api/* (Minimal APIs)"]
-        Hub["SignalR Hub<br/>/beacon/api/hub"]
-        MCP["MCP Server<br/>/beacon/mcp (Streamable HTTP)"]
+    subgraph Host["ASP.NET Core host"]
+        UI["React UI<br/>/beacon"]
+        API["REST API + SignalR<br/>/beacon/api"]
+        MCP["MCP server<br/>/beacon/mcp"]
+        Core["Beacon.Core<br/>handlers, SQL gate, jobs"]
     end
 
-    subgraph Core["Beacon.Core + Beacon.AI + Beacon.MCP"]
-        Mediatr["MediatR / CQRS handlers"]
-        AI["AI layer<br/>(runtime-swappable LLM + queue)"]
-        Scheduler["IBeaconScheduler<br/>(pluggable scheduler)"]
-    end
+    Meta[("Metadata database<br/>PostgreSQL or SQL Server<br/>schema beacon")]
+    Sources[("Monitored data sources<br/>read-only logins")]
+    Notify["Email, Teams, Slack,<br/>Jira, webhook"]
+    LLM["LLM provider<br/>(optional)"]
 
-    subgraph Data["Data layer"]
-        Meta[("Metadata DB<br/>PostgreSQL / SQL Server<br/>EF Core 10, schema 'beacon'")]
-        Sources[("Monitored data sources<br/>9 connectors")]
-    end
-
-    Browser -->|"HTTP + WebSocket"| API
     Browser --> UI
-    API --> Hub
-    MCPClient -->|"auth required"| MCP
-    API --> Mediatr
-    MCP --> Mediatr
-    Mediatr --> AI
-    Mediatr --> Scheduler
-    Mediatr --> Meta
-    Scheduler --> Meta
-    Mediatr --> Sources
+    Browser --> API
+    Client --> MCP
+    API --> Core
+    MCP --> Core
+    Core --> Meta
+    Core --> Sources
+    Core --> Notify
+    Core --> LLM
 ```
 
-## Quick Overview
+- The UI, REST API and MCP server all live under `/beacon`. The site root `/` belongs to the host.
+- Beacon keeps its own data (data sources, queries, users, audit) in the `beacon` schema of a PostgreSQL or SQL Server database.
+- Connection strings to monitored databases are encrypted at rest with `Beacon:EncryptionKey`.
+- Background work (scheduled subscriptions, re-indexing) runs on a job runner the host provides. The sample host uses [Moberg Warp](https://moberghr.github.io/warp/).
 
-Beacon enables you to:
+## Requirements
 
-1. **Connect** to your data sources — PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and generic REST APIs (9 connectors)
-2. **Define** SQL queries (including cross-database queries) to monitor your data
-3. **Schedule** execution with cron expressions via the pluggable scheduler
-4. **Deliver** results via Email, Microsoft Teams, or Jira
-5. **Migrate** data between databases with ETL pipelines
-6. **Integrate** with AI agents through the built-in MCP server
+| You need | Notes |
+|---|---|
+| .NET 10 SDK | Every Beacon project targets `net10.0`. |
+| A database for Beacon's own data | PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension available on the server, or SQL Server. |
+| PostgreSQL for the sample's job runner | The sample host runs Warp, which needs PostgreSQL even when Beacon's own data is on SQL Server. |
+| Node.js 22 and npm 11 | Only to build or run the React UI from source. Package consumers get the built UI inside `Moberg.Beacon.UI`. |
+| An encryption key | Base64 of at least 32 random bytes, for example from `openssl rand -base64 32`. Beacon does not start without one. |
 
-## Next Steps
+## Where next
 
-- [Installation](/getting-started/installation/) — run the host or embed Beacon into your ASP.NET Core app
-- [Quick Start](/getting-started/quick-start/) — create your first data source, query, and notification
-- [Configuration](/getting-started/configuration/) — connection strings, encryption, auth, AI/LLM, and scheduling
+- [Core concepts](/getting-started/concepts/): data sources, projects, queries, subscriptions and the rest of the model.
+- [Quick start](/getting-started/quick-start/): run the sample host and send your first alert.
+- [Run the sample host](/getting-started/installation/): what the sample includes and how to configure it.
+- [Integrate Beacon](/integrate/): embed the packages in your own application.
+- [Configuration](/getting-started/configuration/): every configuration key.
+- [Routes & endpoints](/reference/routes/): every URL Beacon serves.

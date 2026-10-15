@@ -7,7 +7,7 @@
 
 		<!-- Package Information -->
 		<Authors>Moberg</Authors>
-		<Description>Beacon core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL, SQL Server, and MySQL support.</Description>
+		<Description>Beacon core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL and SQL Server; MySQL support comes with the MySQL connector package.</Description>
 		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
@@ -45,12 +45,6 @@
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" />
 		<PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
 		<PackageReference Include="Microsoft.Extensions.Http" />
-		<!-- Pomelo 9.0.0 is the newest release and targets EF Core 9; no EF Core 10 build exists yet.
-		     Pinned explicitly (was a transitive dep of EFCore.BulkExtensions 9.x before the net10/EF10
-		     move) so MigrationService.Sql.cs's MySQL bulk-write path (UseMySql) still compiles on EF10.
-		     It compiles and restores, but the MySQL bulk path is runtime-UNVERIFIED on EF Core 10 —
-		     revisit when Pomelo ships an EF Core 10 build. -->
-		<PackageReference Include="Pomelo.EntityFrameworkCore.MySql" />
 		<PackageReference Include="Refit" />
 		<PackageReference Include="SqlParserCS" />
 		<PackageReference Include="Microsoft.Data.Sqlite" />

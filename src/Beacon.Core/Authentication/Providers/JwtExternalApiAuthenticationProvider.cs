@@ -28,6 +28,8 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     private readonly JwtAuthenticationOptions _options;
     private readonly ILogger<JwtExternalApiAuthenticationProvider> _logger;
     private readonly JwksSigningKeyCache _keyCache;
+    private const string MalformedTokenMessage = "Malformed token.";
+
     private readonly IUserManagementService? _userService;
     private readonly IOptions<OidcAuthenticationOptions>? _oidcOptions;
     private readonly BeaconConfiguration? _configuration;
@@ -191,11 +193,25 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     /// <summary>
     /// Validates a JWT token and returns an authentication result.
     /// Can be used directly for bearer token validation.
+    /// <para>
+    /// Never throws for a bad token: the bearer value is caller-controlled, so every way it can fail to parse or
+    /// validate becomes a failed result (the bearer middleware answers <c>401</c>). A malformed value is reported
+    /// without the token or the parser's message. The one failure that is not the caller's fault — the JWKS endpoint
+    /// cannot be reached and no keys are cached — is a <see cref="AuthenticationResult.KeysUnavailable"/> result
+    /// (<c>503</c>).
+    /// </para>
     /// </summary>
     public async Task<AuthenticationResult> ValidateTokenAsync(
         string token,
         CancellationToken cancellationToken = default)
     {
+        // CanReadToken is false for anything that is not a compact JWS/JWE or is over the handler's size limit.
+        if (string.IsNullOrWhiteSpace(token) || !_tokenHandler.CanReadToken(token))
+        {
+            _logger.LogDebug("JWT bearer token is not a well-formed JWT");
+            return AuthenticationResult.Failed(MalformedTokenMessage);
+        }
+
         try
         {
             var validatedToken = await ValidateWithKeyRotationAsync(token, cancellationToken);
@@ -213,6 +229,11 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
                 TokenPrincipal = new ClaimsPrincipal(new ClaimsIdentity(jwtToken.Claims, "Bearer")),
                 TokenType = jwtToken.Header.Typ
             };
+        }
+        catch (SigningKeysUnavailableException)
+        {
+            // FetchJwksAsync already logged the cause.
+            return AuthenticationResult.KeysUnavailable("Token signing keys are temporarily unavailable.");
         }
         // The reasons below are fixed strings, logged by the caller (rate-limited for bearer requests); nothing here is
         // logged above Debug, so an anonymous stream of bad tokens cannot flood the log.
@@ -241,10 +262,19 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             _logger.LogDebug(ex, "JWT token validation failed");
             return AuthenticationResult.Failed("Invalid token.");
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
-            // A string that is not a JWT at all (the handler cannot even read it).
-            _logger.LogDebug("JWT token is malformed");
+            // SecurityTokenMalformedException derives from ArgumentException (not SecurityTokenException) since
+            // IdentityModel 7: a token that passes the shape check but has an undecodable header or payload lands
+            // here. Not logged with the exception — its message can echo token fragments.
+            _logger.LogDebug("JWT bearer token is malformed ({ExceptionType})", ex.GetType().Name);
+            return AuthenticationResult.Failed(MalformedTokenMessage);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Fail closed on anything else a hostile token can provoke in the handler (e.g. an unsupported algorithm
+            // surfacing as NotSupportedException): a bad bearer value is a 401, never an unhandled 500.
+            _logger.LogDebug("JWT bearer token validation failed unexpectedly ({ExceptionType})", ex.GetType().Name);
             return AuthenticationResult.Failed("Invalid token.");
         }
     }
@@ -332,10 +362,10 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
                 forceRefresh,
                 cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogError(ex, "Failed to fetch JWKS from {Endpoint}", jwksEndpoint);
-            throw new SecurityTokenException("Unable to retrieve signing keys.", ex);
+            throw new SigningKeysUnavailableException(ex);
         }
     }
 
@@ -464,4 +494,9 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
 
         return null;
     }
+
+    // The JWKS could not be fetched and nothing was cached: the token was never judged. Deliberately not a
+    // SecurityTokenException, so it cannot be mistaken for (and reported as) an invalid token.
+    private sealed class SigningKeysUnavailableException(Exception innerException)
+        : Exception("Unable to retrieve signing keys.", innerException);
 }

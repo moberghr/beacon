@@ -1,0 +1,71 @@
+---
+title: Production checklist
+description: "What to set before Beacon faces real users and real data: secrets, Data Protection, reverse proxy, sign-in, locks, audit, MCP, scaling, observability and upgrades."
+---
+
+Go through this list before the first real user signs in. Each line links to where it is explained.
+
+## Secrets and keys
+
+- [ ] `Beacon:EncryptionKey` comes from a secret store or environment variable, never a file in source control; its backup is stored separately from database backups. → [Configuration](/getting-started/configuration/)
+- [ ] You know how to **rotate** it: move the old key to `Beacon:PreviousEncryptionKeys:0`, set the new one, set `Beacon:Mcp:CallerHashKey` to the old key first if you want MCP caller hashes to stay comparable, run the re-encryption job, then remove the old key.
+- [ ] `Beacon:DataProtection:ApplicationName` is set (one value per environment), and the key ring is **encrypted at rest** (`ProtectKeysWithCertificate` / `ProtectKeysWithAzureKeyVault`), otherwise the host does not start outside `Development`. → [Host wiring](/integrate/host-setup/#data-protection)
+- [ ] OIDC client secrets, LLM API keys and SMTP passwords come from the secret store.
+- [ ] `Beacon:UserManagement:SetupToken` is set for multi-instance first runs, and removed afterwards.
+
+## Reverse proxy
+
+- [ ] TLS terminates at the proxy, and the host runs `UseForwardedHeaders` with **only your proxies** listed, first in the pipeline. The login throttle (10 attempts / 60 s per IP) and the cookie's Secure flag depend on it.
+
+```csharp
+var forwarded = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto };
+forwarded.KnownProxies.Clear();
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Add(IPAddress.Parse("10.0.0.5"));
+app.UseForwardedHeaders(forwarded);
+```
+
+- [ ] `Beacon:PublicBaseUrl` is the public origin (e.g. `https://beacon.example.com`), so MCP discovery documents do not echo the client's `Host` header. → [MCP & AI clients](/integrate/mcp/#public-url-and-discovery)
+- [ ] `options.BaseUrl` (or **Admin settings → Base URL**) is the public UI URL **including `/beacon`**, so notification links work.
+- [ ] HTTPS redirection applies to `/beacon/mcp` too, because API keys travel in headers.
+- [ ] Proxy and Kestrel timeouts allow long requests (AI documentation, `ask`): the reference host uses 5 minutes.
+
+## Sign-in and access
+
+- [ ] Authorization is on (`options.Authorization.Enabled = true`).
+- [ ] SSO admission is narrow: `AllowedTenants`, `BlockGuests` (default on), `RequiredGroups` or `RequiredRoles`; `RequireMfa` if your provider issues `amr`/`acr`. → [Sign-in & identity](/integrate/authentication/#oidc--sso)
+- [ ] Local passwords off once SSO works, with one break-glass account in a vault; alert on event 7119 `BreakGlassSignIn`.
+- [ ] `Beacon:Authorization:RequireProjectMembership: true`; projects planned; data sources linked only where needed. → [Access control](/integrate/access-control/)
+- [ ] Few Admins; duties given as functional permissions; `SeparationOfDuties` on if your auditors expect it.
+- [ ] Approval workflow on with at least two Approvers, `RequireApprovedVersionToRun` for regulated data. → [Approvals](/features/approvals/)
+- [ ] API keys: decide `Beacon:ApiKeys:MaxLifetimeDays` and `MaxOwnerInactivityDays`.
+
+## Data and SQL
+
+- [ ] Every data source uses a **read-only login**, including PostgreSQL and MySQL. → [Connectors](/integrate/connectors/#creating-read-only-logins)
+- [ ] Deployment locks reviewed: `Beacon:Mcp:ForceReadOnly` and `ForcePiiDetection` stay `true`; consider `ForbidRowDataToLlm` and `ForceNoContentRetention`. → [Access control](/integrate/access-control/#5-deployment-locks)
+- [ ] `Beacon:Query:MaxExecutionRows` (default 100,000) and `StatementTimeoutSeconds` (default 120) fit your workloads.
+- [ ] `Beacon:Mcp:Ceilings:MaxRowLimit` set if project admins must not raise the MCP row limit.
+- [ ] `Beacon:Migrations:Enabled` stays `false` unless you need data migration. It is the only write path.
+- [ ] Notification destinations restricted as needed: `Beacon:Notifications:AllowedHosts:*`, `DisabledTypes`; private networks stay unreachable unless listed in `AllowedPrivateNetworks`. → [Notifications](/features/notifications/)
+
+## Audit and observability
+
+- [ ] `Beacon:Mcp:Audit:RetentionDays` set to your retention policy and the purge job scheduled; `Audit:Required: true` if a tool result must never be returned without its audit row. → [MCP observability & audit](/features/mcp-observability-and-audit/)
+- [ ] Security events (structured log events 7101–7123: membership, roles, sessions, break-glass, access refused, row data to LLM) are shipped to your log pipeline and alerted on. Beacon does not keep them in its own database.
+- [ ] Structured JSON console logs (`Logging:Console:FormatterName=json`, `IncludeScopes=true`) if your platform correlates by trace id.
+- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers; you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
+- [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. On a brand-new deployment with user management on, it redirects to `/beacon/setup` until the first administrator exists. Complete setup before the probe goes live.
+
+## Scaling
+
+- [ ] Several instances: shared Data Protection key ring (Beacon's database does this), a SignalR backplane (`ConfigureSignalR`), **session affinity for `/beacon/mcp`** (legacy MCP clients hold an `Mcp-Session-Id` in memory), and a job runner that fires each recurring job once.
+- [ ] Migrations run once per deployment, not from every replica at the same time. → [Metadata database](/integrate/database/#creating-and-migrating-the-schema)
+- [ ] Database pool sized for job workers plus web traffic.
+
+## Upgrades
+
+- [ ] All `Moberg.Beacon.*` packages on the same version.
+- [ ] Read the release notes of every version you upgrade to: a release can change defaults, and the notes say what to do.
+- [ ] Back up the metadata database before migrating; migrations are append-only and run forward.
+- [ ] After upgrading every instance, run one-off jobs the release notes name (for example recipient-secret encryption).

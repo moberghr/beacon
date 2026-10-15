@@ -54,6 +54,20 @@ public sealed class LoginFormAuthMiddleware(
             return true;
         }
 
+        // The same pages under the UI's base path (/beacon/login, …), including the login page this middleware
+        // redirects to; otherwise a signed-out browser is redirected to the login page forever. Exact, Ordinal
+        // matches: the SPA's router base path is case-sensitive, so a mixed-case variant redirects to login instead
+        // of reaching the SPA fallback.
+        var loginPath = configuration.Authentication.LoginPath;
+        if (_basePath.Length > 0 &&
+            ((loginPath.Length > 1 && path.Equals($"{_basePath}{loginPath}", StringComparison.Ordinal)) ||
+             path.Equals($"{_basePath}/login", StringComparison.Ordinal) ||
+             path.Equals($"{_basePath}/logout", StringComparison.Ordinal) ||
+             path.Equals($"{_basePath}/error", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
         // Allow setup page and API when user management is enabled (first-run scenario)
         if (configuration.UserManagement.Enabled &&
             path.Contains("/setup", StringComparison.OrdinalIgnoreCase))

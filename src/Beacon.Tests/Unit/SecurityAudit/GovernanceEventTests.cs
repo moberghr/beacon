@@ -263,6 +263,7 @@ public class GovernanceEventTests
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<IQueryExecutionPreviewService>(MockBehavior.Strict),
             Mock.Of<IBeaconUserContext>(),
+            new MigrationBulkContextFactory([]),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = true }),
             TestChangeApprovals.Submitter(TestChangeApprovals.On(), TestChangeApprovals.Caller(Ben, 8)),

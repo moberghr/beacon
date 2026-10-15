@@ -1,175 +1,41 @@
-# Schema-Agnostic Migrations Guide
+# Beacon's database schema
 
-## Overview
-The Beacon architecture supports runtime schema selection. This means migrations are generated once and can be deployed to any schema name at runtime.
+Beacon keeps all of its own tables in one schema, `beacon`, on PostgreSQL and on SQL Server. The migration history
+table is `beacon.__EFMigrationsHistory`. The schema is **not configurable**. (This file's name is historical: an
+earlier design let a host pick the schema at runtime. That design is gone.)
 
-## How It Works
+## What `Beacon:Schema` does now
 
-### 1. Schema is Applied at Runtime
-```csharp
-// In your consuming application (Program.cs)
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(connectionString, "your_custom_schema");
-    // OR
-    // options.UseSqlServer(connectionString, "your_custom_schema");
+`Beacon:Schema` and the `schema` parameter of `UsePostgreSql(...)` / `UseSqlServer(...)` accept only `beacon`.
+Leave them unset. Any other value throws `InvalidOperationException` when the provider is registered, before the
+host starts. The message tells you to remove the setting and move any existing Beacon tables into `beacon`.
 
-    options.AddBeaconScheduler<YourScheduler>();
-});
-```
+## Why the schema is fixed
 
-### 2. Schema is Set via HasDefaultSchema
-The schema is applied in the context's `OnModelCreating` method:
-```csharp
-protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-    modelBuilder.HasDefaultSchema(DefaultSchema); // Applied dynamically
-    base.OnModelCreating(modelBuilder);
-}
-```
+Each provider's model snapshot names the schema. On `Database.Migrate()`, EF Core compares the runtime model with
+the snapshot. With any other schema the two disagree, EF raises `PendingModelChangesWarning`, and `Migrate()`
+throws before it applies anything. A new migration cannot fix that, because its snapshot names one schema too.
+Rejecting other values at registration turns an opaque EF error at boot into a clear configuration error.
 
-### 3. Migrations History Table Location
-The `__EFMigrationsHistory` table location is set at startup:
-```csharp
-options.UseNpgsql(connectionString,
-    builder => builder.MigrationsHistoryTable("__EFMigrationsHistory", schema))
-```
+## Why migrations still go through a schema-aware SQL generator
 
-## Generating Schema-Agnostic Migrations
+The PostgreSQL migrations were scaffolded before the model had a default schema, so their operations carry no
+schema at all. The committed files cannot be edited (migrations are append-only), so each provider replaces EF's
+SQL generator with `SchemaAwareMigrationsSqlGenerator`. It rewrites operations whose schema is empty or the literal
+`beacon` to the configured schema (always `beacon` now) when the SQL is generated. The shared logic is
+`MigrationOperationSchemaRetargeter` in `Beacon.Core`.
 
-### Important: Migrations are Provider-Specific
-- **PostgreSQL migrations** go in: `Beacon.Core.PostgreSql`
-- **SQL Server migrations** go in: `Beacon.Core.SqlServer`
+The PostgreSQL migration `MoveTablesToConfiguredSchema` has empty `Up` and `Down` on purpose. It only records the
+schema in the snapshot so that model and snapshot agree. Do not regenerate it. SQL Server needs no such migration:
+its snapshot already declares `HasDefaultSchema("beacon")`.
 
-Each provider has different SQL syntax, so they need separate migrations.
+On PostgreSQL, Beacon's connections also use the search path `beacon, public`, so the unqualified names in raw
+migration SQL (`mcp_embeddings`, `vector`) resolve, and a pgvector installed in `public` is found.
 
-### Steps to Generate Migrations
+## What this means for you
 
-1. **Temporarily set the default schema in Program.cs** (for migration generation):
-   ```csharp
-   // Use default schema for generating migrations
-   builder.Services.AddBeacon(builder.Configuration, options =>
-   {
-       options.UsePostgreSql(connectionString); // Uses "beacon" by default
-       options.AddBeaconScheduler<YourScheduler>();
-   });
-   ```
+- Hosts: do not set `Beacon:Schema`. Create the schema with
+  `Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true)` or ahead of time.
+- Contributors: scaffold new migrations with the default configuration, and follow [MIGRATIONS.md](MIGRATIONS.md).
 
-2. **Generate the migration**:
-   ```bash
-   # For PostgreSQL
-   dotnet ef migrations add YourMigrationName \
-     --project Beacon.Core.PostgreSql \
-     --startup-project Beacon.SampleProject
-
-   # For SQL Server
-   dotnet ef migrations add YourMigrationName \
-     --project Beacon.Core.SqlServer \
-     --startup-project Beacon.SampleProject
-   ```
-
-3. **Restore your custom schema** (if you were testing with one):
-   ```csharp
-   builder.Services.AddBeacon(builder.Configuration, options =>
-   {
-       options.UsePostgreSql(connectionString, "test");
-       options.AddBeaconScheduler<YourScheduler>();
-   });
-   ```
-
-## How Consuming Projects Use Custom Schemas
-
-### Example: Multiple Tenants with Different Schemas
-```csharp
-public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
-{
-    var tenantSchema = GetTenantSchema(); // e.g., "tenant1", "tenant2", etc.
-
-    services.AddBeacon(configuration, options =>
-    {
-        options.UsePostgreSql(configuration.GetConnectionString("Database")!, tenantSchema);
-        options.AddBeaconScheduler<YourScheduler>();
-    });
-}
-```
-
-### Example: Development vs Production Schemas
-```csharp
-// appsettings.Development.json
-{
-  "Beacon": {
-    "Schema": "dev_beacon"
-  }
-}
-
-// appsettings.Production.json
-{
-  "Beacon": {
-    "Schema": "prod_beacon"
-  }
-}
-
-// Program.cs
-var schema = builder.Configuration["Beacon:Schema"] ?? "beacon";
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(connectionString, schema);
-    options.AddBeaconScheduler<YourScheduler>();
-});
-```
-
-## Automatic Schema Creation
-The `UseBeacon()` method automatically creates the schema if it doesn't exist:
-```csharp
-// In ServiceConfiguration.cs
-public static void UseBeacon(IServiceProvider serviceProvider)
-{
-    // ...
-    if (!string.IsNullOrEmpty(schema) && schema != "public")
-    {
-        context.Database.ExecuteSqlRaw($"CREATE SCHEMA IF NOT EXISTS \"{schema}\"");
-    }
-    context.Database.Migrate();
-}
-```
-
-## Verification
-
-### Check that migrations don't contain hardcoded schemas:
-```bash
-# The migration files should NOT contain schema references like:
-# schema: "my_hardcoded_schema"
-
-# They SHOULD only use modelBuilder.HasDefaultSchema() which is set at runtime
-```
-
-### Test with different schemas:
-```csharp
-// Test 1: Default schema
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(connectionString); // Uses "beacon" by default
-    options.AddBeaconScheduler<YourScheduler>();
-});
-
-// Test 2: Custom schema
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(connectionString, "custom");
-    options.AddBeaconScheduler<YourScheduler>();
-});
-
-// Test 3: Per-tenant schema
-builder.Services.AddBeacon(builder.Configuration, options =>
-{
-    options.UsePostgreSql(connectionString, $"tenant_{tenantId}");
-    options.AddBeaconScheduler<YourScheduler>();
-});
-```
-
-## Benefits
-1. ✅ Single set of migrations for all deployments
-2. ✅ Runtime schema configuration
-3. ✅ Multi-tenant support with schema isolation
-4. ✅ Environment-specific schemas (dev/staging/prod)
-5. ✅ No need to regenerate migrations for different schemas
+See [Metadata database](https://moberghr.github.io/beacon/integrate/database/) in the docs.

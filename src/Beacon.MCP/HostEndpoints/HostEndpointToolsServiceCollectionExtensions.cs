@@ -14,7 +14,7 @@ public static class HostEndpointToolsServiceCollectionExtensions
 {
     /// <summary>
     /// Exposes the host endpoints marked with <see cref="BeaconToolAttribute"/> (or <c>.WithBeaconTool(...)</c>) as
-    /// read-only MCP tools of the project <see cref="HostEndpointToolOptions.ProjectName"/>. Each call runs in-process
+    /// MCP tools (read-only, plus write tools when <see cref="HostEndpointToolOptions.AllowWriteTools"/> is on) of the project <see cref="HostEndpointToolOptions.ProjectName"/>. Each call runs in-process
     /// through the endpoint's own binding, filters and authorization, as the principal
     /// <see cref="IMcpHostPrincipalFactory"/> builds for the MCP caller. Call after <c>AddBeaconMcp()</c>, once.
     /// Endpoints are discovered when the app's pipeline is built; a misconfigured marker fails startup.
@@ -46,13 +46,27 @@ public static class HostEndpointToolsServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Exposes a minimal API endpoint as the Beacon MCP tool <c>api_&lt;name&gt;</c>. <paramref name="readOnly"/> must
-    /// be <c>true</c> in v1; anything else fails startup.
+    /// Exposes a minimal API endpoint as the Beacon MCP tool <c>api_&lt;name&gt;</c>. <paramref name="readOnly"/>
+    /// <c>false</c> declares a write tool, which fails startup unless <see cref="HostEndpointToolOptions.AllowWriteTools"/>
+    /// is on.
     /// </summary>
     public static TBuilder WithBeaconTool<TBuilder>(this TBuilder builder, string name, string? description, bool readOnly)
         where TBuilder : IEndpointConventionBuilder
     {
         builder.WithMetadata(new BeaconToolMetadata(name, description, readOnly));
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Exposes a minimal API endpoint as the Beacon MCP tool <c>api_&lt;name&gt;</c>, with the write-tool hints.
+    /// <paramref name="destructive"/> and <paramref name="idempotent"/> apply only when <paramref name="readOnly"/> is
+    /// <c>false</c> (see <see cref="IBeaconToolMetadata.Destructive"/>, <see cref="IBeaconToolMetadata.Idempotent"/>).
+    /// </summary>
+    public static TBuilder WithBeaconTool<TBuilder>(this TBuilder builder, string name, string? description, bool readOnly, bool destructive, bool idempotent)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        builder.WithMetadata(new BeaconToolMetadata(name, description, readOnly) { Destructive = destructive, Idempotent = idempotent });
 
         return builder;
     }

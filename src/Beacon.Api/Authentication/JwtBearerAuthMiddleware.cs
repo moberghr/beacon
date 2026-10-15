@@ -44,7 +44,9 @@ internal sealed class JwtBearerAuthMiddleware(
     internal const string AuthenticationType = "Bearer";
 
     private const string BearerPrefix = "Bearer ";
+    // RFC 6750 §3.1. On /beacon/mcp, UseMcpResourceMetadataChallenge appends resource_metadata to it.
     private const string InvalidTokenChallenge = "Bearer error=\"invalid_token\"";
+    private const string SigningKeysRetryAfterSeconds = "30";
     private static readonly long RefusalWarningIntervalMs = (long)TimeSpan.FromMinutes(1).TotalMilliseconds;
 
     private int _warnedNoUserStore;
@@ -84,7 +86,25 @@ internal sealed class JwtBearerAuthMiddleware(
             return;
         }
 
+        // The provider never throws for a bad token (malformed, wrong algorithm, unknown key...): every such value comes
+        // back as a failed result, so a hostile bearer value is a 401, never a 500.
         var result = await jwtProvider.ValidateTokenAsync(token, context.RequestAborted);
+        if (result.SigningKeysUnavailable && IsApiRequest(context))
+        {
+            // The token was never judged: a 401 would make an OAuth client discard a possibly valid token and re-run its
+            // authorization flow, which cannot fix an unreachable JWKS endpoint.
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            context.Response.Headers.RetryAfter = SigningKeysRetryAfterSeconds;
+            await context.Response.WriteAsJsonAsync(
+                new
+                {
+                    error = "temporarily_unavailable",
+                    message = result.ErrorMessage
+                },
+                context.RequestAborted);
+            return;
+        }
+
         if (!result.Success || result.User == null || result.TokenPrincipal == null)
         {
             // The caller only learns that the token was not accepted; the fixed reason string goes to the log.
@@ -246,6 +266,13 @@ internal sealed class JwtBearerAuthMiddleware(
 
     private static bool IsApiRequest(HttpContext context)
     {
+        // MCP clients do not always send Accept: application/json, and they cannot follow a host's login redirect:
+        // a rejected token on the MCP route is always answered here.
+        if (context.Request.Path.StartsWithSegments(McpDiscoveryPaths.McpPath))
+        {
+            return true;
+        }
+
         // Check if this is an API request (JSON expected)
         var acceptHeader = context.Request.Headers.Accept.FirstOrDefault();
         if (acceptHeader?.Contains("application/json") == true)

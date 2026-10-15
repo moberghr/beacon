@@ -4,7 +4,11 @@ namespace Beacon.Core.HostEndpoints;
 /// <param name="Name">The declared name (what <c>call_api</c> takes).</param>
 /// <param name="ToolName">The MCP tool name (<c>api_&lt;name&gt;</c>).</param>
 /// <param name="Description">The first line of the tool description.</param>
-public sealed record HostEndpointToolSummary(string Name, string ToolName, string Description);
+public sealed record HostEndpointToolSummary(string Name, string ToolName, string Description)
+{
+    /// <summary>False for a write tool (exposed only with <c>AllowWriteTools</c>). Default true.</summary>
+    public bool ReadOnly { get; init; } = true;
+}
 
 /// <summary>The host endpoint tools of one project.</summary>
 /// <param name="CatalogMode">True when the tools are reached through <c>search_api</c> / <c>call_api</c> rather than by name.</param>
