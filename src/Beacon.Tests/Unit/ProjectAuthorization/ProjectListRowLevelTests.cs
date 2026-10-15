@@ -90,6 +90,18 @@ public class ProjectListRowLevelTests
     }
 
     [Test]
+    public async Task DataSources_CarryTheTransportBadge_UnknownWhenTheConnectionCannotBeRead()
+    {
+        var world = new World();
+        world.Source(10).EncryptedConnectionData = new EncryptionService(TestEncryptionKey.Value).Encrypt("Host=db;SSL Mode=VerifyFull");
+
+        var page = await AnswerAsync<PagedList<DataSourceEntry>>(new GetDataSourcesQuery(), world);
+
+        page.Items.Single(x => x.Id == 10).TransportVerified.Should().BeFalse("no connector is registered for an engine-less source, so nothing verifies it");
+        page.Items.Single(x => x.Id == 11).TransportVerified.Should().BeNull("its stored value cannot be decrypted");
+    }
+
+    [Test]
     public async Task DataSources_CountMigrationJobs_ForAnAdminOnly()
     {
         var listForAdmin = string.Join("\n", await new ListHandlerHarness(TestProjectAccess.Unrestricted).SendAsync(new GetDataSourcesQuery()));
@@ -405,7 +417,7 @@ public class ProjectListRowLevelTests
             return factory.Object;
         }
 
-        private DataSource Source(int id) => _sources.Single(x => x.Id == id);
+        public DataSource Source(int id) => _sources.Single(x => x.Id == id);
 
         private void Link(int projectId, int dataSourceId)
         {

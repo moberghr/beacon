@@ -18,7 +18,8 @@ namespace Beacon.Api.Authentication;
 /// <para>
 /// A token is proof of identity only. Beacon never takes roles, projects, a scope, a Beacon user id or an audit
 /// identity from it: on <c>/beacon/mcp</c> the principal is built from an allow-list (name, e-mail, display name) plus
-/// what the mapper decides; on every other route it is the bound Beacon user, with no token claim at all.
+/// what the mapper decides; on every other Beacon route it is the bound Beacon user, with no token claim at all. Outside
+/// Beacon's routes (<see cref="BeaconRequestPaths"/>) the middleware does nothing: the host's own routes are the host's.
 /// </para>
 /// <para>
 /// On <c>/beacon/mcp</c> the validated token is passed to <see cref="IMcpCallerMapper"/>, which decides the caller's
@@ -26,7 +27,7 @@ namespace Beacon.Api.Authentication;
 /// Execute-scope policy gates it like an API key; an unmapped caller has no scope and is rejected with 403.
 /// </para>
 /// <para>
-/// On every other route the token must be an access token (positive evidence, never inferred from <c>roles</c>), must
+/// On every other Beacon route the token must be an access token (positive evidence, never inferred from <c>roles</c>), must
 /// pass the SSO admission rules when the SSO authority issued it, and must name an existing, enabled, non-archived
 /// external Beacon user — the same screen and binding as the login-form JWT flow
 /// (<see cref="BearerUserBinding.ScreenAndBindAsync"/>); the principal is that user, with that user's Beacon roles,
@@ -57,6 +58,13 @@ internal sealed class JwtBearerAuthMiddleware(
         JwtExternalApiAuthenticationProvider jwtProvider,
         IMcpCallerMapper callerMapper)
     {
+        // A token Beacon accepts authenticates Beacon's routes only: a host route is neither authenticated nor refused here.
+        if (!BeaconRequestPaths.IsBeaconRequest(context))
+        {
+            await next(context);
+            return;
+        }
+
         // Skip if user already authenticated (e.g., via cookie)
         if (context.User.Identity?.IsAuthenticated == true)
         {

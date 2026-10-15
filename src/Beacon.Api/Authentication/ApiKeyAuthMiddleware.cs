@@ -18,6 +18,13 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
 
     public async Task InvokeAsync(HttpContext context, IApiKeyService apiKeyService, ILogger<ApiKeyAuthMiddleware> logger)
     {
+        // A Beacon API key authenticates Beacon's routes only, never the host's own.
+        if (!BeaconRequestPaths.IsBeaconRequest(context))
+        {
+            await next(context);
+            return;
+        }
+
         // Skip if already authenticated
         if (context.User?.Identity?.IsAuthenticated == true)
         {

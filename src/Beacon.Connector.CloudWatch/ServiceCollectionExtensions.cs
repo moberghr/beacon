@@ -2,6 +2,7 @@ using Beacon.Core;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Beacon.Connector.CloudWatch;
 
@@ -11,6 +12,7 @@ public static class ServiceCollectionExtensions
     {
         ConnectorRegistry.RegisterDataSourceType(DataSourceType.CloudWatch, "AWS CloudWatch");
         builder.Services.AddTransient<IDataSourceProvider, CloudWatchProvider>();
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, CloudWatchTransportInspector>());
         return builder;
     }
 }

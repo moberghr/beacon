@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
+using Beacon.Core.Models;
 
 namespace Beacon.Core.Services.Validation;
 
@@ -164,9 +165,10 @@ internal sealed class ConfiguredDatabaseResolver(
         {
             connectionData = connectionResolver.GetConnectionString(dataSource);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not DataSourceTransportException)
         {
-            // No qualifier is allowed then; the source's execution fails on the same read anyway.
+            // No qualifier is allowed then; the source's execution fails on the same read anyway. A connection refused for
+            // its transport stays that refusal, never a cross-database verdict.
             logger.LogWarning(
                 "The configured database of data source {DataSourceId} could not be read ({ExceptionType}); its SQL may not name a database.",
                 dataSource.Id,

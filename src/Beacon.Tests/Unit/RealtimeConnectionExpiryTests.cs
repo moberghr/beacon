@@ -97,6 +97,7 @@ public class RealtimeConnectionExpiryTests
             .AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = 5 }))
             .BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services };
+        context.Request.Path = BeaconApiEndpoints.HubPath;
         context.Request.Headers.Authorization = $"Bearer {ApiKey}";
         var middleware = new ApiKeyAuthMiddleware(_ => Task.CompletedTask);
 
@@ -123,6 +124,7 @@ public class RealtimeConnectionExpiryTests
         {
             RequestServices = new ServiceCollection().AddSingleton(authentication.Object).BuildServiceProvider()
         };
+        context.Request.Path = BeaconApiEndpoints.HubPath;
 
         await new BeaconCookieAuthMiddleware(_ => Task.CompletedTask).InvokeAsync(context);
 

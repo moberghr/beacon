@@ -103,6 +103,10 @@ public static class AuthServiceExtensions
         // With local login off, startup fails when nobody could sign in, and warns about break-glass names no user has.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, LocalLoginStartupCheck>());
 
+        // Outside Development, warns when the cookie scheme is the host's default authentication scheme: the host's
+        // UseAuthentication then reads the Beacon.Auth cookie on every route, which path scoping cannot prevent.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconCookieDefaultSchemeWarning>());
+
         return services;
     }
 
@@ -220,6 +224,22 @@ public static class AuthServiceExtensions
         {
             app.UseMiddleware<JwtBearerAuthMiddleware>(options);
         }
+
+        return app;
+    }
+
+    /// <summary>
+    /// Beacon's authentication in the order it needs (§1.9): API keys, bearer JWTs (when enabled), the host's
+    /// <c>UseAuthentication</c>, then the <c>Beacon.Auth</c> cookie. Call it in place of <c>UseAuthentication</c>, before
+    /// <c>UseAuthorization</c>. The Beacon middlewares act on <c>/beacon</c> and <c>Beacon:Authentication:AdditionalPaths</c>
+    /// only (<see cref="BeaconRequestPaths"/>); every other route keeps the host's own authentication.
+    /// </summary>
+    public static IApplicationBuilder UseBeaconAuthentication(this IApplicationBuilder app)
+    {
+        app.UseMiddleware<ApiKeyAuthMiddleware>();
+        app.UseBeaconJwtBearerAuthentication();
+        app.UseAuthentication();
+        app.UseMiddleware<BeaconCookieAuthMiddleware>();
 
         return app;
     }

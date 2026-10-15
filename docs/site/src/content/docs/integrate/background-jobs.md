@@ -329,6 +329,8 @@ app.UseWarpUI(x =>
 });
 ```
 
+The filter reads the Beacon session, which applies to `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: list `/warp` there (`"Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } }`), or the dashboard refuses every request.
+
 ### Live job status in the UI
 
 The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job, through the SignalR hub. It tags the job with `BeaconUserId` metadata and a second pipeline behaviour sends the event; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.

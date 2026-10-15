@@ -9,7 +9,7 @@ namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Middleware that redirects to the setup page while no super admin has ever existed (first-run scenario).
-/// Only active when User Management is enabled.
+/// Only active when User Management is enabled, and only on Beacon's routes (<see cref="BeaconRequestPaths"/>).
 /// </summary>
 public sealed class FirstRunSetupMiddleware(
     RequestDelegate next,
@@ -20,8 +20,9 @@ public sealed class FirstRunSetupMiddleware(
 
     public async Task InvokeAsync(HttpContext context, IUserManagementService userService)
     {
-        // Skip if user management is not enabled
-        if (!configuration.UserManagement.Enabled)
+        // Skip if user management is not enabled, and for host routes: they are never redirected to Beacon's setup page
+        // and never wait on Beacon's database.
+        if (!configuration.UserManagement.Enabled || !BeaconRequestPaths.IsBeaconRequest(context))
         {
             await next(context);
             return;

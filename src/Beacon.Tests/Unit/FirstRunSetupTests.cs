@@ -540,7 +540,7 @@ public class FirstRunSetupTests
         configuration.EnableUserManagement();
         var middleware = new FirstRunSetupMiddleware(_ => Task.CompletedTask, configuration, "/beacon");
         var context = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
-        context.Request.Path = "/projects";
+        context.Request.Path = "/beacon/projects";
 
         await middleware.InvokeAsync(context, FirstRunUsers().Object);
 

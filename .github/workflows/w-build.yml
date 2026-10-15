@@ -1,30 +1,77 @@
 ﻿name: Build the Beacon Release
 
+# Two jobs. `build` has a read-only token: it checks the version and that the commit is on main, then builds, tests and
+# packs. `publish` waits for approval in the `nuget-release` environment and is the only job that can request an OIDC
+# token, which NuGet/login exchanges for a short-lived nuget.org key; it never checks out or runs repository code.
+# The nuget.org trusted-publishing policy names this file: keep its name.
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 1.0.0)'
+        description: 'Version to publish (e.g., 4.5.0.4). Dispatch from main only.'
         required: true
         type: string
 
+permissions: {}
+
 jobs:
   build:
-    name: "Build and Publish Beacon"
+    name: "Build and pack Beacon"
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      id-token: write   # required: lets NuGet/login exchange a GitHub OIDC token for a NuGet API key
 
     steps:
+    # Full history: the release commit must be an ancestor of origin/main.
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    # Inputs reach the script through env, never through template expansion. A release publishes from a tag on main, a
+    # manual run from main itself, and the version is a release version (1.2.3, 1.2.3.4 or 1.2.3-rc.1).
+    - name: Check the version and the ref
+      id: version
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_VERSION: ${{ inputs.version }}
+        GIT_REF: ${{ github.ref }}
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GIT_REF" != "refs/heads/main" ]; then
+            echo "::error::Run the release from main."
+            exit 1
+          fi
+          VERSION="$INPUT_VERSION"
+        elif [ "$EVENT_NAME" = "release" ] && [ "$REF_TYPE" = "tag" ]; then
+          VERSION="$REF_NAME"
+        else
+          echo "::error::A release publishes from a release tag or a manual run on main."
+          exit 1
+        fi
+
+        if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){2,3}(-[0-9A-Za-z.-]+)?$ ]]; then
+          echo "::error::The version is not a release version (1.2.3, 1.2.3.4 or 1.2.3-rc.1)."
+          exit 1
+        fi
+
+        if ! git merge-base --is-ancestor HEAD origin/main; then
+          echo "::error::The commit to release is not on main."
+          exit 1
+        fi
+
+        echo "Version: $VERSION"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
       with:
         dotnet-version: '10.0.x'
 
@@ -33,7 +80,7 @@ jobs:
     # accepts, failing the build on missing @esbuild/* optional platform entries. Pin it so CI
     # resolves the lock the same way local development does — bump this and the lock together.
     - name: Setup Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: '22'
         cache: npm
@@ -50,15 +97,6 @@ jobs:
         npm install -g npm@11.11.0
         echo "node $(node --version) / npm $(npm --version)"
 
-    - name: Determine version
-      id: version
-      run: |
-        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-        else
-          echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-        fi
-
     - name: Restore dependencies
       run: dotnet restore
 
@@ -69,9 +107,10 @@ jobs:
       run: dotnet test --configuration Release --no-build --verbosity normal
 
     - name: Pack packable projects
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
       run: |
         set -euo pipefail
-        VERSION="${{ steps.version.outputs.version }}"
         echo "Packing version: $VERSION"
 
         # Get projects from the solution (.slnx) — only projects in the solution are processed
@@ -117,23 +156,56 @@ jobs:
         echo "Packed $COUNT package(s):"
         ls -1 artifacts/*.nupkg
 
+    - name: Upload packages
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: packages
+        path: artifacts/*.nupkg
+        if-no-files-found: error
+        retention-days: 7
+
+  publish:
+    name: "Publish Beacon to nuget.org"
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Required reviewers and deployment rules live on this environment (repository settings).
+    environment: nuget-release
+
+    permissions:
+      id-token: write   # the only job that can request an OIDC token: NuGet/login exchanges it for a nuget.org key
+
+    steps:
+    - name: Download packages
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: packages
+        path: artifacts
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      with:
+        dotnet-version: '10.0.x'
+
     # Trusted Publishing: no long-lived NUGET_API_KEY secret. GitHub issues an OIDC token,
     # nuget.org validates it against the trusted-publishing policy for this repo + workflow file
-    # and returns a temporary key. That key is valid for ONE HOUR, so this step deliberately sits
-    # after the slow build/test/pack steps and immediately before the push.
+    # and returns a temporary key. That key is valid for ONE HOUR, so this job logs in only after
+    # the build job and the environment approval, immediately before the push.
     - name: NuGet login (OIDC -> short-lived API key)
       id: login
-      uses: NuGet/login@v1
+      uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
       with:
         user: ${{ secrets.NUGET_USER }}
 
     - name: Push packages
+      env:
+        NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
       run: |
         set -euo pipefail
         for PACKAGE in artifacts/*.nupkg; do
           echo "Pushing: $PACKAGE"
           dotnet nuget push "$PACKAGE" \
             --source https://api.nuget.org/v3/index.json \
-            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+            --api-key "$NUGET_API_KEY" \
             --skip-duplicate
         done

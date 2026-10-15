@@ -6,7 +6,7 @@ namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Middleware that redirects unauthenticated users to the login page.
-/// Only active when login form is enabled.
+/// Only active when login form is enabled, and only on Beacon's routes (<see cref="BeaconRequestPaths"/>).
 /// </summary>
 public sealed class LoginFormAuthMiddleware(
     RequestDelegate next,
@@ -17,7 +17,8 @@ public sealed class LoginFormAuthMiddleware(
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!configuration.Authentication.EnableLoginForm)
+        // Host routes are the host's: never redirected to Beacon's login page.
+        if (!configuration.Authentication.EnableLoginForm || !BeaconRequestPaths.IsBeaconRequest(context))
         {
             await next(context);
             return;

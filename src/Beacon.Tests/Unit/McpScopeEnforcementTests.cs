@@ -522,6 +522,7 @@ public class McpScopeEnforcementTests
         {
             RequestServices = new ServiceCollection().AddSingleton(authorization.Object).BuildServiceProvider()
         };
+        context.Request.Path = "/beacon/mcp";
         context.Request.Headers.Authorization = "Bearer sk-sem_test-key";
 
         await new ApiKeyAuthMiddleware(_ => Task.CompletedTask)

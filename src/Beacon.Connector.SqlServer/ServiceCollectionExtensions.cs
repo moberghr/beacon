@@ -4,6 +4,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Beacon.Connector.SqlServer;
 
@@ -14,6 +15,7 @@ public static class ServiceCollectionExtensions
         DbConnectionFactory.Register(DatabaseEngineType.MSSQL, cs => new SqlConnection(cs));
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.MSSQL, "MSSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SqlServerMetadataExtractor>();
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SqlServerTransportInspector>());
         return builder;
     }
 }

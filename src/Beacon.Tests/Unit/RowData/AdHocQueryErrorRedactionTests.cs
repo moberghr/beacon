@@ -113,6 +113,7 @@ public class AdHocQueryErrorRedactionTests
             Mock.Of<ISchemaGraphService>(),
             runner,
             new RecordingSecurityAudit(),
+            TestTransport.Policy(),
             log.For<DataSourceService>(),
             settings.Object);
     }

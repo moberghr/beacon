@@ -280,19 +280,14 @@ app.UseApiExceptionHandler("/beacon/api");
 // also covers the 401s that the API-key/JWT middlewares write directly. §1.9 order below is untouched.
 app.UseMcpResourceMetadataChallenge();
 
-// API key auth must run before cookie auth to prevent redirect for MCP clients
-app.UseMiddleware<ApiKeyAuthMiddleware>();
-
-// JWT bearer authentication for MCP clients using OIDC tokens
-app.UseBeaconJwtBearerAuthentication();
-
 // Middleware order is load-bearing per §1.9:
-//   ApiKey → Authentication → Cookie (per-request cookie scheme) → Authorization → LoginForm.
-// BeaconCookieAuthMiddleware must populate context.User from the Beacon.Auth cookie BEFORE
-// UseAuthorization evaluates policies, otherwise the first authorization check on a cookie
-// session sees an unauthenticated user.
-app.UseAuthentication();
-app.UseMiddleware<BeaconCookieAuthMiddleware>();
+//   ApiKey → JWT bearer → Authentication → Cookie (per-request cookie scheme) → Authorization → LoginForm.
+// UseBeaconAuthentication wires the first four. The API key runs before the cookie so MCP clients are never
+// redirected; BeaconCookieAuthMiddleware populates context.User from the Beacon.Auth cookie BEFORE
+// UseAuthorization evaluates policies. The Beacon middlewares act on /beacon and on
+// Beacon:Authentication:AdditionalPaths only (this sample lists /warp in appsettings.json): a Beacon
+// credential never authenticates another route of the host.
+app.UseBeaconAuthentication();
 app.UseAuthorization();
 
 // Login form redirect middleware — redirects unauthenticated browser requests to /login (React route)

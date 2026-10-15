@@ -15,7 +15,8 @@ namespace Beacon.Core.Handlers.DataSources;
 internal sealed class GetDataSourcesHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
-    IDataSourceProviderFactory providers)
+    IDataSourceProviderFactory providers,
+    DataSourceTransportStatus transportStatus)
     : IRequestHandler<GetDataSourcesQuery, PagedList<DataSourceEntry>>
 {
     public async Task<PagedList<DataSourceEntry>> Handle(GetDataSourcesQuery request, CancellationToken cancellationToken)
@@ -74,7 +75,12 @@ internal sealed class GetDataSourcesHandler(
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "name");
 
-        return page.Map(x => DataSourceProjects.WithReadOnlyEnforcement(x, providers));
+        var pageIds = page.Items
+            .Select(x => x.Id)
+            .ToList();
+        var transportVerified = await transportStatus.VerifiedAsync(pageIds, cancellationToken);
+
+        return page.Map(x => DataSourceProjects.WithReadOnlyEnforcement(x, providers) with { TransportVerified = transportVerified.GetValueOrDefault(x.Id) });
     }
 }
 
@@ -133,6 +139,13 @@ public record DataSourceEntry
     /// is a migration write target, which Beacon never reads); null for a source that runs no SQL.
     /// </summary>
     public bool? DatabaseReadOnlyEnforced { get; init; }
+
+    /// <summary>
+    /// True when the source's connection authenticates the server over TLS, as its connector checks it; false when it does
+    /// not ("transport not verified": the source keeps working until its connection is replaced, unless the host refuses
+    /// such sources); null when its connection data cannot be read.
+    /// </summary>
+    public bool? TransportVerified { get; init; }
 }
 
 /// <summary>A project linking a data source.</summary>
