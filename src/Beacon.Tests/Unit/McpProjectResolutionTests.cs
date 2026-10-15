@@ -178,6 +178,33 @@ public class McpProjectResolutionTests
         ctx.UserId.Should().Be(4, "the caller is recorded by its Beacon user");
     }
 
+    // A mapped MCP caller's subject hash is the credential its concurrent queries are counted under.
+    [Test]
+    public async Task Populate_AMappedCaller_KeepsItsCallerHash_AndIsCountedUnderIt()
+    {
+        var provider = BuildProvider(
+            Principal(new Claim("auth_method", "mcp_caller"), new Claim("caller_hash", "abc123")),
+            TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(5)));
+
+        await ProjectContextFactory.PopulateAsync(provider, CancellationToken.None);
+
+        var ctx = provider.GetRequiredService<McpProjectContext>();
+        ctx.CallerHash.Should().Be("abc123");
+        McpQueryConcurrencyLimiter.CallerKeyOf(ctx).Should().Be("caller:abc123", "a mapped caller without an API key is counted by its hash, not its user");
+    }
+
+    [Test]
+    public async Task Populate_ACallerHashOnAnUnscopedPrincipal_IsIgnored()
+    {
+        var provider = BuildProvider(
+            Principal(new Claim(ClaimTypes.NameIdentifier, "ext-4"), new Claim("caller_hash", "abc123")),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted));
+
+        await ProjectContextFactory.PopulateAsync(provider, CancellationToken.None);
+
+        provider.GetRequiredService<McpProjectContext>().CallerHash.Should().BeNull();
+    }
+
     [TestCase(null)]
     [TestCase("jwt")]
     public async Task Populate_ProjectsAndKeyIdOnAnyOtherPrincipal_AreIgnored(string? authMethod)

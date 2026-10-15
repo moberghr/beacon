@@ -239,6 +239,7 @@ public class McpToolActionTests
                 x.AddSingleton(Mock.Of<ISqlExecutionGate>(MockBehavior.Strict));
                 x.AddSingleton(Mock.Of<IConfiguredDatabaseResolver>(MockBehavior.Strict));
                 x.AddSingleton(Mock.Of<ISharedSourceSettings>(MockBehavior.Strict));
+                x.AddSingleton(Mock.Of<IQueryCostLimit>(MockBehavior.Strict));
                 x.AddSingleton(Mock.Of<IQueryExecutionService>(MockBehavior.Strict));
                 x.AddSingleton(Mock.Of<ICrossSourceQueryService>(MockBehavior.Strict));
                 x.AddSingleton(Mock.Of<IAskSqlPipeline>(MockBehavior.Strict));

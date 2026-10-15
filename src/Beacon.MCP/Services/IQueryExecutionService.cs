@@ -28,5 +28,6 @@ internal readonly record struct ProviderDryRunOutcome(string? Error, bool Skippe
 
 // Structured carries the machine-readable { columns, rows, row_count, truncated } payload built from the
 // same (PII-masked) rows as FormattedResult; null on failure, on empty results, and in tests that only
-// exercise the markdown path.
-internal record QueryExecutionResult(string? FormattedResult, string? ErrorMessage, int RowCount, bool IsSuccess, JsonNode? Structured = null);
+// exercise the markdown path. Refused marks a statement Beacon refused before it ran (MaxExplainCost); its ErrorMessage is
+// Beacon's own message, not a database error.
+internal record QueryExecutionResult(string? FormattedResult, string? ErrorMessage, int RowCount, bool IsSuccess, JsonNode? Structured = null, bool Refused = false);

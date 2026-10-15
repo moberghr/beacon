@@ -10,6 +10,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Services;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -29,6 +30,8 @@ internal sealed class ProjectQueryTool(
     IProjectContext projectContext,
     McpAuditService auditService,
     McpSignalService signalService,
+    McpQueryConcurrencyLimiter concurrencyLimiter,
+    IQueryCostLimit costLimit,
     ILogger<ProjectQueryTool> logger)
 {
     [McpServerTool(Name = "query", Title = "Run Read-Only Query", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
@@ -82,6 +85,13 @@ internal sealed class ProjectQueryTool(
         // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
         var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
         var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
+
+        // MaxConcurrentQueriesPerKey: refused at once, never queued, and audited like every other refusal (§1.7/§9.5).
+        using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
+        if (lease == null)
+        {
+            return await FailAsync(signal, sw, projectId, datasource_id, sql ?? api_query, McpQueryConcurrencyLimiter.RefusalMessage, cancellationToken);
+        }
 
         try
         {
@@ -143,14 +153,28 @@ internal sealed class ProjectQueryTool(
 
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
+
+            // MaxExplainCost (PostgreSQL only): the gate's FinalSql is planned, never run, within the statement timeout. A
+            // refusal is audited and signalled like every other refusal (§1.7/§9.5); an estimate that failed fails the call
+            // below exactly as a failing statement does.
+            var cost = isApi
+                ? QueryCostCheck.Pass
+                : await costLimit.CheckAsync(dataSource, queryText, new Dictionary<string, object?>(), settings.MaxExplainCost, timeoutCts.Token);
+            if (cost.Refusal != null)
+            {
+                return await FailAsync(signal, sw, projectId, datasource_id, sql, cost.Refusal, cancellationToken, report?.TablesUsed.ToList());
+            }
+
             // §1.5 backstop — SQL executes through the read-only path. The database-level guarantee
             // is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above. API
             // sources have no SQL engine, so they stay on the normal execution path.
-            var result = isApi
-                ? await provider.ExecuteQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token)
-                : await provider.ExecuteReadOnlyQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token);
+            var result = cost.EstimateError != null
+                ? new ProviderQueryResult { Success = false, ErrorMessage = cost.EstimateError }
+                : isApi
+                    ? await provider.ExecuteQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token)
+                    : await provider.ExecuteReadOnlyQueryAsync(dataSource, queryText, new Dictionary<string, object?>(), timeoutCts.Token);
 
             if (!result.Success)
             {
@@ -191,8 +215,8 @@ internal sealed class ProjectQueryTool(
                     isApi ? null : queryText,
                     DataSourceSqlDialect.Of(dataSource));
 
-                text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
-                structured = ToolHelper.BuildStructuredPayload(rows, maxRows);
+                // The text and the structured payload together stay within the resolved MaxResultBytes.
+                (text, structured) = ToolHelper.FormatResultWithinBudget(text, rows, maxRows, settings.MaxResultBytes);
             }
 
             sw.Stop();
@@ -227,13 +251,14 @@ internal sealed class ProjectQueryTool(
         int? dataSourceId,
         string? queryText,
         string error,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? tables = null)
     {
         sw.Stop();
         signal.SetExecutionFailed(error);
         signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
         await auditService.LogToolCallAsync(null, projectContext.UserId, "query",
-            queryText, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
+            queryText, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, tables, cancellationToken);
         await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
         return ToolHelper.Error(error);
     }

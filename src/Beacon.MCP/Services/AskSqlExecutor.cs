@@ -13,7 +13,7 @@ internal sealed class AskSqlExecutor(IQueryExecutionService queryExecutionServic
     public async Task<AskExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
         var result = await queryExecutionService.ExecuteAsync(dataSourceId, sql, maxRows, ct);
-        return new AskExecutionResult(result.FormattedResult, result.ErrorMessage, result.RowCount, result.IsSuccess, Structured: result.Structured);
+        return new AskExecutionResult(result.FormattedResult, result.ErrorMessage, result.RowCount, result.IsSuccess, Structured: result.Structured, Refused: result.Refused);
     }
 
     public async Task<string?> DryRunAsync(int dataSourceId, string sql, CancellationToken ct)

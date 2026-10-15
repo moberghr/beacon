@@ -26,6 +26,7 @@ internal sealed class DryRunTool(
     IProjectContext projectContext,
     McpAuditService auditService,
     McpSignalService signalService,
+    McpQueryConcurrencyLimiter concurrencyLimiter,
     ILogger<DryRunTool> logger)
 {
     // The dry-run preview applies the same default row budget the query tool uses, capped by settings.
@@ -117,6 +118,15 @@ internal sealed class DryRunTool(
             var dialect = DataSourceSqlDialect.Of(dataSource);
             // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
             var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
+
+            // The provider dry-run reaches the database, so dry_run counts toward MaxConcurrentQueriesPerKey: refused at
+            // once, never queued, and audited like every other refusal (§1.7/§9.5).
+            using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
+            if (lease == null)
+            {
+                return await FailAsync(signal, sw, projectId, datasource_id, sql, McpQueryConcurrencyLimiter.RefusalMessage, cancellationToken);
+            }
+
             var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
 

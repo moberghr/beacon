@@ -193,6 +193,43 @@ public class AskStatementAuditTests
         row.Statements.Should().ContainSingle().Which.Purpose.Should().Be(McpStatementPurposes.Initial);
     }
 
+    // MaxConcurrentQueriesPerKey: a call over the caller's limit is refused before any work, and the refusal is audited
+    // like every other tool error (§1.7/§9.5).
+    [Test]
+    public async Task AnAskOverTheConcurrencyLimit_IsRefusedBeforeAnyStatement_AndAudited()
+    {
+        var log = new McpStatementLog();
+        var logs = new List<McpAuditLog>();
+        var limiter = new McpQueryConcurrencyLimiter();
+        using var running = limiter.TryAcquire("user:1", 1);
+        var execution = QueryExecution(log, Provider(new ProviderQueryResult { Success = true, Rows = [Row(1)] }));
+
+        var result = await AskAsync(log, logs, execution, retainContent: true, failAfterExecution: false, limiter, maxConcurrentQueries: 1);
+
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Single().Text.Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+        var row = logs.Should().ContainSingle().Subject;
+        row.Should().BeEquivalentTo(new { Tool = "ask", ErrorMessage = McpQueryConcurrencyLimiter.RefusalMessage, ProjectId = (int?)ProjectId }, x => x.ExcludingMissingMembers());
+        row.Statements.Should().BeEmpty("nothing reached a data source");
+        limiter.InFlight("user:1").Should().Be(1, "the refused call took no slot");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AnAsk_ReleasesItsSlot_WhetherItSucceedsOrFails(bool failAfterExecution)
+    {
+        var log = new McpStatementLog();
+        var logs = new List<McpAuditLog>();
+        var limiter = new McpQueryConcurrencyLimiter();
+        var execution = QueryExecution(log, Provider(new ProviderQueryResult { Success = true, Rows = [Row(1)] }));
+
+        var result = await AskAsync(log, logs, execution, retainContent: true, failAfterExecution, limiter, maxConcurrentQueries: 1);
+
+        (result.IsError ?? false).Should().Be(failAfterExecution);
+        limiter.InFlight("user:1").Should().Be(0);
+        limiter.TryAcquire("user:1", 1).Should().NotBeNull("the slot is free for the next call");
+    }
+
     [Test]
     public async Task ACallThatRanMoreStatementsThanTheLogKeeps_EndsWithAMarkerRow_CountingTheRest_AndAWarning()
     {
@@ -361,7 +398,8 @@ public class AskStatementAuditTests
             new QueryGuardrailService(),
             SettingsProviderMock.Unshared(settings.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = ProjectId, AllowedProjectIds = [ProjectId] },
-            log);
+            log,
+            TestQueryCostLimit.Passing);
     }
 
     // The ask tool over a routed single source, its pipeline running the generated SQL once through the real execution
@@ -371,9 +409,11 @@ public class AskStatementAuditTests
         List<McpAuditLog> logs,
         QueryExecutionService execution,
         bool retainContent,
-        bool failAfterExecution)
+        bool failAfterExecution,
+        McpQueryConcurrencyLimiter? limiter = null,
+        int maxConcurrentQueries = 4)
     {
-        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = retainContent });
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = retainContent, MaxConcurrentQueriesPerKey = maxConcurrentQueries });
         var llm = new Mock<ILlmProvider>();
         var serviceProvider = new Mock<IServiceProvider>();
         serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(llm.Object);
@@ -439,6 +479,7 @@ public class AskStatementAuditTests
             Mock.Of<IKnowledgeAnswerService>(),
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
+            limiter ?? new McpQueryConcurrencyLimiter(),
             NullLogger<ProjectAskTool>.Instance);
 
         return await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);

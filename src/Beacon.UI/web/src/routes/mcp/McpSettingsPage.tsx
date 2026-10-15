@@ -494,7 +494,9 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
                 hint={
                   errors.maxExplainCostText?.message ? (
                     <span className="text-crit">{errors.maxExplainCostText.message}</span>
-                  ) : undefined
+                  ) : (
+                    'Applies to PostgreSQL data sources: a query whose planner-estimated total cost exceeds it is refused before it runs. Other engines ignore it.'
+                  )
                 }
               >
                 <Input

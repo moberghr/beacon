@@ -44,6 +44,9 @@ public static class ServiceConfiguration
         // Query execution
         services.TryAddTransient<IQueryExecutionService, QueryExecutionService>();
 
+        // MaxConcurrentQueriesPerKey: one in-process count per instance, shared by every request.
+        services.TryAddSingleton<McpQueryConcurrencyLimiter>();
+
         // Ask SQL pipeline executor seam: adapts IQueryExecutionService onto IAskSqlPipeline's execution
         // interface (§ Architecture ①) so ProjectAskTool never touches the pipeline's execution details.
         services.TryAddTransient<IAskSqlExecutor, AskSqlExecutor>();

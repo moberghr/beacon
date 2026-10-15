@@ -339,6 +339,8 @@ public class HostOutputMaskingPathTests
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             auditService,
             signalService,
+            new McpQueryConcurrencyLimiter(),
+            TestQueryCostLimit.Passing,
             NullLogger<ProjectQueryTool>.Instance);
     }
 

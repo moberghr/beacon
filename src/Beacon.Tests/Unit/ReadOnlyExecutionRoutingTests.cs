@@ -704,6 +704,8 @@ public class ReadOnlyExecutionRoutingTests
             projectContext,
             auditService,
             signalService,
+            new McpQueryConcurrencyLimiter(),
+            TestQueryCostLimit.Passing,
             NullLogger<ProjectQueryTool>.Instance);
     }
 

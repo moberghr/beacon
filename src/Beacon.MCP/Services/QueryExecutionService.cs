@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -16,7 +17,8 @@ internal sealed class QueryExecutionService(
     IQueryGuardrailService guardrailService,
     ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
-    IMcpStatementLog statementLog) : IQueryExecutionService
+    IMcpStatementLog statementLog,
+    IQueryCostLimit costLimit) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -26,24 +28,45 @@ internal sealed class QueryExecutionService(
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
 
+        // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId); 0 falls
+        // back to the global effective settings — with the strictest guardrails of the live projects that link the source.
+        // Resolved before execution: the statement timeout and the result size budget come from them.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
+
         var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, DataSourceSqlDialect.Of(dataSource));
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
         // §1.5 backstop — read-only execution path. The database-level guarantee is PostgreSQL and MySQL
         // today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement); other engines and
         // non-database providers forward to normal execution and rely on the parser gates upstream.
         // On the call's audit row as it reached the source, under the purpose the caller runs it for (§9.5, failures too).
+        // MaxExplainCost (PostgreSQL only) is checked first, within the same timeout: a refusal is recorded on the audit
+        // row as the statement's error and returned to the caller as it is, and an estimate that failed is the
+        // statement's failure (redacted below like any database error).
+        string? costRefusal = null;
         var result = await statementLog.RecordAsync(
             dataSourceId,
             null,
             limitedSql,
-            () => provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token),
+            async () =>
+            {
+                var cost = await costLimit.CheckAsync(dataSource, limitedSql, new Dictionary<string, object?>(), settings.MaxExplainCost, timeoutCts.Token);
+                if (!cost.Passed)
+                {
+                    costRefusal = cost.Refusal;
+
+                    return new ProviderQueryResult { Success = false, ErrorMessage = cost.Refusal ?? cost.EstimateError };
+                }
+
+                return await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+            },
             x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
 
-        // The tool resolved the project before delegating here (ToolHelper.ResolveProjectId sets ActiveProjectId); 0 falls
-        // back to the global effective settings — with the strictest guardrails of the live projects that link the source.
-        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
+        if (costRefusal != null)
+        {
+            return new QueryExecutionResult(null, costRefusal, 0, false, Refused: true);
+        }
 
         if (result.Success && result.Rows?.Count > 0)
         {
@@ -70,10 +93,10 @@ internal sealed class QueryExecutionService(
                 limitedSql,
                 DataSourceSqlDialect.Of(dataSource));
 
-            var text = $"### Results ({rows.Count} rows)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(rows, maxRows);
+            // The text and the structured payload together stay within the resolved MaxResultBytes.
+            var (text, structured) = ToolHelper.FormatResultWithinBudget($"### Results ({rows.Count} rows)\n\n", rows, maxRows, settings.MaxResultBytes);
 
-            return new QueryExecutionResult(text, null, rows.Count, true, ToolHelper.BuildStructuredPayload(rows, maxRows));
+            return new QueryExecutionResult(text, null, rows.Count, true, structured);
         }
 
         if (!result.Success)

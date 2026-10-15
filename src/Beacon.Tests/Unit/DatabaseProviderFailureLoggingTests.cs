@@ -68,6 +68,39 @@ public class DatabaseProviderFailureLoggingTests
         entry.Message.Should().NotContain(SensitiveValue);
     }
 
+    // MaxExplainCost: an EXPLAIN that fails is reported as a failure with the database's error (never as a cost), and
+    // logged by type and code only like any other failure.
+    [Test]
+    public async Task EstimateReadOnlyCostAsync_ServerError_IsAFailure_LoggedByTypeAndCodeOnly()
+    {
+        var logger = new RecordingLogger();
+        var provider = CreateProvider(new FakeDbException($"invalid input syntax for type integer: \"{SensitiveValue}\"", "22P02"), logger);
+
+        var estimate = await provider.EstimateReadOnlyCostAsync(OrdinarySource(), "SELECT 1 LIMIT 100", [], CancellationToken.None);
+
+        estimate.TotalCost.Should().BeNull();
+        estimate.ErrorMessage.Should().Contain(SensitiveValue, "an ordinary source's caller gets the server message, as for a failing statement");
+        var entry = logger.Entries.Should().ContainSingle().Subject;
+        entry.Exception.Should().BeNull();
+        entry.Message.Should().StartWith("Query cost estimate failed for database data source 7 with FakeDbException (error code 22P02, at ");
+        entry.Message.Should().NotContain(SensitiveValue);
+    }
+
+    [Test]
+    public async Task EstimateReadOnlyCostAsync_OnAnotherEngine_IsAFailure_WithoutConnecting()
+    {
+        var logger = new RecordingLogger();
+        var provider = CreateProvider(new InvalidOperationException("must not connect"), logger);
+        var source = OrdinarySource();
+        source.DatabaseEngineType = DatabaseEngineType.MySQL;
+
+        var estimate = await provider.EstimateReadOnlyCostAsync(source, "SELECT 1", [], CancellationToken.None);
+
+        estimate.TotalCost.Should().BeNull();
+        estimate.ErrorMessage.Should().Be("A planner cost estimate is available on PostgreSQL data sources only.");
+        logger.Entries.Should().BeEmpty();
+    }
+
     private static DatabaseProvider CreateProvider(Exception failure, RecordingLogger logger)
     {
         var resolver = new Mock<IDataSourceConnectionResolver>();

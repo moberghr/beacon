@@ -446,6 +446,36 @@ public class DryRunToolTests
         result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 5");
     }
 
+    // dry_run reaches the database (the provider dry-run), so it counts toward MaxConcurrentQueriesPerKey: over the limit
+    // it is refused before any gate or provider call, audited and signalled like every other failure (§1.7/§9.5).
+    [Test]
+    public async Task AtTheConcurrencyLimit_TheDryRunIsRefusedBeforeTheProvider_AndAudited()
+    {
+        var limiter = new McpQueryConcurrencyLimiter();
+        using var running = limiter.TryAcquire("user:1", 1);
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 });
+
+        var result = await CreateTool(settingsProvider, limiter: limiter).ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        GetText(result).Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+        _queryExecution.Verify(x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+        _signals.Should().ContainSingle().Which.ExecutionError.Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
+    }
+
+    [Test]
+    public async Task ADryRun_ReleasesItsSlot_WhenItCompletes()
+    {
+        var limiter = new McpQueryConcurrencyLimiter();
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 });
+
+        await CreateTool(settingsProvider, limiter: limiter).ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        limiter.InFlight("user:1").Should().Be(0);
+    }
+
     private void SetupGuardrailValidation(bool isValid, string? error, List<string>? piiColumns)
     {
         _guardrail
@@ -453,7 +483,7 @@ public class DryRunToolTests
             .Returns(new QueryValidationResult(isValid, error, isValid, piiColumns));
     }
 
-    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null)
+    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null, McpQueryConcurrencyLimiter? limiter = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
@@ -481,6 +511,7 @@ public class DryRunToolTests
             projectContext,
             auditService,
             signalService,
+            limiter ?? new McpQueryConcurrencyLimiter(),
             NullLogger<DryRunTool>.Instance);
     }
 

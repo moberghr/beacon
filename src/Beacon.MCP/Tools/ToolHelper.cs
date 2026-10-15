@@ -17,10 +17,14 @@ namespace Beacon.MCP.Tools;
 
 internal static class ToolHelper
 {
-    // Byte budget for the serialized structured payload (256 KB). The structured payload doubles the
-    // markdown table in the same response, so an unbounded rows array with wide values can blow the
-    // response past what MCP clients accept even when the row COUNT is within maxRows.
+    // Default byte budget for a SQL result (256 KB) — the MaxResultBytes default of the MCP settings. Callers pass the
+    // resolved McpSettingsData.MaxResultBytes; the default applies only where no settings are at hand. One tool result
+    // carries its rows twice (the markdown text and the structured payload), so a result rendered both ways splits the
+    // budget between them (FormatResultWithinBudget, StructuredShare): an unbounded rows array with wide values can blow
+    // the response past what MCP clients accept even when the row COUNT is within maxRows.
     internal const int MaxStructuredPayloadBytes = 262144;
+
+    private const string SizeBudgetNotice = "\n_Further rows omitted — response size budget reached._\n";
 
     /// <summary>
     /// Resolves the active project ID as a pure per-call function of the request-scoped context
@@ -105,32 +109,70 @@ internal static class ToolHelper
     }
 
     /// <summary>
-    /// Formats query results as a markdown table.
+    /// Formats query results as a markdown table of at most <paramref name="maxRows"/> rows and
+    /// <paramref name="maxResultBytes"/> UTF-8 bytes (the resolved <c>MaxResultBytes</c> setting); rows past the size
+    /// budget are omitted with a note saying so.
     /// </summary>
-    public static string FormatResultsAsMarkdown(IReadOnlyList<Dictionary<string, object?>> rows, int maxRows = 100)
+    public static string FormatResultsAsMarkdown(IReadOnlyList<Dictionary<string, object?>> rows, int maxRows = 100, int maxResultBytes = MaxStructuredPayloadBytes)
     {
-        return FormatResultsAsMarkdownInternal(rows, maxRows);
+        return FormatResultsAsMarkdownInternal(rows, maxRows, maxResultBytes);
     }
 
-    public static string FormatResultsAsMarkdown(List<IDictionary<string, object?>> rows, int maxRows = 100)
+    public static string FormatResultsAsMarkdown(List<IDictionary<string, object?>> rows, int maxRows = 100, int maxResultBytes = MaxStructuredPayloadBytes)
     {
-        return FormatResultsAsMarkdownInternal(rows, maxRows);
+        return FormatResultsAsMarkdownInternal(rows, maxRows, maxResultBytes);
     }
 
     /// <summary>
-    /// Builds the machine-readable companion to <see cref="FormatResultsAsMarkdown(IReadOnlyList{Dictionary{string, object?}}, int)"/>:
+    /// Builds the machine-readable companion to <see cref="FormatResultsAsMarkdown(IReadOnlyList{Dictionary{string, object?}}, int, int)"/>:
     /// { "columns": [..], "rows": [[..], ..], "row_count": N, "truncated": bool }. The rows array honors the
     /// same maxRows budget as the markdown table; row_count is the total row count received, and truncated is
-    /// true whenever a truncation notice would appear in the markdown (rows.Count >= maxRows).
+    /// true whenever a truncation notice would appear in the markdown (rows.Count >= maxRows). When the serialized
+    /// payload would exceed <paramref name="maxResultBytes"/> it carries fewer rows, with truncated and
+    /// rows_omitted_for_size set.
     /// </summary>
-    public static JsonNode BuildStructuredPayload(IReadOnlyList<Dictionary<string, object?>> rows, int maxRows = 100)
+    public static JsonNode BuildStructuredPayload(IReadOnlyList<Dictionary<string, object?>> rows, int maxRows = 100, int maxResultBytes = MaxStructuredPayloadBytes)
     {
-        return BuildStructuredPayloadInternal(rows, maxRows);
+        return BuildStructuredPayloadInternal(rows, maxRows, maxResultBytes);
     }
 
-    public static JsonNode BuildStructuredPayload(List<IDictionary<string, object?>> rows, int maxRows = 100)
+    public static JsonNode BuildStructuredPayload(List<IDictionary<string, object?>> rows, int maxRows = 100, int maxResultBytes = MaxStructuredPayloadBytes)
     {
-        return BuildStructuredPayloadInternal(rows, maxRows);
+        return BuildStructuredPayloadInternal(rows, maxRows, maxResultBytes);
+    }
+
+    /// <summary>
+    /// The part of one tool result's <c>MaxResultBytes</c> its structured payload may take: half. The payload is sized
+    /// first and the text gets whatever the payload left, so the two together stay within the budget.
+    /// </summary>
+    public static int StructuredShare(int maxResultBytes)
+    {
+        return maxResultBytes / 2;
+    }
+
+    /// <summary>The UTF-8 size of <paramref name="payload"/> as it is serialized into the result.</summary>
+    public static int ByteCount(JsonNode payload)
+    {
+        return SerializedByteCount(payload);
+    }
+
+    /// <summary>
+    /// Renders one tool result's rows both ways within <paramref name="maxResultBytes"/> (the resolved
+    /// <c>MaxResultBytes</c>), measured as UTF-8: the structured payload is built first, within
+    /// <see cref="StructuredShare"/>, and the text (<paramref name="textPrefix"/>, the markdown table and its notes) gets
+    /// the rest. Either rendering that had to leave rows out says so (the budget notice in the text, truncated and
+    /// rows_omitted_for_size in the payload).
+    /// </summary>
+    public static (string Text, JsonNode Structured) FormatResultWithinBudget(
+        string textPrefix,
+        IReadOnlyList<Dictionary<string, object?>> rows,
+        int maxRows,
+        int maxResultBytes)
+    {
+        var structured = BuildStructuredPayloadInternal(rows, maxRows, StructuredShare(maxResultBytes));
+        var textBudget = maxResultBytes - SerializedByteCount(structured) - Encoding.UTF8.GetByteCount(textPrefix);
+
+        return (textPrefix + FormatResultsAsMarkdownInternal(rows, maxRows, textBudget), structured);
     }
 
     /// <summary>
@@ -202,7 +244,7 @@ internal static class ToolHelper
         return $"Multiple projects available (IDs: {string.Join(", ", context.AllowedProjectIds)}). Specify project_id parameter to select one.";
     }
 
-    private static string FormatResultsAsMarkdownInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>
+    private static string FormatResultsAsMarkdownInternal<T>(IReadOnlyList<T> rows, int maxRows, int maxResultBytes) where T : IDictionary<string, object?>
     {
         if (rows.Count == 0) return "No results returned.\n";
 
@@ -211,13 +253,22 @@ internal static class ToolHelper
         sb.Append("| ").Append(string.Join(" | ", columns)).Append(" |\n");
         sb.Append("| ").Append(string.Join(" | ", columns.Select(_ => "---"))).Append(" |\n");
 
-        // The markdown table honors the same size budget as the structured payload, measured in
-        // UTF-8 BYTES on both sides (R6-4: counting UTF-16 chars against a byte limit under-counts
-        // multibyte content — emoji/CJK cells could blow past MaxStructuredPayloadBytes on the
-        // wire): a row set with wide cell values can blow the response past what MCP clients accept
-        // even when the row COUNT is within maxRows. Stop emitting rows once the budget is reached
-        // and say so explicitly.
-        var emittedBytes = Encoding.UTF8.GetByteCount(sb.ToString());
+        // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
+        // the SQL-level row cap was hit, so the full result set may be larger than what came back.
+        var rowCapNotice = rows.Count > maxRows
+            ? $"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n"
+            : rows.Count == maxRows
+                ? $"\n_Row cap of {maxRows} reached — the result set may be truncated._\n"
+                : "";
+
+        // The markdown table honors the size budget measured in UTF-8 BYTES (R6-4: counting UTF-16
+        // chars against a byte limit under-counts multibyte content — emoji/CJK cells could blow past
+        // the byte budget on the wire): a row set with wide cell values can blow the response past what
+        // MCP clients accept even when the row COUNT is within maxRows. Stop emitting rows once the
+        // budget is reached and say so explicitly; the notes appended after the rows are counted in.
+        var emittedBytes = Encoding.UTF8.GetByteCount(sb.ToString())
+            + Encoding.UTF8.GetByteCount(SizeBudgetNotice)
+            + Encoding.UTF8.GetByteCount(rowCapNotice);
         var budgetReached = false;
         foreach (var row in rows.Take(maxRows))
         {
@@ -225,7 +276,7 @@ internal static class ToolHelper
                 row.TryGetValue(c, out var v) ? (v?.ToString() ?? "NULL") : "NULL")) + " |\n";
 
             var lineBytes = Encoding.UTF8.GetByteCount(line);
-            if (emittedBytes + lineBytes > MaxStructuredPayloadBytes)
+            if (emittedBytes + lineBytes > maxResultBytes)
             {
                 budgetReached = true;
                 break;
@@ -237,24 +288,15 @@ internal static class ToolHelper
 
         if (budgetReached)
         {
-            sb.Append("\n_Further rows omitted — response size budget reached._\n");
+            sb.Append(SizeBudgetNotice);
         }
 
-        // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
-        // the SQL-level row cap was hit, so the full result set may be larger than what came back.
-        if (rows.Count > maxRows)
-        {
-            sb.Append($"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n");
-        }
-        else if (rows.Count == maxRows)
-        {
-            sb.Append($"\n_Row cap of {maxRows} reached — the result set may be truncated._\n");
-        }
+        sb.Append(rowCapNotice);
 
         return sb.ToString();
     }
 
-    private static JsonNode BuildStructuredPayloadInternal<T>(IReadOnlyList<T> rows, int maxRows) where T : IDictionary<string, object?>
+    private static JsonNode BuildStructuredPayloadInternal<T>(IReadOnlyList<T> rows, int maxRows, int maxResultBytes) where T : IDictionary<string, object?>
     {
         var columns = rows.Count > 0
             ? rows[0].Keys.ToList()
@@ -266,7 +308,7 @@ internal static class ToolHelper
         // Enforce the byte budget: halve the row count until the serialized payload fits (or no
         // rows are left), then say so explicitly — never silently return an oversized payload.
         var trimmedForSize = false;
-        while (rowBudget > 0 && SerializedByteCount(payload) > MaxStructuredPayloadBytes)
+        while (rowBudget > 0 && SerializedByteCount(payload) > maxResultBytes)
         {
             rowBudget /= 2;
             trimmedForSize = true;

@@ -472,6 +472,7 @@ public class McpPlaygroundServiceTests
             x.GetRequiredService<IProjectContext>(),
             x.GetRequiredService<McpAuditService>(),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<DryRunTool>.Instance));
 
         services.AddScoped(x => new GetQueryContextTool(

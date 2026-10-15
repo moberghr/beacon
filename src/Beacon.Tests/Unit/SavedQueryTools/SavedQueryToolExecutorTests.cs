@@ -76,6 +76,49 @@ public class SavedQueryToolExecutorTests
         _provider.Verify(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never, "saved-query tools use only the read-only variant (§1.5)");
     }
 
+    // MaxExplainCost: each step is checked, as it runs (the gate's FinalSql with its arguments as parameters), against the
+    // resolved limit before it reaches the provider; a refusal fails the call without running the step.
+    [Test]
+    public async Task AStepOverTheCostLimit_IsRefusedBeforeItRuns()
+    {
+        const string refusal = "The query's estimated cost (5000) exceeds this project's limit (100). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
+        var costLimit = new Mock<IQueryCostLimit>();
+        costLimit
+            .Setup(x => x.CheckAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryCostCheck(refusal, null));
+        var tool = Tool("loan_book", [Step(1, 10, "SELECT month, total FROM loans WHERE region = {region}", Parameter("region", ParameterType.String))], [ProjectId]);
+
+        var result = await Executor(new McpSettingsData { MaxExplainCost = 100m }, costLimit: costLimit.Object).ExecuteAsync(tool, ProjectId, Args(("region", "EU")), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Be($"Step 1: {refusal}");
+        _executed.Should().BeEmpty();
+        costLimit.Verify(
+            x => x.CheckAsync(
+                It.Is<DataSource>(y => y.Id == 10),
+                It.Is<string>(y => y.Contains("region = @p0") && y.Contains("LIMIT")),
+                It.Is<IReadOnlyDictionary<string, object?>>(y => y.Count == 1 && (string?)y["p0"] == "EU"),
+                100m,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task AStepWithinTheCostLimit_Runs()
+    {
+        _results.Enqueue([Row(("month", "2026-01"))]);
+        var costLimit = new Mock<IQueryCostLimit>();
+        costLimit
+            .Setup(x => x.CheckAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(QueryCostCheck.Pass);
+        var tool = Tool("loan_book", [Step(1, 10, "SELECT month FROM loans")], [ProjectId]);
+
+        var result = await Executor(new McpSettingsData { MaxExplainCost = 100m }, costLimit: costLimit.Object).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        _executed.Should().ContainSingle();
+    }
+
     [Test]
     public async Task ADatabaseStep_IsGatedInItsEnginesDialect()
     {
@@ -512,6 +555,26 @@ public class SavedQueryToolExecutorTests
         _executed.Should().ContainSingle("the call stops at the oversized step");
     }
 
+    // Each step runs within the resolved MCP StatementTimeoutSeconds (default 30 s), not a constant.
+    [Test]
+    public async Task AStep_RunsWithinTheResolvedStatementTimeout()
+    {
+        _provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns<DataSource, string, Dictionary<string, object?>, CancellationToken>(async (_, _, _, token) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), token);
+                return new ProviderQueryResult { Success = true, Rows = [] };
+            });
+        var tool = Tool("slow", [Step(1, 10, "SELECT * FROM loans")], [ProjectId]);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => Executor(new McpSettingsData { StatementTimeoutSeconds = 1 }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout cancelled the step, not the 30 s default");
+    }
+
     [Test]
     public async Task AProviderFailure_IsReportedAsAFailedStep()
     {
@@ -598,7 +661,8 @@ public class SavedQueryToolExecutorTests
         McpSettingsData? settings = null,
         IHostDataSourceGuard? hostGuard = null,
         ProjectAccessScope? access = null,
-        ISharedSourceSettings? sharedSources = null)
+        ISharedSourceSettings? sharedSources = null,
+        IQueryCostLimit? costLimit = null)
     {
         var factory = new Mock<IDataSourceProviderFactory>();
         factory
@@ -615,6 +679,7 @@ public class SavedQueryToolExecutorTests
             new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData()).Object),
             TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn(ProjectId)),
+            costLimit ?? TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance);
     }
 

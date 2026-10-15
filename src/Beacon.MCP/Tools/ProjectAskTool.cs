@@ -31,6 +31,7 @@ internal sealed class ProjectAskTool(
     IKnowledgeAnswerService knowledgeAnswerService,
     ICrossSourceQueryService crossSourceQueryService,
     IOptions<McpDeploymentOptions> deploymentOptions,
+    McpQueryConcurrencyLimiter concurrencyLimiter,
     ILogger<ProjectAskTool> logger)
 {
     [McpServerTool(Name = "ask", Title = "Ask a Data Question", ReadOnly = true, Idempotent = false, Destructive = false, OpenWorld = false)]
@@ -79,6 +80,13 @@ internal sealed class ProjectAskTool(
             }
 
             var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
+
+            // MaxConcurrentQueriesPerKey: refused at once, never queued, and audited like every other refusal (§1.7/§9.5).
+            using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
+            if (lease == null)
+            {
+                return await FailAsync(signal, sw, projectId, question, McpQueryConcurrencyLimiter.RefusalMessage, cancellationToken);
+            }
 
             // Classify intent — data query vs knowledge question
             var intent = await intentClassifier.ClassifyAsync(llmProvider, question, cancellationToken);

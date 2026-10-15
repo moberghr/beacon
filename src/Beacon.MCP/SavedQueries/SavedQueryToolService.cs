@@ -6,7 +6,9 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Models;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -28,6 +30,8 @@ internal sealed class SavedQueryToolService(
     IProjectContext projectContext,
     IProjectAccessEvaluator projectAccess,
     McpAuditService auditService,
+    ISharedSourceSettings sharedSourceSettings,
+    McpQueryConcurrencyLimiter concurrencyLimiter,
     ILogger<SavedQueryToolService> logger,
     BeaconConfiguration? configuration = null)
 {
@@ -158,8 +162,23 @@ internal sealed class SavedQueryToolService(
         projectContext.ActiveProjectId = projectId;
 
         SavedQueryToolExecution execution;
+        McpSettingsData settings;
+        IDisposable? lease = null;
         try
         {
+            // The executor holds the run to the same settings (the strictest of the projects linking the steps' sources);
+            // here they bound the concurrent runs and the size of what is returned.
+            settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, tool.DataSourceIds.ToList(), cancellationToken);
+
+            // MaxConcurrentQueriesPerKey: refused at once, never queued, and audited like every other refusal (§1.7).
+            lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
+            if (lease == null)
+            {
+                await AuditAsync(tool.ToolName, arguments, projectId, tool.Steps[0].DataSourceId, sw, null, McpQueryConcurrencyLimiter.RefusalMessage, null);
+
+                return ToolHelper.Error(McpQueryConcurrencyLimiter.RefusalMessage);
+            }
+
             execution = await executor.ExecuteAsync(tool, projectId, values, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -176,6 +195,10 @@ internal sealed class SavedQueryToolService(
 
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, tool.ToolName));
         }
+        finally
+        {
+            lease?.Dispose();
+        }
 
         if (!execution.Success)
         {
@@ -186,7 +209,11 @@ internal sealed class SavedQueryToolService(
 
         await AuditAsync(tool.ToolName, arguments, projectId, execution.DataSourceId, sw, execution.Rows.Count, null, execution.TablesUsed);
 
-        return ToolHelper.Success(FormatText(tool, execution), SavedQueryToolResult.BuildStructured(tool, execution));
+        // The text and the structured payload together stay within the resolved MaxResultBytes: the payload is sized first,
+        // within its share, and the text gets what it left.
+        var structured = SavedQueryToolResult.BuildStructured(tool, execution, ToolHelper.StructuredShare(settings.MaxResultBytes));
+
+        return ToolHelper.Success(FormatText(tool, execution, settings.MaxResultBytes - ToolHelper.ByteCount(structured)), structured);
     }
 
     private async Task<CallToolResult> SearchAsync(IDictionary<string, JsonElement>? arguments, Stopwatch sw, CancellationToken cancellationToken)
@@ -308,7 +335,8 @@ internal sealed class SavedQueryToolService(
         return allowed is { Count: 1 } ? allowed[0] : null;
     }
 
-    private static string FormatText(SavedQueryToolDefinition tool, SavedQueryToolExecution execution)
+    // The whole text (heading and table) stays within textBudget bytes.
+    private static string FormatText(SavedQueryToolDefinition tool, SavedQueryToolExecution execution, int textBudget)
     {
         var sb = new StringBuilder();
         sb.Append("# ").Append(tool.Title).Append("\n\n");
@@ -320,7 +348,8 @@ internal sealed class SavedQueryToolService(
         }
 
         sb.Append("\n\n");
-        sb.Append(ToolHelper.FormatResultsAsMarkdown(execution.Rows, execution.MaxRows));
+        var tableBudget = textBudget - Encoding.UTF8.GetByteCount(sb.ToString());
+        sb.Append(ToolHelper.FormatResultsAsMarkdown(execution.Rows, execution.MaxRows, tableBudget));
 
         return sb.ToString();
     }

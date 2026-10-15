@@ -262,6 +262,7 @@ public class CrossDatabaseCallSiteTests
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(store.Factory(), settings.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(store.Factory(), settings.Object, NullLogger<McpSignalService>.Instance),
+            new McpQueryConcurrencyLimiter(),
             NullLogger<DryRunTool>.Instance);
 
         var foreign = await tool.ExecuteAsync(datasource_id: DataSourceId, sql: Foreign, cancellationToken: CancellationToken.None);
@@ -290,6 +291,7 @@ public class CrossDatabaseCallSiteTests
             new QueryGuardrailService(),
             SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(ProjectId)),
+            TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance);
 
         var foreign = await executor.ExecuteAsync(SavedQueryTestData.Tool("orders", [SavedQueryTestData.Step(1, DataSourceId, Foreign)], [ProjectId]), ProjectId, new Dictionary<string, object?>(), CancellationToken.None);
@@ -516,6 +518,7 @@ public class CrossDatabaseCallSiteTests
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
             new McpStatementLog(),
+            TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance,
             NullLogger<CrossSourceQueryService>.Instance);
     }

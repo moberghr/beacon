@@ -9,6 +9,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -30,6 +31,7 @@ internal sealed class CrossSourceQueryService(
     ILlmRowDataEgress rowDataEgress,
     IOptions<McpDeploymentOptions> deploymentOptions,
     IMcpStatementLog statementLog,
+    IQueryCostLimit costLimit,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -185,16 +187,37 @@ internal sealed class CrossSourceQueryService(
             var limitedSql = finalReport.FinalSql;
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
             // §1.5 backstop — per-source execution goes through the read-only path. The database-level
             // guarantee is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above.
+            // MaxExplainCost (PostgreSQL only) is checked first, within the same timeout: a refusal fails this source with
+            // the refusal as it is, and an estimate that failed is this source's execution error.
+            string? costRefusal = null;
             var result = await statementLog.RecordAsync(
                 dataSource.Id,
                 McpStatementPurposes.SourceStep,
                 limitedSql,
-                () => provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token),
+                async () =>
+                {
+                    var cost = await costLimit.CheckAsync(dataSource, limitedSql, new Dictionary<string, object?>(), settings.MaxExplainCost, timeoutCts.Token);
+                    if (!cost.Passed)
+                    {
+                        costRefusal = cost.Refusal;
+
+                        return new ProviderQueryResult { Success = false, ErrorMessage = cost.Refusal ?? cost.EstimateError };
+                    }
+
+                    return await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+                },
                 x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
+
+            if (costRefusal != null)
+            {
+                failedSources.Add((source.DataSourceName, costRefusal));
+                text += $"**Refused for {source.DataSourceName}:** {costRefusal}\n";
+                continue;
+            }
 
             if (!result.Success)
             {
@@ -291,7 +314,7 @@ internal sealed class CrossSourceQueryService(
             return (text, false);
         }
 
-        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, 30);
+        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, settings.StatementTimeoutSeconds);
 
         if (timedOut)
         {
@@ -316,7 +339,7 @@ internal sealed class CrossSourceQueryService(
                 "SQLite");
 
             text += $"### Final Results ({joinedRows.Count} rows, {execTimeMs:F0}ms)\n\n";
-            text += ToolHelper.FormatResultsAsMarkdown(joinedRows);
+            text += ToolHelper.FormatResultsAsMarkdown(joinedRows, maxResultBytes: settings.MaxResultBytes);
         }
         else
         {

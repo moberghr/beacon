@@ -104,7 +104,10 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new AuditCapturingContext(auditLogs));
         builder.Services.AddSingleton(auditFactory.Object);
-        builder.Services.AddSingleton(SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = retainContent }).Object);
+        var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { RetainQueryContent = retainContent }).Object;
+        builder.Services.AddSingleton(settingsProvider);
+        // The saved-query tools bound their runs by the shared-source settings (Beacon.Core registers them in a real host).
+        builder.Services.AddSingleton(SettingsProviderMock.Unshared(settingsProvider));
 
         if (withMcpServer)
         {

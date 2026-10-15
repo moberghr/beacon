@@ -22,7 +22,7 @@ internal class DatabaseProvider(
     IHostDataSourceGuard hostGuard,
     IConfiguredDatabaseResolver configuredDatabases,
     ILogger<DatabaseProvider> logger,
-    IOptions<QueryExecutionOptions> queryOptions) : IDataSourceProvider, IRowCappedReadOnlyExecution
+    IOptions<QueryExecutionOptions> queryOptions) : IDataSourceProvider, IRowCappedReadOnlyExecution, IReadOnlyCostEstimation
 {
     /// <summary>What a caller sees when a query against a host data source fails on the server.</summary>
     public const string HostQueryFailedMessage = "Query failed on the host database.";
@@ -266,6 +266,69 @@ internal class DatabaseProvider(
                 IsValid = false,
                 Errors = new List<string> { DescribeFailure(dataSource, ex, "Query validation failed", LogLevel.Warning) }
             };
+        }
+    }
+
+    /// <summary>
+    /// The planner's estimated total cost of <paramref name="query"/> on a PostgreSQL data source. The statement is planned,
+    /// never run: <c>EXPLAIN (FORMAT JSON)</c> without <c>ANALYZE</c>, with the statement's parameters bound, under the same
+    /// host policy check and on the same read-only path as a read (read-only session and transaction, a batch of exactly
+    /// one command, the statement timeout).
+    /// </summary>
+    public async Task<ReadOnlyCostEstimate> EstimateReadOnlyCostAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (dataSource.DatabaseEngineType != DatabaseEngineType.PostgreSQL)
+            {
+                return ReadOnlyCostEstimate.Failed("A planner cost estimate is available on PostgreSQL data sources only.");
+            }
+
+            var hostCheck = hostGuard.Check(dataSource, query);
+            var hostError = hostCheck.Allowed ? hostCheck.FindUnboundParameter(parameters) : hostCheck.Error;
+            if (hostError != null)
+            {
+                return ReadOnlyCostEstimate.Failed(hostError);
+            }
+
+            var connectionString = connectionResolver.GetConnectionString(dataSource);
+            await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.PostgreSQL, connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                "SET default_transaction_read_only = on",
+                cancellationToken: cancellationToken));
+
+            // Nothing in the transaction is kept: it is rolled back on disposal.
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            await connection.ExecuteAsync(new CommandDefinition(
+                "SET TRANSACTION READ ONLY",
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+
+            var read = await ReadSingleStatementAsync(
+                connection,
+                $"EXPLAIN (FORMAT JSON) {query}",
+                parameters,
+                transaction,
+                null,
+                StatementTimeoutSeconds,
+                cancellationToken);
+
+            var plan = read.Rows.Count > 0 && read.Rows[0].Length > 0 ? read.Rows[0][0]?.ToString() : null;
+            var cost = PostgreSqlPlanCost.TotalCost(plan);
+
+            return cost is { } totalCost
+                ? new ReadOnlyCostEstimate(totalCost, null)
+                : ReadOnlyCostEstimate.Failed("The planner's cost estimate could not be read.");
+        }
+        catch (Exception ex)
+        {
+            return ReadOnlyCostEstimate.Failed(DescribeFailure(dataSource, ex, "Query cost estimate failed", LogLevel.Warning));
         }
     }
 
