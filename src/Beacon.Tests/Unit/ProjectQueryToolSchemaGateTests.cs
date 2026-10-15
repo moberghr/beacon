@@ -461,6 +461,8 @@ public class ProjectQueryToolSchemaGateTests
         structured.GetProperty("truncated").GetBoolean().Should().BeTrue();
         structured.GetProperty("rows_omitted_for_size").GetBoolean().Should().BeTrue();
         structured.GetProperty("rows").GetArrayLength().Should().BeInRange(1, 39);
+        (System.Text.Encoding.UTF8.GetByteCount(result.Content.OfType<TextContentBlock>().Single().Text) + System.Text.Encoding.UTF8.GetByteCount(structured.GetRawText()))
+            .Should().BeLessThanOrEqualTo(4096, "the text and the structured payload together stay within MaxResultBytes");
         _auditLogs.Should().ContainSingle().Which.ResultRowCount.Should().Be(40);
     }
 
@@ -510,6 +512,73 @@ public class ProjectQueryToolSchemaGateTests
         limiter.InFlight($"user:{CallerUserId}").Should().Be(0);
     }
 
+    // MaxExplainCost: the gate's FinalSql is checked against the resolved limit before it runs; a refusal never reaches the
+    // provider and is audited and signalled like every other refusal.
+    [Test]
+    public async Task ACostOverTheLimit_IsRefusedBeforeTheProvider_AndAuditedWithASignal()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        const string refusal = "The query's estimated cost (5000) exceeds this project's limit (100). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
+        var costLimit = CostLimit(new QueryCostCheck(refusal, null));
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be(refusal);
+        costLimit.Verify(
+            x => x.CheckAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("LIMIT")), It.Is<IReadOnlyDictionary<string, object?>>(y => y.Count == 0), 100m, It.IsAny<CancellationToken>()),
+            Times.Once,
+            "the gate's FinalSql (row cap written in) is what is estimated, with the resolved limit");
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _auditLogs.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { Tool = "query", ErrorMessage = refusal, ProjectId = (int?)ProjectId, DataSourceId = (int?)DataSourceId },
+            x => x.ExcludingMissingMembers());
+        _signals.Should().ContainSingle().Which.ExecutionError.Should().Be(refusal);
+    }
+
+    [Test]
+    public async Task ACostWithinTheLimit_Runs()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var costLimit = CostLimit(QueryCostCheck.Pass);
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().BeNull();
+    }
+
+    [Test]
+    public async Task AnEstimateThatFailed_FailsTheCallAsAFailingStatement_WithoutRunningIt()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        var costLimit = CostLimit(new QueryCostCheck(null, "canceling statement due to statement timeout"));
+
+        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be("Query execution failed: canceling statement due to statement timeout");
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be("canceling statement due to statement timeout");
+    }
+
+    private static Mock<IQueryCostLimit> CostLimit(QueryCostCheck check)
+    {
+        var costLimit = new Mock<IQueryCostLimit>();
+        costLimit
+            .Setup(x => x.CheckAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(check);
+
+        return costLimit;
+    }
+
     private static ISharedSourceSettings Shared(McpSettingsData settings)
     {
         var sharedSources = new Mock<ISharedSourceSettings>();
@@ -527,7 +596,7 @@ public class ProjectQueryToolSchemaGateTests
             .ReturnsAsync(catalog);
     }
 
-    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null, McpQueryConcurrencyLimiter? limiter = null)
+    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null, McpQueryConcurrencyLimiter? limiter = null, IQueryCostLimit? costLimit = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -560,6 +629,7 @@ public class ProjectQueryToolSchemaGateTests
             auditService,
             signalService,
             limiter ?? new McpQueryConcurrencyLimiter(),
+            costLimit ?? TestQueryCostLimit.Passing,
             NullLogger<ProjectQueryTool>.Instance);
     }
 

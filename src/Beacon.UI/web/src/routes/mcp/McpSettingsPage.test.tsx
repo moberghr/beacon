@@ -152,7 +152,8 @@ describe('McpSettingsPage', () => {
     expect(screen.getByLabelText('Statement timeout (s)')).toHaveValue(30);
     expect(screen.getByLabelText('Max result size (bytes)')).toHaveValue(262144);
     expect(screen.getByLabelText('Max concurrent queries per API key')).toHaveValue(4);
-    expect(screen.getByLabelText('Max EXPLAIN cost (blank = no limit)')).toHaveValue(null);
+    expect(screen.getByLabelText(/^Max EXPLAIN cost \(blank = no limit\)/)).toHaveValue(null);
+    expect(screen.getByText(/Applies to PostgreSQL data sources/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Retain question and SQL text/)).toBeChecked();
     expect(screen.getByLabelText(/Allow the feedback tool/)).toBeChecked();
   });

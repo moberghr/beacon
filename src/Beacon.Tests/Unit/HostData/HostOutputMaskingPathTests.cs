@@ -340,6 +340,7 @@ public class HostOutputMaskingPathTests
             auditService,
             signalService,
             new McpQueryConcurrencyLimiter(),
+            TestQueryCostLimit.Passing,
             NullLogger<ProjectQueryTool>.Instance);
     }
 

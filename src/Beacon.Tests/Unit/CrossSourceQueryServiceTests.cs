@@ -17,6 +17,7 @@ using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.MCP.Services;
@@ -198,6 +199,35 @@ public class CrossSourceQueryServiceTests
         await CreateService(statementLog: log).ExecuteAsync(_llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
 
         log.TakeAll().Single(x => x.Purpose == McpStatementPurposes.SourceStep).ErrorClass.Should().Be(McpContentRedactor.ClassPermission);
+    }
+
+    // MaxExplainCost: a source whose statement (as it runs, capped) the planner estimates over the limit is refused before it
+    // runs; the refusal is the source's failure, recorded on the call's audit row.
+    [Test]
+    public async Task ASourceOverTheCostLimit_IsRefusedBeforeItRuns_AndRecorded()
+    {
+        Generates("SELECT id FROM orders");
+        const string refusal = "The query's estimated cost (5000) exceeds this project's limit (100). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
+        var costLimit = new Mock<IQueryCostLimit>();
+        costLimit
+            .Setup(x => x.CheckAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryCostCheck(refusal, null));
+        var log = new McpStatementLog();
+        var settings = Settings();
+        settings.MaxExplainCost = 100m;
+
+        var (text, succeeded) = await CreateService(statementLog: log, costLimit: costLimit.Object).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", settings, execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeFalse();
+        text.Should().Contain($"**Refused for warehouse:** {refusal}");
+        costLimit.Verify(
+            x => x.CheckAsync(It.IsAny<DataSource>(), $"SELECT id FROM orders LIMIT {MaxRowLimit}", It.IsAny<IReadOnlyDictionary<string, object?>>(), 100m, It.IsAny<CancellationToken>()),
+            Times.Once);
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        log.TakeAll().Single(x => x.Purpose == McpStatementPurposes.SourceStep).ErrorClass.Should().NotBeNull();
     }
 
     [Test]
@@ -651,7 +681,8 @@ public class CrossSourceQueryServiceTests
         ILlmRowDataEgress? egress = null,
         Microsoft.Extensions.Logging.ILogger<CrossSourceQueryService>? logger = null,
         bool forbidRowData = false,
-        IMcpStatementLog? statementLog = null)
+        IMcpStatementLog? statementLog = null,
+        IQueryCostLimit? costLimit = null)
     {
         var warehouseHostKey = hostGuard == null ? null : HostKey;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -698,6 +729,7 @@ public class CrossSourceQueryServiceTests
             egress ?? TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
             statementLog ?? new McpStatementLog(),
+            costLimit ?? TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance,
             logger ?? NullLogger<CrossSourceQueryService>.Instance);
     }

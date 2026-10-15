@@ -448,7 +448,7 @@ Bound from `Beacon:Query`, validated at startup. These apply to every statement 
 | `MaxExecutionRows` | int | `100000` | 1–10,000,000 | The most rows one statement may return. The cap is written into the SQL (a larger `LIMIT`/`TOP`/`FETCH` is lowered to it); on PostgreSQL, MySQL, SQL Server, Azure Synapse and Snowflake the read also stops one row past it. A larger result **fails** the run, never truncates, with a message naming the key. Rows are held in memory |
 | `StatementTimeoutSeconds` | int | `120` | 1–3600 | Cancels one statement: a query step, a final query on the in-memory join, a metadata sample. A subscription's own timeout may only be shorter (saving a longer one is refused) |
 
-Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP `query` and `ask` tools use a fixed 30-second timeout.
+Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that run SQL use the project's MCP statement timeout (30 seconds by default).
 
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
@@ -642,8 +642,8 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 |---|---|---|---|
 | `ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm` | bool | `true`, `true`, `false`, `false` | See [Deployment locks](#deployment-locks) |
 | `Ceilings:MaxRowLimit` | int | none | Caps the row limit the MCP tools apply; must be greater than 0 when set |
-| `Ceilings:StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | int | none | Clamp the recorded setting, shown on the MCP settings page; must be greater than 0 when set. The MCP `query` and `ask` tools use a fixed 30-second timeout |
-| `Ceilings:MaxExplainCost` | decimal | none | Clamps the recorded setting, shown on the MCP settings page; greater than 0 when set |
+| `Ceilings:StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | int | none | Clamp the MCP settings of the same names, shown on the MCP settings page; must be greater than 0 when set. The MCP tools apply the statement timeout to every statement, bound each tool result to the byte budget, and refuse a call when the caller already runs that many queries |
+| `Ceilings:MaxExplainCost` | decimal | none | Clamps the MCP `MaxExplainCost` setting, shown on the MCP settings page; greater than 0 when set. The setting is enforced on PostgreSQL data sources: a statement whose planner-estimated total cost (`EXPLAIN`, never run) exceeds it is refused before it runs. Other engines ignore it |
 | `Ceilings:MaxSqlChars` | int | `100000` (always applies) | Longest SQL text the gate evaluates |
 | `Ceilings:MaxQuestionChars` | int | `4000` (always applies) | Longest question `ask` accepts |
 | `Audit:Required` | bool | `false` | Fail closed: withhold a tool result whose audit row could not be written |

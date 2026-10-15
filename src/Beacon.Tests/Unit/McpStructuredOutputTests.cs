@@ -285,6 +285,42 @@ public class McpStructuredOutputTests
         payload["rows"]!.AsArray().Count.Should().Be(3);
     }
 
+    // MaxResultBytes bounds the whole tool result: the text (heading, table and notes) and the structured payload together.
+    [TestCase(4096, "x")]
+    [TestCase(4096, "\u00e9\u4e2d")]
+    [TestCase(65536, "x")]
+    [TestCase(262144, "\ud83d\ude00")]
+    public void FormatResultWithinBudget_TextAndStructuredTogether_StayWithinTheBudget(int budget, string unit)
+    {
+        var cell = string.Concat(Enumerable.Repeat(unit, 1000));
+        var rows = Enumerable.Range(1, 600)
+            .Select(x =>
+                new Dictionary<string, object?>
+                {
+                    ["id"] = x,
+                    ["note"] = cell
+                })
+            .ToList();
+
+        var (text, structured) = ToolHelper.FormatResultWithinBudget("# Query Results\n\n**Rows:** 600\n\n", rows, 500, budget);
+
+        (Encoding.UTF8.GetByteCount(text) + Encoding.UTF8.GetByteCount(structured.ToJsonString())).Should().BeLessThanOrEqualTo(budget);
+        text.Should().StartWith("# Query Results").And.Contain("_Further rows omitted — response size budget reached._");
+        text.Should().Contain("_Showing 500 of 600 rows (truncated).", "the row-cap note is kept within the budget too");
+        structured["rows_omitted_for_size"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Test]
+    public void FormatResultWithinBudget_ASmallResult_IsRenderedInFullBothWays()
+    {
+        var (text, structured) = ToolHelper.FormatResultWithinBudget("### Results (3 rows)\n\n", MakeRows(3), 100, ToolHelper.MaxStructuredPayloadBytes);
+
+        text.Should().NotContain("response size budget");
+        text.Should().Contain("| 3 | row-3 |");
+        structured.AsObject().ContainsKey("rows_omitted_for_size").Should().BeFalse();
+        structured["rows"]!.AsArray().Count.Should().Be(3);
+    }
+
     private static List<Dictionary<string, object?>> MakeRows(int count)
     {
         return Enumerable.Range(1, count)

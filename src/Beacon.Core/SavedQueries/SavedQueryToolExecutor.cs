@@ -37,7 +37,8 @@ public sealed record SavedQueryToolExecution(
 /// SQLite behind the same gate. Unlike the UI's <c>QueryService</c> preview it never runs unbounded: the result is
 /// capped at the project's MCP row limit, and an intermediate step that exceeds <see cref="IntermediateRowCap"/> fails
 /// the call rather than feeding a silently incomplete join. Each statement (every step and the final query) runs within the
-/// resolved MCP <c>StatementTimeoutSeconds</c>. Right before any SQL runs it re-checks the steps that run:
+/// resolved MCP <c>StatementTimeoutSeconds</c>, and a step on a PostgreSQL source is refused before it runs when the
+/// planner's estimated cost exceeds the resolved <c>MaxExplainCost</c> (<see cref="IQueryCostLimit"/>). Right before any SQL runs it re-checks the steps that run:
 /// the caller may still run stored SQL in the project, and the project still links every data source they read;
 /// otherwise the call fails without running anything.
 /// </summary>
@@ -58,6 +59,7 @@ internal sealed class SavedQueryToolExecutor(
     IQueryGuardrailService guardrailService,
     ISharedSourceSettings sharedSourceSettings,
     IProjectAccessEvaluator projectAccess,
+    IQueryCostLimit costLimit,
     ILoggerFactory loggerFactory) : ISavedQueryToolExecutor
 {
     /// <summary>The most rows one intermediate step of a multi-step query may return before the call fails.</summary>
@@ -138,6 +140,24 @@ internal sealed class SavedQueryToolExecutor(
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
+
+            // MaxExplainCost (PostgreSQL only): the planner's estimate for the statement as it runs, its parameters bound,
+            // within the same timeout. A failed estimate fails the step as a failing statement would.
+            var cost = await costLimit.CheckAsync(dataSource, report.FinalSql, parameters, settings.MaxExplainCost, timeoutCts.Token);
+            if (cost.Refusal != null)
+            {
+                return SavedQueryToolExecution.Failed($"Step {step.StepOrder}: {cost.Refusal}", tablesUsed, firstDataSourceId);
+            }
+
+            if (cost.EstimateError != null)
+            {
+                var estimateError = DatabaseErrorRedactor.ForCaller(
+                    cost.EstimateError,
+                    report.FinalSql,
+                    settings.EnablePiiDetection && dataSource.HostManagedKey == null);
+
+                return SavedQueryToolExecution.Failed($"Step {step.StepOrder} failed: {estimateError}", tablesUsed, firstDataSourceId);
+            }
 
             // §1.5 backstop — read-only execution path (a READ ONLY transaction on PostgreSQL and MySQL; parser gates
             // above for the other engines, see IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement).

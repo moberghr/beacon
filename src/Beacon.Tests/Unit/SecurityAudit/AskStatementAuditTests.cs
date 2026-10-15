@@ -398,7 +398,8 @@ public class AskStatementAuditTests
             new QueryGuardrailService(),
             SettingsProviderMock.Unshared(settings.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = ProjectId, AllowedProjectIds = [ProjectId] },
-            log);
+            log,
+            TestQueryCostLimit.Passing);
     }
 
     // The ask tool over a routed single source, its pipeline running the generated SQL once through the real execution

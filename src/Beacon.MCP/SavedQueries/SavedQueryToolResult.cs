@@ -9,8 +9,9 @@ namespace Beacon.MCP.SavedQueries;
 /// <summary>
 /// The machine-readable result of a saved-query tool call:
 /// <c>{ columns: [{name, type}], rows: [{column: value}], rowCount, truncated, queryVersionId, versionNumber }</c>.
-/// Held to the same byte budget as the other tools' structured payloads (the resolved <c>MaxResultBytes</c>); rows dropped
-/// for size set <c>truncated</c> and <c>rowsOmittedForSize</c>.
+/// Held to the byte budget it is given (the structured share of the resolved <c>MaxResultBytes</c>,
+/// <see cref="ToolHelper.StructuredShare"/>, so that it and the text together stay within the setting); rows dropped for
+/// size set <c>truncated</c> and <c>rowsOmittedForSize</c>.
 /// </summary>
 internal static class SavedQueryToolResult
 {

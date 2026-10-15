@@ -209,7 +209,11 @@ internal sealed class SavedQueryToolService(
 
         await AuditAsync(tool.ToolName, arguments, projectId, execution.DataSourceId, sw, execution.Rows.Count, null, execution.TablesUsed);
 
-        return ToolHelper.Success(FormatText(tool, execution, settings.MaxResultBytes), SavedQueryToolResult.BuildStructured(tool, execution, settings.MaxResultBytes));
+        // The text and the structured payload together stay within the resolved MaxResultBytes: the payload is sized first,
+        // within its share, and the text gets what it left.
+        var structured = SavedQueryToolResult.BuildStructured(tool, execution, ToolHelper.StructuredShare(settings.MaxResultBytes));
+
+        return ToolHelper.Success(FormatText(tool, execution, settings.MaxResultBytes - ToolHelper.ByteCount(structured)), structured);
     }
 
     private async Task<CallToolResult> SearchAsync(IDictionary<string, JsonElement>? arguments, Stopwatch sw, CancellationToken cancellationToken)
@@ -331,7 +335,8 @@ internal sealed class SavedQueryToolService(
         return allowed is { Count: 1 } ? allowed[0] : null;
     }
 
-    private static string FormatText(SavedQueryToolDefinition tool, SavedQueryToolExecution execution, int maxResultBytes)
+    // The whole text (heading and table) stays within textBudget bytes.
+    private static string FormatText(SavedQueryToolDefinition tool, SavedQueryToolExecution execution, int textBudget)
     {
         var sb = new StringBuilder();
         sb.Append("# ").Append(tool.Title).Append("\n\n");
@@ -343,7 +348,8 @@ internal sealed class SavedQueryToolService(
         }
 
         sb.Append("\n\n");
-        sb.Append(ToolHelper.FormatResultsAsMarkdown(execution.Rows, execution.MaxRows, maxResultBytes));
+        var tableBudget = textBudget - Encoding.UTF8.GetByteCount(sb.ToString());
+        sb.Append(ToolHelper.FormatResultsAsMarkdown(execution.Rows, execution.MaxRows, tableBudget));
 
         return sb.ToString();
     }

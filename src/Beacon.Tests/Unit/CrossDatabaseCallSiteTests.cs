@@ -291,6 +291,7 @@ public class CrossDatabaseCallSiteTests
             new QueryGuardrailService(),
             SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(ProjectId)),
+            TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance);
 
         var foreign = await executor.ExecuteAsync(SavedQueryTestData.Tool("orders", [SavedQueryTestData.Step(1, DataSourceId, Foreign)], [ProjectId]), ProjectId, new Dictionary<string, object?>(), CancellationToken.None);
@@ -517,6 +518,7 @@ public class CrossDatabaseCallSiteTests
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
             new McpStatementLog(),
+            TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance,
             NullLogger<CrossSourceQueryService>.Instance);
     }

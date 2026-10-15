@@ -9,6 +9,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -30,6 +31,7 @@ internal sealed class CrossSourceQueryService(
     ILlmRowDataEgress rowDataEgress,
     IOptions<McpDeploymentOptions> deploymentOptions,
     IMcpStatementLog statementLog,
+    IQueryCostLimit costLimit,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -189,12 +191,33 @@ internal sealed class CrossSourceQueryService(
             // §1.5 backstop — per-source execution goes through the read-only path. The database-level
             // guarantee is PostgreSQL and MySQL today (IDataSourceProvider.SupportsDatabaseReadOnlyEnforcement);
             // other engines forward to normal execution and rely on the parser gates above.
+            // MaxExplainCost (PostgreSQL only) is checked first, within the same timeout: a refusal fails this source with
+            // the refusal as it is, and an estimate that failed is this source's execution error.
+            string? costRefusal = null;
             var result = await statementLog.RecordAsync(
                 dataSource.Id,
                 McpStatementPurposes.SourceStep,
                 limitedSql,
-                () => provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token),
+                async () =>
+                {
+                    var cost = await costLimit.CheckAsync(dataSource, limitedSql, new Dictionary<string, object?>(), settings.MaxExplainCost, timeoutCts.Token);
+                    if (!cost.Passed)
+                    {
+                        costRefusal = cost.Refusal;
+
+                        return new ProviderQueryResult { Success = false, ErrorMessage = cost.Refusal ?? cost.EstimateError };
+                    }
+
+                    return await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
+                },
                 x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
+
+            if (costRefusal != null)
+            {
+                failedSources.Add((source.DataSourceName, costRefusal));
+                text += $"**Refused for {source.DataSourceName}:** {costRefusal}\n";
+                continue;
+            }
 
             if (!result.Success)
             {

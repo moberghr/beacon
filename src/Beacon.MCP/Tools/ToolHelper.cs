@@ -17,11 +17,14 @@ namespace Beacon.MCP.Tools;
 
 internal static class ToolHelper
 {
-    // Default byte budget for a SQL result rendering (256 KB) — the MaxResultBytes default of the MCP settings. Callers
-    // pass the resolved McpSettingsData.MaxResultBytes; the default applies only where no settings are at hand. The
-    // budget holds for the markdown table and for the structured payload EACH: an unbounded rows array with wide values
-    // can blow the response past what MCP clients accept even when the row COUNT is within maxRows.
+    // Default byte budget for a SQL result (256 KB) — the MaxResultBytes default of the MCP settings. Callers pass the
+    // resolved McpSettingsData.MaxResultBytes; the default applies only where no settings are at hand. One tool result
+    // carries its rows twice (the markdown text and the structured payload), so a result rendered both ways splits the
+    // budget between them (FormatResultWithinBudget, StructuredShare): an unbounded rows array with wide values can blow
+    // the response past what MCP clients accept even when the row COUNT is within maxRows.
     internal const int MaxStructuredPayloadBytes = 262144;
+
+    private const string SizeBudgetNotice = "\n_Further rows omitted — response size budget reached._\n";
 
     /// <summary>
     /// Resolves the active project ID as a pure per-call function of the request-scoped context
@@ -139,6 +142,40 @@ internal static class ToolHelper
     }
 
     /// <summary>
+    /// The part of one tool result's <c>MaxResultBytes</c> its structured payload may take: half. The payload is sized
+    /// first and the text gets whatever the payload left, so the two together stay within the budget.
+    /// </summary>
+    public static int StructuredShare(int maxResultBytes)
+    {
+        return maxResultBytes / 2;
+    }
+
+    /// <summary>The UTF-8 size of <paramref name="payload"/> as it is serialized into the result.</summary>
+    public static int ByteCount(JsonNode payload)
+    {
+        return SerializedByteCount(payload);
+    }
+
+    /// <summary>
+    /// Renders one tool result's rows both ways within <paramref name="maxResultBytes"/> (the resolved
+    /// <c>MaxResultBytes</c>), measured as UTF-8: the structured payload is built first, within
+    /// <see cref="StructuredShare"/>, and the text (<paramref name="textPrefix"/>, the markdown table and its notes) gets
+    /// the rest. Either rendering that had to leave rows out says so (the budget notice in the text, truncated and
+    /// rows_omitted_for_size in the payload).
+    /// </summary>
+    public static (string Text, JsonNode Structured) FormatResultWithinBudget(
+        string textPrefix,
+        IReadOnlyList<Dictionary<string, object?>> rows,
+        int maxRows,
+        int maxResultBytes)
+    {
+        var structured = BuildStructuredPayloadInternal(rows, maxRows, StructuredShare(maxResultBytes));
+        var textBudget = maxResultBytes - SerializedByteCount(structured) - Encoding.UTF8.GetByteCount(textPrefix);
+
+        return (textPrefix + FormatResultsAsMarkdownInternal(rows, maxRows, textBudget), structured);
+    }
+
+    /// <summary>
     /// Maps an exception to a message safe to return to the MCP caller. Business-rule and domain
     /// exceptions (§2.9) are written for the caller and pass through; database provider errors are
     /// surfaced so an agent can correct its own SQL; anything else stays internal — full detail
@@ -216,13 +253,22 @@ internal static class ToolHelper
         sb.Append("| ").Append(string.Join(" | ", columns)).Append(" |\n");
         sb.Append("| ").Append(string.Join(" | ", columns.Select(_ => "---"))).Append(" |\n");
 
-        // The markdown table honors the same size budget as the structured payload, measured in
-        // UTF-8 BYTES on both sides (R6-4: counting UTF-16 chars against a byte limit under-counts
-        // multibyte content — emoji/CJK cells could blow past the byte budget on the wire): a row
-        // set with wide cell values can blow the response past what MCP clients accept even when the
-        // row COUNT is within maxRows. Stop emitting rows once the budget is reached and say so
-        // explicitly.
-        var emittedBytes = Encoding.UTF8.GetByteCount(sb.ToString());
+        // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
+        // the SQL-level row cap was hit, so the full result set may be larger than what came back.
+        var rowCapNotice = rows.Count > maxRows
+            ? $"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n"
+            : rows.Count == maxRows
+                ? $"\n_Row cap of {maxRows} reached — the result set may be truncated._\n"
+                : "";
+
+        // The markdown table honors the size budget measured in UTF-8 BYTES (R6-4: counting UTF-16
+        // chars against a byte limit under-counts multibyte content — emoji/CJK cells could blow past
+        // the byte budget on the wire): a row set with wide cell values can blow the response past what
+        // MCP clients accept even when the row COUNT is within maxRows. Stop emitting rows once the
+        // budget is reached and say so explicitly; the notes appended after the rows are counted in.
+        var emittedBytes = Encoding.UTF8.GetByteCount(sb.ToString())
+            + Encoding.UTF8.GetByteCount(SizeBudgetNotice)
+            + Encoding.UTF8.GetByteCount(rowCapNotice);
         var budgetReached = false;
         foreach (var row in rows.Take(maxRows))
         {
@@ -242,19 +288,10 @@ internal static class ToolHelper
 
         if (budgetReached)
         {
-            sb.Append("\n_Further rows omitted — response size budget reached._\n");
+            sb.Append(SizeBudgetNotice);
         }
 
-        // Result-budget honesty: never silently drop rows. rows.Count == maxRows most likely means
-        // the SQL-level row cap was hit, so the full result set may be larger than what came back.
-        if (rows.Count > maxRows)
-        {
-            sb.Append($"\n_Showing {maxRows} of {rows.Count} rows (truncated). Narrow the query or raise max_rows._\n");
-        }
-        else if (rows.Count == maxRows)
-        {
-            sb.Append($"\n_Row cap of {maxRows} reached — the result set may be truncated._\n");
-        }
+        sb.Append(rowCapNotice);
 
         return sb.ToString();
     }

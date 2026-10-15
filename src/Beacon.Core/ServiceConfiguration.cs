@@ -200,6 +200,8 @@ public static class ServiceConfiguration
         // The one way Beacon's own features run a statement on a data source (the execution gate, then the read-only
         // provider path), and the check a query step's SQL passes before it is stored.
         services.TryAddTransient<GatedSqlRunner>();
+        // MCP MaxExplainCost: the planner's estimate a statement on a PostgreSQL source is held to before it runs.
+        services.TryAddTransient<IQueryCostLimit, QueryCostLimit>();
         services.TryAddTransient<IStepSqlSaveCheck, StepSqlSaveCheck>();
         // The check SQL passes before Beacon stores it as grounding (feedback, golden cases, learned patterns).
         services.TryAddTransient<IGroundingSqlCheck, GroundingSqlCheck>();

@@ -361,6 +361,8 @@ public class SavedQueryToolServiceTests
         structured.GetProperty("truncated").GetBoolean().Should().BeTrue();
         structured.GetProperty("rowsOmittedForSize").GetBoolean().Should().BeTrue();
         structured.GetProperty("rows").GetArrayLength().Should().BeInRange(1, 39);
+        (System.Text.Encoding.UTF8.GetByteCount(Text(result)) + System.Text.Encoding.UTF8.GetByteCount(structured.GetRawText()))
+            .Should().BeLessThanOrEqualTo(4096, "the text and the structured payload together stay within MaxResultBytes");
     }
 
     [TestCase("q_anything", true)]

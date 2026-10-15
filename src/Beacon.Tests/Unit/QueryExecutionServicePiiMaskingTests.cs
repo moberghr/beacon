@@ -227,13 +227,13 @@ public class QueryExecutionServicePiiMaskingTests
 
         result.IsSuccess.Should().BeTrue();
         result.FormattedResult.Should().Contain("_Further rows omitted — response size budget reached._");
-        System.Text.Encoding.UTF8.GetByteCount(result.FormattedResult!).Should().BeLessThan(4096 + 1024, "only the table is budgeted, the heading and notes are small");
         var structured = result.Structured!.AsObject();
         structured["truncated"]!.GetValue<bool>().Should().BeTrue();
         structured["rows_omitted_for_size"]!.GetValue<bool>().Should().BeTrue();
         structured["row_count"]!.GetValue<int>().Should().Be(40);
         structured["rows"]!.AsArray().Count.Should().BeInRange(1, 39);
-        System.Text.Encoding.UTF8.GetByteCount(structured.ToJsonString()).Should().BeLessThanOrEqualTo(4096);
+        (System.Text.Encoding.UTF8.GetByteCount(result.FormattedResult!) + System.Text.Encoding.UTF8.GetByteCount(structured.ToJsonString()))
+            .Should().BeLessThanOrEqualTo(4096, "the text and the structured payload together stay within MaxResultBytes");
     }
 
     [Test]
@@ -249,6 +249,51 @@ public class QueryExecutionServicePiiMaskingTests
         result.FormattedResult.Should().NotContain("response size budget");
         result.Structured!.AsObject().ContainsKey("rows_omitted_for_size").Should().BeFalse();
         result.Structured!["rows"]!.AsArray().Count.Should().Be(40);
+    }
+
+    // MaxExplainCost on the ask path: the statement as it runs is checked against the project's resolved limit first; a
+    // refusal reaches the caller as it is and the statement never runs.
+    [Test]
+    public async Task ExecuteAsync_ACostOverTheProjectsLimit_IsRefused_WithoutRunningTheStatement()
+    {
+        const string refusal = "The query's estimated cost (5000) exceeds this project's limit (50). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
+        var executed = new List<string>();
+        var costLimit = new Mock<IQueryCostLimit>();
+        costLimit
+            .Setup(x => x.CheckAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryCostCheck(refusal, null));
+        var service = BuildService(
+            piiDetectionOn: true,
+            activeProjectId: 7,
+            perProject: new Dictionary<int, McpSettingsData> { [7] = new McpSettingsData { MaxExplainCost = 50m } },
+            executed: executed,
+            costLimit: costLimit.Object);
+
+        var result = await service.ExecuteAsync(1, "SELECT name FROM users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be(refusal);
+        executed.Should().BeEmpty();
+        costLimit.Verify(
+            x => x.CheckAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("LIMIT 100")), It.IsAny<IReadOnlyDictionary<string, object?>>(), 50m, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_AFailedEstimate_FailsAsTheStatementWould_WithoutRunningIt()
+    {
+        var executed = new List<string>();
+        var costLimit = new Mock<IQueryCostLimit>();
+        costLimit
+            .Setup(x => x.CheckAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<IReadOnlyDictionary<string, object?>>(), It.IsAny<decimal?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new QueryCostCheck(null, "relation \"userz\" does not exist"));
+        var service = BuildService(piiDetectionOn: false, executed: executed, costLimit: costLimit.Object);
+
+        var result = await service.ExecuteAsync(1, "SELECT name FROM userz", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorMessage.Should().Be("relation \"userz\" does not exist");
+        executed.Should().BeEmpty();
     }
 
     [TestCase("SELECT * FROM users", "email")]
@@ -316,7 +361,8 @@ public class QueryExecutionServicePiiMaskingTests
         ISharedSourceSettings? sharedSources = null,
         ProviderQueryResult? result = null,
         Beacon.Core.Models.Providers.QueryValidationResult? validation = null,
-        Func<CancellationToken, Task<ProviderQueryResult>>? execute = null)
+        Func<CancellationToken, Task<ProviderQueryResult>>? execute = null,
+        IQueryCostLimit? costLimit = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -360,7 +406,7 @@ public class QueryExecutionServicePiiMaskingTests
             providerFactory.Object,
             new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
-            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog());
+            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog(), costLimit ?? TestQueryCostLimit.Passing);
     }
 
     private sealed class SeededDataSourceContext : BeaconContext
