@@ -281,7 +281,7 @@ Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's 
 
 `app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: `ApiKeyAuthMiddleware`, the bearer JWT middleware, the host's `UseAuthentication()`, then `BeaconCookieAuthMiddleware`. Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
 
-Path scoping cannot stop the host's own `UseAuthentication()` from reading the `Beacon.Auth` cookie when the cookie scheme (`Cookies`) is the default authentication scheme, as it is when no other scheme is registered. Outside Development Beacon then logs a startup Warning: give the host its own default scheme, or name the host's schemes on its authorization policies.
+The cookie scheme (`Cookies`) applies the same scope itself. When it is the host's default authentication scheme (set as the default, or the only scheme registered), or a host policy names it, it authenticates nothing outside `/beacon` and `AdditionalPaths`: the session is refused there without a check against the user store, without renewal, and its cookie is left as it is. A host route that requires an authenticated user therefore needs the host's own scheme.
 
 :::caution[Upgrading]
 Beacon credentials no longer authenticate the host's own routes. A host route that relied on a Beacon session, API key or bearer token now sees an anonymous request: add its prefix to `Beacon:Authentication:AdditionalPaths`. A host that serves the Warp dashboard with Beacon's admin check (as the sample does) must list `/warp`, or the dashboard refuses every request. `/openapi/v1.json` and the `/.well-known` discovery documents are host routes and are no longer redirected to Beacon's login or setup page. Hosts that wired the four middlewares one by one keep working unchanged; `UseBeaconAuthentication()` is the shorter form.
@@ -413,6 +413,8 @@ Bound from `Beacon:DataSources:Transport`:
 ```
 
 Host-managed data sources follow the same rules, applied to the `ConnectionStrings:{Name}` value each time they connect.
+That value is checked as a stored connection, never refused as a new one: a value that does not meet the rule is logged
+as a Warning, and refused only while `EnforceOnExisting` is `true`.
 
 :::caution[Upgrading]
 PostgreSQL and MySQL data sources stored without `VerifyFull`, and SQL Server or Azure Synapse sources with

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -44,6 +45,8 @@ internal sealed class DataSourceTransportPolicy(
 
     private readonly ConcurrentDictionary<int, byte> _warned = new();
 
+    private readonly ConcurrentDictionary<int, byte> _refused = new();
+
     public DataSourceTransportVerdict Inspect(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionData)
     {
         var engine = dataSourceType == DataSourceType.Database ? databaseEngineType : null;
@@ -58,17 +61,34 @@ internal sealed class DataSourceTransportPolicy(
 
         if (string.IsNullOrWhiteSpace(connectionData))
         {
-            return DataSourceTransportVerdict.Unreadable();
+            return DataSourceTransportVerdict.NotReadable();
         }
 
         try
         {
             return inspector.Inspect(connectionData);
         }
-        catch (Exception)
+        catch (Exception ex) when (IsParserFailure(ex))
         {
-            // A parser's message can quote the connection data: only the fact that it could not be read is kept.
-            return DataSourceTransportVerdict.Unreadable();
+            // A parser's message can quote the connection data: only the exception type and the engine are logged.
+            logger.LogDebug(
+                "The {DataSourceType} {DatabaseEngineType} transport check could not read the connection data ({ExceptionType})",
+                dataSourceType,
+                engine,
+                ex.GetType().Name);
+
+            return DataSourceTransportVerdict.NotReadable();
+        }
+        catch (Exception ex)
+        {
+            // Not a parser's refusal: a fault of the inspector itself. Still never verified, and never the message.
+            logger.LogError(
+                "The {DataSourceType} {DatabaseEngineType} transport check failed unexpectedly ({ExceptionType}); the connection is treated as not verified",
+                dataSourceType,
+                engine,
+                ex.GetType().Name);
+
+            return DataSourceTransportVerdict.NotReadable();
         }
     }
 
@@ -91,6 +111,7 @@ internal sealed class DataSourceTransportPolicy(
         if (dataSource.Id <= 0)
         {
             EnsureNewConnectionAllowed(dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionData);
+
             return;
         }
 
@@ -107,25 +128,74 @@ internal sealed class DataSourceTransportPolicy(
 
         if (options.Value.EnforceOnExisting)
         {
-            logger.LogWarning(
-                "Data source {DataSourceId} was refused: its connection does not authenticate the server over TLS ({Option}; {Section}:{Setting} is on)",
-                dataSource.Id,
-                verdict.Option,
-                DataSourceTransportOptions.SectionName,
-                nameof(DataSourceTransportOptions.EnforceOnExisting));
+            // Refused on every connection; logged once per data source per process.
+            if (_refused.TryAdd(dataSource.Id, 0))
+            {
+                LogRefusal(dataSource.Id, verdict);
+            }
 
             throw Refusal(verdict);
         }
 
         if (_warned.TryAdd(dataSource.Id, 0))
         {
+            LogNotVerified(dataSource.Id, verdict);
+        }
+    }
+
+    private void LogRefusal(int dataSourceId, DataSourceTransportVerdict verdict)
+    {
+        if (verdict.Unreadable)
+        {
             logger.LogWarning(
-                "Data source {DataSourceId} connects without authenticating the server over TLS ({Option}). It keeps working until its connection is replaced; {Section}:{Setting} refuses it",
-                dataSource.Id,
+                "Data source {DataSourceId} was refused: its connection data could not be read ({Option}; {Section}:{Setting} is on)",
+                dataSourceId,
                 verdict.Option,
                 DataSourceTransportOptions.SectionName,
                 nameof(DataSourceTransportOptions.EnforceOnExisting));
+
+            return;
         }
+
+        logger.LogWarning(
+            "Data source {DataSourceId} was refused: its connection does not authenticate the server over TLS ({Option}; {Section}:{Setting} is on)",
+            dataSourceId,
+            verdict.Option,
+            DataSourceTransportOptions.SectionName,
+            nameof(DataSourceTransportOptions.EnforceOnExisting));
+    }
+
+    private void LogNotVerified(int dataSourceId, DataSourceTransportVerdict verdict)
+    {
+        if (verdict.Unreadable)
+        {
+            logger.LogWarning(
+                "Data source {DataSourceId}: its connection data could not be read ({Option}), so its transport is not verified. It keeps working until its connection is replaced; {Section}:{Setting} refuses it",
+                dataSourceId,
+                verdict.Option,
+                DataSourceTransportOptions.SectionName,
+                nameof(DataSourceTransportOptions.EnforceOnExisting));
+
+            return;
+        }
+
+        logger.LogWarning(
+            "Data source {DataSourceId} connects without authenticating the server over TLS ({Option}). It keeps working until its connection is replaced; {Section}:{Setting} refuses it",
+            dataSourceId,
+            verdict.Option,
+            DataSourceTransportOptions.SectionName,
+            nameof(DataSourceTransportOptions.EnforceOnExisting));
+    }
+
+    // What a driver's connection-string builder or the JSON reader throws for data it cannot read.
+    private static bool IsParserFailure(Exception exception)
+    {
+        return exception is ArgumentException
+            or FormatException
+            or InvalidCastException
+            or OverflowException
+            or JsonException
+            or NotSupportedException;
     }
 
     private static DataSourceTransportException Refusal(DataSourceTransportVerdict verdict)

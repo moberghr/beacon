@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
@@ -18,7 +19,7 @@ namespace Beacon.Connector.Databricks;
 
 public class DatabricksProvider(
     IHttpClientFactory httpClientFactory,
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
     ILogger<DatabricksProvider> logger) : IDataSourceProvider
 {
@@ -250,7 +251,7 @@ public class DatabricksProvider(
 
     private DatabricksConfiguration ParseConfiguration(DataSource dataSource)
     {
-        var decryptedJson = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+        var decryptedJson = connectionResolver.GetConnectionData(dataSource);
         return JsonSerializer.Deserialize<DatabricksConfiguration>(decryptedJson)
             ?? throw new BeaconException("Failed to parse Databricks configuration");
     }

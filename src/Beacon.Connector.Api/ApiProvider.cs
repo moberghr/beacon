@@ -5,6 +5,7 @@ using Beacon.Connector.Api.Models;
 using Beacon.Connector.Api.Services;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -14,7 +15,7 @@ using Beacon.Core.Services.Providers;
 namespace Beacon.Connector.Api;
 
 public class ApiProvider(
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     IHttpClientFactory httpClientFactory,
     OpenApiImportService openApiImportService,
     JsonResponseTabularizer tabularizer,
@@ -246,7 +247,7 @@ public class ApiProvider(
     {
         try
         {
-            var decryptedJson = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var decryptedJson = connectionResolver.GetConnectionData(dataSource);
             var config = JsonSerializer.Deserialize<ApiConnectionConfig>(decryptedJson, JsonOptions)
                 ?? throw new BeaconException("Failed to parse API connection configuration");
             return config;

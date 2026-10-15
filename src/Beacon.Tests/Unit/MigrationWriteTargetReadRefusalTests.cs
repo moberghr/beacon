@@ -90,7 +90,7 @@ public class MigrationWriteTargetReadRefusalTests
         extractor.SetupGet(x => x.SupportedEngineType).Returns(DatabaseEngineType.PostgreSQL);
         var service = new DatabaseMetadataService(
             world.Factory(),
-            Encryption(),
+            TestTransport.Resolver(Encryption()),
             [extractor.Object],
             Mock.Of<IColumnValueSampler>(),
             Mock.Of<ISharedSourceSettings>(),

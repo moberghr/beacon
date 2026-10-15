@@ -68,7 +68,8 @@ public static class AuthServiceExtensions
 
                 // Session lifecycle: the start, the security stamp and the absolute lifetime recorded at sign-in, and the
                 // session checked against the user store (Beacon:Authentication:Session); a realtime hub request never
-                // renews the cookie.
+                // renews the cookie. Outside Beacon's routes (BeaconRequestPaths) the events refuse the session, whatever
+                // asks the scheme to authenticate there: a host route is never authenticated by the Beacon.Auth cookie.
                 options.Events.OnSigningIn = BeaconSessionEvents.SigningInAsync;
                 options.Events.OnValidatePrincipal = BeaconSessionEvents.ValidatePrincipalAsync;
                 options.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
@@ -102,10 +103,6 @@ public static class AuthServiceExtensions
 
         // With local login off, startup fails when nobody could sign in, and warns about break-glass names no user has.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, LocalLoginStartupCheck>());
-
-        // Outside Development, warns when the cookie scheme is the host's default authentication scheme: the host's
-        // UseAuthentication then reads the Beacon.Auth cookie on every route, which path scoping cannot prevent.
-        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconCookieDefaultSchemeWarning>());
 
         return services;
     }

@@ -7,6 +7,7 @@ using Amazon.Runtime;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -18,7 +19,7 @@ using DataSourceEntity = Beacon.Core.Data.Entities.DataSource;
 namespace Beacon.Connector.CloudWatch;
 
 public class CloudWatchProvider(
-    IEncryptionService encryptionService,
+    IDataSourceConnectionResolver connectionResolver,
     ILogger<CloudWatchProvider> logger) : IDataSourceProvider
 {
     public DataSourceType SupportedType => DataSourceType.CloudWatch;
@@ -407,7 +408,7 @@ public class CloudWatchProvider(
     {
         try
         {
-            var decryptedJson = encryptionService.Decrypt(dataSource.EncryptedConnectionData);
+            var decryptedJson = connectionResolver.GetConnectionData(dataSource);
             var config = JsonSerializer.Deserialize<CloudWatchConfiguration>(decryptedJson)
                 ?? throw new BeaconException("Failed to parse CloudWatch configuration");
 

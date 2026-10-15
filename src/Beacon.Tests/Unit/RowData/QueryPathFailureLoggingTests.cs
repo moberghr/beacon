@@ -105,7 +105,7 @@ public class QueryPathFailureLoggingTests
             .Setup(x => x.CreateClient(It.IsAny<string>()))
             .Returns(() => new HttpClient(new FailingHandler()));
         var provider = new ApiProvider(
-            encryption.Object,
+            TestTransport.Resolver(encryption.Object),
             clients.Object,
             new OpenApiImportService(clients.Object, NullLogger<OpenApiImportService>.Instance),
             new JsonResponseTabularizer(),

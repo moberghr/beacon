@@ -331,6 +331,7 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.AuthenticationPathOptions.SectionName))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.AuthenticationPathOptions>, Configuration.AuthenticationPathOptionsValidator>());
+        services.TryAddSingleton<Configuration.AuthenticationPathPrefixes>();
 
         // Row cap of the statements Beacon runs for its own features (Beacon:Query). ValidateOnStart so a cap out of range
         // fails the host at boot.

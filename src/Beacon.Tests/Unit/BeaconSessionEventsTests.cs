@@ -75,9 +75,9 @@ public class BeaconSessionEventsTests
         }
 
         host.Time.Advance(TimeSpan.FromMinutes(4));
-        var withinInterval = await host.GetAsync("/test/me");
+        var withinInterval = await host.GetAsync("/beacon/test/me");
         host.Time.Advance(TimeSpan.FromMinutes(1));
-        var revalidated = await host.GetAsync("/test/me");
+        var revalidated = await host.GetAsync("/beacon/test/me");
 
         withinInterval.StatusCode.Should().Be(HttpStatusCode.OK, "the session is checked at most every five minutes");
         revalidated.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -94,7 +94,7 @@ public class BeaconSessionEventsTests
 
         store.Remove("ana.secret-id");
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        var response = await host.GetAsync("/test/me");
+        var response = await host.GetAsync("/beacon/test/me");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         var entry = host.Entries.Should().ContainSingle(x => x.Message.Contains("user_missing", StringComparison.Ordinal)).Subject;
@@ -109,8 +109,8 @@ public class BeaconSessionEventsTests
         store.Deactivate("ana");
         await using var host = await SessionHost.StartAsync(store);
 
-        var signIn = await host.GetAsync("/test/sign-in?user=ana&remember=true");
-        var after = await host.GetAsync("/test/me");
+        var signIn = await host.GetAsync("/beacon/test/sign-in?user=ana&remember=true");
+        var after = await host.GetAsync("/beacon/test/me");
 
         (await signIn.Content.ReadAsStringAsync()).Should().Be("refused", "the endpoint is told the sign-in did not happen");
         after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "a disabled or archived user's cookie carries no session");
@@ -134,7 +134,7 @@ public class BeaconSessionEventsTests
         }
 
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        (await host.GetAsync("/test/me")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await host.GetAsync("/beacon/test/me")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         host.Audit.Single("ana.ext-id").Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.SessionEnded, ActorKind = SecurityAuditActorKinds.User, ActorUserId = (int?)7, ResourceId = "7", DetailsJson = $"{{\"reason\":\"{reason}\"}}" },
@@ -151,7 +151,7 @@ public class BeaconSessionEventsTests
         store.Remove("ana.secret-id");
 
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
 
         var ended = host.Audit.Single("ana.secret-id", SubjectFingerprint.Of("ana.secret-id"));
         ended.ActorKind.Should().Be(SecurityAuditActorKinds.Session);
@@ -167,7 +167,7 @@ public class BeaconSessionEventsTests
         store.Deactivate("ana");
         await using var host = await SessionHost.StartAsync(store);
 
-        await host.GetAsync("/test/sign-in?user=ana");
+        await host.GetAsync("/beacon/test/sign-in?user=ana");
 
         host.Audit.Single().Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.SessionEnded, ActorUserId = (int?)7, DetailsJson = "{\"reason\":\"user_disabled_or_archived_at_sign_in\"}" },
@@ -182,10 +182,10 @@ public class BeaconSessionEventsTests
         await host.SignInAsync("ana");
 
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        var unchanged = await host.GetAsync("/test/me");
+        var unchanged = await host.GetAsync("/beacon/test/me");
         store.RenewStamp("ana");
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        var changed = await host.GetAsync("/test/me");
+        var changed = await host.GetAsync("/beacon/test/me");
 
         unchanged.StatusCode.Should().Be(HttpStatusCode.OK, "a session signed in while the user had no stamp matches no stamp");
         changed.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -249,7 +249,7 @@ public class BeaconSessionEventsTests
         host.Time.Advance(TimeSpan.FromMinutes(1));
         var hub = await host.GetAsync("/beacon/api/hub/expiry");
         host.Time.Advance(TimeSpan.FromMinutes(3));
-        var page = await host.GetAsync("/test/expiry");
+        var page = await host.GetAsync("/beacon/test/expiry");
 
         hub.StatusCode.Should().Be(HttpStatusCode.OK);
         DateTimeOffset.Parse(await hub.Content.ReadAsStringAsync(), CultureInfo.InvariantCulture)
@@ -285,7 +285,7 @@ public class BeaconSessionEventsTests
         // Seven hours into a twelve-hour cookie: past half its window, where the scheme's sliding expiration renews it.
         host.Time.Advance(TimeSpan.FromHours(7));
         var hub = await host.GetAsync("/beacon/api/hub/expiry");
-        var page = await host.GetAsync("/test/me");
+        var page = await host.GetAsync("/beacon/test/me");
 
         hub.StatusCode.Should().Be(HttpStatusCode.OK);
         hub.Headers.Contains("Set-Cookie").Should().BeFalse("a hub request never renews the cookie");
@@ -328,7 +328,7 @@ public class BeaconSessionEventsTests
 
         var first = await host.StampClaimsAsync();
         host.Time.Advance(TimeSpan.FromMinutes(1));
-        await host.GetAsync("/test/change-stamp-and-refresh");
+        await host.GetAsync("/beacon/test/change-stamp-and-refresh");
         var second = await host.StampClaimsAsync();
 
         first.Should().Equal("stamp-1");
@@ -369,11 +369,11 @@ public class BeaconSessionEventsTests
         await host.SignInAsync("ana");
         var atSignIn = store.Lookups;
 
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
         host.Time.Advance(TimeSpan.FromMinutes(2));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
         host.Time.Advance(TimeSpan.FromMinutes(3));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
 
         atSignIn.Should().Be(1, "the sign-in reads the user's stamp");
         (store.Lookups - atSignIn).Should().Be(lookupsAfterSignIn);
@@ -391,7 +391,7 @@ public class BeaconSessionEventsTests
         for (var i = 0; i < 5; i++)
         {
             host.Time.Advance(TimeSpan.FromHours(2.5));
-            answers.Add((await host.GetAsync("/test/me")).StatusCode);
+            answers.Add((await host.GetAsync("/beacon/test/me")).StatusCode);
         }
 
         // Past the end, the renewed cookie's own expiry (never later than the absolute lifetime) refuses it; a request at
@@ -440,11 +440,11 @@ public class BeaconSessionEventsTests
         var other = host.Cookie;
 
         host.Time.Advance(TimeSpan.FromMinutes(1));
-        var refreshed = await host.GetAsync("/test/change-stamp-and-refresh");
+        var refreshed = await host.GetAsync("/beacon/test/change-stamp-and-refresh");
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        var own = await host.GetAsync("/test/me");
+        var own = await host.GetAsync("/beacon/test/me");
         host.Cookie = other;
-        var stale = await host.GetAsync("/test/me");
+        var stale = await host.GetAsync("/beacon/test/me");
 
         refreshed.StatusCode.Should().Be(HttpStatusCode.OK);
         own.StatusCode.Should().Be(HttpStatusCode.OK, "this session was signed in again with the new stamp");
@@ -459,8 +459,8 @@ public class BeaconSessionEventsTests
         var store = new FakeSessionStore().With("ana", 7, "stamp-2", "Viewer");
         await using var host = await SessionHost.StartAsync(store);
 
-        var signIn = await host.GetAsync("/test/sign-in?user=ana&remember=true&verified=true&verifiedStamp=stamp-1");
-        var after = await host.GetAsync("/test/me");
+        var signIn = await host.GetAsync("/beacon/test/sign-in?user=ana&remember=true&verified=true&verifiedStamp=stamp-1");
+        var after = await host.GetAsync("/beacon/test/me");
 
         (await signIn.Content.ReadAsStringAsync()).Should().Be("refused", "the endpoint is told the sign-in did not happen");
         after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "no session carries the newer stamp");
@@ -475,7 +475,7 @@ public class BeaconSessionEventsTests
         var store = new FakeSessionStore().With("ana", 7, stored, "Viewer");
         await using var host = await SessionHost.StartAsync(store);
 
-        var signIn = await host.GetAsync($"/test/sign-in?user=ana&verified=true&verifiedStamp={verified}");
+        var signIn = await host.GetAsync($"/beacon/test/sign-in?user=ana&verified=true&verifiedStamp={verified}");
         var stamps = await host.StampClaimsAsync();
 
         signIn.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -501,7 +501,7 @@ public class BeaconSessionEventsTests
         var store = new FakeSessionStore().With("ana", 7, "stamp-2", "Viewer");
         await using var host = await SessionHost.StartAsync(store);
 
-        await host.GetAsync("/test/sign-in?user=ana&verified=true&verifiedUser=bob&verifiedStamp=stamp-1");
+        await host.GetAsync("/beacon/test/sign-in?user=ana&verified=true&verifiedUser=bob&verifiedStamp=stamp-1");
         var stamps = await host.StampClaimsAsync();
 
         stamps.Should().Equal("stamp-2");
@@ -516,8 +516,8 @@ public class BeaconSessionEventsTests
         await host.SignInAsync("ana");
 
         host.Time.Advance(TimeSpan.FromMinutes(1));
-        var refreshed = await host.GetAsync("/test/change-password-and-refresh?changedAgain=true");
-        var after = await host.GetAsync("/test/me");
+        var refreshed = await host.GetAsync("/beacon/test/change-password-and-refresh?changedAgain=true");
+        var after = await host.GetAsync("/beacon/test/me");
 
         (await refreshed.Content.ReadAsStringAsync()).Should().Be("refused");
         after.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the session never adopts the stamp of the later change");
@@ -551,7 +551,7 @@ public class BeaconSessionEventsTests
 
         host.Time.Advance(TimeSpan.FromMinutes(1));
         var changed = await host.PostAsync("/beacon/api/user-settings/change-password", new ChangeOwnPasswordCommand("old", "New-password-1!"));
-        var after = await host.GetAsync("/test/me");
+        var after = await host.GetAsync("/beacon/test/me");
 
         if (changedAgain)
         {
@@ -587,7 +587,7 @@ public class BeaconSessionEventsTests
         await using var host = await SessionHost.StartAsync(store, passwordUsers: [passwordUser]);
 
         var login = await host.PostAsync("/beacon/api/auth/login", new LoginRequest("ana", "right"));
-        var after = await host.GetAsync("/test/me");
+        var after = await host.GetAsync("/beacon/test/me");
 
         if (refused)
         {
@@ -683,14 +683,14 @@ public class BeaconSessionEventsTests
         var atSignIn = store.Lookups;
 
         host.Time.Advance(TimeSpan.FromMinutes(5));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
         host.Time.Advance(TimeSpan.FromMinutes(1));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
         host.Time.Advance(TimeSpan.FromMinutes(3));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
         var withinTheNextInterval = store.Lookups - atSignIn;
         host.Time.Advance(TimeSpan.FromMinutes(1));
-        await host.GetAsync("/test/me");
+        await host.GetAsync("/beacon/test/me");
 
         withinTheNextInterval.Should().Be(1, "the check at five minutes was recorded in the renewed cookie");
         (store.Lookups - atSignIn).Should().Be(2, "the next check is due five minutes after the last one");
@@ -707,7 +707,7 @@ public class BeaconSessionEventsTests
         var signIn = await host.SignInAsync("ana", remember: true);
 
         host.Time.Advance(TimeSpan.FromHours(7));
-        var renewed = await host.GetAsync("/test/me");
+        var renewed = await host.GetAsync("/beacon/test/me");
 
         renewed.StatusCode.Should().Be(HttpStatusCode.OK);
         var renewedExpiry = CookieExpiry(renewed);
@@ -727,9 +727,9 @@ public class BeaconSessionEventsTests
         await host.SignInAsync("ana", remember: true);
 
         host.Time.Advance(TimeSpan.FromHours(12) - TimeSpan.FromSeconds(1));
-        var justBefore = await host.GetAsync("/test/me");
+        var justBefore = await host.GetAsync("/beacon/test/me");
         host.Time.Advance(TimeSpan.FromSeconds(1));
-        var atTheEnd = await host.GetAsync("/test/me");
+        var atTheEnd = await host.GetAsync("/beacon/test/me");
 
         justBefore.StatusCode.Should().Be(HttpStatusCode.OK);
         atTheEnd.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -809,10 +809,11 @@ public class BeaconSessionEventsTests
         });
     }
 
-    // Validates a cookie ticket for "ana" with the given properties, as the cookie handler would on a request.
+    // Validates a cookie ticket for "ana" with the given properties, as the cookie handler would on a Beacon request.
     private static async Task<CookieValidatePrincipalContext> ValidateAsync(IServiceProvider services, FakeTimeProvider time, AuthenticationProperties properties)
     {
         var httpContext = new DefaultHttpContext { RequestServices = services };
+        httpContext.Request.Path = "/beacon/api/projects";
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ana")], Scheme));
         var context = new CookieValidatePrincipalContext(
             httpContext,
@@ -918,7 +919,7 @@ public class BeaconSessionEventsTests
             }
 
             // verified: a password of verifiedUser (else of user) was verified on this request, with verifiedStamp.
-            app.MapGet("/test/sign-in", async (
+            app.MapGet("/beacon/test/sign-in", async (
                 HttpContext context,
                 string user,
                 string? roles,
@@ -959,14 +960,14 @@ public class BeaconSessionEventsTests
 
                 return BeaconSessionEvents.WasSignInRefused(context) ? Results.Text("refused") : Results.Ok();
             });
-            app.MapGet("/test/me", (HttpContext context) => context.User.Identity?.IsAuthenticated == true
+            app.MapGet("/beacon/test/me", (HttpContext context) => context.User.Identity?.IsAuthenticated == true
                 ? Results.Ok(context.User.FindAll(ClaimTypes.Role).Select(x => x.Value).Order(StringComparer.Ordinal).ToArray())
                 : Results.Unauthorized());
-            app.MapGet("/test/stamp", (HttpContext context) => context.User.FindAll(BeaconClaims.SessionStamp)
+            app.MapGet("/beacon/test/stamp", (HttpContext context) => context.User.FindAll(BeaconClaims.SessionStamp)
                 .Where(x => x.Issuer == BeaconClaims.Issuer)
                 .Select(x => x.Value)
                 .ToArray());
-            app.MapGet("/test/change-stamp-and-refresh", async (HttpContext context) =>
+            app.MapGet("/beacon/test/change-stamp-and-refresh", async (HttpContext context) =>
             {
                 store.RenewStamp(context.User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
                 await BeaconSessionEvents.RefreshSignInAsync(context);
@@ -974,7 +975,7 @@ public class BeaconSessionEventsTests
 
             // As changing one's own password does: a new stamp, recorded as the one the session is signed in again with;
             // changedAgain: another change of the stamp lands in between.
-            app.MapGet("/test/change-password-and-refresh", async (HttpContext context, bool? changedAgain) =>
+            app.MapGet("/beacon/test/change-password-and-refresh", async (HttpContext context, bool? changedAgain) =>
             {
                 var externalId = context.User.FindFirst(ClaimTypes.NameIdentifier)!.Value;
                 store.RenewStamp(externalId);
@@ -991,7 +992,7 @@ public class BeaconSessionEventsTests
 
             // The expiry a request's cookie authentication reports: on the hub's route, and elsewhere.
             app.MapGet("/beacon/api/hub/expiry", (Func<HttpContext, Task<IResult>>)ReportExpiryAsync);
-            app.MapGet("/test/expiry", (Func<HttpContext, Task<IResult>>)ReportExpiryAsync);
+            app.MapGet("/beacon/test/expiry", (Func<HttpContext, Task<IResult>>)ReportExpiryAsync);
             await app.StartAsync();
 
             return new SessionHost(app, time, logs, audit);
@@ -999,7 +1000,7 @@ public class BeaconSessionEventsTests
 
         public async Task<HttpResponseMessage> SignInAsync(string user, string? roles = null, bool remember = false, string? idpPermission = null)
         {
-            var query = $"/test/sign-in?user={user}&remember={remember}";
+            var query = $"/beacon/test/sign-in?user={user}&remember={remember}";
             if (roles != null)
             {
                 query += $"&roles={Uri.EscapeDataString(roles)}";
@@ -1018,7 +1019,7 @@ public class BeaconSessionEventsTests
 
         public async Task<string[]> StampClaimsAsync()
         {
-            var response = await GetAsync("/test/stamp");
+            var response = await GetAsync("/beacon/test/stamp");
             response.StatusCode.Should().Be(HttpStatusCode.OK);
 
             return (await response.Content.ReadFromJsonAsync<string[]>())!;
@@ -1026,7 +1027,7 @@ public class BeaconSessionEventsTests
 
         public async Task<string[]> RolesAsync()
         {
-            var response = await GetAsync("/test/me");
+            var response = await GetAsync("/beacon/test/me");
             response.StatusCode.Should().Be(HttpStatusCode.OK);
 
             return (await response.Content.ReadFromJsonAsync<string[]>())!;

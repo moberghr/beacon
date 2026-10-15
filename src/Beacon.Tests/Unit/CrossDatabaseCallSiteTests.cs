@@ -140,7 +140,7 @@ public class CrossDatabaseCallSiteTests
             .Returns("""{"Host":"h","HttpPath":"/sql/1.0/warehouses/w","Token":"t","Catalog":"main"}""");
         var provider = new DatabricksProvider(
             Mock.Of<IHttpClientFactory>(MockBehavior.Strict),
-            encryption.Object,
+            TestTransport.Resolver(encryption.Object),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             NullLogger<DatabricksProvider>.Instance);
         var dataSource = new DataSource { Id = DataSourceId, Name = "lakehouse", DataSourceType = DataSourceType.Databricks, EncryptedConnectionData = "enc" };
@@ -161,7 +161,7 @@ public class CrossDatabaseCallSiteTests
             .Setup(x => x.Decrypt(It.IsAny<string>()))
             .Returns("""{"ProjectId":"acme-prod","DatasetId":"sales"}""");
         var provider = new BigQueryProvider(
-            encryption.Object,
+            TestTransport.Resolver(encryption.Object),
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             NullLogger<BigQueryProvider>.Instance);
         var dataSource = new DataSource { Id = DataSourceId, Name = "warehouse", DataSourceType = DataSourceType.BigQuery, EncryptedConnectionData = "enc" };

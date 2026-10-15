@@ -36,7 +36,7 @@ public class ConnectorFailureLoggingTests
     public async Task Databricks_LogsTheTypeAndCodeOnly()
     {
         var log = new LogRecorder();
-        var provider = new DatabricksProvider(Mock.Of<IHttpClientFactory>(), FailingEncryption(), ReadOnlyValidator(), log.For<DatabricksProvider>());
+        var provider = new DatabricksProvider(Mock.Of<IHttpClientFactory>(), TestTransport.Resolver(FailingEncryption()), ReadOnlyValidator(), log.For<DatabricksProvider>());
 
         var result = await provider.ExecuteQueryAsync(Source(DataSourceType.Databricks), Sql, [], CancellationToken.None);
 
@@ -47,7 +47,7 @@ public class ConnectorFailureLoggingTests
     public async Task BigQuery_LogsTheTypeAndCodeOnly()
     {
         var log = new LogRecorder();
-        var provider = new BigQueryProvider(FailingEncryption(), ReadOnlyValidator(), log.For<BigQueryProvider>());
+        var provider = new BigQueryProvider(TestTransport.Resolver(FailingEncryption()), ReadOnlyValidator(), log.For<BigQueryProvider>());
 
         var result = await provider.ExecuteQueryAsync(Source(DataSourceType.BigQuery), Sql, [], CancellationToken.None);
 
@@ -58,7 +58,7 @@ public class ConnectorFailureLoggingTests
     public async Task CloudWatch_LogsTheTypeAndCodeOnly()
     {
         var log = new LogRecorder();
-        var provider = new CloudWatchProvider(FailingEncryption(), log.For<CloudWatchProvider>());
+        var provider = new CloudWatchProvider(TestTransport.Resolver(FailingEncryption()), log.For<CloudWatchProvider>());
 
         var result = await provider.ExecuteQueryAsync(Source(DataSourceType.CloudWatch), "fields @message | filter @message like /secret/", [], CancellationToken.None);
 
@@ -71,7 +71,7 @@ public class ConnectorFailureLoggingTests
         var log = new LogRecorder();
         var clients = new Mock<IHttpClientFactory>();
         var provider = new ApiProvider(
-            FailingEncryption(),
+            TestTransport.Resolver(FailingEncryption()),
             clients.Object,
             new OpenApiImportService(clients.Object, NullLogger<OpenApiImportService>.Instance),
             new JsonResponseTabularizer(),

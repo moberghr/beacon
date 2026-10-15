@@ -16,6 +16,7 @@ using Beacon.Core.Handlers.Users;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
+using Beacon.Core.HostData;
 
 namespace Beacon.Tests.Integration;
 
@@ -293,7 +294,7 @@ public class FunctionalPermissionTranslationTests
     {
         return new MigrationService(
             capture.Factory(),
-            Mock.Of<IEncryptionService>(),
+            Mock.Of<IDataSourceConnectionResolver>(),
             Mock.Of<IQueryService>(),
             Mock.Of<IQueryExecutionPreviewService>(),
             Mock.Of<IBeaconUserContext>(),

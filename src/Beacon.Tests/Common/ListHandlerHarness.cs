@@ -65,16 +65,17 @@ internal sealed class ListHandlerHarness
     /// <summary>
     /// Sends <paramref name="request"/> to its real handler with the database replaced by <paramref name="factory"/> (in-memory
     /// sets, never a connection), and returns its answer: what a list handler keeps of rows a test lays out.
+    /// <paramref name="services"/> adds registrations a host would make (a connector's services, for one).
     /// </summary>
-    public async Task<object?> AnswerAsync(object request, IDbContextFactory<BeaconContext> factory)
+    public async Task<object?> AnswerAsync(object request, IDbContextFactory<BeaconContext> factory, Action<IServiceCollection>? services = null)
     {
-        await using var provider = Build(factory);
+        await using var provider = Build(factory, services);
         await using var scope = provider.CreateAsyncScope();
 
         return await scope.ServiceProvider.GetRequiredService<IMediator>().Send(request);
     }
 
-    private ServiceProvider Build(IDbContextFactory<BeaconContext> factory)
+    private ServiceProvider Build(IDbContextFactory<BeaconContext> factory, Action<IServiceCollection>? configure = null)
     {
         var services = new ServiceCollection();
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
@@ -101,6 +102,7 @@ internal sealed class ListHandlerHarness
         services.AddScoped(_ => TestProjectAccess.Evaluator(_scope));
         services.AddScoped(_ => TestPermissions.None);
         services.AddScoped<IProjectResourceResolver, InProjectOne>();
+        configure?.Invoke(services);
 
         return services.BuildServiceProvider();
     }

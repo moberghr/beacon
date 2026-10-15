@@ -215,7 +215,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 3 | `UseStaticFiles` | Serves the UI bundle before authentication runs. |
 | 4 | Your exception handler (optional) | Turns Beacon's exceptions into problem+json. See [below](#error-responses). |
 | 5 | `UseMcpResourceMetadataChallenge` | Decorates every 401 from `/beacon/mcp` with the RFC 9728 `resource_metadata` pointer; must precede the middleware that writes those 401s. |
-| 6 | `ApiKeyAuthMiddleware` (`UseBeaconAuthentication` wires 6–9) | Authenticates `Authorization: Bearer sk-sem_…` before cookie auth could redirect an MCP client to a login page. |
+| 6 | `ApiKeyAuthMiddleware` (`UseBeaconAuthentication` wires steps 6 to 9) | Authenticates `Authorization: Bearer sk-sem_…` before cookie auth could redirect an MCP client to a login page. |
 | 7 | `UseBeaconJwtBearerAuthentication` | Bearer JWTs (Entra and other OIDC access tokens). |
 | 8 | `UseAuthentication` | Your own schemes. |
 | 9 | `BeaconCookieAuthMiddleware` | Fills `HttpContext.User` from the `Beacon.Auth` cookie **before** authorization evaluates policies. |
@@ -224,7 +224,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 12 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects Beacon's requests (`/beacon/api/health` included) to `/beacon/setup` (only with user management). |
 | 13 | `UseAntiforgery` | After authentication, so tokens are issued for the signed-in user. |
 
-Steps 6, 7, 9, 11 and 12 act on `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: a Beacon API key, bearer token or `Beacon.Auth` cookie never authenticates another route of your application, and your routes are never redirected to Beacon's login or setup page. List `/warp` there when you serve the Warp dashboard with Beacon's admin check. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).
+Steps 6, 7, 9, 11 and 12 act on `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: a Beacon API key, bearer token or `Beacon.Auth` cookie never authenticates another route of your application, and your routes are never redirected to Beacon's login or setup page. Beacon's cookie scheme refuses the session on those other routes as well, so a host whose default scheme is the cookie still never has its own routes authenticated by it. List `/warp` there when you serve the Warp dashboard with Beacon's admin check: a host upgraded from a version without path scoping must add it, or the dashboard refuses every request. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).
 
 :::danger[Do not reorder or assign `context.User` later]
 `ApiKeyAuthMiddleware` and `BeaconCookieAuthMiddleware` record their result as the request's authentication result; SignalR uses it to close connections when a session ends. Reordering them, or assigning `context.User` after them, breaks API-key callers, the login redirect and session revocation.

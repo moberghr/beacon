@@ -210,7 +210,7 @@ public class ForbidRowDataToLlmLockTests
         encryption.Setup(x => x.Decrypt(It.IsAny<string>())).Returns("Host=unused");
         var service = new DatabaseMetadataService(
             world.Factory(),
-            encryption.Object,
+            TestTransport.Resolver(encryption.Object),
             [extractor.Object],
             sampler.Object,
             shared,
