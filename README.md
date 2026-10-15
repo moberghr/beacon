@@ -63,7 +63,8 @@ Every SQL statement that Beacon runs, whether from an MCP tool, a scheduled chec
        │
  masking ──────────── PII masked fail-closed · database errors redacted
        │
- audit ───────────── every MCP call, refusals included · security events 7101–7123
+ audit ───────────── every MCP call and the statements it ran, refusals included
+                     · signed, append-only security audit trail · security log events
 ```
 
 | | |
@@ -71,7 +72,8 @@ Every SQL statement that Beacon runs, whether from an MCP tool, a scheduled chec
 | **Projects define access** | New projects are restricted, and users outside a project receive a 404 response. API keys are limited to named projects. Scheduled work runs as its owner and is re-checked before every run. |
 | **Separation of duties** | Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin and MigrationOperator divide the Admin role. None of these permissions grants access to project data. |
 | **Four-eyes approvals** | When enabled, changes to queries, migration jobs, Custom SQL rules and notification destinations take effect only after a second person approves the exact content. |
-| **Deployment locks** | Read-only execution and PII detection are enforced by host configuration and apply to Admins as well. Sending row data to the LLM and retaining query content can be disabled the same way. |
+| **Deployment locks** | Read-only execution and PII detection are enforced by host configuration and apply to Admins as well. Sending row data to the LLM can be disabled the same way, and retaining query content in the MCP audit can be pinned off or on. |
+| **Signed audit trail** | Sign-ins and changes to users, roles, keys, project access, data sources, delivery, settings and approvals are recorded as append-only events, each signed and verified on a schedule. An Auditor reads and verifies them, and each event is copied to the log stream for your SIEM. |
 | **Protected secrets** | Connection strings are encrypted with AES-256-GCM, API keys are stored as SHA-256 hashes and shown once, Data Protection keys are encrypted at rest outside Development, and sessions are validated on the server with a 12-hour absolute lifetime. |
 | **Per-engine enforcement** | PostgreSQL and MySQL enforce read-only access at the database level. Other engines rely on the gate and a read-only login, and the data source is marked accordingly. |
 

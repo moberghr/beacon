@@ -92,7 +92,7 @@ The gate is the primary control and database-level read-only is defence in depth
 - **PII masking** (on by default, pinned by `Beacon:Mcp:ForcePiiDetection`) masks columns detected as PII (and their aliases, renames and wildcard expansions) in results that reach MCP clients, recipients and attachments. When Beacon cannot prove where a PII column went, it masks every column (fail closed). Host DbContext sources mask by output position.
 - **Database errors are redacted:** errors that can carry values (constraint violations, conversion failures) are reduced to their class; others keep their message with quoted values replaced.
 - **LLM providers receive schema, not rows**, unless a project turns on sample-value collection, value grounding or the eval judge (all off by default; `Beacon:Mcp:ForbidRowDataToLlm` pins them off). Every request that carries row-derived data is logged as event 7123 with the categories sent, never the values.
-- **Content retention:** a project (or the deployment, with `ForceNoContentRetention`) can keep MCP audit rows structural only (tool, tables, counts, timings, error class), with no question, SQL or error text stored.
+- **Content retention:** a project (or the deployment, with `ForceNoContentRetention`) can keep MCP audit rows structural only (tool, tables, counts, timings, error class, keyed hashes), with no question, SQL or error text stored. A deployment that must keep that evidence pins retention on instead with `Beacon:Mcp:Audit:RequireContent`.
 
 ## 8. Secrets at rest
 
@@ -119,6 +119,7 @@ Some settings are pinned by host configuration and bind Admins too. The UI shows
 | `Beacon:Mcp:ForcePiiDetection` | `true` |
 | `Beacon:Mcp:ForceNoContentRetention` | `false` |
 | `Beacon:Mcp:ForbidRowDataToLlm` | `false` |
+| `Beacon:Mcp:Audit:RequireContent` | `false` |
 | `Beacon:Mcp:Ceilings:MaxRowLimit` | none (SQL length 100,000 and question length 4,000 always apply) |
 | `Beacon:Migrations:Enabled` | `false` |
 | `Beacon:UserManagement:LocalLogin:*` | password sign-in on |
@@ -129,9 +130,12 @@ Every MCP setting change is recorded in the settings history with who changed it
 
 | Record | Where | Who reads it |
 |---|---|---|
-| **MCP audit log**: one row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id | `McpAuditLog` table; optional fail-closed mode (`Beacon:Mcp:Audit:Required`); retention via `RetentionDays` | Auditors, through `GET /beacon/api/mcp/audit` (itself audited) |
+| **Security audit trail**: one append-only event per security-relevant action: sign-ins and sign-outs, users and roles, API keys, project access, data sources, delivery, settings, saved queries, approvals, ownership, alert tasks, curation, data contracts, migration jobs, and every read of audit data. Ids, codes and keyed digests only, no personal data or secrets | `SecurityAuditEvents` table; each event signed (HMAC-SHA256 under `Beacon:Audit:IntegrityKey`), verified on request, on the schedule the host sets (hourly in the sample host) and before a purge; kept forever unless `Beacon:Audit:RetentionDays` is set; copied to the `Beacon.Audit` log stream (9104) once committed | Auditors, on the **Security Audit** page or through `GET /beacon/api/security-audit` (each read itself recorded) |
+| **MCP audit log**: one row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id, a keyed hash of the parameters, and every statement the call ran on a data source (its SQL where the project retains content) | `McpAuditLog` and `McpAuditStatement` tables; optional fail-closed mode (`Beacon:Mcp:Audit:Required`); retention via `RetentionDays` | Auditors, through `GET /beacon/api/mcp/audit` (each read recorded in the security audit trail) |
 | **Settings history**: admin settings, MCP settings, migration write-target changes, with old and new value (secrets as `***`) | `AppSettingHistory` table | Auditors and SecurityAdmins |
-| **Security events**: structured log events with ids only, no personal data | Your log pipeline (Beacon does not store them) | Your SIEM |
+| **Security log events**: structured log events 7101 to 7123 with ids only, no personal data | Your log pipeline. The log events themselves are not stored; the actions most of them report are also recorded in the security audit trail. Refused and hidden reads (7108, 7109), skipped scheduled work (7111), read-only transaction ends (7116), key-ring and re-encryption notices (7121, 7122) and row data sent to the LLM (7123) are on the log only | Your SIEM |
+
+Queries, subscriptions, recipients, data contracts and migration jobs also record who created them and who changed them last; an Auditor or a UserAdmin lists what a user owns, created or changed last. → [Security audit trail](/features/security-audit/)
 
 | Event | Id | Event | Id |
 |---|---|---|---|
@@ -148,7 +152,7 @@ Every MCP setting change is recorded in the settings history with who changed it
 | ScheduledWorkSkipped | 7111 | RowDataSentToLlm | 7123 |
 | ProjectCreatedOpen | 7112 | | |
 
-Alert at least on 7119 (break-glass), 7113/7114 (role changes, new users), 7115 (write targets) and 7116 (a statement tried to end SQL Server's read-only transaction). → [MCP observability & audit](/features/mcp-observability-and-audit/)
+Alert at least on 7119 (break-glass), 7113/7114 (role changes, new users), 7115 (write targets) and 7116 (a statement tried to end SQL Server's read-only transaction), and on any increment of the counters `beacon.security_audit.write_failures` (a security audit event was not stored) and `beacon.security_audit.verification_failures` (stored events failed verification). → [MCP observability & audit](/features/mcp-observability-and-audit/)
 
 ## Your part
 
@@ -159,6 +163,7 @@ Beacon's guarantees assume the host does its share:
 - `UseForwardedHeaders` with known proxies, and `Beacon:PublicBaseUrl` set, behind a reverse proxy;
 - the middleware order from [Host wiring](/integrate/host-setup/#the-middleware-pipeline);
 - every job scope marked as system work;
-- security events shipped to a monitored log store.
+- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9110) shipped to a monitored log store;
+- `Beacon:Audit:IntegrityKey` set from a secret store, and the security audit verification and retention jobs scheduled (the sample host schedules both).
 
 The [production checklist](/integrate/production/) collects all of these.

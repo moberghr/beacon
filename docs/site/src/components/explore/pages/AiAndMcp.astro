@@ -432,15 +432,15 @@ const AUDIT = [
 			</div>
 			<Terminal label="Beacon.Audit · the refused call" html={LOG_9100} />
 		</div>
-		<p class="note">Rows shown as a table for reading. Auditors and Admins read them through <code>GET /beacon/api/mcp/audit</code>, a paged JSON export; reading the audit is itself audited (event 9103).</p>
+		<p class="note">Rows shown as a table for reading. Auditors and Admins read them through <code>GET /beacon/api/mcp/audit</code>, a paged JSON export; each read is recorded first in the security audit trail, and fails when that record cannot be written (event 9103 follows on the log).</p>
 		<div class="cols3" style="margin-top: 28px">
 			<div class="card">
 				<h3>Correlated</h3>
 				<p>Each row keeps the trace and span id of the call, the <code>Mcp-Session-Id</code>, an upstream request id and the caller: an API key's id, or a mapped Entra caller's kind and keyed hash.</p>
 			</div>
 			<div class="card">
-				<h3>Content follows retention</h3>
-				<p>With a project's content retention off, the row keeps its structure (tool, tables, bytes of input, error class) and drops the question and SQL. The row itself is always written.</p>
+				<h3>Every statement, content by retention</h3>
+				<p>Each row lists every statement the call ran on a data source: an <code>ask</code>'s first run, repairs, candidates, probes and dry runs. With content retention on, they keep their SQL and the row its question; with it off, keyed hashes and structure only. The row itself is always written.</p>
 			</div>
 			<div class="card">
 				<h3>Fail closed when required</h3>

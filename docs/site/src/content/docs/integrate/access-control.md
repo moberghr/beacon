@@ -57,9 +57,9 @@ Administrative duties are split out of the Admin role. Each is held through a **
 | Permission | Grants |
 |---|---|
 | **Approver** | Approve or reject query changes and change requests (migration jobs, Custom SQL rules, recipient destinations). |
-| **Auditor** | Read the MCP audit log, MCP settings, admin settings and every API key. |
+| **Auditor** | Read and verify the [security audit trail](/features/security-audit/); read the MCP audit log, MCP settings, admin settings, every API key and what a user owns, created or changed last. |
 | **SecurityAdmin** | Change MCP and admin settings (not the LLM connection or base URL, which are Admin only), manage notification recipients, publish saved queries as MCP tools, set repository tokens. |
-| **UserAdmin** | Manage users and their non-privileged roles, end sessions, revoke API keys, change owners of scheduled work, manage project members, restrict projects. |
+| **UserAdmin** | Manage users and their non-privileged roles, end sessions, see what a user owns, created or changed last, revoke API keys, change owners of scheduled work, manage project members, restrict projects. |
 | **DataSourceAdmin** | Create, test and delete data sources; link them to projects they can read. |
 | **MigrationOperator** | Create and run data-migration jobs (only when migrations are enabled). |
 
@@ -118,6 +118,7 @@ Some guarantees should not depend on an individual Admin's actions. These keys c
 | `Beacon:Mcp:ForcePiiDetection` | `true` | PII detection and masking on. |
 | `Beacon:Mcp:ForceNoContentRetention` | `false` | No question, SQL or error text stored with MCP audit rows. |
 | `Beacon:Mcp:ForbidRowDataToLlm` | `false` | No row values (samples, value grounding, eval judging) sent to the LLM provider. |
+| `Beacon:Mcp:Audit:RequireContent` | `false` | Content retention on: MCP audit rows keep the question and the SQL of every statement a call ran. Cannot be combined with `ForceNoContentRetention`. |
 | `Beacon:Mcp:Ceilings:MaxRowLimit` | none | Upper bound for every project's MCP row limit. |
 | `Beacon:Migrations:Enabled` | `false` | The only write path. Off: no migration endpoints, no jobs, for anyone. |
 
@@ -133,3 +134,4 @@ For a typical company deployment:
 - Approval workflow on, with `RequireApprovedVersionToRun`
 - Locks left at their defaults; `ForbidRowDataToLlm` on if row values must never reach your LLM provider
 - Migrations off unless you need them
+- `Beacon:Audit:IntegrityKey` set from a secret store, and the security audit verification and retention jobs scheduled
