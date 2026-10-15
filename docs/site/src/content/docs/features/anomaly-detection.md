@@ -1,644 +1,212 @@
 ---
 title: Anomaly Detection
-description: Statistical anomaly detection that learns baselines from historical execution data and flags unusual result-count patterns.
+description: Statistical detection on a subscription's row count. Beacon learns a baseline from past runs and notifies only when a run deviates from it.
 ---
 
-Statistical anomaly detection that learns from historical subscription execution data and alerts on unusual patterns.
+Anomaly detection changes when a [subscription](/features/subscriptions/) notifies. Instead of its notification trigger,
+Beacon compares each run's **row count** with the row counts of the subscription's earlier runs and sends the
+notification only when the run is unusual.
 
-## Purpose
+It is statistical (standard deviation, interquartile range or percentage change), part of `Beacon.Core`, and needs no
+LLM.
 
-Anomaly detection in Beacon provides:
-- **Automatic Baseline Learning**: System learns "normal" patterns from historical data
-- **Statistical Detection**: Multiple methods (Z-score, IQR, percentage change) to detect anomalies
-- **Real-time Alerting**: Immediate notifications when anomalies are detected
-- **False Positive Reduction**: Configurable thresholds and minimum data requirements
+:::note[The metric is the row count]
+Beacon measures the number of rows a run returns, not a value inside the result. A query such as `SELECT COUNT(*) FROM …`
+always returns one row, so its row count never changes. Write the query to return one row per item you want to count,
+for example `SELECT id FROM orders WHERE created_at >= CURRENT_DATE`.
+:::
 
-## How It Works
+## Turn it on
 
-### Overview
+Anomaly detection is set when you create the subscription; a subscription cannot be edited afterwards.
 
-1. **Baseline Building**: Every subscription execution stores row count in `AnomalyBaseline` table
-2. **Historical Analysis**: System accumulates data over configured lookback period
-3. **Anomaly Evaluation**: When configured minimum data points is reached, detection activates
-4. **Alert Generation**: If anomaly detected, creates alert task or sends notification
+1. In **Subscriptions** (`/beacon/subscriptions`), click **New subscription**.
+2. On the **Anomaly** step, tick **Enable anomaly detection**.
+3. Set the fields below and finish the subscription.
 
-### Baseline Learning
+| Field | Default | Dialog accepts | What it does |
+|-------|---------|-------|--------------|
+| **Detection method** | Standard deviation | Standard deviation, IQR, Percentage change | How a run is compared with the baseline. See [Methods](#methods). |
+| **Sensitivity** | Medium | Low, Medium, High | The threshold of the method. High alerts more often. IQR ignores it. |
+| **Lookback (days)** | 30 | 7–365 | Age of the baseline runs: only runs from the last N days count. |
+| **Minimum data points** | 7 | 3–100 | Baseline runs needed before any run can be an anomaly. |
+| **Alert on an unusual increase** | on | | Alert when the row count is unusually high. |
+| **Alert on an unusual decrease** | on | | Alert when the row count is unusually low. The dialog requires at least one of the two. |
 
-**Automatic Data Collection:**
-- Every time a subscription executes, row count is stored
-- No manual configuration required
-- Baseline continuously refines as more data is collected
+The ranges and the either/or rule are the dialog's. Through the API, the same settings go in the `anomalyConfig`
+object of `POST /beacon/api/subscriptions` (`detectionMethod`, `sensitivity`, `lookbackDays`, `minimumDataPoints`,
+`alertOnIncrease`, `alertOnDecrease`), and the API stores the values it is given.
 
-**Requirements:**
-- Minimum data points (default: 30) must be collected before detection activates
-- Data older than lookback period (default: 30 days) is excluded
-- At least one execution per day recommended for daily detection
+## How a run is evaluated
 
-## Detection Methods
+For a subscription with anomaly detection on, each run that executes its query goes through these steps:
 
-### 1. Standard Deviation (Z-Score)
+1. **Evaluate.** Beacon loads the stored baseline values of the subscription from the last **Lookback** days. With fewer
+   than **Minimum data points** values, the run is not an anomaly ("Not enough historical data … Building baseline…").
+   Otherwise the configured method decides.
+2. **Decide the notification.** The usual checks come first: a run that timed out is `Timeout`, a run with 0 rows is
+   `NoResults`, and a run below the subscription's minimum row count is `BelowThreshold`. After those, an anomaly sends
+   the notification (`NotificationSent`) and any other run is silenced (`NotificationSilenced`). The subscription's
+   notification trigger is not used while anomaly detection is on. A run whose query returns no rows ends as
+   `NoResults`; anomaly detection compares runs that return rows. The [Control Tower](/features/control-tower/) shows
+   `NoResults` runs.
+3. **Store the baseline.** The run's row count is stored as a new baseline value, with the time of the run. A run is not
+   stored when all of its recipients wait for approval of their destination, so nobody could be told about it.
+4. **Record the event.** For an anomaly, Beacon records an anomaly event (current value, baseline mean, standard deviation,
+   z-score, severity, explanation), linked to the first notification that was delivered, if any. Recipients receive the
+   evaluation with the notification; the webhook payload carries it as `Anomaly`.
 
-**Best for:** Normally distributed data, general-purpose anomaly detection
+Baselines are stored only while anomaly detection is on for the subscription. Runs that did not execute the query
+(skipped because the owner may no longer run it, or because the query's change is not approved) store nothing.
 
-**How it works:**
-1. Calculate mean (μ) and standard deviation (σ) from historical data
-2. Compute Z-score: `z = (x - μ) / σ`
-3. Flag as anomaly if `|z| > threshold` (typically 2-3 standard deviations)
+[Tasks](/features/tasks/) are independent of anomaly detection: they follow the **Create a task** option of the
+subscription and open on any run with rows.
 
-**Example:**
-```
-Historical data: [10, 12, 11, 13, 10, 12, 11]
-Mean: 11.29
-Std Dev: 1.03
-Threshold: 2.5
+## Methods
 
-Current value: 18
-Z-score: (18 - 11.29) / 1.03 = 6.51
-Result: ANOMALY (6.51 > 2.5)
-```
+All three methods use the baseline values of the lookback window, oldest to newest, without the current run.
 
-**Configuration:**
-```json
-{
-  "DetectionMethod": "StandardDeviation",
-  "Threshold": 2.5,  // Number of standard deviations
-  "LookbackDays": 30,
-  "MinimumDataPoints": 30
-}
-```
+### Standard deviation
 
-**Pros:**
-- Intuitive and well-understood
-- Works well for normally distributed data
-- Adjustable sensitivity via threshold
+Beacon computes the mean (μ) and the population standard deviation (σ) of the baseline, then the z-score of the run:
+`z = (x − μ) / σ`. The run is an anomaly when `|z|` is above the sensitivity's threshold and its direction (above or
+below the mean) has alerting turned on.
 
-**Cons:**
-- Sensitive to outliers in historical data
-- Assumes normal distribution
-- May have high false positives for skewed data
+| Sensitivity | Threshold |
+|-------------|-----------|
+| High | 1.5σ |
+| Medium | 2σ |
+| Low | 3σ |
 
-### 2. Interquartile Range (IQR)
+Severity by `|z|`: Critical from 4, High from 3, Medium from 2, otherwise Low. When every baseline value is the same
+(σ = 0), the z-score is 0 and no run is an anomaly.
 
-**Best for:** Skewed distributions, outlier detection, data with extreme values
-
-**How it works:**
-1. Calculate Q1 (25th percentile) and Q3 (75th percentile)
-2. Calculate IQR: `IQR = Q3 - Q1`
-3. Define bounds: Lower = Q1 - 1.5×IQR, Upper = Q3 + 1.5×IQR
-4. Flag as anomaly if value < Lower or value > Upper
-
-**Example:**
-```
-Historical data (sorted): [8, 10, 11, 12, 13, 14, 16, 20]
-Q1 (25%): 10.5
-Q3 (75%): 15
-IQR: 15 - 10.5 = 4.5
-
-Lower bound: 10.5 - (1.5 × 4.5) = 3.75
-Upper bound: 15 + (1.5 × 4.5) = 21.75
-
-Current value: 35
-Result: ANOMALY (35 > 21.75)
+```text
+Baseline:  [10, 12, 11, 13, 10, 12, 11]   mean 11.29, σ 1.03
+Run:       18 rows                         z = (18 − 11.29) / 1.03 = 6.5
+Medium:    6.5 > 2  → anomaly, severity Critical
 ```
 
-**Configuration:**
-```json
-{
-  "DetectionMethod": "IQR",
-  "Threshold": 1.5,  // IQR multiplier
-  "LookbackDays": 30,
-  "MinimumDataPoints": 30
-}
+Suits steady data.
+
+### IQR (interquartile range)
+
+Beacon sorts the baseline and takes Q1 and Q3 (the values at 25% and 75% of the sorted list), then
+`IQR = Q3 − Q1`. The run is an anomaly when it is below `Q1 − 1.5 × IQR` (with decrease alerts on) or above
+`Q3 + 1.5 × IQR` (with increase alerts on). The multiplier is fixed at 1.5; **Sensitivity** does not change it.
+
+Severity by how many IQRs the run lies beyond the bound: Critical from 3, High from 2, Medium from 1, otherwise Low.
+
+```text
+Baseline (sorted): [8, 10, 11, 12, 13, 14, 16, 20]   Q1 11, Q3 16, IQR 5
+Bounds:            11 − 7.5 = 3.5   to   16 + 7.5 = 23.5
+Run:               35 rows  → above 23.5 → anomaly
 ```
 
-**Pros:**
-- Robust to outliers
-- No assumption of normal distribution
-- Good for skewed data
+Suits history with occasional spikes.
 
-**Cons:**
-- Less sensitive to subtle changes
-- Requires more data points for accuracy
-- May miss gradual shifts
+### Percentage change
 
-### 3. Percentage Change
+Beacon compares the run with the **mean of the baseline** (not with the previous run):
+`change = |x − mean| / mean`. The run is an anomaly when the change is above the sensitivity's threshold and its
+direction has alerting turned on.
 
-**Best for:** Trend monitoring, business metrics, detecting sudden spikes/drops
+| Sensitivity | Threshold |
+|-------------|-----------|
+| High | 15% |
+| Medium | 25% |
+| Low | 40% |
 
-**How it works:**
-1. Get most recent historical value
-2. Calculate percentage change: `((current - previous) / previous) × 100`
-3. Flag as anomaly if `|percentage_change| > threshold`
+Severity by change: Critical from 100%, High from 50%, Medium from 25%, otherwise Low. When the baseline mean is 0, any
+run with rows is an anomaly (severity High).
 
-**Example:**
-```
-Previous value: 100
-Current value: 165
-Percentage change: ((165 - 100) / 100) × 100 = 65%
-Threshold: 50%
-
-Result: ANOMALY (65% > 50%)
+```text
+Baseline mean: 100
+Run:           140 rows  → change 40%
+Medium:        40% > 25% → anomaly, severity Medium
 ```
 
-**Configuration:**
-```json
-{
-  "DetectionMethod": "PercentageChange",
-  "Threshold": 50,  // Percentage threshold
-  "LookbackDays": 7,  // Recent comparison window
-  "MinimumDataPoints": 7
-}
-```
+Suits business volumes where a relative change is what matters.
 
-**Pros:**
-- Intuitive for business users
-- Detects sudden changes quickly
-- Works well for trending metrics
+### Choosing a method
 
-**Cons:**
-- Sensitive to daily/weekly patterns
-- May give false positives during expected spikes
-- Doesn't consider historical variance
+| Data | Method |
+|------|--------|
+| Steady counts with little variation | Standard deviation |
+| Counts with occasional extreme values | IQR |
+| Volumes where a relative change matters (orders, sign-ups) | Percentage change |
 
-## Configuration
+## Tuning
 
-### Subscription-Level Configuration
+| Problem | What to change |
+|---------|----------------|
+| Alerts on normal variation | Lower the sensitivity (Low), try IQR, or lengthen the lookback. |
+| Real changes go unnoticed | Raise the sensitivity (High), or use Percentage change for sudden jumps. |
+| Detection never starts | The subscription has fewer baseline runs in the lookback window than **Minimum data points**. Wait for more runs, or create the subscription again with a lower minimum or a longer lookback. |
+| Only increases (or only decreases) matter | Turn off the other direction. |
 
-Each subscription can have its own anomaly detection configuration:
+The lookback window counts days, not runs. A subscription that runs hourly with a 7-day lookback has up to 168 baseline
+values; one that runs daily has 7. Set **Minimum data points** to what the schedule can deliver within the lookback.
 
-**Entity:** `AnomalyConfig`
+## Where you see it
 
-| Property | Type | Description | Default |
-|----------|------|-------------|---------|
-| `Enabled` | bool | Enable/disable anomaly detection | false |
-| `DetectionMethod` | enum | StandardDeviation, IQR, PercentageChange | StandardDeviation |
-| `Threshold` | decimal | Sensitivity threshold (meaning varies by method) | 2.5 |
-| `LookbackDays` | int | How many days of history to analyze | 30 |
-| `MinimumDataPoints` | int | Min historical executions before detection activates | 30 |
+- **Subscription page, Anomaly detection tab** (shown while detection is on). The method, sensitivity, lookback, minimum data points and alert directions; a chart
+  of the last 30 days of row counts with the baseline and the lower and upper thresholds; and the recent detection
+  events.
+- **Control Tower.** An **Anomaly** badge on subscriptions with detection on, a per-day sparkline of anomaly events and
+  the anomaly count, and the recent anomalies in the row detail. See [Control Tower](/features/control-tower/).
 
-### Example Configurations
+The chart route is `GET /beacon/api/subscriptions/{id}/anomaly-chart?days=30`. It needs read access to the subscription,
+and its run points cover only runs the caller may read.
 
-#### Daily Error Monitoring
+## Data model
+
+Three entities in the `beacon` schema hold anomaly data (PostgreSQL uses snake_case names):
+
+| Entity | Holds |
+|--------|-------|
+| `AnomalyConfig` | One per subscription: `Enabled`, `DetectionMethod`, `Sensitivity`, `LookbackDays`, `AlertOnIncrease`, `AlertOnDecrease`, `MinimumDataPoints`. |
+| `AnomalyBaseline` | One per stored run: `SubscriptionId`, `ExecutionTime`, `MetricValue` (the row count). |
+| `AnomalyEvent` | One per detected anomaly: `SubscriptionId`, `NotificationId`, `DetectedTime`, `CurrentValue`, `BaselineMean`, `BaselineStdDev`, `ZScore`, `Severity`, `Explanation`, `Acknowledged`, `AcknowledgedBy`. |
+
+## Service API
+
+`IAnomalyDetectionService` (in `Beacon.Core.Services`) is what the subscription run uses. A host can call it in-process:
+
+| Method | What it does |
+|--------|--------------|
+| `EvaluateAnomalyAsync(subscriptionId, rowCount)` | Evaluates a row count against the stored baseline. |
+| `StoreBaselineAsync(subscriptionId, metricValue, executionTime)` | Stores a baseline value. |
+| `GetHistoricalMetricsAsync(subscriptionId, lookbackDays)` | Baseline values of the window, oldest first. |
+| `RecordAnomalyEventAsync(subscriptionId, evaluation, notificationId)` | Records an anomaly event. |
+| `GetAnomalyConfigAsync(subscriptionId)` | The configuration as `AnomalyConfigData`, or `null`. |
+| `SaveAnomalyConfigAsync(AnomalyConfigData)` | Creates or updates the configuration of a subscription. |
+| `DeleteAnomalyConfigAsync(subscriptionId)` | Removes the configuration. |
+| `GetAnomalyChartDataAsync(subscriptionId, lookbackDays, runScope)` | Chart data, limited to the runs `runScope` may read. |
+
+`AnomalyEvaluationResult` has `IsAnomaly`, `CurrentValue`, `BaselineMean`, `BaselineStdDev`, `ZScore`, `Explanation`,
+`Severity` and `HistoricalDataPoints`. `BaselineStdDev` and `ZScore` are set by the standard deviation method only.
+
 ```csharp
-new AnomalyConfig
+await anomalyDetectionService.SaveAnomalyConfigAsync(new AnomalyConfigData
 {
-    SubscriptionId = 1,
-    Enabled = true,
-    DetectionMethod = AnomalyDetectionMethod.StandardDeviation,
-    Threshold = 2.5m,  // 2.5 std deviations
-    LookbackDays = 30,
-    MinimumDataPoints = 30
-}
-```
-
-#### Sales Spike Detection
-```csharp
-new AnomalyConfig
-{
-    SubscriptionId = 2,
+    SubscriptionId = subscriptionId,
     Enabled = true,
     DetectionMethod = AnomalyDetectionMethod.PercentageChange,
-    Threshold = 50m,  // 50% increase/decrease
-    LookbackDays = 7,
-    MinimumDataPoints = 7
-}
+    Sensitivity = AnomalySensitivity.Medium,
+    LookbackDays = 30,
+    MinimumDataPoints = 14,
+    AlertOnIncrease = true,
+    AlertOnDecrease = true
+}, cancellationToken);
 ```
 
-#### Outlier Detection for Skewed Data
-```csharp
-new AnomalyConfig
-{
-    SubscriptionId = 3,
-    Enabled = true,
-    DetectionMethod = AnomalyDetectionMethod.IQR,
-    Threshold = 1.5m,  // Standard IQR multiplier
-    LookbackDays = 60,
-    MinimumDataPoints = 50
-}
-```
-
-## Usage Example
-
-### Via Service
-
-```csharp
-public class AnomalyDetectionExample
-{
-    private readonly IAnomalyDetectionService _anomalyService;
-    private readonly IDbContextFactory<BeaconContext> _contextFactory;
-
-    public async Task ConfigureAnomalyDetectionAsync(int subscriptionId)
-    {
-        using var context = await _contextFactory.CreateDbContextAsync();
-
-        // Create or update configuration
-        var config = await context.AnomalyConfigs
-            .FirstOrDefaultAsync(x => x.SubscriptionId == subscriptionId)
-            ?? new AnomalyConfig { SubscriptionId = subscriptionId };
-
-        config.Enabled = true;
-        config.DetectionMethod = AnomalyDetectionMethod.StandardDeviation;
-        config.Threshold = 2.5m;
-        config.LookbackDays = 30;
-        config.MinimumDataPoints = 30;
-
-        if (config.Id == 0)
-            context.AnomalyConfigs.Add(config);
-
-        await context.SaveChangesAsync();
-    }
-
-    public async Task EvaluateExecutionAsync(int subscriptionId, int rowCount)
-    {
-        // Store baseline
-        await _anomalyService.StoreBaselineAsync(
-            subscriptionId,
-            rowCount,
-            DateTime.UtcNow);
-
-        // Evaluate for anomaly
-        var result = await _anomalyService.EvaluateAnomalyAsync(
-            subscriptionId,
-            rowCount);
-
-        if (result.IsAnomaly)
-        {
-            Console.WriteLine($"ANOMALY DETECTED!");
-            Console.WriteLine($"Current: {result.CurrentValue}");
-            Console.WriteLine($"Mean: {result.Mean}");
-            Console.WriteLine($"Std Dev: {result.StandardDeviation}");
-            Console.WriteLine($"Explanation: {result.Explanation}");
-
-            // Create alert task or send notification
-        }
-        else
-        {
-            Console.WriteLine($"Normal execution: {rowCount} rows");
-        }
-    }
-}
-```
-
-### Integration with Subscriptions
-
-Anomaly detection is automatically integrated into subscription execution:
-
-```csharp
-public class SubscriptionExecutionFlow
-{
-    // Simplified flow
-    public async Task ExecuteAsync(Subscription subscription)
-    {
-        // 1. Execute query
-        var result = await ExecuteQueryAsync(subscription.Query);
-        int rowCount = result.Rows.Count;
-
-        // 2. Store baseline (always, regardless of config)
-        await _anomalyService.StoreBaselineAsync(
-            subscription.Id,
-            rowCount,
-            DateTime.UtcNow);
-
-        // 3. Evaluate for anomaly (only if configured)
-        var anomalyResult = await _anomalyService.EvaluateAnomalyAsync(
-            subscription.Id,
-            rowCount);
-
-        // 4. If anomaly detected
-        if (anomalyResult.IsAnomaly)
-        {
-            // Option A: Create alert task
-            await _taskService.CreateAnomalyTaskAsync(
-                subscription,
-                anomalyResult);
-
-            // Option B: Send notification
-            await _notificationService.SendAnomalyAlertAsync(
-                subscription,
-                anomalyResult);
-        }
-
-        // 5. Continue with normal notification flow
-        if (rowCount > 0)
-        {
-            await _notificationService.SendAsync(subscription, result);
-        }
-    }
-}
-```
-
-## Evaluation Result
-
-### AnomalyEvaluationResult Model
-
-```csharp
-public class AnomalyEvaluationResult
-{
-    public bool IsAnomaly { get; set; }
-    public decimal CurrentValue { get; set; }
-    public decimal? Mean { get; set; }
-    public decimal? StandardDeviation { get; set; }
-    public decimal? PercentageChange { get; set; }
-    public string Explanation { get; set; }
-    public int HistoricalDataPoints { get; set; }
-}
-```
-
-### Example Results
-
-**Normal Execution:**
-```json
-{
-  "IsAnomaly": false,
-  "CurrentValue": 12,
-  "Mean": 11.5,
-  "StandardDeviation": 1.2,
-  "Explanation": "Value within expected range (Z-score: 0.42)",
-  "HistoricalDataPoints": 45
-}
-```
-
-**Anomaly Detected:**
-```json
-{
-  "IsAnomaly": true,
-  "CurrentValue": 85,
-  "Mean": 12.3,
-  "StandardDeviation": 2.1,
-  "Explanation": "Value significantly above historical mean (Z-score: 34.62). This is 34.62 standard deviations above normal.",
-  "HistoricalDataPoints": 45
-}
-```
-
-**Insufficient Data:**
-```json
-{
-  "IsAnomaly": false,
-  "CurrentValue": 15,
-  "Explanation": "Not enough historical data (need 30, have 5). Building baseline...",
-  "HistoricalDataPoints": 5
-}
-```
-
-## Use Cases
-
-### 1. Error Rate Monitoring
-
-**Scenario:** Monitor application error rates
-
-**Query:**
-```sql
-SELECT COUNT(*) as error_count
-FROM logs
-WHERE level = 'ERROR'
-  AND created_at > NOW() - INTERVAL '1 hour';
-```
-
-**Configuration:**
-- Method: StandardDeviation
-- Threshold: 3.0 (very sensitive)
-- Lookback: 7 days
-- Min Data Points: 168 (hourly for 7 days)
-
-**Result:** Alerts when error count exceeds 3 standard deviations above normal hourly rate
-
-### 2. Sales Performance Tracking
-
-**Scenario:** Detect unusual sales patterns (both spikes and drops)
-
-**Query:**
-```sql
-SELECT COUNT(*) as daily_orders
-FROM orders
-WHERE DATE(created_at) = CURRENT_DATE;
-```
-
-**Configuration:**
-- Method: PercentageChange
-- Threshold: 30% (alert on 30% deviation)
-- Lookback: 30 days
-- Min Data Points: 30
-
-**Result:** Alerts when daily orders are 30%+ different from previous day
-
-### 3. System Resource Monitoring
-
-**Scenario:** Monitor database connection pool usage
-
-**Query:**
-```sql
-SELECT COUNT(*) as active_connections
-FROM pg_stat_activity
-WHERE state = 'active';
-```
-
-**Configuration:**
-- Method: IQR
-- Threshold: 1.5 (standard outlier detection)
-- Lookback: 90 days
-- Min Data Points: 90
-
-**Result:** Alerts when connection count is an outlier compared to historical distribution
-
-### 4. Data Quality Monitoring
-
-**Scenario:** Detect sudden increases in null values
-
-**Query:**
-```sql
-SELECT COUNT(*) as null_count
-FROM products
-WHERE description IS NULL OR price IS NULL;
-```
-
-**Configuration:**
-- Method: StandardDeviation
-- Threshold: 2.0
-- Lookback: 14 days
-- Min Data Points: 14
-
-**Result:** Alerts when null count deviates from normal pattern
-
-## Choosing the Right Method
-
-| Scenario | Best Method | Why |
-|----------|-------------|-----|
-| Consistent daily metrics | StandardDeviation | Good for stable patterns |
-| Sales, revenue, traffic | PercentageChange | Business users understand percentages |
-| Highly variable data | IQR | Robust to outliers |
-| Error rates, system metrics | StandardDeviation | Sensitive to subtle changes |
-| Detecting spikes/crashes | PercentageChange | Quick reaction to sudden changes |
-| Data with seasonal patterns | IQR | Less affected by regular variations |
-
-## Tuning Recommendations
-
-### Threshold Sensitivity
-
-**StandardDeviation:**
-- `2.0` - Very sensitive (more false positives)
-- `2.5` - Balanced (recommended start)
-- `3.0` - Conservative (fewer false positives)
-
-**IQR:**
-- `1.5` - Standard outlier detection
-- `2.0` - More conservative
-- `3.0` - Only extreme outliers
-
-**PercentageChange:**
-- `20%` - Very sensitive
-- `50%` - Balanced
-- `100%` - Only major changes
-
-### Lookback Period
-
-**Short (7-14 days):**
-- Pros: Adapts quickly to recent changes
-- Cons: Sensitive to weekly patterns
-- Best for: Fast-changing environments
-
-**Medium (30 days):**
-- Pros: Balanced, captures monthly patterns
-- Cons: Slower to adapt to new normals
-- Best for: General-purpose monitoring
-
-**Long (60-90 days):**
-- Pros: Stable baseline, seasonal awareness
-- Cons: May miss gradual shifts
-- Best for: Seasonal business metrics
-
-### Minimum Data Points
-
-**Low (7-14 points):**
-- Pros: Detects anomalies faster
-- Cons: Higher false positive rate
-- Best for: New subscriptions, urgent monitoring
-
-**Medium (30 points):**
-- Pros: Good balance of speed and accuracy
-- Cons: 30-day wait before detection
-- Best for: Most use cases
-
-**High (60-90 points):**
-- Pros: Very stable baseline
-- Cons: Long baseline building period
-- Best for: Critical systems, low false positive tolerance
-
-## Troubleshooting
-
-### Issue: "Not enough historical data"
-
-**Symptom:** Anomaly detection never activates
-
-**Causes:**
-1. Subscription hasn't executed enough times
-2. `MinimumDataPoints` set too high
-3. Subscription executions failing
-
-**Solutions:**
-1. Wait for more executions to accumulate
-2. Lower `MinimumDataPoints` (carefully)
-3. Check subscription execution history for failures
-
-### Issue: Too many false positives
-
-**Symptom:** Anomaly alerts on normal variations
-
-**Causes:**
-1. Threshold too sensitive
-2. Data has natural high variance
-3. Wrong detection method for data pattern
-
-**Solutions:**
-1. Increase threshold (e.g., 2.5 → 3.0 for Z-score)
-2. Try IQR method (more robust)
-3. Increase lookback period for more context
-
-### Issue: Missing real anomalies
-
-**Symptom:** Known anomalies not detected
-
-**Causes:**
-1. Threshold too conservative
-2. Insufficient historical data
-3. Anomaly within "normal" range after drift
-
-**Solutions:**
-1. Decrease threshold
-2. Ensure adequate baseline data
-3. Consider PercentageChange for sudden spikes
-
-## Database Schema
-
-### AnomalyConfig Entity
-
-```sql
-CREATE TABLE anomaly_configs (
-    id SERIAL PRIMARY KEY,
-    subscription_id INT NOT NULL REFERENCES subscriptions(id),
-    enabled BOOLEAN NOT NULL DEFAULT false,
-    detection_method VARCHAR(50) NOT NULL,
-    threshold DECIMAL(10,2) NOT NULL,
-    lookback_days INT NOT NULL DEFAULT 30,
-    minimum_data_points INT NOT NULL DEFAULT 30,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-### AnomalyBaseline Entity
-
-```sql
-CREATE TABLE anomaly_baselines (
-    id SERIAL PRIMARY KEY,
-    subscription_id INT NOT NULL REFERENCES subscriptions(id),
-    execution_time TIMESTAMP NOT NULL,
-    metric_value DECIMAL(18,2) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_anomaly_baselines_subscription_time
-    ON anomaly_baselines(subscription_id, execution_time DESC);
-```
-
-## API Reference
-
-### IAnomalyDetectionService
-
-```csharp
-public interface IAnomalyDetectionService
-{
-    /// <summary>
-    /// Evaluates current execution for anomalies based on historical baseline
-    /// </summary>
-    Task<AnomalyEvaluationResult> EvaluateAnomalyAsync(
-        int subscriptionId,
-        int rowCount,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Stores execution result for future baseline calculations
-    /// </summary>
-    Task StoreBaselineAsync(
-        int subscriptionId,
-        decimal metricValue,
-        DateTime executionTime,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets historical metrics for analysis
-    /// </summary>
-    Task<List<decimal>> GetHistoricalMetricsAsync(
-        int subscriptionId,
-        int lookbackDays,
-        CancellationToken cancellationToken = default);
-}
-```
-
-## Related Features
-
-- [Subscriptions](/features/subscriptions/) - Configure scheduled queries with anomaly detection
-- [AI Integration](/features/ai-integration/) - Complement statistical detection with AI-powered insights
-
-:::note
-When an anomaly is detected, Beacon can raise an alerting task. Alerting tasks are auto-created from subscriptions (when enabled), auto-resolve when a query returns 0 rows, and support trend charts, comments, and manual resolution in the UI (`/tasks`).
-:::
+`SaveAnomalyConfigAsync` does not check who calls it; a host that exposes it decides who may change a subscription's
+configuration.
+
+## Related
+
+- [Subscriptions](/features/subscriptions/): where anomaly detection is configured
+- [Control Tower](/features/control-tower/): anomaly counts and sparklines across subscriptions
+- [Notifications](/features/notifications/): what recipients receive
+- [Tasks](/features/tasks/): work items opened by runs with rows

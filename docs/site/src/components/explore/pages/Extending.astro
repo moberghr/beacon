@@ -1,0 +1,747 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+import Flow from '../Flow.astro';
+import Terminal from '../Terminal.astro';
+
+const DBCONTEXT = `builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */ })
+    .ExposeDbContext<ShopDbContext>(x =>
+    {
+        x.ProjectName = "Shop";                    // the host project
+        x.ReadOnlyConnection("ShopReadOnly")       // ConnectionStrings:ShopReadOnly, a read-only login
+            .AllowTables("Orders", "OrderLines", "Customers")
+            .AllowEntity<Product>()
+            .ExcludeColumns(y => y.Table == "Customers" && y.Name == "Notes")
+            .MaskColumns(y => y.Name is "Email" or "Phone");
+    })
+    .AddSqlServerConnector()
+    .UseSqlServer();                               // ends the chain: ExposeDbContext comes first`;
+
+const DOCS = `    .ExposeDocs(x =>
+    {
+        x.ProjectName = "Shop";
+        x.FromDirectory("docs", "**/*.md").Exclude("drafts/**");
+        // x.FromEmbeddedResources(typeof(Program).Assembly, "Shop.Docs.");
+        // x.MaxDocumentBytes = 512 * 1024;
+    })`;
+
+const ENDPOINT = `builder.Services.AddBeaconMcp()
+    .AddHostEndpointTools(x =>
+    {
+        x.ProjectName = "Shop";       // the host project the tools belong to
+        // x.AllowWriteTools = true;  // off by default
+    });
+
+app.MapGet("/api/orders/{id:int}", (int id, OrderService orders) => orders.Find(id))
+    .RequireAuthorization("ViewOrders")
+    .WithBeaconTool("order_by_id", "One order by id.", readOnly: true);`;
+
+const CONTROLLER = `[HttpGet("{customerId:int}/orders")]
+[Authorize(Policy = "ViewOrders")]
+[BeaconTool("customer_orders", Description = "Orders of one customer, newest first.", ReadOnly = true)]
+public IActionResult CustomerOrders(int customerId) { /* … */ }`;
+
+const STARTUP = `builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */ })
+    .ExposeDbContext<ShopDbContext>(x => { /* allow-list, exclusions, masks */ })
+    .ExposeDocs(x => { /* docs folder */ })
+    .AddSqlServerConnector()
+    .UseSqlServer();                          // ends the chain: host extensions come first
+
+builder.Services.AddBeaconMcp()
+    .AddHostEndpointTools(x => x.ProjectName = "Shop");
+
+var app = builder.Build();
+Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
+await app.Services.SyncBeaconHostAsync();     // data sources first, then docs; idempotent; replica-safe lock`;
+
+const SAVED_SQL = `-- Step 1 · ShopDbContext (host data source)
+SELECT o.Id, o.Status, o.PlacedAt, o.Total
+FROM dbo.Orders o
+WHERE o.Status = {status}
+  AND o.PlacedAt >= {placed_from}`;
+
+const SEARCH_HTML = `<span class="k-dim">→ search</span> <span class="k-mute">{ "query": "when is an order shipped" }</span>
+
+- **<span class="k-purple">[IMPORTED_DOC]</span>** \`<span class="k-yellow">orders/statuses.md</span>\` (Order statuses) <span class="k-dim">--</span> An order moves to
+  Shipped when the carrier confirms the pickup …
+- **<span class="k-purple">[IMPORTED_DOC]</span>** \`<span class="k-yellow">support/escalation.md</span>\` (Escalating a delayed order)
+
+<span class="k-dim">→ get_documentation</span> <span class="k-mute">{ "document": "orders/statuses.md" }</span>
+
+<span class="k-green"># Order statuses</span>
+Every order is in exactly one status: Placed, Paid, Shipped,
+Delivered or Cancelled. An order moves to Shipped when …`;
+
+// The policy checker in section 01: statements an assistant might send, and what the host policy decides.
+const CHECKS = [
+	{
+		id: 'ok',
+		label: 'Allowed',
+		sql: 'SELECT c.Id, c.Name, c.Email\nFROM dbo.Customers c\nWHERE c.Id = 11904',
+		tone: 'ok',
+		verdict: 'Runs',
+		detail: 'Every table is allow-listed and schema-qualified. Email is a direct projection, so it is returned masked.',
+		rows: true,
+	},
+	{
+		id: 'unqualified',
+		label: 'Unqualified table',
+		sql: 'SELECT Name\nFROM Customers',
+		tone: 'crit',
+		verdict: 'Rejected',
+		detail: 'Qualify the table: dbo.Customers. The connection’s default schema may differ from the model’s, so every table must be schema-qualified.',
+	},
+	{
+		id: 'star',
+		label: 'SELECT *',
+		sql: 'SELECT *\nFROM dbo.Customers',
+		tone: 'crit',
+		verdict: 'Rejected',
+		detail: 'SELECT * and t.* are rejected with a list of the exposed columns to use instead.',
+	},
+	{
+		id: 'probe',
+		label: 'Masked in WHERE',
+		sql: "SELECT c.Name\nFROM dbo.Customers c\nWHERE c.Email LIKE '%@acme.example'",
+		tone: 'crit',
+		verdict: 'Rejected',
+		detail: 'A masked column may appear only as a direct projection, in COUNT(col), or in IS NULL / IS NOT NULL, so masked values cannot be probed.',
+	},
+	{
+		id: 'excluded',
+		label: 'Excluded column',
+		sql: 'SELECT c.Notes\nFROM dbo.Customers c',
+		tone: 'crit',
+		verdict: 'Rejected',
+		detail: 'Excluded columns are invisible in metadata and rejected anywhere in a statement.',
+	},
+];
+
+const REPLACEABLE = [
+	['IBeaconScheduler', 'None (required)', 'Use your job runner.'],
+	['IEmailAdapter', 'none', 'Send email (AddEmailAdapter<T>()).'],
+	['IBeaconAuthenticationProvider', 'user store', 'Check passwords somewhere else.'],
+	['IBeaconAuthorizationProvider', 'user store / allow-all', 'Cap users’ global read/write from your own model.'],
+	['IProjectMembershipSource', 'Beacon’s membership table', 'Take project membership from your application.'],
+	['IMcpCallerMapper', 'Beacon:Mcp:Callers', 'Map JWT callers to projects and scopes your own way.'],
+	['IMcpHostPrincipalFactory', 'copies name, email, oid', 'Build the principal your endpoints expect for MCP calls.'],
+	['IHostEndpointDispatchMiddleware', 'none', 'Run tenant, culture or audit logic around dispatched tool calls.'],
+	['IApprovalNotifier', 'SignalR', 'Notify approvers elsewhere.'],
+	['IBeaconUserContext', 'HttpContextUserContext', 'Resolve the current user differently.'],
+];
+---
+
+<ExploreLayout
+	area="extending"
+	eyebrow="Explore · Extending your app"
+	title="Teach Beacon <em>your</em> application."
+	lede="An embedded Beacon can know your application, not only your databases. Expose your EF Core model as a read-only data source, import your Markdown docs as grounding, and turn selected HTTP endpoints into MCP tools. All three are opt-in and land in one host project."
+	facts={[
+		{ value: '3', label: 'host extensions' },
+		{ value: '1', label: 'startup sync call' },
+		{ value: '0', label: 'host connection strings stored' },
+	]}
+	deeper={[
+		{ title: 'Host DbContext', href: '/features/host-dbcontext/', desc: 'Allow-lists, exclusions, masking and the execution-time policy.' },
+		{ title: 'Host docs', href: '/features/host-docs/', desc: 'Shipping, importing and searching your Markdown documentation.' },
+		{ title: 'Host endpoint tools', href: '/features/host-endpoint-tools/', desc: 'Exposure rules, dispatch, write tools, audit and limits.' },
+	]}
+>
+	<div slot="hero" class="plug" role="img" aria-label="Your application exposes its DbContext, its Markdown docs and its HTTP endpoints to Beacon. Beacon serves them to an AI assistant as a read-only data source, imported documents and MCP tools.">
+		<div class="plugBox app">
+			<div class="plugHead"><span>Your application</span><span class="mono">Shop</span></div>
+			<div class="ports">
+				<div class="port">
+					<span class="portIcon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6" /><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" /></svg></span>
+					<b>ShopDbContext</b><span>EF Core model</span><code class="portApi">ExposeDbContext</code>
+				</div>
+				<div class="port">
+					<span class="portIcon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg></span>
+					<b>docs/*.md</b><span>Markdown docs</span><code class="portApi">ExposeDocs</code>
+				</div>
+				<div class="port">
+					<span class="portIcon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5" /></svg></span>
+					<b>/api/orders/{'{'}id{'}'}</b><span>HTTP endpoints</span><code class="portApi">AddHostEndpointTools</code>
+				</div>
+			</div>
+		</div>
+		<div class="wires" aria-hidden="true"><i style="--d:0s"></i><i style="--d:.5s"></i><i style="--d:1s"></i></div>
+		<div class="plugBox beacon">
+			<div class="plugHead"><span><span class="beaconDot"></span>Beacon</span><span class="mono">host project · Shop</span></div>
+			<div class="outs">
+				<div class="out">
+					<small>Read-only data source</small>
+					<span class="mono">dbo.Orders</span>
+					<span class="mono">dbo.Customers</span>
+					<span class="mono masked">Email ***</span>
+				</div>
+				<div class="out">
+					<small>Imported documents</small>
+					<span class="mono tag">[IMPORTED_DOC]</span>
+					<span class="mono">orders/statuses.md</span>
+					<span class="mono">support/…</span>
+				</div>
+				<div class="out">
+					<small>MCP tools</small>
+					<span class="mono tool">api_order_by_id</span>
+					<span class="mono tool">api_customer_orders</span>
+				</div>
+			</div>
+			<div class="gateStrip"><span>SQL gate (data source)</span><span>Project access</span><span>Audit</span></div>
+		</div>
+		<div class="wires one" aria-hidden="true"><i style="--d:1.4s"></i></div>
+		<div class="plugBox assistant">
+			<div class="plugHead"><span>AI assistant</span><span class="mono">tools/list</span></div>
+			<div class="toolList">
+				<span>get_context</span><span>search</span><span>get_documentation</span><span>query</span><span>…</span><span class="hl">api_order_by_id</span><span class="hl">api_customer_orders</span>
+			</div>
+		</div>
+	</div>
+
+	<Section num="01" label="Your DbContext as a data source" title="Your EF Core model, read-only, with a default-deny allow-list." lede="ExposeDbContext turns the model you already have into a Beacon data source. Metadata comes from the model without opening a connection, only allow-listed tables are visible, and the policy is checked again on every statement.">
+		<div class="cols2">
+			<div class="stack">
+				<Code code={DBCONTEXT} lang="csharp" title="Program.cs" />
+				<div class="connCard card">
+					<div class="connRow">
+						<span class="connKey">Stored</span>
+						<code class="connVal">{'{'}"hostConnectionStringName":"ShopReadOnly"{'}'}</code>
+					</div>
+					<div class="connRow">
+						<span class="connKey">Not stored</span>
+						<span class="connVal struck mono">Server=sql.acme.example;User Id=beacon_ro;Password=…</span>
+					</div>
+					<p>Beacon keeps only the encrypted name of the connection string. The real string is read from configuration whenever a connection is opened, and should belong to a login that can only <code>SELECT</code> the allow-listed tables.</p>
+				</div>
+			</div>
+			<div class="stack">
+				<div class="mock">
+					<div class="mockBar"><span>DATA SOURCE · SHOPDBCONTEXT</span><span class="badge neutral">Host-managed, read-only</span></div>
+					<div class="mockBody">
+						<div class="tblList">
+							<div class="tbl on"><span class="mono">dbo.Orders</span><span>AllowTables</span></div>
+							<div class="tbl on"><span class="mono">dbo.OrderLines</span><span>AllowTables</span></div>
+							<div class="tbl on"><span class="mono">dbo.Customers</span><span>AllowTables</span></div>
+							<div class="tbl on"><span class="mono">dbo.Products</span><span>AllowEntity&lt;Product&gt;</span></div>
+							<div class="tbl off"><span class="mono">dbo.AuditLog</span><span>not allow-listed: invisible</span></div>
+						</div>
+						<div class="colHead">Columns of <span class="mono">dbo.Customers</span></div>
+						<div class="cols">
+							<div class="colRow"><span class="mono">Id</span><span class="colType">int, PK</span><span class="badge ok">Exposed</span></div>
+							<div class="colRow"><span class="mono">Name</span><span class="colType">nvarchar(200)</span><span class="badge ok">Exposed</span></div>
+							<div class="colRow"><span class="mono">Email</span><span class="colType">nvarchar(320)</span><span class="badge warn">Masked</span></div>
+							<div class="colRow"><span class="mono">Phone</span><span class="colType">nvarchar(40)</span><span class="badge warn">Masked</span></div>
+							<div class="colRow gone"><span class="mono">Notes</span><span class="colType">ExcludeColumns</span><span class="badge crit">Excluded</span></div>
+							<div class="colRow gone"><span class="mono">PasswordHash</span><span class="colType">secret-like name</span><span class="badge crit">Excluded (secret-like name)</span></div>
+						</div>
+						<p class="note">Masked columns stay visible to the assistant, flagged <span class="mono">[PII: values are masked in query results]</span>. Names that look like secrets (<span class="mono">password</span>, <span class="mono">token</span>, <span class="mono">hash</span>, <span class="mono">otp</span> …) are excluded unless lifted with <span class="mono">IncludeSecretLikeColumn</span>.</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<h3 class="subHead">Every statement is checked against the exposed slice</h3>
+		<p class="subLede">The check runs in the execution gate and again in the database provider, in the data source's own dialect. Choose a statement to see what the host policy decides.</p>
+		<div class="checker mock" data-checker>
+			<div class="checkTabs" role="tablist" aria-label="Example statements">
+				{
+					CHECKS.map((c, i) => (
+						<button type="button" role="tab" id={`chk-tab-${c.id}`} aria-controls={`chk-pane-${c.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>
+							{c.label}
+						</button>
+					))
+				}
+			</div>
+			{
+				CHECKS.map((c, i) => (
+					<div class="checkPane" role="tabpanel" id={`chk-pane-${c.id}`} aria-labelledby={`chk-tab-${c.id}`} hidden={i !== 0}>
+						<pre class="checkSql">{c.sql}</pre>
+						<div class="checkVerdict">
+							<span class={`badge ${c.tone}`}>{c.verdict}</span>
+							<p>{c.detail}</p>
+							{c.rows && (
+								<table class="mockTable">
+									<thead>
+										<tr><th>Id</th><th>Name</th><th>Email</th></tr>
+									</thead>
+									<tbody>
+										<tr><td class="mono">11904</td><td>Ivan Kovač</td><td class="mono maskedVal">***</td></tr>
+									</tbody>
+								</table>
+							)}
+						</div>
+					</div>
+				))
+			}
+		</div>
+		<p class="note">Host-masked values come back as <span class="mono">***</span> in every result (<span class="mono">NULL</span> stays <span class="mono">NULL</span>), masked by output position whatever the column is called. SQL Server and PostgreSQL models are supported.</p>
+	</Section>
+
+	<Section num="02" label="Your docs as grounding" title="Your Markdown documentation, searchable by every assistant." alt lede="ExposeDocs imports the documents you ship with the application into the host project. They are chunked for keyword search at once, embedded when semantic retrieval is on, and visible only to callers authorized for that project.">
+		<div class="cols2">
+			<div class="stack">
+				<Code code={DOCS} lang="csharp" title="Program.cs, on the same builder" />
+				<div class="mock">
+					<div class="mockBar"><span>DOCS/</span><span>at startup</span></div>
+					<div class="mockBody tree">
+						<div class="tDir">orders/</div>
+						<div class="tFile in"><span class="mono">statuses.md</span><span class="badge ok">Imported</span></div>
+						<div class="tFile in"><span class="mono">refunds.md</span><span class="badge ok">Imported</span></div>
+						<div class="tDir">support/</div>
+						<div class="tFile in"><span class="mono">escalation.md</span><span class="badge ok">Imported</span></div>
+						<div class="tDir">drafts/</div>
+						<div class="tFile out"><span class="mono">returns-v2.md</span><span class="badge neutral">Exclude("drafts/**")</span></div>
+						<div class="tDir">exports/</div>
+						<div class="tFile out"><span class="mono">full-catalogue.md · 2.1 MB</span><span class="badge warn">Over MaxDocumentBytes</span></div>
+					</div>
+				</div>
+			</div>
+			<div class="stack">
+				<Terminal label="MCP · search and get_documentation" html={SEARCH_HTML} />
+				<div class="cols2 tight">
+					<div class="card mini">
+						<h3>Idempotent</h3>
+						<p>An unchanged document is left alone. A changed one is updated in place, a removed file is archived, a returning file is restored.</p>
+					</div>
+					<div class="card mini">
+						<h3>No LLM needed</h3>
+						<p>Keyword search works with <code>UseAI = false</code>. Title comes from the frontmatter, the first heading or the file name.</p>
+					</div>
+				</div>
+				<p class="note">Only <span class="mono">.md</span>, <span class="mono">.markdown</span> and <span class="mono">.txt</span> files are ingested. <span class="mono">get_context</span> with <span class="mono">format: "agents_md"</span> lists the imported titles in its project brief.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="03" label="Your endpoints as MCP tools" title="Endpoints you mark become tools, called through your own pipeline." lede="AddHostEndpointTools turns the endpoints you mark into MCP tools named api_<name>. Each call runs in-process through the endpoint's model binding, filters and authorization policies, as a host identity built for the MCP caller.">
+		<div class="toolPath">
+			<div class="stack">
+				<Code code={ENDPOINT} lang="csharp" title="Minimal API" />
+				<Code code={CONTROLLER} lang="csharp" title="Or a controller action" />
+			</div>
+			<div class="pathArrow" aria-hidden="true"><span>becomes</span></div>
+			<div class="mock toolCard">
+				<div class="mockBar"><span>MCP TOOL</span><span class="badge ok">read-only</span></div>
+				<div class="mockBody">
+					<div class="toolName mono">api_order_by_id</div>
+					<p class="toolDesc">One order by id.</p>
+					<dl class="toolMeta">
+						<dt>Route</dt><dd class="mono">GET /api/orders/{'{'}id:int{'}'}</dd>
+						<dt>Argument</dt><dd><span class="mono">id</span> · route value, required</dd>
+						<dt>Policy</dt><dd class="mono">ViewOrders</dd>
+						<dt>Project</dt><dd>Shop (host project)</dd>
+					</dl>
+					<div class="hints">
+						<span class="mono">readOnlyHint: true</span>
+						<span class="mono">destructiveHint: false</span>
+						<span class="mono">idempotentHint: true</span>
+						<span class="mono">openWorldHint: false</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<h3 class="subHead">How a call is dispatched</h3>
+		<div class="flowWrap">
+		<Flow
+			seconds={7}
+			steps={[
+				{ label: 'Check the caller', detail: 'A mapped Entra caller of the host project, with valid arguments.' },
+				{ label: 'Build a principal', detail: 'IMcpHostPrincipalFactory builds the host identity for the caller.' },
+				{ label: 'New request', detail: 'A new DI scope and HttpContext. No Authorization header or cookies are forwarded.' },
+				{ label: 'Authorize', detail: 'The endpoint’s own policy, evaluated against the host principal.' },
+				{ label: 'Run the endpoint', detail: 'Dispatch middleware, then binding, filters and the result.' },
+				{ label: 'Capture and audit', detail: 'The response, capped at MaxResponseBytes, audited as api_<name>.', tone: 'ok' },
+			]}
+		/>
+		</div>
+
+		<div class="cols3 rules">
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l2.5 2.5L16 9" /><circle cx="12" cy="12" r="9" /></svg></div>
+				<h3>ReadOnly is declared</h3>
+				<p>Every tool states <code>ReadOnly</code>. Beacon never infers it from the HTTP verb, because back offices read over POST. A missing flag fails startup.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></svg></div>
+				<h3>Authorization metadata required</h3>
+				<p><code>[Authorize]</code>, a policy or <code>[AllowAnonymous]</code>, or a host fallback policy. Otherwise startup refuses the endpoint. A permission filter is not metadata.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></svg></div>
+				<h3>Entra callers only</h3>
+				<p>Only mapped Entra callers (users or systems) of the host project that may read it see or call the tools. API-key callers cannot.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4z" /></svg></div>
+				<h3>Runs as a host principal</h3>
+				<p>The default factory gives a user no host permissions and never copies Entra roles or groups. Map users to your permissions in your own <code>IMcpHostPrincipalFactory</code>.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z" /><path d="M13.5 6.5l4 4" /></svg></div>
+				<h3>Write tools are opt-in</h3>
+				<p><code>ReadOnly = false</code> needs <code>AllowWriteTools</code>, is offered to user callers only, carries <code>readOnlyHint = false</code> so clients ask first, and is audited as <code>api_&lt;name&gt;:write</code>.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h9" /></svg></div>
+				<h3>A catalog above 20 tools</h3>
+				<p>Up to <code>NamedToolLimit</code> (20), each endpoint is its own tool. Above it, clients get <code>search_api</code> and <code>call_api</code> instead.</p>
+			</div>
+		</div>
+
+		<div class="catalog">
+			<div class="mock">
+				<div class="mockBar"><span>12 ENDPOINTS</span><span>named tools</span></div>
+				<div class="mockBody catList">
+					<span>api_order_by_id</span><span>api_customer_orders</span><span>api_refund_by_id</span><span>api_shipment_status</span><span class="more">+ 8 more</span>
+				</div>
+			</div>
+			<div class="mock">
+				<div class="mockBar"><span>34 ENDPOINTS</span><span>catalog</span></div>
+				<div class="mockBody catList">
+					<span class="hl">search_api</span><span class="catNote">keywords → matching tools with their input schemas</span>
+					<span class="hl">call_api</span><span class="catNote">a name plus arguments</span>
+				</div>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="04" label="Startup" title="One host project, one startup call." alt lede="All three extensions resolve the same host project, found by its host key rather than its display name. Register them before the chain ends, migrate Beacon's schema, then sync.">
+		<Flow
+			seconds={7}
+			steps={[
+				{ label: 'Register', detail: 'ExposeDbContext and ExposeDocs on the Beacon builder.' },
+				{ label: 'End the chain', detail: 'UseSqlServer or UsePostgreSql last: it returns IServiceCollection.' },
+				{ label: 'Add tools', detail: 'AddBeaconMcp().AddHostEndpointTools for the same project.' },
+				{ label: 'Migrate', detail: 'UseBeacon creates the schema and applies migrations.' },
+				{ label: 'Sync', detail: 'SyncBeaconHostAsync: data sources first, then documents.', tone: 'ok' },
+				{ label: 'Serve', detail: 'Endpoint tools appear once the host project exists.' },
+			]}
+		/>
+		<div class="cols2 startup">
+			<Code code={STARTUP} lang="csharp" title="Program.cs" />
+			<div class="stack">
+				<div class="card mini">
+					<h3>Idempotent</h3>
+					<p>The first run creates the project, the data source and the link. Later runs rewrite metadata only when the hash of the exposed model slice changed, and re-chunk only the documents that changed.</p>
+				</div>
+				<div class="card mini">
+					<h3>Safe on several replicas</h3>
+					<p>The sync holds one lock in Beacon's database (<code>pg_try_advisory_lock</code> on PostgreSQL, <code>sp_getapplock</code> on SQL Server). Replicas starting together run it one after another, waiting up to 5 minutes.</p>
+				</div>
+				<div class="card mini">
+					<h3>Found by its host key</h3>
+					<p>The host project carries <code>host:shop</code>. A user project already named "Shop" is left untouched, and the host project is created as "Shop (host)".</p>
+				</div>
+				<p class="note"><code>SyncBeaconHostDataSourcesAsync()</code> syncs the data sources only, for hosts that do not ship documents.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="05" label="Worked example" title="A support assistant answers an order question." lede="A support agent signed in with Entra asks their assistant about one order. The assistant uses the host endpoint for the order and a query on the host data source for the customer. The host's own principal factory maps the agent to the ViewOrders permission, and the agent's Beacon user is an Editor in the project, which the query tool needs (a provisioned user starts with the default Viewer role).">
+		<div class="example">
+			<div class="mock chat">
+				<div class="mockBar"><span>SUPPORT ASSISTANT</span><span>Shop</span></div>
+				<div class="mockBody chatBody">
+					<div class="msg user">What is the status of order 104 236 and who is the customer?</div>
+
+					<div class="call" data-step="1">
+						<div class="callHead"><span class="callTool mono">api_order_by_id</span><span class="badge ok">200</span></div>
+						<pre class="callIo"><span class="ioLabel">arguments</span>{'{'} "id": 104236 {'}'}
+<span class="ioLabel">result</span>{'{'} "id": 104236, "status": "Shipped",
+  "customerId": 11904, "total": 48.50,
+  "placedAt": "2026-10-12T09:14:00Z" {'}'}</pre>
+					</div>
+
+					<div class="call" data-step="2">
+						<div class="callHead"><span class="callTool mono">query</span><span class="badge ok">1 row</span></div>
+						<pre class="callIo"><span class="ioLabel">datasource_name</span>ShopDbContext
+<span class="ioLabel">sql</span>SELECT c.Id, c.Name, c.Email, c.Phone
+FROM dbo.Customers c
+WHERE c.Id = 11904</pre>
+						<table class="mockTable">
+							<thead><tr><th>Id</th><th>Name</th><th>Email</th><th>Phone</th></tr></thead>
+							<tbody><tr><td class="mono">11904</td><td>Ivan Kovač</td><td class="mono maskedVal">***</td><td class="mono maskedVal">***</td></tr></tbody>
+						</table>
+					</div>
+
+					<div class="msg bot" data-step="3">Order 104 236 is <b>Shipped</b>. It was placed on 12 October 2026 for 48.50. The customer is <b>Ivan Kovač</b> (customer 11 904). Their email and phone are masked by the application's data policy, so I cannot show them.</div>
+				</div>
+			</div>
+
+			<ol class="steps">
+				<li>
+					<span class="stepNum">1</span>
+					<div>
+						<b>The endpoint runs as the agent</b>
+						<p>Beacon checks that the caller is a mapped Entra user of the Shop project, builds the host principal, evaluates the <code>ViewOrders</code> policy and runs <code>GET /api/orders/104236</code> in-process. The JSON comes back as text and structured content.</p>
+					</div>
+				</li>
+				<li>
+					<span class="stepNum">2</span>
+					<div>
+						<b>The query passes the host policy</b>
+						<p><code>dbo.Customers</code> is allow-listed and schema-qualified, every column is exposed, and Email and Phone are direct projections, so the statement runs on the read-only login and both values are masked.</p>
+					</div>
+				</li>
+				<li>
+					<span class="stepNum">3</span>
+					<div>
+						<b>Both calls are audited</b>
+						<p>Each call writes an MCP audit row with the tool, the project, the caller kind and the outcome. For the endpoint call, argument values and response bodies are never written to logs.</p>
+						<table class="mockTable audit">
+							<thead><tr><th>Tool</th><th>Caller</th><th>Outcome</th></tr></thead>
+							<tbody>
+								<tr><td class="mono">api_order_by_id</td><td>user</td><td><span class="badge ok">Success</span></td></tr>
+								<tr><td class="mono">query</td><td>user</td><td><span class="badge ok">Success</span></td></tr>
+							</tbody>
+						</table>
+					</div>
+				</li>
+			</ol>
+		</div>
+	</Section>
+
+	<Section num="06" label="Saved queries as tools" title="Reviewed SQL as a tool, without writing code." alt lede="A SecurityAdmin (or an Admin) can publish a saved query as an MCP tool named q_<name> from the query's page. The tool runs only an approved version, with the caller's arguments bound as database parameters.">
+		<div class="cols2">
+			<div class="stack">
+				<Code code={SAVED_SQL} lang="sql" title="Query · Orders by status" />
+				<div class="mock">
+					<div class="mockBar"><span>MCP TOOL</span><span class="badge ok">Version 4 approved</span></div>
+					<div class="mockBody">
+						<div class="fakeCheck"><span class="box" aria-hidden="true">✓</span>Expose as MCP tool</div>
+						<dl class="toolMeta">
+							<dt>Name</dt><dd class="mono">orders_by_status</dd>
+							<dt>Description</dt><dd>Orders in one status placed since a date.</dd>
+							<dt>Calls run</dt><dd>Version 4, its approved snapshot</dd>
+						</dl>
+					</div>
+				</div>
+			</div>
+			<div class="stack">
+				<div class="mock">
+					<div class="mockBar"><span>WHAT THE AGENT SEES</span><span class="mono">tools/list</span></div>
+					<div class="mockBody">
+						<div class="toolName mono">q_orders_by_status</div>
+						<dl class="toolMeta">
+							<dt><span class="mono">status</span></dt><dd>string, required</dd>
+							<dt><span class="mono">placed_from</span></dt><dd>ISO 8601 string, required</dd>
+						</dl>
+						<div class="hints"><span class="mono">readOnlyHint: true</span><span class="mono">idempotentHint: true</span></div>
+					</div>
+				</div>
+				<table class="mockTable versions">
+					<thead><tr><th>Version state</th><th>Callable</th></tr></thead>
+					<tbody>
+						<tr><td>Active, its approval request approved</td><td><span class="badge ok">Yes</span></td></tr>
+						<tr><td>Pending approval (a later edit)</td><td><span class="badge neutral">Keeps running the approved one</span></td></tr>
+						<tr><td>Draft, rejected or without an approval</td><td><span class="badge crit">No</span></td></tr>
+					</tbody>
+				</table>
+				<p class="note">Each <span class="mono">{'{'}placeholder{'}'}</span> becomes a parameter (<span class="mono">@p0</span>, <span class="mono">@p1</span>); argument text never reaches the SQL. On a host data source the allow-list and masks apply as for any other statement. Enable the approval workflow on hosts that use saved-query tools. Above 25 tools, callers get <span class="mono">search_saved_queries</span> and <span class="mono">run_saved_query</span>.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="07" label="Replaceable services" title="Swap a default by registering yours first." lede="Beacon registers most services with TryAdd, so your registration wins when it comes before AddBeaconServices, AddBeaconApiServices or AddHostEndpointTools, depending on who registers it.">
+		<div class="mock replace">
+			<div class="mockBody">
+				<table class="mockTable">
+					<thead><tr><th>Interface</th><th>Default</th><th>Replace it to</th></tr></thead>
+					<tbody>
+						{
+							REPLACEABLE.map(([name, def, why]) => (
+								<tr>
+									<td class="mono">{name}</td>
+									<td class="dim">{def}</td>
+									<td>{why}</td>
+								</tr>
+							))
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+		<p class="note">With <span class="mono">IProjectMembershipSource</span> replaced, Beacon's membership endpoints answer 409. <span class="mono">IBeaconUserContext</span> is registered in two places; replace it in both.</p>
+	</Section>
+</ExploreLayout>
+
+<script>
+	// Statement checker tabs: click or arrow keys switch the visible pane.
+	for (const root of document.querySelectorAll<HTMLElement>('[data-checker]')) {
+		const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+		const select = (tab: HTMLButtonElement) => {
+			for (const t of tabs) {
+				const on = t === tab;
+				t.setAttribute('aria-selected', on ? 'true' : 'false');
+				t.tabIndex = on ? 0 : -1;
+				const pane = root.querySelector<HTMLElement>(`#${t.getAttribute('aria-controls')}`);
+				if (pane) {
+					pane.hidden = !on;
+				}
+			}
+		};
+		tabs.forEach((tab, i) => {
+			tab.addEventListener('click', () => select(tab));
+			tab.addEventListener('keydown', (e) => {
+				if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') {
+					return;
+				}
+				e.preventDefault();
+				const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+				select(next);
+				next.focus();
+			});
+		});
+	}
+</script>
+
+<style>
+	/* Hero: application → Beacon → assistant */
+	.plug { display: flex; flex-direction: column; max-width: 540px; margin-left: auto; }
+	.plugBox { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); box-shadow: 0 14px 40px -16px rgba(14, 10, 50, 0.18); overflow: hidden; }
+	.plugHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--bx-border); background: var(--bx-surface2); font-size: 12px; font-weight: 600; color: var(--bx-text-dim); letter-spacing: 0.3px; }
+	.plugHead > span:first-child { display: inline-flex; align-items: center; gap: 8px; color: var(--bx-text); }
+	.beacon { border-color: var(--bx-accent); }
+	.beacon .plugHead { background: var(--bx-accent-dim); }
+	.beaconDot { width: 8px; height: 8px; border-radius: 50%; background: var(--bx-accent); }
+	.ports, .outs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px; }
+	.port { display: flex; flex-direction: column; gap: 2px; padding: 10px; border: 1px solid var(--bx-border); border-radius: 10px; min-width: 0; }
+	.port b { font-size: 12.5px; font-family: var(--sl-font-mono); overflow-wrap: anywhere; }
+	.port > span:not(.portIcon) { font-size: 11.5px; color: var(--bx-text-dim); }
+	.portIcon { color: var(--bx-accent); margin-bottom: 4px; }
+	.portApi { margin-top: 6px; font-size: 10.5px !important; overflow-wrap: anywhere; align-self: flex-start; }
+	.wires { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); height: 30px; padding: 0 12px; }
+	.wires.one { grid-template-columns: minmax(0, 1fr); }
+	.wires i { position: relative; justify-self: center; width: 2px; height: 100%; background: var(--bx-border); }
+	.wires i::after { content: ''; position: absolute; left: -3px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--bx-accent); box-shadow: 0 0 0 3px var(--bx-accent-dim); animation: drop 2s ease-in-out infinite; animation-delay: var(--d); }
+	@keyframes drop { 0% { top: 0; } 60%, 100% { top: calc(100% - 8px); } }
+	.out { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border-radius: 10px; background: var(--bx-surface2); min-width: 0; }
+	.out small { font-size: 10.5px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--bx-text-dim); margin-bottom: 2px; }
+	.out .mono { font-size: 11px; overflow-wrap: anywhere; color: var(--bx-text-muted); }
+	.out .masked { color: var(--xp-warn); }
+	.out .tag { color: var(--bx-accent); font-weight: 600; }
+	.out .tool { color: var(--bx-accent); }
+	.gateStrip { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 12px; }
+	.gateStrip span { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--bx-border); color: var(--bx-text-muted); }
+	.toolList { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; }
+	.toolList span { font-family: var(--sl-font-mono); font-size: 11px; padding: 3px 9px; border-radius: 20px; background: var(--bx-surface2); color: var(--bx-text-muted); }
+	.toolList .hl { background: var(--bx-accent-dim); color: var(--bx-accent); font-weight: 600; }
+
+	/* 01 DbContext */
+	.connCard { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; }
+	.connRow { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+	.connKey { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--bx-text-dim); }
+	.connVal { overflow-wrap: anywhere; }
+	.struck { text-decoration: line-through; color: var(--bx-text-dim); }
+	.tblList { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+	.tbl { display: flex; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 8px; font-size: 12px; color: var(--bx-text-dim); flex-wrap: wrap; }
+	.tbl.on { background: var(--xp-ok-dim); }
+	.tbl.on .mono { color: var(--bx-text); }
+	.tbl.off { border: 1px dashed var(--bx-border); }
+	.tbl.off .mono { text-decoration: line-through; }
+	.colHead { font-size: 12px; font-weight: 600; color: var(--bx-text-dim); margin-bottom: 8px; }
+	.cols { display: flex; flex-direction: column; border: 1px solid var(--bx-border); border-radius: 10px; overflow: hidden; }
+	.colRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--bx-border); font-size: 13px; }
+	.colRow:last-child { border-bottom: none; }
+	.colType { font-size: 12px; color: var(--bx-text-dim); }
+	.colRow.gone .mono { text-decoration: line-through; color: var(--bx-text-dim); }
+	.subHead { margin-top: 48px !important; }
+	.subLede { font-size: 15px; line-height: 1.6; color: var(--bx-text-muted); margin-bottom: 18px !important; max-width: 700px; }
+	.checker { display: flex; flex-direction: column; }
+	.checkTabs { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--bx-border); background: var(--bx-surface2); overflow-x: auto; }
+	.checkTabs button { flex-shrink: 0; font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--bx-border); background: var(--bx-surface); color: var(--bx-text-muted); cursor: pointer; }
+	.checkTabs button:hover { border-color: var(--bx-accent); color: var(--bx-accent); }
+	.checkTabs button[aria-selected='true'] { background: var(--bx-accent); border-color: var(--bx-accent); color: #fff; }
+	.checkTabs button:focus-visible { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.checkPane { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
+	.checkPane[hidden] { display: none; }
+	.checkSql { margin: 0; padding: 18px 20px; background: var(--bx-terminal-bg); color: #cfd4e2; font-family: var(--sl-font-mono); font-size: 12.5px; line-height: 1.7; overflow-x: auto; white-space: pre; border: none; border-radius: 0; }
+	.checkVerdict { padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+	.checkVerdict p { font-size: 14px; line-height: 1.6; color: var(--bx-text-muted); }
+	.maskedVal { color: var(--xp-warn); font-weight: 600; }
+
+	/* 02 Docs */
+	.tree { display: flex; flex-direction: column; gap: 4px; }
+	.tDir { font-family: var(--sl-font-mono); font-size: 12px; font-weight: 600; color: var(--bx-text); margin-top: 6px; }
+	.tDir:first-child { margin-top: 0; }
+	.tFile { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 0 4px 18px; border-left: 1px solid var(--bx-border); margin-left: 6px; flex-wrap: wrap; }
+	.tFile .mono { color: var(--bx-text-muted); overflow-wrap: anywhere; }
+	.tFile.out .mono { text-decoration: line-through; color: var(--bx-text-dim); }
+	.tight { gap: 14px; }
+	.card.mini { padding: 16px 18px; }
+	.card.mini h3 { font-size: 15px; }
+	.card.mini p { font-size: 13.5px; }
+
+	/* 03 Endpoints */
+	.toolPath { display: grid; grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1fr); gap: 18px; align-items: center; }
+	.pathArrow { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; font-family: var(--sl-font-mono); color: var(--bx-text-dim); }
+	.pathArrow::after { content: '→'; font-size: 22px; color: var(--bx-accent); }
+	.toolName { font-size: 16px !important; font-weight: 600; color: var(--bx-accent); margin-bottom: 4px; }
+	.toolDesc { font-size: 14px; color: var(--bx-text-muted); margin-bottom: 14px !important; }
+	.toolMeta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; margin: 0 0 14px; font-size: 13px; }
+	.toolMeta dt { color: var(--bx-text-dim); }
+	.toolMeta dd { margin: 0; overflow-wrap: anywhere; }
+	.hints { display: flex; flex-wrap: wrap; gap: 6px; }
+	.hints span { font-size: 11px; padding: 3px 9px; border-radius: 20px; background: var(--bx-surface2); color: var(--bx-text-muted); border: 1px solid var(--bx-border); }
+	.rules { margin-top: 48px; }
+	.catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+	.catList { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+	.catList span:not(.catNote) { font-family: var(--sl-font-mono); font-size: 11.5px; padding: 3px 10px; border-radius: 20px; background: var(--bx-surface2); color: var(--bx-text-muted); }
+	.catList .hl { background: var(--bx-accent-dim) !important; color: var(--bx-accent) !important; font-weight: 600; }
+	.catList .more { background: transparent !important; color: var(--bx-text-dim) !important; }
+	.catNote { font-size: 12.5px; color: var(--bx-text-dim); flex-basis: calc(100% - 120px); flex-grow: 1; }
+
+	.flowWrap { margin-top: 24px; }
+
+	/* 04 Startup */
+	.startup { margin-top: 44px; }
+
+	/* 05 Worked example */
+	.example { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.chatBody { display: flex; flex-direction: column; gap: 14px; }
+	.msg { font-size: 14px; line-height: 1.6; padding: 11px 14px; border-radius: 12px; max-width: 88%; }
+	.msg.user { align-self: flex-end; background: var(--bx-accent); color: #fff; border-bottom-right-radius: 4px; }
+	.msg.bot { align-self: flex-start; background: var(--bx-surface2); border: 1px solid var(--bx-border); border-bottom-left-radius: 4px; }
+	.call { position: relative; border: 1px solid var(--bx-border); border-radius: 10px; padding: 10px 12px; margin-left: 26px; }
+	.call::before, .msg.bot::before { content: attr(data-step); position: absolute; left: -26px; top: 10px; width: 18px; height: 18px; border-radius: 50%; background: var(--bx-accent-dim); color: var(--bx-accent); font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+	.msg.bot { position: relative; margin-left: 26px; }
+	.callHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+	.callTool { font-weight: 600; color: var(--bx-accent); }
+	.callIo { margin: 0 0 8px; padding: 10px 12px; border-radius: 8px; background: var(--bx-surface2); font-family: var(--sl-font-mono); font-size: 11.5px; line-height: 1.6; overflow-x: auto; white-space: pre; border: none; color: var(--bx-text); }
+	.ioLabel { display: block; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--bx-text-dim); }
+	.call .mockTable { font-size: 12px; }
+	.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
+	.steps li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 14px; margin: 0; }
+	.stepNum { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--bx-accent); color: var(--bx-accent); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+	.steps b { display: block; font-size: 15px; margin-bottom: 4px; }
+	.steps p { font-size: 14px; line-height: 1.6; color: var(--bx-text-muted); }
+	.audit { margin-top: 12px; border: 1px solid var(--bx-border); border-radius: 10px; overflow: hidden; background: var(--bx-surface); }
+
+	/* 06 Saved queries */
+	.fakeCheck { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+	.fakeCheck .box { width: 18px; height: 18px; border-radius: 5px; background: var(--bx-accent); color: #fff; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+	.versions { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); overflow: hidden; border-collapse: separate; border-spacing: 0; }
+
+	/* 07 Replaceable services */
+	.replace .mockBody { overflow-x: auto; padding: 6px 10px; }
+	.replace .mockTable { min-width: 620px; }
+	.dim { color: var(--bx-text-dim) !important; font-size: 12.5px; }
+
+	@media (max-width: 1024px) {
+		.plug { margin: 0; max-width: none; }
+		.toolPath, .example, .checkPane { grid-template-columns: minmax(0, 1fr); }
+		.pathArrow::after { content: '↓'; }
+	}
+	@media (max-width: 640px) {
+		.ports, .outs { grid-template-columns: minmax(0, 1fr); }
+		.wires { grid-template-columns: minmax(0, 1fr); }
+		.wires i:nth-child(n + 2) { display: none; }
+		.catalog { grid-template-columns: minmax(0, 1fr); }
+		.colRow { grid-template-columns: minmax(0, 1fr) auto; }
+		.colType { display: none; }
+		.msg { max-width: 100%; }
+		.call .mockTable th:nth-child(4), .call .mockTable td:nth-child(4) { display: none; }
+	}
+</style>

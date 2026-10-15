@@ -1,0 +1,646 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+import Flow from '../Flow.astro';
+import Shot from '../Shot.astro';
+import Terminal from '../Terminal.astro';
+
+// The eight built-in tools, as published by the server (title, hints, action needed, how a call is recorded).
+const TOOLS = [
+	{ name: 'get_context', title: 'Project Overview', needs: 'read', ro: true, idem: true, rec: 'audit', what: 'Data sources, schemas, tables, quality scores and documentation status. The recommended first call.' },
+	{ name: 'search', title: 'Search Catalog', needs: 'read', ro: true, idem: true, rec: 'audit', what: 'Tables, columns and documentation by keyword, fused with semantic matching when a local embedder is configured.' },
+	{ name: 'get_documentation', title: 'Get Documentation', needs: 'read', ro: true, idem: true, rec: 'audit', what: 'Generated documentation for the project, a data source or a single table, concise or detailed.' },
+	{ name: 'get_query_context', title: 'Get Grounding Context for a Question', needs: 'read', ro: true, idem: true, rec: 'audit', what: 'The grounding context ask would use, so the agent can write its own SQL against it.' },
+	{ name: 'ask', title: 'Ask a Data Question', needs: 'query', ro: true, idem: false, rec: 'audit + signal', what: 'Routes, grounds, generates, validates and runs SQL for a natural-language question.' },
+	{ name: 'query', title: 'Run Read-Only Query', needs: 'query', ro: true, idem: true, rec: 'audit + signal', what: 'Runs one read-only statement on one data source; max_rows defaults to 100.' },
+	{ name: 'dry_run', title: 'Validate SQL Without Executing', needs: 'query', ro: true, idem: true, rec: 'audit + signal', what: 'Runs every gate (read_only, schema, provider_dry_run) and reports all issues at once.' },
+	{ name: 'feedback', title: 'Record Answer Feedback', needs: 'query', ro: false, idem: true, rec: 'audit', what: 'Records a correct or incorrect verdict on an ask answer. It curates nothing by itself.' },
+];
+
+const CLI = `claude mcp add --transport http beacon https://beacon.example.com/beacon/mcp \\
+  --header "Authorization: Bearer $BEACON_MCP_API_KEY"`;
+
+const MCP_JSON = `{
+  "mcpServers": {
+    "beacon": {
+      "type": "http",
+      "url": "https://beacon.example.com/beacon/mcp",
+      "headers": { "Authorization": "Bearer \${BEACON_MCP_API_KEY}" }
+    }
+  }
+}`;
+
+const CURSOR = `{
+  "mcpServers": {
+    "beacon": {
+      "url": "https://beacon.example.com/beacon/mcp",
+      "headers": { "Authorization": "Bearer sk-sem_…" }
+    }
+  }
+}`;
+
+const VSCODE = `{
+  "inputs": [
+    { "type": "promptString", "id": "beacon-key", "description": "Beacon API key", "password": true }
+  ],
+  "servers": {
+    "beacon": {
+      "type": "http",
+      "url": "https://beacon.example.com/beacon/mcp",
+      "headers": { "Authorization": "Bearer \${input:beacon-key}" }
+    }
+  }
+}`;
+
+const TABS = [
+	{ id: 'cli', label: 'Claude Code CLI', code: CLI, lang: 'bash', title: 'Terminal' },
+	{ id: 'json', label: '.mcp.json', code: MCP_JSON, lang: 'json', title: '.mcp.json (shared with the team; Claude Code expands variables)' },
+	{ id: 'cursor', label: 'Cursor', code: CURSOR, lang: 'json', title: '.cursor/mcp.json' },
+	{ id: 'vscode', label: 'VS Code', code: VSCODE, lang: 'json', title: '.vscode/mcp.json' },
+];
+
+const ASK_SQL = `SELECT c.customer_id, c.email, count(*) AS orders
+FROM shop.orders o
+JOIN shop.customers c ON c.customer_id = o.customer_id
+WHERE o.placed_at >= date_trunc('week', now()) - interval '1 week'
+  AND o.placed_at <  date_trunc('week', now())
+GROUP BY c.customer_id, c.email
+ORDER BY orders DESC
+LIMIT 3`;
+
+const CALL_CONTEXT = `{
+  "question": "Which customers placed the most orders last week?",
+  "datasource_name": "shop-db",
+  "project_id": 4
+}`;
+
+const CONTEXT_RESPONSE = `# Query Context: shop-db (PostgreSQL)
+Write PostgreSQL SELECT statements. Validate with dry_run, execute with query. Sections marked (authoritative) are human-verified.
+
+## Relevant Tables (full schema)
+shop.orders     (order_id PK, customer_id, status, placed_at, total)
+shop.customers  (customer_id PK, email, country_code, created_at)
+
+## Join Paths (verified)
+shop.orders.customer_id → shop.customers.customer_id
+
+## Verified query examples (authoritative)
+Q: Orders per customer last month
+SELECT customer_id, count(*) FROM shop.orders WHERE …`;
+
+const CALL_DRYRUN = `{
+  "datasource_name": "shop-db",
+  "sql": "SELECT c.customer_id, c.email, count(*) AS orders FROM …",
+  "project_id": 4
+}`;
+
+const DRYRUN_RESPONSE = `{
+  "valid": true,
+  "issues": [],
+  "executable_sql": "SELECT c.customer_id, c.email, count(*) AS orders … LIMIT 3",
+  "pii_columns": ["email"]
+}`;
+
+const CALL_REFUSED = `{
+  "datasource_name": "ledger-db",
+  "sql": "SELECT account_id, balance FROM finance.accounts",
+  "project_id": 7
+}`;
+
+const LOG_7123 = `<span class="k-dim">category</span>  <span class="k-mute">Beacon.AI.Services.LlmProviders.LlmRowDataEgress</span>
+<span class="k-dim">event</span>     <span class="k-blue">7123</span> <span class="k-mute">RowDataSentToLlm</span> <span class="k-dim">·</span> <span class="k-green">Information</span>
+<span class="k-dim">fields</span>    <span class="k-yellow">Categories</span>    sample-values, value-matches
+          <span class="k-yellow">DataSourceIds</span> 12
+          <span class="k-yellow">ProjectId</span>     4
+          <span class="k-yellow">CallerId</span>      31
+<span class="k-dim">never</span>     <span class="k-red">a value, prompt text or a table row</span>`;
+
+const LOG_9100 = `<span class="k-dim">category</span>  <span class="k-mute">Beacon.Audit</span>
+<span class="k-dim">event</span>     <span class="k-blue">9100</span> <span class="k-mute">McpToolAudited</span> <span class="k-dim">·</span> <span class="k-green">Information</span>
+<span class="k-dim">fields</span>    <span class="k-yellow">Tool</span>        query
+          <span class="k-yellow">Persisted</span>   true
+          <span class="k-yellow">ProjectId</span>   7
+          <span class="k-yellow">UserId</span>      31
+          <span class="k-yellow">ApiKeyId</span>    57
+          <span class="k-yellow">DurationMs</span>  12
+          <span class="k-yellow">ErrorClass</span>  permission
+          <span class="k-yellow">TraceId</span>     5f2c9a17e04b4c1d8b3e6a90c2d71f44`;
+
+const AUDIT = [
+	{ time: '09:41:02', tool: 'get_context', project: 4, rows: '', ms: 38, out: 'ok' },
+	{ time: '09:41:05', tool: 'get_query_context', project: 4, rows: '', ms: 212, out: 'ok' },
+	{ time: '09:41:09', tool: 'dry_run', project: 4, rows: '', ms: 96, out: 'ok' },
+	{ time: '09:41:10', tool: 'query', project: 4, rows: '3', ms: 41, out: 'ok' },
+	{ time: '09:44:27', tool: 'query', project: 7, rows: '', ms: 12, out: 'permission' },
+];
+---
+
+<ExploreLayout
+	area="ai-and-mcp"
+	eyebrow="Explore · AI & MCP"
+	title="Let AI assistants query your data, <em>governed</em>."
+	lede="Beacon's MCP server gives Claude, Cursor, VS Code and your own agents eight tools to explore a project's catalog and run read-only SQL. Every call is scoped to the caller's projects, checked by the same gate as the rest of Beacon, masked and audited."
+	facts={[
+		{ value: '8', label: 'built-in tools' },
+		{ value: 'Execute', label: 'scope to connect' },
+		{ value: 'Every call', label: 'audited, failures too' },
+	]}
+	deeper={[
+		{ title: 'MCP server', href: '/features/mcp-server/', desc: 'Tools, guardrails, deployment locks and the SQL accuracy stack.' },
+		{ title: 'MCP & AI clients', href: '/integrate/mcp/', desc: 'Wiring, discovery, API keys, Entra callers and client setup.' },
+		{ title: 'MCP observability and audit', href: '/features/mcp-observability-and-audit/', desc: 'Audit rows, log events, spans, metrics and retention.' },
+	]}
+>
+	<div slot="hero" class="chat mock" aria-label="An AI assistant answering a data question through Beacon's MCP tools">
+		<div class="mockBar"><span>ASSISTANT · BEACON MCP</span><span class="badge">project 4</span></div>
+		<div class="mockBody chatBody">
+			<div class="msg user" style="--i:0">Which customers placed the most orders last week? Top three.</div>
+			<ol class="calls">
+				<li class="call" style="--i:1"><span class="callName">get_context</span><span class="callOut">Shop analytics · 2 data sources</span><span class="tick" aria-label="succeeded"></span></li>
+				<li class="call" style="--i:2"><span class="callName">get_query_context</span><span class="callOut">shop-db · PostgreSQL · verified join</span><span class="tick" aria-label="succeeded"></span></li>
+				<li class="call" style="--i:3"><span class="callName">dry_run</span><span class="callOut">valid · 1 PII column</span><span class="tick" aria-label="succeeded"></span></li>
+				<li class="call" style="--i:4"><span class="callName">query</span><span class="callOut">3 rows · 41 ms</span><span class="tick" aria-label="succeeded"></span></li>
+			</ol>
+			<div class="result" style="--i:5">
+				<table class="mockTable">
+					<thead><tr><th>customer_id</th><th>email <span class="badge warn">masked</span></th><th>orders</th></tr></thead>
+					<tbody>
+						<tr><td class="mono">58120</td><td class="mono">a***e</td><td class="mono">14</td></tr>
+						<tr><td class="mono">11904</td><td class="mono">m***e</td><td class="mono">11</td></tr>
+						<tr><td class="mono">73455</td><td class="mono">t***e</td><td class="mono">9</td></tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="msg bot" style="--i:6">Customer 58120 placed the most orders last week (14), followed by 11904 (11) and 73455 (9). Email addresses are masked by Beacon's PII detection.</div>
+		</div>
+	</div>
+
+	<Section num="01" label="The ask pipeline" title="From a question to masked rows, in eight stages." lede="The ask tool does not pipe a prompt straight into SQL. Each question passes routing, grounding, generation and validation before anything reaches the database, and the result is capped and masked before it leaves the server.">
+		<Flow
+			seconds={9}
+			steps={[
+				{ label: 'Route', detail: 'The model picks the data source or sources. Skipped for a single-source project.' },
+				{ label: 'Ground', detail: 'M-Schema, verified join paths, glossary, verified examples and learned patterns.' },
+				{ label: 'Generate', detail: "SQL in the data source's own dialect, checked by deterministic semantic lint." },
+				{ label: 'Gate', detail: 'Regex guardrail, AST read-only validator, cross-database rule, row cap.', tone: 'warn' },
+				{ label: 'Dry run, repair', detail: 'A failure goes back with the error, redacted by class, and a refreshed schema.' },
+				{ label: 'Execute', detail: 'Read-only path, 30-second timeout, 100 rows on one data source.' },
+				{ label: 'Mask', detail: 'PII values are masked (a***z) before the result leaves the server.', tone: 'ok' },
+				{ label: 'Audit', detail: 'An audit row and a learning signal, on success and on failure.', tone: 'ok' },
+			]}
+		/>
+		<div class="pipeNotes cols3">
+			<p class="note"><b>Cross-source questions.</b> When a question spans several data sources, Beacon queries each one separately and joins the results in an in-memory SQLite database.</p>
+			<p class="note"><b>Database backstop.</b> On PostgreSQL and MySQL the statement also runs inside a read-only transaction. On every engine, the read-only login you connect with is the database-level boundary.</p>
+			<p class="note"><b>Your own SQL instead.</b> Agents that want full control use <code>get_query_context</code>, write the SQL, check it with <code>dry_run</code> and run it with <code>query</code>.</p>
+		</div>
+	</Section>
+
+	<Section num="02" label="Tools" title="Eight built-in tools, and two families you add." alt lede="Every tool is published with a title and safety annotations, so clients can reason about it before calling. What a caller may use follows its role in the project: catalog tools need Read, the SQL-carrying tools need Query.">
+		<div class="roleBar">
+			<span class="roleLabel" id="roleLabel">Caller's role in the project</span>
+			<div class="roleSwitch" role="group" aria-labelledby="roleLabel" data-role-switch>
+				<button type="button" data-role="viewer" aria-pressed="false">Viewer</button>
+				<button type="button" data-role="editor" aria-pressed="true">Editor or above</button>
+			</div>
+		</div>
+		<div class="toolGrid" data-role="editor" data-tool-grid>
+			{
+				TOOLS.map((t) => (
+					<div class="tool" data-needs={t.needs}>
+						<div class="toolHead">
+							<span class="toolName">{t.name}</span>
+							<span class={`badge ${t.needs === 'read' ? 'neutral' : ''}`}>{t.needs === 'read' ? 'Read' : 'Query'}</span>
+						</div>
+						<div class="toolTitle">{t.title}</div>
+						<p class="toolWhat">{t.what}</p>
+						<div class="toolMeta">
+							<span>readOnlyHint <b class={t.ro ? 'yes' : 'no'}>{String(t.ro)}</b></span>
+							<span>idempotentHint <b class={t.idem ? 'yes' : 'no'}>{String(t.idem)}</b></span>
+						</div>
+						<div class="toolRec"><span>{t.rec}</span></div>
+						<div class="toolDeny">Refused: "you may read project N but not run ad-hoc queries in it."</div>
+					</div>
+				))
+			}
+			<div class="tool family" data-needs="run">
+				<div class="toolHead">
+					<span class="toolName">q_&lt;name&gt;</span>
+					<span class="badge ok">Run</span>
+				</div>
+				<div class="toolTitle">Saved query tools</div>
+				<p class="toolWhat">An approved saved query that a SecurityAdmin exposed. It runs the approved version's snapshot, with arguments bound as database parameters, and stays available to Viewers. Above 25 visible tools, a caller gets <code>search_saved_queries</code> and <code>run_saved_query</code> instead.</p>
+				<div class="toolMeta"><span>readOnlyHint <b class="yes">true</b></span><span>idempotentHint <b class="yes">true</b></span></div>
+				<div class="toolRec"><span>audit only</span></div>
+			</div>
+			<div class="tool family" data-needs="entra">
+				<div class="toolHead">
+					<span class="toolName">api_&lt;name&gt;</span>
+					<span class="badge neutral">Entra callers</span>
+				</div>
+				<div class="toolTitle">Host endpoint tools</div>
+				<p class="toolWhat">Endpoints of the host application marked as tools, dispatched in-process through the endpoint's own pipeline as the caller. Mapped Entra callers only; API keys never see them. Write tools need the host's opt-in and run for user callers only. Above 20: <code>search_api</code> and <code>call_api</code>.</p>
+				<div class="toolMeta"><span>readOnlyHint <b class="yes">declared per endpoint</b></span></div>
+				<div class="toolRec"><span>audit (writes as api_&lt;name&gt;:write)</span></div>
+			</div>
+		</div>
+		<p class="note">Every built-in tool carries <code>destructiveHint: false</code> and <code>openWorldHint: false</code>. The <code>query</code> and <code>ask</code> responses also include <code>structuredContent</code> with columns, rows, the row count and a truncation flag, so agents never parse tables out of prose.</p>
+	</Section>
+
+	<Section num="03" label="Worked example" title="The transcript above, call by call." lede="An analyst asks Claude Code which customers ordered the most last week. Their API key has the Execute scope and reaches two projects: Shop analytics (4), where they are an Editor, and the restricted Finance project (7), where they are a Viewer member. Because the key reaches two projects, the assistant passes project_id on every call.">
+		<ol class="steps">
+			<li class="stepRow">
+				<div class="stepText">
+					<span class="stepNum">1</span>
+					<div>
+						<h3><code>get_context</code> · find out what exists</h3>
+						<p>The assistant starts where the server instructions recommend: an overview of project 4, its data sources, schemas, table counts, quality scores and documentation status. It needs Read in the project.</p>
+					</div>
+				</div>
+				<div class="stepCode">
+					<Code code={`{ "project_id": 4 }`} lang="json" title="tools/call · get_context" />
+				</div>
+			</li>
+			<li class="stepRow">
+				<div class="stepText">
+					<span class="stepNum">2</span>
+					<div>
+						<h3><code>get_query_context</code> · pull the grounding</h3>
+						<p>Instead of delegating generation to <code>ask</code>, the assistant asks for the context Beacon would use itself, ranked against the question: M-Schema renderings, verified join paths, human-verified examples and matching glossary terms. Sections marked authoritative are human-verified. The response is cut at <code>max_chars</code> (12,000 by default) on a section boundary, with an explicit note.</p>
+					</div>
+				</div>
+				<div class="stepCode">
+					<Code code={CALL_CONTEXT} lang="json" title="tools/call · get_query_context" />
+					<Code code={CONTEXT_RESPONSE} lang="text" title="Response (abridged)" />
+				</div>
+			</li>
+			<li class="stepRow">
+				<div class="stepText">
+					<span class="stepNum">3</span>
+					<div>
+						<h3><code>dry_run</code> · validate without running</h3>
+						<p>The assistant writes its SQL and validates it through every gate: the shared read-only gate (with PII detection reporting the columns it would mask), the schema-catalog check that catches invented tables and columns, and the database's own <code>EXPLAIN</code>. Issues are collected, not first-failure-wins, so one call reports everything to fix.</p>
+					</div>
+				</div>
+				<div class="stepCode">
+					<Code code={ASK_SQL} lang="sql" title="The assistant's SQL" />
+					<Code code={DRYRUN_RESPONSE} lang="json" title="structuredContent" />
+				</div>
+			</li>
+			<li class="stepRow">
+				<div class="stepText">
+					<span class="stepNum">4</span>
+					<div>
+						<h3><code>query</code> · run it, read-only</h3>
+						<p>The statement passes the gate again and runs on the read-only path with the fixed 30-second timeout. <code>max_rows</code> defaults to 100 and is capped at the project's row limit. The <code>email</code> column comes back masked, so the assistant reports customer ids, never addresses.</p>
+					</div>
+				</div>
+				<div class="stepCode">
+					<div class="mock">
+						<div class="mockBar"><span>RESULT · 3 ROWS</span><span>truncated: false</span></div>
+						<div class="mockBody tight">
+							<table class="mockTable">
+								<thead><tr><th>customer_id</th><th>email</th><th>orders</th></tr></thead>
+								<tbody>
+									<tr><td class="mono">58120</td><td class="mono masked">a***e</td><td class="mono">14</td></tr>
+									<tr><td class="mono">11904</td><td class="mono masked">m***e</td><td class="mono">11</td></tr>
+									<tr><td class="mono">73455</td><td class="mono masked">t***e</td><td class="mono">9</td></tr>
+								</tbody>
+							</table>
+						</div>
+					</div>
+				</div>
+			</li>
+			<li class="stepRow refused">
+				<div class="stepText">
+					<span class="stepNum crit">5</span>
+					<div>
+						<h3>A refusal · the same key in project 7</h3>
+						<p>Later the analyst asks about account balances in Finance. There they are a Viewer member: the catalog tools still answer, but <code>query</code> needs Query. The call is refused before any SQL runs, and the refusal is audited and recorded as a signal like any other failed call. Saved-query tools stay available to Viewers.</p>
+					</div>
+				</div>
+				<div class="stepCode">
+					<Code code={CALL_REFUSED} lang="json" title="tools/call · query" />
+					<div class="errorBox" role="note">
+						<span class="badge crit">isError</span>
+						<span class="mono">Access denied: you may read project 7 but not run ad-hoc queries in it.</span>
+					</div>
+				</div>
+			</li>
+		</ol>
+	</Section>
+
+	<Section num="04" label="Connecting clients" title="One URL, one bearer token." alt lede="Every client talks Streamable HTTP to /beacon/mcp and sends a credential with the Execute scope. A Read-scoped key gets 403 at the door; a browser session reaches no project there and uses the MCP Playground instead.">
+		<div class="connectGrid">
+			<div class="tabs" data-tabs>
+				<div class="tabList" role="tablist" aria-label="Client configuration">
+					{TABS.map((t, i) => (
+						<button type="button" role="tab" id={`tab-${t.id}`} aria-controls={`panel-${t.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>{t.label}</button>
+					))}
+				</div>
+				{TABS.map((t) => (
+					<div class="tabPanel" role="tabpanel" id={`panel-${t.id}`} aria-labelledby={`tab-${t.id}`}>
+						<Code code={t.code} lang={t.lang} title={t.title} />
+					</div>
+				))}
+				<p class="note">Claude on claude.ai and Claude Desktop connect as a custom connector with the same URL. Connectors sign in with OAuth, so that path needs Entra ID callers.</p>
+			</div>
+			<div class="stack">
+				<div class="card choice">
+					<div class="choiceHead"><span class="badge">Option A</span><h3>API keys</h3></div>
+					<p>Each person creates a key in <b>API keys</b> with the Execute scope, the projects the assistant should use and a short expiry. It is shown once; Beacon stores only its SHA-256 hash.</p>
+					<ul class="ticks">
+						<li>Acts as its owner, only in the key's projects, capped by the owner's current role</li>
+						<li>Catalog and saved-query tools work for any owner; <code>query</code> and <code>ask</code> need Editor or above</li>
+						<li>Audit rows carry the <code>ApiKeyId</code></li>
+					</ul>
+				</div>
+				<div class="card choice">
+					<div class="choiceHead"><span class="badge">Option B</span><h3>Entra ID callers</h3></div>
+					<p>For organisation-wide access without personal keys, Beacon maps Entra access tokens to MCP callers with projects and a scope. An absent configuration admits no JWT caller.</p>
+					<ul class="ticks">
+						<li><b>Users</b>: delegated tokens, optionally auto-provisioned with the Viewer role</li>
+						<li><b>Systems</b>: app-only tokens of a known application or service principal</li>
+						<li>Required for OAuth connectors and for host endpoint tools; audited by a keyed hash</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="05" label="What reaches the LLM provider" title="Schema goes in. Row data is opt-in or screened, and logged." lede="Beacon sends prompts to the one provider configured in Admin Settings: OpenAI, Anthropic, Azure OpenAI or AWS Bedrock. What a prompt may carry is fixed, and every request that carries row data is logged.">
+		<div class="egress">
+			<div class="egressCol">
+				<div class="egressHead"><span class="badge ok">Always</span><h3>In the prompt</h3></div>
+				<ul class="egressList">
+					<li><b>The question</b><span>As the caller asked it</span></li>
+					<li><b>Schema</b><span>Table and column names, types, descriptions, join paths</span></li>
+					<li><b>Curated knowledge</b><span>Glossary, documentation, verified examples, learned patterns</span></li>
+				</ul>
+				<p class="note">Read through the caller's authorized project only: another project's material never enters the prompt, even on a shared data source.</p>
+			</div>
+			<div class="egressDivider" aria-hidden="true"></div>
+			<div class="egressCol">
+				<div class="egressHead"><span class="badge warn">Opt-in or screened</span><h3>Row data</h3></div>
+				<ul class="egressList">
+					<li><b class="mono">sample-values</b><span>Only with sample-value collection on, off by default</span></li>
+					<li><b class="mono">value-matches</b><span>Only with value grounding on, off by default; live probes only for callers who may query</span></li>
+					<li><b class="mono">column-values</b><span>Documentation enum discovery, with sample-value collection on</span></li>
+					<li><b class="mono">result-rows</b><span>Eval judge only, off by default; PII masked, at most 20 rows</span></li>
+					<li><b class="mono">database-errors</b><span>Lesson extraction, always redacted by class; repair prompts carry only redacted errors</span></li>
+					<li><b class="mono">stored-documentation</b><span>Sections that can list discovered values, for knowledge answers</span></li>
+				</ul>
+			</div>
+		</div>
+		<div class="cols2 egressFoot">
+			<Terminal label="event 7123 · one record per request carrying row data" html={LOG_7123} />
+			<div class="stack">
+				<div class="card">
+					<h3>One lock keeps all row data out</h3>
+					<p>The deployment lock <code>Beacon:Mcp:ForbidRowDataToLlm</code> pins sample values, value grounding and the eval judge off for every project. Repair prompts then carry only an error's class and code, and nobody can change that at runtime, an Admin included.</p>
+				</div>
+				<div class="card">
+					<h3>Returned to the client, logged the same way</h3>
+					<p>When <code>get_query_context</code> returns sample values or value matches to an MCP client, that response is recorded under event 7123 too. Local embeddings never use the provider: they run in-process.</p>
+				</div>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="06" label="Audit" title="Every tool call leaves a row." alt lede="McpAuditService records every invocation: the built-in tools, saved-query tools and host endpoint tools, successes, validation errors, project-access refusals and calls refused for a missing Execute scope. It is never short-circuited.">
+		<div class="auditGrid">
+			<div class="mock">
+				<div class="mockBar"><span>McpAuditLog · userId 31</span><span>paged JSON export</span></div>
+				<div class="mockBody tight scrollX">
+					<table class="mockTable auditTable">
+						<thead><tr><th>Time (UTC)</th><th>Tool</th><th>Project</th><th>Rows</th><th>ms</th><th>Error class</th></tr></thead>
+						<tbody>
+							{AUDIT.map((a) => (
+								<tr class={a.out === 'ok' ? '' : 'bad'}>
+									<td class="mono">{a.time}</td>
+									<td class="mono">{a.tool}</td>
+									<td class="mono">{a.project}</td>
+									<td class="mono">{a.rows}</td>
+									<td class="mono">{a.ms}</td>
+									<td>{a.out === 'ok' ? <span class="dim">none</span> : <span class="badge crit">{a.out}</span>}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			</div>
+			<Terminal label="Beacon.Audit · the refused call" html={LOG_9100} />
+		</div>
+		<p class="note">Rows shown as a table for reading. Auditors and Admins read them through <code>GET /beacon/api/mcp/audit</code>, a paged JSON export; reading the audit is itself audited (event 9103).</p>
+		<div class="cols3" style="margin-top: 28px">
+			<div class="card">
+				<h3>Correlated</h3>
+				<p>Each row keeps the trace and span id of the call, the <code>Mcp-Session-Id</code>, an upstream request id and the caller: an API key's id, or a mapped Entra caller's kind and keyed hash.</p>
+			</div>
+			<div class="card">
+				<h3>Content follows retention</h3>
+				<p>With a project's content retention off, the row keeps its structure (tool, tables, bytes of input, error class) and drops the question and SQL. The row itself is always written.</p>
+			</div>
+			<div class="card">
+				<h3>Fail closed when required</h3>
+				<p>With <code>Beacon:Mcp:Audit:Required</code> set, a result whose audit row could not be written is withheld from the caller. No unaudited data leaves Beacon.</p>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="07" label="Guarantees" title="What every MCP call can rely on.">
+		<div class="cols3">
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4z" /></svg></div>
+				<h3>Read-only, locked on</h3>
+				<p>Only read-only statements run. <code>Beacon:Mcp:ForceReadOnly</code> pins it on by default, binding on Admins too; only the host's configuration lifts it.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></svg></div>
+				<h3>PII masked, locked on</h3>
+				<p>Emails, phone numbers, card numbers, tokens and your own patterns are masked before results leave the server. <code>ForcePiiDetection</code> keeps detection on by default.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></svg></div>
+				<h3>Project access on every call</h3>
+				<p>The caller's projects are decided per call, with no session cache. A revoked membership or a disabled user takes effect on the next call, in the same session.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="2.5" /><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6" /></svg></div>
+				<h3>Its own database only</h3>
+				<p>SQL may name only the data source's configured database. Functions that reach other servers, files or storage are refused, also with read-only enforcement off.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h9" /></svg></div>
+				<h3>Bounded results</h3>
+				<p>A row limit (1,000 at most by default) and a fixed 30-second timeout for <code>query</code> and <code>ask</code>. Truncated results say so and tell the agent how to get more.</p>
+			</div>
+			<div class="card">
+				<div class="cardIcon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h8M8 12h8M8 17h5" /><rect x="4" y="3" width="16" height="18" rx="2" /></svg></div>
+				<h3>Strictest settings on shared sources</h3>
+				<p>A data source several projects link runs with the strictest guardrails among them: the lowest row limit, PII and read-only on if any project turns them on.</p>
+			</div>
+		</div>
+		<div style="margin-top: 36px">
+			<Shot name="mcp-playground-dark" alt="The MCP Playground in the dark theme" caption="The MCP Playground runs the same tools, guardrails and audit as a real MCP session, as the signed-in user." />
+		</div>
+	</Section>
+</ExploreLayout>
+
+<script>
+	// Role switcher for the tool grid.
+	document.querySelectorAll<HTMLElement>('[data-role-switch]').forEach((group) => {
+		const grid = group.closest('.wrap')?.querySelector<HTMLElement>('[data-tool-grid]');
+		const buttons = group.querySelectorAll<HTMLButtonElement>('button[data-role]');
+		buttons.forEach((button) => {
+			button.addEventListener('click', () => {
+				buttons.forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+				if (grid) {
+					grid.dataset.role = button.dataset.role ?? 'editor';
+				}
+			});
+		});
+	});
+
+	// Accessible tabs for the client snippets. Without JavaScript every panel stays visible.
+	document.querySelectorAll<HTMLElement>('[data-tabs]').forEach((root) => {
+		const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+		const panels = Array.from(root.querySelectorAll<HTMLElement>('[role="tabpanel"]'));
+		const select = (index: number, focus: boolean) => {
+			tabs.forEach((tab, i) => {
+				const active = i === index;
+				tab.setAttribute('aria-selected', String(active));
+				tab.tabIndex = active ? 0 : -1;
+				panels[i].hidden = !active;
+			});
+			if (focus) {
+				tabs[index].focus();
+			}
+		};
+		tabs.forEach((tab, i) => {
+			tab.addEventListener('click', () => select(i, false));
+			tab.addEventListener('keydown', (event) => {
+				if (event.key === 'ArrowRight') {
+					select((i + 1) % tabs.length, true);
+				} else if (event.key === 'ArrowLeft') {
+					select((i - 1 + tabs.length) % tabs.length, true);
+				}
+			});
+		});
+		select(0, false);
+	});
+</script>
+
+<style>
+	/* Hero transcript */
+	.chat { max-width: 540px; margin-left: auto; }
+	.chatBody { display: flex; flex-direction: column; gap: 12px; }
+	.msg { font-size: 14px; line-height: 1.55; padding: 10px 14px; border-radius: 12px; max-width: 88%; animation: aiIn .45s ease backwards; animation-delay: calc(var(--i) * 0.45s + 0.2s); }
+	.msg.user { align-self: flex-end; background: var(--bx-accent); color: #fff; border-bottom-right-radius: 4px; }
+	.msg.bot { align-self: flex-start; background: var(--bx-surface2); border: 1px solid var(--bx-border); color: var(--bx-text); border-bottom-left-radius: 4px; }
+	.calls { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	.call { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--bx-border); border-radius: 8px; font-size: 12.5px; animation: aiIn .4s ease backwards; animation-delay: calc(var(--i) * 0.45s + 0.2s); }
+	.callName { font-family: var(--sl-font-mono); font-size: 12px; color: var(--bx-accent); background: var(--bx-accent-dim); padding: 1px 7px; border-radius: 5px; }
+	.callOut { color: var(--bx-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.tick { width: 16px; height: 16px; border-radius: 50%; background: var(--xp-ok-dim); position: relative; }
+	.tick::after { content: ''; position: absolute; left: 5px; top: 3px; width: 4px; height: 7px; border: solid var(--xp-ok); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+	.result { border: 1px solid var(--bx-border); border-radius: 8px; overflow-x: auto; animation: aiIn .4s ease backwards; animation-delay: calc(var(--i) * 0.45s + 0.2s); }
+	.result .mockTable th, .result .mockTable td { padding: 6px 10px; }
+	.result .badge { font-size: 9.5px; padding: 1px 6px; margin-left: 4px; text-transform: none; letter-spacing: 0; }
+	@keyframes aiIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+	/* Pipeline notes */
+	.pipeNotes { margin-top: 36px; }
+	.pipeNotes .note { margin: 0; }
+	.pipeNotes b { color: var(--bx-text); font-weight: 600; }
+
+	/* Tools */
+	.roleBar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+	.roleLabel { font-size: 13px; color: var(--bx-text-dim); }
+	.roleSwitch { display: inline-flex; border: 1px solid var(--bx-border); border-radius: 20px; padding: 3px; background: var(--bx-surface); }
+	.roleSwitch button { font: inherit; font-size: 13px; font-weight: 500; border: 0; background: transparent; color: var(--bx-text-muted); padding: 6px 14px; border-radius: 20px; cursor: pointer; }
+	.roleSwitch button[aria-pressed='true'] { background: var(--bx-accent); color: #fff; }
+	.roleSwitch button:focus-visible { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.toolGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+	.tool { display: flex; flex-direction: column; gap: 6px; background: var(--bx-surface); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 16px 16px 14px; transition: opacity .2s, border-color .2s; }
+	.tool.family { grid-column: span 2; border-style: dashed; }
+	.toolHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+	.toolName { font-family: var(--sl-font-mono); font-size: 13.5px; font-weight: 600; color: var(--bx-text); overflow-wrap: anywhere; }
+	.toolTitle { font-size: 12.5px; color: var(--bx-text-dim); }
+	.toolWhat { font-size: 13.5px; line-height: 1.55; color: var(--bx-text-muted); flex: 1; }
+	.toolMeta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-family: var(--sl-font-mono); font-size: 11px; color: var(--bx-text-dim); margin-top: 4px; }
+	.toolMeta b { font-weight: 600; }
+	.toolMeta .yes { color: var(--xp-ok); }
+	.toolMeta .no { color: var(--xp-warn); }
+	.toolRec { font-size: 11.5px; color: var(--bx-text-dim); border-top: 1px solid var(--bx-border); padding-top: 8px; margin-top: 4px; }
+	.toolRec span::before { content: 'Recorded as '; }
+	.toolDeny { display: none; font-size: 12px; line-height: 1.45; color: var(--xp-crit); background: var(--xp-crit-dim); border-radius: 8px; padding: 6px 9px; }
+	.toolGrid[data-role='viewer'] .tool[data-needs='query'] { opacity: 0.62; border-color: color-mix(in srgb, var(--xp-crit) 35%, var(--bx-border)); }
+	.toolGrid[data-role='viewer'] .tool[data-needs='query'] .toolDeny { display: block; }
+
+	/* Worked example */
+	.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+	.stepRow { margin: 0; display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 32px; padding: 28px 0; border-top: 1px solid var(--bx-border); }
+	.stepRow:first-child { border-top: 0; padding-top: 0; }
+	.stepText { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; align-items: start; }
+	.stepText p { font-size: 14.5px; line-height: 1.62; color: var(--bx-text-muted); }
+	.stepNum { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--sl-font-mono); font-size: 13px; font-weight: 700; border: 2px solid var(--bx-accent); color: var(--bx-accent); }
+	.stepNum.crit { border-color: var(--xp-crit); color: var(--xp-crit); }
+	.stepCode { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+	.tight { padding: 6px 8px; }
+	.masked { color: var(--xp-warn); }
+	.errorBox { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 14px 16px; border-radius: var(--bx-radius); border: 1px solid color-mix(in srgb, var(--xp-crit) 40%, var(--bx-border)); background: var(--xp-crit-dim); }
+	.errorBox .mono { font-size: 13px; color: var(--bx-text); line-height: 1.5; }
+
+	/* Connect */
+	.connectGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.tabList { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+	.tabList button { font: inherit; font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: 20px; border: 1px solid var(--bx-border); background: var(--bx-surface); color: var(--bx-text-muted); cursor: pointer; }
+	.tabList button[aria-selected='true'] { background: var(--bx-accent); border-color: var(--bx-accent); color: #fff; }
+	.tabList button:focus-visible { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.tabPanel + .tabPanel { margin-top: 12px; }
+	.tabPanel[hidden] { display: none; }
+	.choiceHead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+	.choiceHead h3 { margin: 0; }
+	.ticks { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	.ticks li { margin: 0; position: relative; padding-left: 20px; font-size: 13.5px; line-height: 1.5; color: var(--bx-text-muted); }
+	.ticks li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 8px; height: 8px; border-radius: 2px; background: var(--bx-accent); opacity: 0.7; }
+
+	/* Egress */
+	.egress { display: grid; grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1.3fr); gap: 32px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); padding: 26px 28px; }
+	.egressDivider { background: var(--bx-border); }
+	.egressHead { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+	.egressHead h3 { margin: 0; }
+	.egressList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+	.egressList li { margin: 0; display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--bx-border); font-size: 13.5px; }
+	.egressList li:last-child { border-bottom: 0; }
+	.egressList b { color: var(--bx-text); font-weight: 600; }
+	.egressList b.mono { font-size: 12.5px; color: var(--bx-accent); }
+	.egressList span { color: var(--bx-text-muted); line-height: 1.5; }
+	.egressFoot { margin-top: 24px; }
+
+	/* Audit */
+	.auditGrid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+	.scrollX { overflow-x: auto; }
+	.auditTable td, .auditTable th { white-space: nowrap; }
+	.auditTable tr.bad td { background: var(--xp-crit-dim); }
+	.dim { color: var(--bx-text-dim); font-size: 12.5px; }
+
+	@media (max-width: 1024px) {
+		.chat { margin: 0; max-width: none; }
+		.toolGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		.stepRow, .connectGrid, .auditGrid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+	}
+	@media (max-width: 860px) {
+		.egress { grid-template-columns: minmax(0, 1fr); padding: 22px 18px; gap: 22px; }
+		.egressDivider { height: 1px; }
+	}
+	@media (max-width: 640px) {
+		.toolGrid { grid-template-columns: minmax(0, 1fr); }
+		.tool.family { grid-column: auto; }
+		.egressList li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+		.callOut { font-size: 11.5px; }
+		.msg { max-width: 100%; }
+	}
+</style>

@@ -1,413 +1,210 @@
 ---
 title: Subscriptions
-description: Schedule query execution with cron expressions, set timeouts, and route results to notification recipients.
+description: "Run a query on a cron schedule, decide which runs notify whom, and choose what each notification carries: runs execute as the subscription's owner."
 ---
 
-Subscriptions schedule when queries execute and who receives notifications.
+A subscription runs one query on a schedule and delivers the result to recipients. It decides when the query runs,
+which runs notify anyone, what each notification carries, and whether runs open [tasks](/features/tasks/) or check for
+[anomalies](/features/anomaly-detection/).
 
-## Purpose
+A subscription has no name of its own: lists, notifications and Jira issues use its query's name.
 
-Subscriptions allow you to:
-- Schedule queries with cron expressions
-- Define execution frequency (hourly, daily, weekly, custom)
-- Specify query timeout limits
-- Configure notification recipients
-- Control result storage
-- Override query parameters
+## Create a subscription
 
-## Use Cases
+Open **Subscriptions** (`/beacon/subscriptions`) and click **New subscription**, or click **Add subscription** on a
+query's page. Creating one needs Write on the query (and, for an API key, the Execute scope). The dialog has five
+steps.
 
-- **Hourly Health Checks**: Monitor system metrics every hour
-- **Daily Reports**: Generate and deliver reports each morning
-- **Weekly Summaries**: Aggregate weekly performance data
-- **On-Demand Alerts**: Frequent checks for critical thresholds (every 5-15 minutes)
-- **Monthly Reports**: End-of-month business analytics
+### 1. Query
 
-## Creating a Subscription
+| Field | Default | What it does |
+|---|---|---|
+| **Query** | Required | The query to run (required). |
+| **Cron expression** | `0 9 * * *` | When it runs: a standard 5-field cron expression (required). |
+| **Query parameters** | None | A value for each of the query's [parameters](/features/queries/#query-parameters), used by every run. Each value must read as the parameter's type. |
 
-### Step 1: Navigate to Subscriptions
+Parameter values are bound as data. A value such as `CURRENT_DATE - INTERVAL '7 days'` is the literal text, never
+evaluated: write relative dates into the query's SQL instead.
 
-1. Click **Subscriptions** in the left navigation (`/subscriptions`)
-2. Click **Create New Subscription**
+### 2. Notify
 
-### Step 2: Fill Subscription Details
+| Field | Default | What it does |
+|---|---|---|
+| **Send notification** | When result count changes | Which runs notify the recipients: **When result count changes**, **Every execution**, or **When result count increases**. |
+| **Minimum row count** | none | Notify only when a run returns at least this many rows. |
+| **Recipients** | None | Who is notified. Required unless **Create a task** is ticked. Recipients are created on the [Recipients](/features/notifications/#recipients) page. |
+| **Create a task and keep it open while the query returns rows** | off | The first run with rows opens a [task](/features/tasks/); later runs update it, and a run with no rows resolves it. This happens on every run, whatever the notification setting. |
 
-| Field | Description | Required | Example |
-|-------|-------------|----------|---------|
-| **Name** | Descriptive name | Yes | `Daily User Count Report` |
-| **Description** | Purpose and audience | No | `Sent to DevOps team every morning` |
-| **Query** | Query to execute | Yes | Select from dropdown |
-| **Cron Expression** | Execution schedule | Yes | `0 9 * * *` |
-| **Timeout** | Max execution time (seconds) | Yes | 60 |
-| **Store Results** | Save to history | No | ✓ Recommended |
-| **Send Notifications** | Notify recipients | No | ✓ If recipients added |
+### 3. Results
 
-### Step 3: Configure Cron Schedule
+| Field | Default | What it does |
+|---|---|---|
+| **Max rows** | no limit | The most rows that reach recipients: the inline table and the attachment. The run's record count is always the full count. |
+| **Timeout (seconds)** | the deployment's limit | How long each statement of a run may take, the in-memory final query included. Empty uses `Beacon:Query:StatementTimeoutSeconds` (default 120). A longer value than that limit is refused when you save. |
+| **Include results as attachment** | off | Attach the result to the notification as **CSV** or **XLSX** (**Attachment format**). Only email delivers attachments. |
+| **Show query text in notification** | off | Include the SQL in the message. |
+| **Store result rows for later viewing** | off | Keep a preview of the result's first rows on the run's record, shown on the notification's page. |
 
-The cron expression determines when the query runs.
+### 4. Anomaly
 
-**Format:**
-```
-* * * * *
-│ │ │ │ │
-│ │ │ │ └─── Day of week (0-7, 0 and 7 = Sunday)
-│ │ │ └───── Month (1-12)
-│ │ └─────── Day of month (1-31)
-│ └───────── Hour (0-23)
-└─────────── Minute (0-59)
-```
+**Enable anomaly detection** makes the subscription notify only when a run's row count is unusual against its history,
+instead of using the **Send notification** rule. Set the **Detection method**, **Sensitivity**, **Lookback (days)**
+(the dialog accepts 7–365, default 30), **Minimum data points** (the dialog accepts 3–100, default 7), and whether to
+alert on an unusual increase, decrease or both. See [Anomaly Detection](/features/anomaly-detection/).
 
-**Common expressions:**
+### 5. Review
 
-| Expression | Description | Frequency |
-|------------|-------------|-----------|
-| `*/5 * * * *` | Every 5 minutes | 288 times/day |
-| `0 * * * *` | Every hour, on the hour | 24 times/day |
-| `0 */6 * * *` | Every 6 hours | 4 times/day |
-| `0 9 * * *` | Daily at 9:00 AM | 1 time/day |
-| `0 9 * * 1` | Every Monday at 9:00 AM | 1 time/week |
-| `0 9 1 * *` | First day of month at 9:00 AM | 1 time/month |
-| `0 9 * * 1-5` | Weekdays at 9:00 AM | 5 times/week |
+Check the summary and click **Create subscription**. The subscription records you as its [owner](#owner-and-project-access)
+and starts running on its schedule.
 
-:::note
-Hover over the cron expression field in Beacon to see a human-readable description, or use [crontab.guru](https://crontab.guru/) for assistance.
-:::
+## Which runs notify
 
-### Step 4: Set Timeout
+Every run is recorded with a status. Recipients are notified only when the status is **Sent**:
 
-The timeout bounds how long each statement of a run may take, the final query that joins the steps' results in memory included. Every statement also stops at the deployment's statement limit, `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds; see [Query Execution Row Cap](/getting-started/configuration/#query-execution-row-cap)): a shorter timeout here applies, and saving a longer one is refused — the dialog warns about a timeout above the default limit. Left empty, the run uses the deployment's limit. A subscription stored with a longer timeout before this check runs with the deployment's limit.
+| Status | When |
+|---|---|
+| **Timeout** | A step did not complete: it ran out of time or failed. |
+| **No results** | The query returned no rows. Nobody is notified, whatever the trigger. |
+| **Below threshold** | Fewer rows than **Minimum row count**. |
+| **Sent** | The trigger fired: **Every execution**; **When result count changes** and the count differs from the last run's; **When result count increases** and it is higher. A run with no earlier run to compare with notifies. With anomaly detection on: an anomaly was found. |
+| **Silenced** | The trigger did not fire, or anomaly detection found nothing unusual. |
+| **Failed** | Delivery to at least one recipient failed. The others are still notified; the run names the failed recipient ids with a generic reason. |
+| **Skipped** | Nothing ran, or nobody could be notified; see [Scheduled runs run as the owner](#scheduled-runs-run-as-the-owner). |
 
-**Guidelines:**
-- Simple queries: 30-60 seconds
-- Complex aggregations: up to the deployment's limit; pre-aggregate anything slower in the database
+A skipped run is not a baseline: the result-count trigger compares a run with the last run that was not skipped.
 
-:::caution
-Queries exceeding timeout will be cancelled and marked as failed in execution history.
-:::
+## Cron schedules
 
-### Step 5: Add Recipients
+Five fields: minute, hour, day of month, month, day of week. Beacon validates the expression when you save; the host's
+job runner (see [Background jobs](/integrate/background-jobs/)) fires the runs.
 
-1. In the **Recipients** section, click **Add Recipient**
-2. Select recipients from the list
-3. Click **Save**
+| Expression | Runs |
+|---|---|
+| `*/5 * * * *` | Every 5 minutes |
+| `0 * * * *` | Every hour, on the hour |
+| `0 */6 * * *` | Every 6 hours |
+| `0 9 * * *` | Daily at 09:00 |
+| `0 9 * * 1-5` | Weekdays at 09:00 |
+| `0 9,13,17 * * *` | At 09:00, 13:00 and 17:00 |
+| `*/15 8-18 * * *` | Every 15 minutes from 08:00 to 18:59 |
+| `0 9 * * 1` | Mondays at 09:00 |
+| `0 9 1 * *` | The first day of every month at 09:00 |
+| `0 9 1 1,4,7,10 *` | The first day of every quarter at 09:00 |
 
-See [delivery channels](/features/notifications/) for details.
+## Manage subscriptions
 
-### Step 6: Configure Parameters (if applicable)
+### The Subscriptions list
 
-If your query uses parameters (e.g., `{{start_date}}`), you'll see a **Parameters** section:
+The list shows **Id**, **Query**, **Query name**, **Schedule**, **Recipients** and **Source** (Direct, or the AI actor
+that created it), filtered to **Active** or **Archived** and searchable by query name. It is paged on the server (20 rows
+per page, at most 200) and holds only the subscriptions you may read. Click a row to open the subscription.
 
-1. For each parameter, provide a value or expression
-2. Use static values: `2025-01-01`
-3. Or use dynamic expressions: `NOW() - INTERVAL '7 days'`
+### The subscription page
 
-See [query parameters](/features/queries/#query-parameters) for details.
+The page (`/beacon/subscriptions/{id}`) shows the query configuration, the owner, the notification settings and run
+statistics, with the tabs **Recipients**, **Anomaly detection** (shown only when anomaly detection is on) and
+**Execution history**.
 
-### Step 7: Save Subscription
+| Action | What it does | Needs |
+|---|---|---|
+| **Test now** | Runs the subscription once, now, and delivers to its recipients (`POST /beacon/api/subscriptions/{id}/execute`). It runs as you, not as the owner, and does not change the schedule. | Write and Run |
+| **Archive** | Stops the schedule and moves the subscription to the Archived list (`DELETE /beacon/api/subscriptions/{id}`). Its runs stay in the history. | Manage. The button is enabled for Admins; others with Manage use the API. |
+| **Reactivate** | Puts an archived subscription back on its schedule (`POST /beacon/api/subscriptions/{id}/reactivate`). | Write. The button is enabled for Admins; others with Write use the API. |
+| **Change owner** | Assigns another owner (see below). | Admin or UserAdmin |
+| **Add recipient** / **Remove recipient** | On the **Recipients** tab (`POST /beacon/api/subscriptions/{id}/recipients`, `DELETE …/recipients/{recipientId}`). | Write |
 
-Click **Save** to create the subscription.
+There is no pause and no edit of a subscription's schedule, timeout, parameters, trigger or result options. To change
+them, create a new subscription and archive the old one. What can change after creation is its recipients, its owner,
+and its SLA.
 
-The subscription will execute automatically according to your cron schedule.
+### SLA hours
 
-## Managing Subscriptions
+A subscription's SLA sets how long its open tasks may stay unresolved; the task page counts down against it (24 hours
+when none is set). An Admin edits it from the SLA banner on a task page (the **Edit SLA** gear: 1–720 hours, or
+**Use default**). Through the API, `POST /beacon/api/subscriptions/{id}/sla` with `{ "slaHours": 8 }` (1–720, or
+`null` to clear) needs Write on the subscription.
 
-### View Subscriptions
+## Owner and project access
 
-The Subscriptions page shows:
-- Subscription name and query
-- Cron schedule (human-readable)
-- Next execution time
-- Last execution status
-- Enabled/disabled state
-- Actions (Edit, Execute Now, Disable, Delete)
+A subscription records its **owner** when it is created: the signed-in creator, or, for a subscription an
+[AI actor](/features/ai-actors/) creates, the actor's creator, never a value from the request. The page shows the owner
+by display name, or as "User {id}" without one, never a user name or external id; subscriptions created before owners
+were recorded show "no owner recorded", and an owner who matches no Beacon user any more shows "unknown user". While
+Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user)
+cannot create a subscription (`403`).
 
-### Owner and project access
-
-A subscription records its **owner** when it is created: the signed-in creator, or, for a subscription an [AI actor](/features/ai-actors/) creates, the actor's creator — never a value from the request. The subscription page shows the owner by display name, or as "User {id}" without one — never a user name or external id; subscriptions created before owners were recorded show "no owner recorded", and an owner who matches no Beacon user any more shows "unknown user". The detail route returns `hasOwner` and `ownerDisplayName` for this, not the owner's id. While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer token not bound to a user) cannot create a subscription (`403`).
-
-A subscription belongs to the project that holds its query's data sources: it, its runs and their stored results are visible only through such a project the caller may use ([Project access](/features/authorization/#project-access)). One you may not read answers `404` and shows the not-found state.
+A subscription belongs to the projects that hold its query's data sources: it, its runs and their stored results are
+visible only through such a project you may use ([Project access](/features/authorization/#project-access)). One you may
+not read answers `404`.
 
 ### Scheduled runs run as the owner
 
-Every scheduled run runs as the subscription's owner, as they are at that moment: right before any SQL runs, Beacon checks that the owner may still run saved SQL in one project that holds every data source of the query's steps. When the owner may not — the owner was disabled or archived, lost their membership of a restricted project, or lost the role that lets them run saved SQL — the run is **skipped**:
+Every scheduled run runs as the subscription's owner, as they are at that moment: right before any SQL runs, Beacon
+checks that the owner may still run saved SQL in one project that holds every data source of the query's steps. When the
+owner may not (disabled or archived, removed from a restricted project, or without the role that runs saved SQL) the
+run is **skipped**:
 
-- nothing runs against the data sources, no notification is sent, no task is created or updated, and an AI actor is not triggered;
-- the run history records the run with the status **Skipped** (`notificationStatus` `8`) and the reason "Skipped: owner not authorized.";
-- the job itself does not fail, and a skipped run is not reported as an execution failure (the Home page's failures leave it out; its activity feed lists the run as skipped, and the uptime strip shows it as a warning);
-- the Control Tower counts it as an unsuccessful run and marks the subscription (`ownerNotAuthorized` on its health row), and so does the subscription's detail (`ownerNotAuthorized`).
+- nothing runs against the data sources, no notification is sent, no task is created or updated, and an AI actor is not
+  triggered;
+- the run is recorded as **Skipped** with "Skipped: owner not authorized.";
+- the job does not fail, and a skipped run is not counted as an execution failure (the Home page's activity feed lists
+  it as skipped);
+- the Control Tower counts it as an unsuccessful run and marks the subscription (`ownerNotAuthorized`), as does the
+  subscription's detail.
 
-The subscription page then shows a banner saying that scheduled runs are skipped until an Admin assigns an owner who has access, and marks the owner **not authorized**. Skipped runs carry the **Skipped** label in the execution history, the notifications list, and the Control Tower.
+The subscription page shows a banner until an Admin or UserAdmin assigns an owner who has access. A subscription without
+an owner (created before owners were recorded) runs only while every data source of its query is openly reachable;
+otherwise it is skipped, and with `Beacon:Authorization:RequireProjectMembership: true` it is always skipped.
 
-A subscription without an owner (created before owners were recorded) runs only while every data source of its query is openly reachable (linked to an open project, or unlinked and open); otherwise it is skipped, and with `Beacon:Authorization:RequireProjectMembership: true` it is always skipped. On a host without Beacon user management, an owner who has no Beacon user runs as the system, as before.
-
-**Execute Now** runs as you, the caller, not as the owner: it needs your access to run the query, and answers `403` without it.
+Runs are also **Skipped** when, with the [approval workflow](/features/approvals/) on, the query's stored SQL is not its
+approved active version (the page shows "The last run was skipped" with the remedy; see
+[Queries → Approval workflow](/features/queries/#approval-workflow)), and when every recipient is waiting for approval of
+where it delivers (see [Notifications](/features/notifications/#approval-of-new-and-changed-destinations)).
 
 ### Change the owner
 
-An Admin or a UserAdmin assigns an owner with **Change owner** on the subscription page (in the header, and in the "owner not authorized" banner): pick a user and save. The same change is `PUT /beacon/api/subscriptions/{id}/owner` with `{ "userId": 12 }` (the user's id in the user directory) — for instance for a subscription created before owners were recorded, or one whose owner left. The new owner must be an existing, enabled user who may run the subscription's query: run saved SQL in one project that holds all of its data sources. A user who may not is refused with `409` and a message saying so, because every run would be skipped; the page shows that message and keeps the picker open so you can choose someone else.
-
-### Execute Manually
-
-Test a subscription without waiting for the schedule:
-
-1. Click **Execute Now** (play icon) on the subscription row
-2. Execution runs immediately
-3. Check notification delivery
-4. Review execution history
-
-:::note
-Manual executions don't affect the cron schedule. Scheduled executions continue as configured.
-:::
-
-### Enable/Disable Subscription
-
-Temporarily pause a subscription:
-
-1. Click **Disable** (pause icon) on the subscription row
-2. Subscription stops executing on schedule
-3. Click **Enable** to resume
-
-**Use cases for disabling:**
-- Maintenance windows
-- Database migrations in progress
-- Recipient is out of office
-- Query needs modification
-
-### Edit Subscription
-
-1. Click **Edit** (pencil icon) on the subscription row
-2. Modify schedule, timeout, or recipients
-3. Click **Save**
-
-Changes take effect on the next scheduled execution.
-
-### Delete Subscription
-
-1. Click **Delete** (trash icon) on the subscription row
-2. Confirm deletion
-3. Subscription is archived (soft delete)
-
-:::note
-Execution history is preserved even after subscription deletion.
-:::
-
-## Advanced Scheduling
-
-### Business Hours Only
-
-**Weekdays, 9 AM to 5 PM:**
-```
-0 9-17 * * 1-5
-```
-
-Executes every hour from 9 AM to 5 PM, Monday through Friday.
-
-### Multiple Times Per Day
-
-**At 9 AM, 1 PM, and 5 PM:**
-```
-0 9,13,17 * * *
-```
-
-### Every N Minutes During Specific Hours
-
-**Every 15 minutes between 8 AM and 6 PM:**
-```
-*/15 8-18 * * *
-```
-
-### End of Month
-
-**Last day of month at 11 PM:**
-```
-0 23 L * *
-```
-
-:::caution
-Standard cron doesn't support `L` (last day). Use `0 23 28-31 * *` and handle logic in query.
-:::
-
-### Quarterly Reports
-
-**First day of quarter at 9 AM:**
-```
-0 9 1 1,4,7,10 *
-```
-
-Runs January 1, April 1, July 1, and October 1.
-
-## Subscription Parameters
-
-### Static Parameter Values
-
-Provide fixed values for parameters:
-
-**Parameter:** `threshold`
-**Value:** `100`
-
-**Query:**
-```sql
-SELECT COUNT(*) as high_value_transactions
-FROM transactions
-WHERE amount > {{threshold}}
-```
-
-### Dynamic Parameter Expressions
-
-Use SQL expressions for dynamic values:
-
-**Parameter:** `start_date`
-**Value:** `CURRENT_DATE - INTERVAL '7 days'`
-
-**Parameter:** `end_date`
-**Value:** `CURRENT_DATE`
-
-**Query:**
-```sql
-SELECT DATE(created_at) as date, COUNT(*) as orders
-FROM orders
-WHERE created_at >= '{{start_date}}'
-  AND created_at < '{{end_date}}'
-GROUP BY DATE(created_at)
-```
-
-## Execution Behavior
-
-### When Subscriptions Run
-
-Beacon schedules jobs through the `IBeaconScheduler` abstraction — the host supplies the job runner (we recommend [Moberg Warp](https://moberghr.github.io/warp/); Quartz.NET also works):
-- Cron expressions are evaluated according to your scheduler configuration
-- Execution timing depends on your scheduler implementation
-- Multiple subscriptions can execute concurrently (depending on scheduler worker configuration)
-
-### Execution Order
-
-When multiple subscriptions trigger simultaneously:
-- Executions run in parallel (your scheduler's worker pool)
-- Long-running queries don't block others
-
-### What a Run Reads and Delivers
-
-A run executes its query's steps through the same execution gate and read-only path as every other query execution (see [How a query runs](/features/queries/#how-a-query-runs)):
-
-- **Read-only:** every statement passes the regex guardrail, the read-only parser in the data source's dialect and the database-name rule, and runs inside a `READ ONLY` transaction on PostgreSQL and MySQL.
-- **Rows:** a statement may return at most `Beacon:Query:MaxExecutionRows` rows (default 100,000); the cap is written into the SQL, and on PostgreSQL, MySQL, SQL Server, Azure Synapse and Snowflake the read stops one row past it, so no more are fetched (BigQuery and Databricks read the capped statement's result whole). A larger result fails the run rather than delivering part of it, with a message naming `Beacon:Query:MaxExecutionRows` (raise it as far as the host's memory allows, or filter the query), so the run's record count (which drives *notify on change*, minimum-row rules, anomaly detection and tasks) is always exact. **Max Rows** then limits how many of those rows reach recipients, attachments and the stored result.
-- **PII masking:** before the rows reach recipients, attachments, notifications or the stored result, columns holding PII are masked — by the PII names in the SQL, by their own result-column names and by aliases over PII columns — following the PII detection setting and custom patterns of the projects that link the query's data sources (the strictest applies, as for MCP). With PII detection off in every linking project, rows are delivered as read. With a final query, the steps' rows are joined as read — masked first, two different values (two e-mail addresses) could mask alike and join as equal — and the final query's result is masked instead: every column it fills from a step's PII column, by name, by an alias or by an expression over it (`UPPER(a.email) AS x`), and every column when its select list cannot be traced. Columns a host data source masks arrive masked from the host and stay masked through the join, whatever the detection setting.
-
-### Failure Handling
-
-If a query execution fails:
-- Error is logged in execution history
-- Notification includes error message
-- Next scheduled execution still occurs
-- Retry behavior is up to your scheduler implementation — we recommend leaving automatic retries off for query subscriptions to prevent cascading failures
-
-## Monitoring Subscriptions
-
-### Execution History
-
-View all past executions:
-
-1. Click **Notifications** in left navigation
-2. Filter by subscription or date range
-3. Review:
-   - Execution timestamp
-   - Query results
-   - Recipients notified
-   - Delivery status
-   - Errors (if any)
-
-### Next Execution Time
-
-The Subscriptions page shows:
-- **Next Run**: When subscription will execute next
-- **Last Run**: When it last executed
-- **Status**: Success, Failed, or Pending
-
-Use this to verify cron expressions are correct.
-
-## Examples
-
-### Example 1: Hourly Health Check
-
-**Subscription:**
-- Name: `Database Connection Monitor`
-- Query: `Check Active Connections`
-- Cron: `0 * * * *` (every hour)
-- Timeout: 30 seconds
-- Recipients: DevOps Team (Teams)
-
-**Purpose**: Alert if connection count approaches limit.
-
-### Example 2: Daily Morning Report
-
-**Subscription:**
-- Name: `Yesterday's Sales Summary`
-- Query: `Daily Revenue Report`
-- Cron: `0 8 * * *` (every day at 8 AM)
-- Timeout: 120 seconds
-- Recipients: Sales Team (Email with CSV)
-
-**Purpose**: Deliver overnight sales data to management.
-
-### Example 3: Critical Alert (Every 5 Minutes)
-
-**Subscription:**
-- Name: `Critical Error Monitor`
-- Query: `Recent Critical Errors`
-- Cron: `*/5 * * * *` (every 5 minutes)
-- Timeout: 30 seconds
-- Recipients: On-Call Engineer (Teams + Email)
-
-**Purpose**: Immediate notification of production errors.
-
-### Example 4: Weekly Summary (Monday Mornings)
-
-**Subscription:**
-- Name: `Weekly User Growth Report`
-- Query: `New Users Last Week`
-- Cron: `0 9 * * 1` (Monday at 9 AM)
-- Timeout: 60 seconds
-- Recipients: Product Team (Email)
-
-**Purpose**: Weekly tracking of user acquisition.
+An Admin or a UserAdmin clicks **Change owner** on the subscription page (in the header, and in the "owner not
+authorized" banner), picks a user and saves, or calls `PUT /beacon/api/subscriptions/{id}/owner` with
+`{ "userId": 12 }`. The new owner must be an existing, enabled user who may run the subscription's query in one project
+that holds all of its data sources; anyone else is refused with `409`, because every run would be skipped.
+
+## What a run reads and delivers
+
+A run executes its query through the same execution gate and read-only path as every other query execution (see
+[How a query runs](/features/queries/#how-a-query-runs)):
+
+- **Read-only:** every statement passes the regex guardrail, the read-only parser in the data source's dialect and the
+  database-name rule, and runs inside a `READ ONLY` transaction on PostgreSQL and MySQL.
+- **Rows:** a statement may return at most `Beacon:Query:MaxExecutionRows` rows (default 100,000). A larger result fails
+  the run rather than delivering part of it, so the run's record count (which drives the trigger, the minimum row count,
+  anomaly detection and tasks) is always exact. **Max rows** then limits how many of those rows reach recipients.
+- **PII masking:** before the rows reach recipients, attachments or the stored result, columns holding PII are masked:
+  by the PII names in the SQL, by their own result-column names and by aliases over PII columns, following the PII
+  detection setting and custom patterns of the projects that link the query's data sources (the strictest applies, as
+  for MCP). With PII detection off in every linking project, rows are delivered as read. With a final query, the steps'
+  rows are joined as read and the final query's result is masked instead: every column it fills from a step's PII
+  column, by name, by an alias or by an expression over it, and every column when its select list cannot be traced.
+  Columns a host data source masks arrive masked and stay masked.
+
+A run that fails is recorded with its status, and the next scheduled run still happens.
 
 ## Troubleshooting
 
-### Subscription Not Executing
+**The subscription never runs.** Check that it is Active (not Archived), that the cron expression is what you meant, and
+that the host's job runner is running (see [Background jobs](/integrate/background-jobs/)).
 
-**Check:**
-1. Subscription is enabled (not paused)
-2. Cron expression is valid
-3. Next execution time shows correct schedule
-4. Your job scheduler service is running
+**Runs show Skipped.** Read the run's reason: the owner is not authorized (change the owner), the query change is not
+approved, or every recipient waits for approval.
 
-**Verify Scheduler:**
-Check application logs for your scheduler service status and any errors.
+**Runs succeed but nobody is notified.** Check the status: **No results**, **Below threshold** and **Silenced** notify
+nobody by design. Then check the recipients and the delivery status in [Notifications](/features/notifications/).
 
-### Execution Timeout
+**Runs time out.** Narrow or index the query, or raise the subscription's timeout up to the deployment's limit.
 
-If queries consistently timeout:
-1. Increase timeout setting
-2. Optimize query performance (add indexes)
-3. Reduce result set size
-4. Split into multi-step query
+## Related
 
-### Missing Notifications
-
-**Check:**
-1. Recipients are added to subscription
-2. "Send Notifications" is enabled
-3. Notification delivery status in history
-4. Recipient configuration (email, Teams webhook)
-
-**Review notification history:**
-1. Click **Notifications**
-2. Find failed delivery
-3. Check error message
-
-## Related Documentation
-
-- [Queries](/features/queries/) - Create and manage queries
-- [Notifications](/features/notifications/) - Configure delivery channels and understand notification delivery
-- [Anomaly Detection](/features/anomaly-detection/) - Alert on unusual execution patterns
+- [Queries](/features/queries/): the SQL a subscription runs
+- [Notifications](/features/notifications/): channels, recipients and delivery history
+- [Tasks](/features/tasks/): work items opened by **Create a task**
+- [Anomaly Detection](/features/anomaly-detection/): the Anomaly step
+- [Control Tower](/features/control-tower/): health across all subscriptions

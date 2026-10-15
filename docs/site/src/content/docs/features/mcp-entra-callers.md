@@ -3,7 +3,7 @@ title: Entra ID callers on MCP
 description: Let an agent platform call Beacon's MCP endpoint with Microsoft Entra ID tokens, either on behalf of a user or as a system identity, with projects and scope decided by Beacon configuration.
 ---
 
-Besides [API keys](/features/api-keys/), the [MCP server](/features/mcp-server/) at `/beacon/mcp` accepts **Microsoft Entra ID bearer tokens**. This is how an agent platform (for example AIProxy / Kvika Work) calls a Beacon that is embedded in a host application. It supports two modes, and both are first-class:
+Besides [API keys](/features/api-keys/), the [MCP server](/features/mcp-server/) at `/beacon/mcp` accepts **Microsoft Entra ID bearer tokens**. This is how an agent platform calls a Beacon that is embedded in a host application. It supports two modes, and both are first-class:
 
 | Mode | Token | Identified by |
 |------|-------|---------------|
@@ -16,7 +16,7 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 ## How a call is resolved
 
 1. The bearer token is validated (signature against the JWKS endpoint, issuer, audience and lifetime). The JWKS is
-   cached: it is fetched once and refreshed hourly, or earlier — at most once every 5 minutes — when a token is
+   cached: it is fetched once and refreshed hourly, or earlier (at most once every 5 minutes) when a token is
    signed with a key id the cached set does not hold (key rotation). A failed refresh keeps the last good keys.
 2. On `/beacon/mcp`, Beacon passes the validated claims to `IMcpCallerMapper`. The default `ConfiguredMcpCallerMapper`
    first rejects the token unless:
@@ -35,6 +35,8 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
 
+The mapped principal carries `auth_method=mcp_caller`, so the Execute-scope rules for scoped callers apply to it as they do to API keys. A browser session (cookie or SSO) is not a scoped caller and reaches no project on `/beacon/mcp`; browsers use the [MCP Playground](/features/mcp-server/#mcp-playground).
+
 ### What a caller reaches
 
 The configured projects are what a caller is mapped to. What it reaches in them is decided on every call by Beacon's [project access](/features/authorization/#project-access), as for API keys and signed-in users:
@@ -48,9 +50,9 @@ The configured projects are what a caller is mapped to. What it reaches in them 
 
 A membership granted or revoked, a project restricted, or a user disabled takes effect on the caller's next call. Provisioned users get no membership automatically: add them as members of the restricted projects they are configured for (`DefaultRoleName` gives them their global role, `Viewer` by default).
 
-What a user caller with a Beacon user may **do** in a project follows that user's role there, capped by the caller's scope: the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) need Read; `ask`, `query`, `dry_run` and `feedback` work ad hoc and need an Editor role there — the user's global role Editor or above and, in a restricted project, an Editor membership (or project admin). A user provisioned with the default `Viewer` role therefore reads the catalog and runs saved-query tools, but its SQL tools answer "Access denied: you may read project N but not run ad-hoc queries in it." (audited). Raise `DefaultRoleName`, or the user's role, to let it run SQL. System callers, and user callers without a Beacon user, are capped by their scope only (`Execute`: SQL tools allowed).
+What a user caller with a Beacon user may **do** in a project follows that user's role there, capped by the caller's scope: the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) need Read; `ask`, `query`, `dry_run` and `feedback` work ad hoc and need an Editor role there: the user's global role Editor or above and, in a restricted project, an Editor membership (or project admin). A user provisioned with the default `Viewer` role therefore reads the catalog and runs saved-query tools, but its SQL tools answer "Access denied: you may read project N but not run ad-hoc queries in it." (audited). Raise `DefaultRoleName`, or the user's role, to let it run SQL. System callers, and user callers without a Beacon user, are capped by their scope only (`Execute`: SQL tools allowed).
 
-Provisioning therefore changes what the same person can do. A user caller **without** a Beacon user acts within its configured open projects with the SQL tools (its `Execute` scope allows them); once provisioned, it gets its stored role instead — with the default `Viewer`, the catalog only. Both are in the administrator's hands: the caller configuration (its projects and scope) decides the first, `DefaultRoleName` and the user's roles the second. When user callers are configured and `DefaultRoleName` is `Viewer`, Beacon logs this once at startup (Information).
+Provisioning therefore changes what the same person can do. A user caller **without** a Beacon user acts within its configured open projects with the SQL tools (its `Execute` scope allows them); once provisioned, it gets its stored role instead. With the default `Viewer`, this is the catalog only. Both are in the administrator's hands: the caller configuration (its projects and scope) decides the first, `DefaultRoleName` and the user's roles the second. When user callers are configured and `DefaultRoleName` is `Viewer`, Beacon logs this once at startup (Information).
 
 Other routes (`/beacon/api/*`) accept a bearer token only when it names an **existing, enabled, external Beacon
 user** by its subject (`sub`) and issuer, or a pre-registered user's subject when only one issuer is configured. A user
@@ -85,7 +87,7 @@ its tokens carry `roles`. A client-credentials token with neither is rejected.
 
 ## Configuration
 
-Bearer JWT validation has to be on. In the sample host, turn it on by setting `Beacon:Authentication:Oidc:Enabled` and `McpJwksEndpoint`. In your own host, call `AddBeaconJwtAuthentication(x => { x.EnableBearerAuthentication = true; ... })` and `app.UseBeaconJwtBearerAuthentication()`. The token audience must be Beacon's app registration.
+Bearer JWT validation has to be on. In the sample host, turn it on by setting `Beacon:Authentication:Oidc:Enabled` and `Beacon:Authentication:Oidc:McpJwksEndpoint`; the sample then validates the issuer against the OIDC `Authority` and the audience against the OIDC `ClientId`, which may not match the v1/v2 issuer and audience pairs Entra puts in its tokens. A host that configures `Callers` usually sets `ValidIssuers` and `ValidAudiences` itself, as below. In your own host, call `AddBeaconJwtAuthentication(x => { x.EnableBearerAuthentication = true; ... })` and `app.UseBeaconJwtBearerAuthentication()`. The token audience must be Beacon's app registration.
 
 **Issuer and audience are mandatory once any caller is configured.** Entra's JWKS signs tokens for every tenant and
 every resource, so a valid signature proves nothing about who the token is for. When `Users:Enabled` is on or any
@@ -127,12 +129,12 @@ The callers are configured under `Beacon:Mcp:Callers`:
           },
           "Scope": "Execute",                            // Read | Execute
           "AutoProvision": true,                         // find or create a Beacon user keyed on oid
-          "DefaultRoleName": "Viewer"                    // role for a newly provisioned user
+          "DefaultRoleName": "Viewer"                    // global role for a newly provisioned user
         },
         "Systems": [
           {
-            "Name": "aiproxy",
-            "ClientId": "<aiproxy-app-client-id>",       // app-only token (azp / appid)
+            "Name": "agent-platform",
+            "ClientId": "<agent-platform-app-client-id>", // app-only token (azp / appid)
             "ProjectIds": [1, 2],
             "Scope": "Execute",
             "HostClaims": [ { "Type": "permission", "Value": "ViewReports" } ]
@@ -163,7 +165,7 @@ The callers are configured under `Beacon:Mcp:Callers`:
 | `Systems[]:ClientId` / `ObjectId` | none | **Set exactly one per entry.** The host refuses to start otherwise |
 | `Systems[]:HostClaims` | empty | The permission set this identity gets inside the host application. It is carried on the caller for in-process API dispatch |
 
-Validation runs at startup. A system entry with both `ClientId` and `ObjectId`, or with neither, a duplicate name, or a non-positive project id, stops the host with a message that names the entry. So do, once any caller is configured: an empty `AllowedTenants`, bearer validation without issuer or audience, and user mode with no role or group requirement and no `AllowAnyTenantUser`.
+Validation runs at startup. A system entry with both `ClientId` and `ObjectId`, or with neither, a duplicate name, or a non-positive project id, stops the host with a message that names the entry. So do, once any caller is configured: an empty `AllowedTenants`, bearer validation without issuer or audience, and user mode with no role or group requirement and no `AllowAnyTenantUser`. With user mode and `AutoProvision` on, `DefaultRoleName` must be set and must not be the Admin role or the role of a functional permission (every provisioned user would administer Beacon).
 
 With `AutoProvision`, two first requests from the same new user can race to create the Beacon user; the loser
 re-reads the row the winner created instead of failing.
@@ -186,13 +188,13 @@ Beacon's [discovery documents](/features/mcp-server/#discovery-endpoints):
    signs the user in, and requests a token for those scopes, sending the resource URL as the RFC 8707 `resource`
    parameter.
 
-By default the document lists Beacon's internal scope names (`Execute`, `Admin`) and no authorization server unless
-Beacon's own OIDC login is on — neither is something Entra understands. Configure it under
+By default the document lists Beacon's internal scope name (`Execute`) and no authorization server unless
+Beacon's own OIDC login is on. Neither is something Entra understands. Configure it under
 `Beacon:Mcp:ProtectedResource`.
 
 ### 1. The API app registration
 
-This is the app registration whose tokens Beacon validates (`Validation.ValidAudiences`) — in an embedded setup, usually
+This is the app registration whose tokens Beacon validates (`Validation.ValidAudiences`). In an embedded setup, usually
 the host's API registration.
 
 - **Manifest:** set `api.requestedAccessTokenVersion` to `2` (`accessTokenAcceptedVersion: 2` in the older AAD Graph
@@ -216,7 +218,7 @@ forms in `ValidAudiences` so v1 callers of the same API keep working.
 Entra has no Dynamic Client Registration, so Claude cannot register itself. Create a separate registration for it:
 
 - **Authentication → Add a platform → Web**, redirect URI `https://claude.ai/api/mcp/auth_callback`.
-- **Certificates & secrets:** create a client secret (it is a confidential client). Note its expiry — the connector
+- **Certificates & secrets:** create a client secret (it is a confidential client). Note its expiry. The connector
   stops working when it expires.
 - **API permissions → Add a permission → APIs my organization uses →** the API registration → **Delegated** →
   `mcp.access`, then **Grant admin consent** for the tenant.
@@ -256,10 +258,9 @@ builder.Services.AddBeaconJwtAuthentication(x =>
 |---------|---------|---------|
 | `AuthorizationServers` | empty | Issuers published as `authorization_servers`, verbatim and in order (clients use the first). Use the **v2** issuer: it equals the `issuer` in Entra's v2 metadata and the `iss` of the tokens. Wins over everything below |
 | `DeriveAuthorizationServerFromJwtIssuer` | `false` | With no explicit list, publish the bearer JWT issuer (`Validation.ValidIssuer(s)`). With several, the one ending in `/v2.0` is chosen; templated issuers (`{tenantid}`) are skipped |
-| `ScopesSupported` | empty | Scopes published in `scopes_supported` (and the server card) instead of `Execute`, `Admin` |
+| `ScopesSupported` | empty | Scopes published in `scopes_supported` (and the server card) instead of `Execute` |
 
-With none of these set the document is unchanged from earlier versions (Beacon's OIDC authority when SSO is on,
-`Execute`/`Admin` scopes). An explicit authorization server without `ScopesSupported`, or derivation with no usable
+With none of these set the document lists Beacon's OIDC authority when SSO is on, and the `Execute` scope. An explicit authorization server without `ScopesSupported`, or derivation with no usable
 issuer, is logged as a warning at startup. The `WWW-Authenticate` challenge, the `resource` in the metadata and the
 server card's `endpoint` and `resource_metadata` all derive from the same `PublicBaseUrl` (or the forwarded request
 host when it is unset), so they always agree.
@@ -285,21 +286,21 @@ Things to check when the connection fails, none of which Beacon can see:
   it; whether Claude enforces that for Entra is for Anthropic's docs to say.
 - **Refresh tokens.** If Claude asks the user to sign in again every hour, add `offline_access` to `ScopesSupported`
   (clients request the listed scopes verbatim).
-- **`AADSTS9010010`** — the `resource` URL Claude sent is not an Application ID URI of the API registration, or a
+- **`AADSTS9010010`**: the `resource` URL Claude sent is not an Application ID URI of the API registration, or a
   requested scope belongs to another registration. Compare the `resource` in
   `/.well-known/oauth-protected-resource` with the registration's `identifierUris`.
-- **`401` with `error="invalid_token"`** — Beacon rejected the token: check `iss`/`aud` against `ValidIssuers` /
+- **`401` with `error="invalid_token"`**: Beacon rejected the token: check `iss`/`aud` against `ValidIssuers` /
   `ValidAudiences` (a v2 token's `aud` is the client id GUID). A malformed bearer value gets the same `401`, never a `500`.
-- **`403`** — the token is valid but the user is not an accepted caller (`Users:Enabled`, `RequiredRoles` /
+- **`403`**: the token is valid but the user is not an accepted caller (`Users:Enabled`, `RequiredRoles` /
   `RequiredGroups`, `AllowedTenants`).
-- **`503` with `Retry-After`** — Beacon could not fetch the Entra JWKS and has no cached keys.
+- **`503` with `Retry-After`**: Beacon could not fetch the Entra JWKS and has no cached keys.
 
 ## Audit and privacy
 
 Every MCP tool call writes an audit row, as before. For a JWT caller, the row also records:
 
 - `CallerKind`: `User` or `System`.
-- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{oid}` (or of `{tid}:{appid}` when there is no `oid`). It is stable per identity and never the raw value. The HMAC key is derived for this purpose only from `Beacon:Mcp:CallerHashKey` when it is set, else from `Beacon:EncryptionKey`, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Without `CallerHashKey`, changing the encryption key changes every caller's hash, so rows written before and after the change no longer group together: before changing the encryption key, set `Beacon:Mcp:CallerHashKey` (a secret) to the key in use now, and the hashes stay the same (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
+- `CallerHash`: the lowercase hex HMAC-SHA256 of `{tid}:{subject}`, where the subject is the token's `oid`, else its `azp` / `appid`, else its `sub`. It is stable per identity and never the raw value. The HMAC key is derived for this purpose only from `Beacon:Mcp:CallerHashKey` when it is set, else from `Beacon:EncryptionKey`, so someone who holds the tenant's list of `oid`s cannot reverse the hashes. Without `CallerHashKey`, changing the encryption key changes every caller's hash, so rows written before and after the change no longer group together: before changing the encryption key, set `Beacon:Mcp:CallerHashKey` (a secret) to the key in use now, and the hashes stay the same (see [Configuration → Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 - `UserId`: the provisioned Beacon user, in user mode.
 
 Logs carry only the caller hash, never the raw `oid`, email or token.
@@ -309,7 +310,7 @@ Logs carry only the caller hash, never the raw `oid`, email or token.
 A host can replace the default mapping. For example, it can map an Entra user to its own admin user and permission set. To do this, register an `IMcpCallerMapper` before `AddBeaconServices`, which registers the default with `TryAdd`, or replace the registration afterwards:
 
 ```csharp
-builder.Services.AddScoped<IMcpCallerMapper, NetgiroMcpCallerMapper>();
+builder.Services.AddScoped<IMcpCallerMapper, AcmeMcpCallerMapper>();
 ```
 
 The mapper receives the raw token claims (`oid`, `tid`, `groups`, and so on) and returns an `McpCaller`, or `null` to reject the caller. `ConfiguredMcpCallerMapper` is public, so a custom mapper can delegate to it and adjust the result. Inject `McpCallerSubjectHasher`, which `AddBeaconServices` registers as a singleton, to produce the same audit hash.
@@ -322,7 +323,7 @@ The mapper receives the raw token claims (`oid`, `tid`, `groups`, and so on) and
 - **System callers are unchanged**: they reach their configured projects, restricted or not.
 - **User callers with a Beacon user need Editor to run SQL tools.** `ask`, `query`, `dry_run` and `feedback` need the user's role in the project to be Editor or above (global role, and membership on a restricted project); the catalog tools need Read only. Users provisioned with the default `DefaultRoleName` `Viewer` now read the catalog but are refused the SQL tools: give them the Editor role (and Editor membership on restricted projects) if they should run SQL.
 - **Host endpoint and saved-query tools** follow the same access: host endpoint tools need the caller to reach the host's project, and saved-query tools are listed only where the caller may run saved SQL.
-- **New projects are restricted.** A project created after the upgrade by an active Beacon user is restricted, so a user caller configured for it reaches it only once its provisioned Beacon user is a member — with an Editor membership to run SQL tools. Checklist for provisioned users: the default `Viewer` role reads the catalog only; restricted configured projects need membership; the SQL tools need Editor (global role and membership).
+- **New projects are restricted.** A project created after the upgrade by an active Beacon user is restricted, so a user caller configured for it reaches it only once its provisioned Beacon user is a member, with an Editor membership to run SQL tools. Checklist for provisioned users: the default `Viewer` role reads the catalog only; restricted configured projects need membership; the SQL tools need Editor (global role and membership).
 
 ## Upgrading from 4.3
 
@@ -338,15 +339,15 @@ The gateway release changes how JWT callers reach MCP. Before upgrading a host t
   `Validation.ValidIssuer(s)` and `Validation.ValidAudience(s)` with validation on, and either `RequiredRoles` /
   `RequiredGroups` or `Users:AllowAnyTenantUser = true` for user mode. The host fails at startup with a message that
   names what is missing.
-- **App-only tokens need a positive signal** — the `idtyp` optional claim or an app role (see
+- **App-only tokens need a positive signal**: the `idtyp` optional claim or an app role (see
   [Token classification](#token-classification)).
 - **New migrations**, in both providers: `AddMcpAuditCallerIdentity` (audit caller kind/hash),
   `AddHostManagedDataSources`, `AddProjectImportedDocuments`, `AddQueryMcpTools` and `AddHostManagedProjects`
   (`Project.HostManagedKey`). Apply them before the new version starts.
 
-### Netgiro: cookie authentication and `/beacon/mcp`
+### Hosts whose cookie authentication redirects
 
-Web.Admin's MVC cookie authentication answers an unauthenticated request with a `302` to its login page. An MCP
+A host whose MVC cookie authentication answers an unauthenticated request with a `302` to its login page breaks MCP clients: an MCP
 client cannot follow that, and an agent then sees an HTML login page instead of an auth error. Make the cookie
 events return status codes for the MCP path:
 

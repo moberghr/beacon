@@ -1,0 +1,817 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+
+// ── Section 01: the trigger simulator ───────────────────────────────────────
+// Seven hourly runs of one subscription. Each status follows "Which runs notify" in
+// features/subscriptions.md: 0 rows is No results whatever the trigger, then the
+// minimum row count, then the trigger against the previous run's count.
+const SIM_ROWS = [0, 3, 3, 5, 2, 2, 0];
+const SIM_TIMES = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00'];
+const TRIGGERS = [
+	{ id: 'every', label: 'Every execution' },
+	{ id: 'changes', label: 'When result count changes' },
+	{ id: 'increases', label: 'When result count increases' },
+];
+const MIN_ROWS = 3;
+
+type Outcome = { status: string; tone: string; reason: string };
+function evaluate(trigger: string, minOn: boolean): Outcome[] {
+	return SIM_ROWS.map((rows, i) => {
+		const prev = i > 0 ? SIM_ROWS[i - 1] : null;
+		if (rows === 0) {
+			return { status: 'No results', tone: 'none', reason: 'zero rows never notify' };
+		}
+		if (minOn && rows < MIN_ROWS) {
+			return { status: 'Below threshold', tone: 'below', reason: `fewer than ${MIN_ROWS} rows` };
+		}
+		if (prev === null) {
+			return { status: 'Sent', tone: 'sent', reason: 'no earlier run to compare' };
+		}
+		if (trigger === 'every') {
+			return { status: 'Sent', tone: 'sent', reason: 'every run with rows' };
+		}
+		if (trigger === 'changes') {
+			return rows !== prev
+				? { status: 'Sent', tone: 'sent', reason: `${prev} → ${rows}, changed` }
+				: { status: 'Silenced', tone: 'silent', reason: `${prev} → ${rows}, unchanged` };
+		}
+		return rows > prev
+			? { status: 'Sent', tone: 'sent', reason: `${prev} → ${rows}, higher` }
+			: { status: 'Silenced', tone: 'silent', reason: `${prev} → ${rows}, not higher` };
+	});
+}
+const SIM_ALL: Record<string, Outcome[]> = {};
+for (const t of TRIGGERS) {
+	SIM_ALL[`${t.id}-0`] = evaluate(t.id, false);
+	SIM_ALL[`${t.id}-1`] = evaluate(t.id, true);
+}
+const SIM_DEFAULT = SIM_ALL['changes-0'];
+const SIM_MAX = Math.max(...SIM_ROWS);
+const sentCount = (o: Outcome[]) => o.filter((x) => x.tone === 'sent').length;
+
+// ── Section 02 and the worked example: one run of "Failed card payments" ────
+const DS = 'Payments DB';
+const QUERY = 'Failed card payments';
+const COLUMNS = ['payment_id', 'merchant', 'amount', 'currency', 'decline_code', 'created_at'];
+const ROWS: string[][] = [
+	['pay_7Q2K81', 'Northwind Outfitters Ltd', '129.00', 'EUR', 'insufficient_funds', '2026-10-15 09:14'],
+	['pay_7Q2K64', 'Blue Fern Cafe', '8.40', 'EUR', 'do_not_honor', '2026-10-15 09:13'],
+	['pay_7Q2K50', 'Contoso Travel', '412.75', 'EUR', 'card_velocity_exceeded', '2026-10-15 09:11'],
+	['pay_7Q2K47', 'Acme Hardware', '56.10', 'EUR', 'expired_card', '2026-10-15 09:10'],
+	['pay_7Q2K33', 'Tailspin Toys', '34.99', 'EUR', 'insufficient_funds', '2026-10-15 09:08'],
+	['pay_7Q2K29', 'Fabrikam Home and Garden', '218.00', 'EUR', 'do_not_honor', '2026-10-15 09:06'],
+	['pay_7Q2K18', 'Litware Books', '22.50', 'EUR', 'incorrect_cvc', '2026-10-15 09:05'],
+	['pay_7Q2K12', 'Adatum Pharmacy', '17.80', 'EUR', 'insufficient_funds', '2026-10-15 09:03'],
+	['pay_7Q2K09', 'Proseware Fitness', '49.00', 'EUR', 'expired_card', '2026-10-15 09:02'],
+	['pay_7Q2K05', 'Wingtip Florist', '64.30', 'EUR', 'do_not_honor', '2026-10-15 09:01'],
+	['pay_7Q2J98', 'Coho Winery', '140.00', 'EUR', 'insufficient_funds', '2026-10-15 09:00'],
+	['pay_7Q2J91', 'Lucerne Publishing', '12.00', 'EUR', 'incorrect_cvc', '2026-10-15 08:59'],
+];
+const TOTAL = ROWS.length;
+
+// Slack: first 25 rows and 5 columns as fixed-width text, built the way SlackTableFormatter
+// builds it: each column 3 to 20 characters wide, a centred header, a "-+-" separator row,
+// " | " between columns, and a longer cell cut to 17 characters plus "...".
+const slackCols = COLUMNS.slice(0, 5);
+const slackRows = ROWS.slice(0, 25).map((r) => r.slice(0, 5));
+const slackWidths = slackCols.map((h, c) => Math.max(3, Math.min(20, Math.max(h.length, ...slackRows.map((r) => r[c].length)))));
+const padCenter = (t: string, w: number) => {
+	if (t.length >= w) return t.slice(0, w);
+	const left = Math.floor((w - t.length) / 2);
+	return ' '.repeat(left) + t + ' '.repeat(w - t.length - left);
+};
+const padOrTruncate = (t: string, w: number) => (t.length > w ? t.slice(0, w - 3) + '...' : t.padEnd(w));
+const SLACK_TABLE = [
+	slackCols.map((h, c) => padCenter(h, slackWidths[c])).join(' | '),
+	slackWidths.map((w) => '-'.repeat(w)).join('-+-'),
+	...slackRows.map((r) => r.map((v, c) => padOrTruncate(v, slackWidths[c])).join(' | ')),
+].join('\n').trimEnd();
+
+const WEBHOOK = `{
+  "timestamp": "2026-10-15T09:15:03.218Z",
+  "source": "Beacon",
+  "subscriptionName": "${QUERY}",
+  "subscriptionId": 42,
+  "dataSourceName": "${DS}",
+  "totalRecords": ${TOTAL},
+  "executionTimeMs": 212.6,
+  "previousResultCount": 0,
+  "timedOut": false,
+  "records": [
+    { "payment_id": "${ROWS[0][0]}", "merchant": "${ROWS[0][1]}", "amount": ${ROWS[0][2]}, "currency": "EUR", "decline_code": "${ROWS[0][4]}", "created_at": "2026-10-15T09:14:08Z" },
+    { "payment_id": "${ROWS[1][0]}", "merchant": "${ROWS[1][1]}", "amount": ${ROWS[1][2]}, "currency": "EUR", "decline_code": "${ROWS[1][4]}", "created_at": "2026-10-15T09:13:41Z" }
+  ],
+  "notificationUrl": "https://beacon.acme.example/beacon/notifications/981"
+}`;
+
+const SQL = `SELECT payment_id, merchant, amount, currency, decline_code, created_at
+FROM payments.card_payments
+WHERE status = 'failed'
+  AND created_at > now() - interval '1 hour'
+ORDER BY created_at DESC;`;
+
+const CHANNELS = [
+	{ id: 'teams', label: 'Teams', color: '#5b5fc7' },
+	{ id: 'slack', label: 'Slack', color: '#611f69' },
+	{ id: 'email', label: 'Email', color: '#0f766e' },
+	{ id: 'jira', label: 'Jira', color: '#0c66e4' },
+	{ id: 'webhook', label: 'Webhook', color: '#430cda' },
+];
+
+// ── Section 04: anomaly chart (standard deviation method) ───────────────────
+// Twenty daily baseline runs, then the run being evaluated. Mean and population
+// standard deviation are computed from the baseline only, as the docs describe.
+const BASE = [11, 9, 12, 10, 13, 11, 10, 12, 11, 9, 12, 10, 11, 12, 10, 11, 13, 12, 10, 11];
+const CURRENT = 14;
+const MEAN = BASE.reduce((a, x) => a + x, 0) / BASE.length;
+const SD = Math.sqrt(BASE.reduce((a, x) => a + (x - MEAN) ** 2, 0) / BASE.length);
+const Z = (CURRENT - MEAN) / SD;
+const SENS = [
+	{ id: 'low', label: 'Low', k: 3, pct: '40%' },
+	{ id: 'medium', label: 'Medium', k: 2, pct: '25%' },
+	{ id: 'high', label: 'High', k: 1.5, pct: '15%' },
+];
+const severityOf = (z: number) => (z >= 4 ? 'Critical' : z >= 3 ? 'High' : z >= 2 ? 'Medium' : 'Low');
+const CH = { w: 640, h: 260, padL: 36, padR: 16, padT: 16, padB: 30, min: 4, max: 18 };
+const allPts = [...BASE, CURRENT];
+const xAt = (i: number) => CH.padL + (i * (CH.w - CH.padL - CH.padR)) / (allPts.length - 1);
+const yAt = (v: number) => CH.padT + ((CH.max - v) * (CH.h - CH.padT - CH.padB)) / (CH.max - CH.min);
+const linePath = BASE.map((v, i) => `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+const yTicks = [6, 10, 14, 18];
+---
+
+<ExploreLayout
+	area="alerting"
+	eyebrow="Explore · Alerting & tasks"
+	title="The right message, to the right <em>channel</em>, only when it matters."
+	lede="A subscription decides which runs notify anyone, then delivers the result to vetted recipients on five channels. Runs with rows can open a task that stays open until the data is clean, and anomaly detection can replace fixed triggers with a statistical baseline."
+	facts={[
+		{ value: '5', label: 'delivery channels' },
+		{ value: '3', label: 'notification triggers' },
+		{ value: '3', label: 'anomaly methods' },
+	]}
+	deeper={[
+		{ title: 'Notifications', href: '/features/notifications/', desc: 'Channels, recipients, destination policy and delivery history.' },
+		{ title: 'Tasks', href: '/features/tasks/', desc: 'Lifecycle, automatic resolution, SLA, assignment and the REST API.' },
+		{ title: 'Anomaly detection', href: '/features/anomaly-detection/', desc: 'Methods, sensitivity thresholds, severity and tuning.' },
+	]}
+>
+	<div slot="hero" class="fan" aria-label="One run of the Failed card payments subscription, as delivered to Teams, Slack, email, Jira and a webhook">
+		<div class="fanCard teams" style="--i:0">
+			<div class="fanHead"><span class="fanDot"></span><b>Teams</b><span>Adaptive Card</span></div>
+			<div class="fanTitle">Beacon</div>
+			<div class="fanLine">{DS}: {QUERY}</div>
+			<div class="fanLine dim">First 10 records · 3 columns</div>
+		</div>
+		<div class="fanCard slack" style="--i:1">
+			<div class="fanHead"><span class="fanDot"></span><b>Slack</b><span>#payments-ops</span></div>
+			<div class="fanTitle">[Beacon] {DS} - {QUERY}</div>
+			<div class="fanLine">Results: Showing {TOTAL} of {TOTAL} total records</div>
+		</div>
+		<div class="fanCard email" style="--i:2">
+			<div class="fanHead"><span class="fanDot"></span><b>Email</b><span>ops@acme.example</span></div>
+			<div class="fanTitle">[Beacon] {DS} - {QUERY}</div>
+			<div class="fanLine"><span class="attach">CSV</span> {TOTAL} rows attached</div>
+		</div>
+		<div class="fanCard jira" style="--i:3">
+			<div class="fanHead"><span class="fanDot"></span><b>Jira</b><span>PAY-214</span></div>
+			<div class="fanTitle">BEACON: {QUERY}</div>
+			<div class="fanLine"><span class="tag">Task</span><span class="tag">Medium</span><span class="tag">Beacon</span></div>
+		</div>
+		<div class="fanCard webhook" style="--i:4">
+			<div class="fanHead"><span class="fanDot"></span><b>Webhook</b><span>POST · application/json</span></div>
+			<div class="fanCode mono">{`{ "source": "Beacon", "totalRecords": ${TOTAL}, "previousResultCount": 0, … }`}</div>
+		</div>
+	</div>
+
+	<Section num="01" label="Triggers" title="When does a run notify?" lede="Every run is recorded with a status, and recipients are notified only when it is Sent. A run with no rows ends as No results, whatever the trigger. Pick a trigger to see how the same seven runs play out.">
+		<div class="sim" data-sim data-json={JSON.stringify(SIM_ALL)}>
+			<div class="simControls">
+				<div class="seg" role="group" aria-label="Send notification">
+					{
+						TRIGGERS.map((t) => (
+							<button type="button" class="segBtn" data-trigger={t.id} aria-pressed={t.id === 'changes' ? 'true' : 'false'}>
+								{t.label}
+							</button>
+						))
+					}
+				</div>
+				<label class="minToggle"><input type="checkbox" data-min /> Minimum row count: <span class="mono">{MIN_ROWS}</span></label>
+			</div>
+			<ol class="simRuns">
+				{
+					SIM_ROWS.map((rows, i) => (
+						<li class={`simRun ${SIM_DEFAULT[i].tone}`} data-run={i}>
+							<span class="simTime mono">{SIM_TIMES[i]}</span>
+							<span class="simBarBox">
+								<span class="simBar" style={`height:${Math.max(4, (rows / SIM_MAX) * 100)}%`} />
+							</span>
+							<span class="simRows"><b>{rows}</b> rows</span>
+							<span class="simStatus" data-status>{SIM_DEFAULT[i].status}</span>
+							<span class="simReason" data-reason>{SIM_DEFAULT[i].reason}</span>
+						</li>
+					))
+				}
+			</ol>
+			<p class="simSummary" aria-live="polite"><b data-count>{sentCount(SIM_DEFAULT)}</b> of {SIM_ROWS.length} runs notify the recipients.</p>
+			<div class="simLegend">
+				<span><i class="sent"></i>Sent: recipients notified</span>
+				<span><i class="silent"></i>Silenced: the trigger did not fire</span>
+				<span><i class="below"></i>Below threshold: fewer rows than the minimum</span>
+				<span><i class="none"></i>No results: the query returned no rows</span>
+			</div>
+			<p class="note">A run is compared with the last run that was not skipped. With anomaly detection on, the trigger is not used: after the same checks, a run is Sent only when its row count is unusual (section 04).</p>
+		</div>
+	</Section>
+
+	<Section num="02" label="Channels" title="One run, five formats." alt lede="Each channel receives the same run in its own format: a title, the preview rows (at most 20, cut further by the subscription's Max rows and the channel's own limits), and the total row count. Rows are PII-masked before any channel sees them.">
+		<div class="tabs" data-tabs>
+			<div class="tabList" role="tablist" aria-label="Notification channels">
+				{
+					CHANNELS.map((c, i) => (
+						<button type="button" role="tab" id={`ch-tab-${c.id}`} aria-controls={`ch-panel-${c.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1} style={`--brand:${c.color}`}>
+							<span class="tabDot" />
+							{c.label}
+						</button>
+					))
+				}
+			</div>
+
+			<div class="chGrid">
+				<div class="chPanels">
+					<div role="tabpanel" id="ch-panel-teams" aria-labelledby="ch-tab-teams" class="chPanel">
+						<div class="mock teamsCard">
+							<div class="mockBar"><span>TEAMS · ADAPTIVE CARD 1.5</span><span>via Workflows webhook</span></div>
+							<div class="mockBody">
+								<div class="tcTitle">Beacon</div>
+								<div class="tcSub">{DS}: {QUERY}</div>
+								<div class="tcHead">First 10 records</div>
+								<div class="scrollX">
+									<table class="mockTable compact">
+										<thead><tr>{COLUMNS.slice(0, 3).map((c) => <th>{c}</th>)}</tr></thead>
+										<tbody>{ROWS.slice(0, 10).map((r) => <tr>{r.slice(0, 3).map((v) => <td class="mono">{v}</td>)}</tr>)}</tbody>
+									</table>
+								</div>
+								<span class="tcBtn">View Query Results</span>
+							</div>
+						</div>
+					</div>
+
+					<div role="tabpanel" id="ch-panel-slack" aria-labelledby="ch-tab-slack" class="chPanel" hidden>
+						<div class="mock slackMsg">
+							<div class="mockBar"><span>SLACK · BLOCK KIT</span><span>incoming webhook</span></div>
+							<div class="mockBody">
+								<div class="slFrom"><span class="slAvatar">B</span><b>Beacon</b><span class="dimTxt">09:15</span></div>
+								<div class="slHeader">[Beacon] {DS} - {QUERY}</div>
+								<div class="slText">Results: Showing {TOTAL} of {TOTAL} total records</div>
+								<pre class="slCode">{SLACK_TABLE}</pre>
+								<span class="slBtn">View Full Results</span>
+							</div>
+						</div>
+					</div>
+
+					<div role="tabpanel" id="ch-panel-email" aria-labelledby="ch-tab-email" class="chPanel" hidden>
+						<div class="mock emailMsg">
+							<div class="mockBar"><span>EMAIL · HTML</span><span>through the host's IEmailAdapter</span></div>
+							<div class="mockBody">
+								<dl class="emHead">
+									<dt>To</dt><dd class="mono">ops@acme.example</dd>
+									<dt>Subject</dt><dd><b>[Beacon] {DS} - {QUERY}</b></dd>
+								</dl>
+								<p class="emLine">Total records: <b>{TOTAL}</b></p>
+								<div class="scrollX emTable">
+									<table class="mockTable compact">
+										<thead><tr>{COLUMNS.map((c) => <th>{c}</th>)}</tr></thead>
+										<tbody>{ROWS.map((r) => <tr>{r.map((v) => <td class="mono">{v}</td>)}</tr>)}</tbody>
+									</table>
+								</div>
+								<div class="emAttach"><span class="attach">CSV</span><span><b>Attachment</b> · {TOTAL} rows, PII-masked · CSV or XLSX, as the subscription sets</span></div>
+							</div>
+						</div>
+					</div>
+
+					<div role="tabpanel" id="ch-panel-jira" aria-labelledby="ch-tab-jira" class="chPanel" hidden>
+						<div class="mock jiraIssue">
+							<div class="mockBar"><span>JIRA CLOUD · PAY-214</span><span>REST API</span></div>
+							<div class="mockBody">
+								<div class="jiTitle">BEACON: {QUERY}</div>
+								<dl class="jiFields">
+									<dt>Type</dt><dd><span class="tag">Task</span></dd>
+									<dt>Priority</dt><dd><span class="tag">Medium</span></dd>
+									<dt>Labels</dt><dd><span class="tag">Beacon</span></dd>
+								</dl>
+								<div class="jiDesc">
+									<div class="jiLabel">Description</div>
+									<p>Total records: <b>{TOTAL}</b></p>
+									<div class="jiSub">First {TOTAL} records:</div>
+									<div class="scrollX">
+										<table class="mockTable compact">
+											<thead><tr>{COLUMNS.map((c) => <th>{c}</th>)}</tr></thead>
+											<tbody>{ROWS.map((r) => <tr>{r.map((v) => <td class="mono">{v}</td>)}</tr>)}</tbody>
+										</table>
+									</div>
+								</div>
+								<div class="jiLabel">Activity</div>
+								<ol class="jiComments">
+									<li><b>09:15</b> Beacon added the same content as a comment (12 rows).</li>
+									<li><b>09:45</b> Beacon commented: a later delivery, 15 rows.</li>
+									<li><b>10:00</b> Beacon commented: a later delivery, 18 rows.</li>
+								</ol>
+							</div>
+						</div>
+					</div>
+
+					<div role="tabpanel" id="ch-panel-webhook" aria-labelledby="ch-tab-webhook" class="chPanel" hidden>
+						<Code code={WEBHOOK} lang="json" title="POST https://hooks.acme.example/beacon (records shortened)" />
+					</div>
+				</div>
+
+				<div class="chFacts">
+					<table class="mockTable chTable">
+						<thead><tr><th>Channel</th><th>Inline rows</th><th>Attachment</th></tr></thead>
+						<tbody>
+							<tr><td><b>Teams</b></td><td>First 10 rows, first 3 columns</td><td class="dimTxt">None</td></tr>
+							<tr><td><b>Slack</b></td><td>First 25 rows, first 5 columns, each column cut to 20 characters</td><td class="dimTxt">None</td></tr>
+							<tr><td><b>Email</b></td><td>The preview rows, as an HTML table</td><td>CSV or XLSX</td></tr>
+							<tr><td><b>Jira</b></td><td>The preview rows, as a table</td><td class="dimTxt">None</td></tr>
+							<tr><td><b>Webhook</b></td><td>The preview rows, as JSON</td><td class="dimTxt">None</td></tr>
+						</tbody>
+					</table>
+					<p class="note">Teams, Slack and the webhook link back to the run's notification page when a base URL is set. The SQL is included only with <b>Show query text in notification</b> on. Slack and the webhook also carry anomaly details when detection flagged the run. A webhook recipient can replace the body with its own template.</p>
+				</div>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="03" label="Tasks" title="A task stays open while the problem does." lede="With Create a task on, the first run with rows opens a task. Later runs update it, and a run with no rows resolves it. Notifications say that something happened; tasks track whether someone dealt with it.">
+		<div class="taskGrid">
+			<div class="states" role="img" aria-label="Task lifecycle: no task, then open when a run returns rows, then resolved by a run with no rows or by its assignee. A later run with rows opens a new task.">
+				<div class="stateRow">
+					<div class="state idle">
+						<b>No open task</b>
+						<span>Runs with 0 rows change nothing.</span>
+					</div>
+					<div class="edge"><span>Run returns rows</span></div>
+					<div class="state open">
+						<b>Open</b>
+						<span>One per subscription. Priority, assignee, watchers, snooze, comments.</span>
+						<span class="loop">↻ Run with rows: latest count, executions and unique counts update</span>
+					</div>
+					<div class="edge"><span>Run returns 0 rows, or the assignee resolves it</span></div>
+					<div class="state done">
+						<b>Resolved</b>
+						<span>Never reopened. Keeps its history and investigation log.</span>
+					</div>
+				</div>
+				<div class="returnEdge"><span>Rows come back on a later run: a <b>new</b> task opens, and the old one appears under <b>Related</b>.</span></div>
+				<div class="resolveNotes">
+					<div><span class="badge ok">Automatic</span> <span class="mono">Auto-resolved: Query returned 0 results</span>, no resolver recorded.</div>
+					<div><span class="badge">Manual</span> The assignee clicks <b>Resolve</b> (or presses <kbd>R</kbd>), with optional notes up to 2,000 characters.</div>
+				</div>
+			</div>
+
+			<div class="mock taskMock">
+				<div class="mockBar"><span>TASK #57</span><span class="badge warn">Unresolved</span></div>
+				<div class="mockBody">
+					<div class="tkTitle">{QUERY}</div>
+					<div class="tkMeta"><span class="prio">P2 · High</span><span>Assignee: <b>Ana Horvat</b></span><span>2 watchers</span></div>
+					<div class="sla">
+						<div class="slaHead"><span>SLA · 4 hours</span><span class="mono">3h 15m left</span></div>
+						<div class="slaBar" aria-hidden="true"><span style="width:81%"></span></div>
+					</div>
+					<div class="tkKpis">
+						<div><b>18</b><span>latest rows</span></div>
+						<div><b>4</b><span>executions</span></div>
+						<div><b>3</b><span>notifications</span></div>
+						<div><b>45m</b><span>age</span></div>
+					</div>
+					<div class="keys"><kbd>R</kbd> resolve <kbd>A</kbd> assign to me <kbd>S</kbd> snooze 1 hour <kbd>C</kbd> comment</div>
+				</div>
+			</div>
+		</div>
+		<p class="note">The SLA counts down against the subscription's SLA hours, or 24 hours when none is set; an Admin sets 1 to 720 hours from the task page. Every run that executes the query updates the task, whatever its notification status.</p>
+	</Section>
+
+	<Section num="04" label="Anomaly detection" title="Notify on the unusual, not on every change." alt lede="With anomaly detection on, a subscription compares each run's row count with the runs of its lookback window and notifies only when the run is unusual. It is statistical and needs no LLM. Switch the sensitivity to move the threshold.">
+		<div class="anomaly" data-anomaly data-sens="medium">
+			<div class="mock">
+				<div class="mockBar">
+					<span>CHARGEBACKS OPENED TODAY · STANDARD DEVIATION</span>
+					<div class="seg small" role="group" aria-label="Sensitivity">
+						{SENS.map((s) => <button type="button" class="segBtn" data-sens-btn={s.id} aria-pressed={s.id === 'medium' ? 'true' : 'false'}>{s.label}</button>)}
+					</div>
+				</div>
+				<div class="mockBody">
+					<svg class="chart" viewBox={`0 0 ${CH.w} ${CH.h}`} role="img" aria-label={`Twenty baseline runs around a mean of ${MEAN.toFixed(1)} rows, and a run of ${CURRENT} rows at z = ${Z.toFixed(2)}`}>
+						{yTicks.map((t) => (
+							<g>
+								<line class="grid" x1={CH.padL} x2={CH.w - CH.padR} y1={yAt(t)} y2={yAt(t)} />
+								<text class="axis" x={CH.padL - 8} y={yAt(t) + 4} text-anchor="end">{t}</text>
+							</g>
+						))}
+						{SENS.map((s) => (
+							<rect class={`band band-${s.id}`} x={CH.padL} width={CH.w - CH.padL - CH.padR} y={yAt(MEAN + s.k * SD)} height={yAt(MEAN - s.k * SD) - yAt(MEAN + s.k * SD)} />
+						))}
+						<line class="meanLine" x1={CH.padL} x2={CH.w - CH.padR} y1={yAt(MEAN)} y2={yAt(MEAN)} />
+						<text class="meanLabel" x={CH.w - CH.padR - 4} y={yAt(MEAN) - 6} text-anchor="end">mean {MEAN.toFixed(1)}</text>
+						<path class="series" d={linePath} />
+						{BASE.map((v, i) => <circle class="pt" cx={xAt(i)} cy={yAt(v)} r="3.5" />)}
+						<line class="toCurrent" x1={xAt(BASE.length - 1)} y1={yAt(BASE[BASE.length - 1])} x2={xAt(BASE.length)} y2={yAt(CURRENT)} />
+						<circle class="current" cx={xAt(BASE.length)} cy={yAt(CURRENT)} r="6.5" />
+						<text class="axis" x={CH.padL} y={CH.h - 8}>20 baseline runs (lookback 30 days)</text>
+						<text class="axis" x={CH.w - CH.padR} y={CH.h - 8} text-anchor="end">this run</text>
+					</svg>
+					<div class="verdicts">
+						{SENS.map((s) => (
+							<div class={`verdict v-${s.id}`}>
+								<span class={`badge ${Z > s.k ? 'crit' : 'ok'}`}>{Z > s.k ? 'Anomaly: notify' : 'Silenced'}</span>
+								<span class="mono">
+									z = ({CURRENT} − {MEAN.toFixed(2)}) / {SD.toFixed(2)} = {Z.toFixed(2)} {Z > s.k ? '>' : '≤'} {s.k}σ
+								</span>
+								{Z > s.k && <span class="sev">severity {severityOf(Z)}</span>}
+							</div>
+						))}
+					</div>
+				</div>
+			</div>
+
+			<div class="stack">
+				<table class="mockTable sensTable">
+					<thead><tr><th>Sensitivity</th><th>Std. deviation</th><th>Percentage change</th></tr></thead>
+					<tbody>
+						{SENS.slice().reverse().map((s) => (
+							<tr data-row={s.id}><td><b>{s.label}</b></td><td class="mono">{s.k}σ</td><td class="mono">{s.pct}</td></tr>
+						))}
+					</tbody>
+				</table>
+				<p class="note">High alerts most often. IQR ignores the sensitivity: its bounds are always 1.5 × IQR beyond Q1 and Q3. Severity follows the size of the deviation (for standard deviation: Medium from 2, High from 3, Critical from 4).</p>
+				<div class="card mini">
+					<h3>The metric is the row count</h3>
+					<p>Beacon measures how many rows a run returns. Write the query to return one row per item, not a single <code>COUNT(*)</code> row. No run is an anomaly until the lookback window holds the minimum data points (7 by default).</p>
+				</div>
+			</div>
+		</div>
+	</Section>
+
+	<Section num="05" label="Worked example" title="Failed card payments, one morning." lede="A payments team wants to hear about card failures when they grow, and wants someone to own the problem until it stops. One subscription does both.">
+		<div class="exGrid">
+			<div class="stack">
+				<Code code={SQL} lang="sql" title={`Query · ${QUERY} (${DS}, PostgreSQL)`} />
+				<div class="mock settings">
+					<div class="mockBar"><span>NEW SUBSCRIPTION</span><span>Review</span></div>
+					<div class="mockBody">
+						<dl>
+							<dt>Cron expression</dt><dd><span class="mono">*/15 * * * *</span> (every 15 minutes)</dd>
+							<dt>Send notification</dt><dd>When result count increases</dd>
+							<dt>Recipients</dt><dd>Teams, Jira <span class="mono">PAY</span>, email <span class="mono">ops@acme.example</span></dd>
+							<dt>Tasks</dt><dd>Create a task and keep it open while the query returns rows</dd>
+							<dt>Attachment</dt><dd>CSV (email only)</dd>
+						</dl>
+					</div>
+				</div>
+			</div>
+			<ol class="timeline">
+				<li class="none"><span class="tlTime mono">09:00</span><span class="tlRows">0 rows</span><span class="badge neutral">No results</span><span class="tlText">Nothing is sent; no task exists.</span></li>
+				<li class="sent"><span class="tlTime mono">09:15</span><span class="tlRows">12 rows</span><span class="badge">Sent</span><span class="tlText">12 is higher than 0. Teams, Jira (issue PAY-214) and email are notified. <b>Task #57 opens.</b></span></li>
+				<li class="silent"><span class="tlTime mono">09:30</span><span class="tlRows">12 rows</span><span class="badge neutral">Silenced</span><span class="tlText">Not higher, so nobody is notified. The task's executions climb.</span></li>
+				<li class="sent"><span class="tlTime mono">09:45</span><span class="tlRows">15 rows</span><span class="badge">Sent</span><span class="tlText">Higher again. Jira gets a comment on PAY-214. Ana Horvat presses <kbd>A</kbd> and sets the priority to High.</span></li>
+				<li class="sent"><span class="tlTime mono">10:00</span><span class="tlRows">18 rows</span><span class="badge">Sent</span><span class="tlText">Still growing: three unique counts in four executions.</span></li>
+				<li class="done"><span class="tlTime mono">10:15</span><span class="tlRows">0 rows</span><span class="badge ok">Resolved</span><span class="tlText">The provider recovered. No results, nothing is sent, and the task resolves itself.</span></li>
+			</ol>
+		</div>
+	</Section>
+
+	<Section num="06" label="Destinations" title="Recipients deliver only where they are allowed to." alt lede="A recipient is one destination on one channel. Only an Admin or a SecurityAdmin creates or changes one; everyone else attaches existing recipients without seeing where they deliver. Every destination is checked when it is saved and again when Beacon connects.">
+		<div class="destGrid">
+			<div class="mock">
+				<div class="mockBar"><span>DESTINATION CHECK</span><span>default policy</span></div>
+				<div class="mockBody scrollX">
+					<table class="mockTable destTable">
+						<thead><tr><th>Type</th><th>Destination</th><th>Result</th></tr></thead>
+						<tbody>
+							<tr><td>Slack</td><td class="mono">https://hooks.slack.com/services/T…/B…/…</td><td><span class="badge ok">Allowed</span></td></tr>
+							<tr><td>Teams</td><td class="mono">https://prod-12.westeurope.logic.azure.com/…</td><td><span class="badge ok">Allowed</span></td></tr>
+							<tr><td>Teams</td><td class="mono">https://outlook.office.com/webhook/…</td><td><span class="badge crit">Retired connector</span></td></tr>
+							<tr><td>Jira</td><td class="mono">acme;PAY;bot@acme.example;••••</td><td><span class="badge ok">Allowed</span></td></tr>
+							<tr><td>Webhook</td><td class="mono">http://hooks.acme.example/beacon</td><td><span class="badge crit">HTTPS only</span></td></tr>
+							<tr><td>Webhook</td><td class="mono">https://bot:pw@hooks.acme.example/</td><td><span class="badge crit">Credentials in URL</span></td></tr>
+							<tr><td>Webhook</td><td class="mono">https://10.20.4.12/alerts</td><td><span class="badge crit">Private network</span></td></tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+			<div class="cols2 destCards">
+				<div class="card">
+					<h3>Vendor hosts</h3>
+					<p>Slack delivers to <code>hooks.slack.com</code>, Teams to <code>*.webhook.office.com</code>, <code>*.logic.azure.com</code> and <code>*.environment.api.powerplatform.com</code>, Jira to <code>*.atlassian.net</code> and <code>api.atlassian.com</code>. A host can extend each list.</p>
+				</div>
+				<div class="card">
+					<h3>No private networks</h3>
+					<p>Private, loopback and link-local addresses are unreachable unless the host lists them. Beacon connects only to an address it checked itself, and never follows redirects.</p>
+				</div>
+				<div class="card">
+					<h3>Encrypted secrets</h3>
+					<p>Destinations and header values are encrypted when saved and shown masked. Webhook headers are limited to an allow-list such as <code>Authorization</code> and <code>X-Api-Key</code>.</p>
+				</div>
+				<div class="card">
+					<h3>Reviewed changes</h3>
+					<p>When the approval workflow is enabled, a new or changed destination receives nothing until a second person approves exactly where it now delivers. Reviewers compare fingerprints, never credentials.</p>
+				</div>
+			</div>
+		</div>
+	</Section>
+</ExploreLayout>
+
+<script>
+	// Trigger simulator: swap the precomputed outcomes for the chosen trigger and minimum.
+	document.querySelectorAll<HTMLElement>('[data-sim]').forEach((root) => {
+		const all = JSON.parse(root.dataset.json ?? '{}') as Record<string, { status: string; tone: string; reason: string }[]>;
+		const buttons = root.querySelectorAll<HTMLButtonElement>('[data-trigger]');
+		const min = root.querySelector<HTMLInputElement>('[data-min]');
+		const runs = root.querySelectorAll<HTMLElement>('[data-run]');
+		const count = root.querySelector<HTMLElement>('[data-count]');
+		let trigger = 'changes';
+		const render = () => {
+			const outcomes = all[`${trigger}-${min?.checked ? 1 : 0}`] ?? [];
+			runs.forEach((run, i) => {
+				const o = outcomes[i];
+				if (!o) {
+					return;
+				}
+				run.classList.remove('sent', 'silent', 'below', 'none');
+				run.classList.add(o.tone);
+				run.querySelector('[data-status]')!.textContent = o.status;
+				run.querySelector('[data-reason]')!.textContent = o.reason;
+			});
+			if (count) {
+				count.textContent = String(outcomes.filter((o) => o.tone === 'sent').length);
+			}
+		};
+		buttons.forEach((b) =>
+			b.addEventListener('click', () => {
+				trigger = b.dataset.trigger ?? 'changes';
+				buttons.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+				render();
+			})
+		);
+		min?.addEventListener('change', render);
+	});
+
+	// Channel tabs: WAI-ARIA tabs with arrow-key navigation.
+	document.querySelectorAll<HTMLElement>('[data-tabs]').forEach((root) => {
+		const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+		const select = (tab: HTMLButtonElement, focus: boolean) => {
+			tabs.forEach((t) => {
+				const on = t === tab;
+				t.setAttribute('aria-selected', String(on));
+				t.tabIndex = on ? 0 : -1;
+				const panel = document.getElementById(t.getAttribute('aria-controls') ?? '');
+				if (panel) {
+					panel.hidden = !on;
+				}
+			});
+			if (focus) {
+				tab.focus();
+			}
+		};
+		tabs.forEach((t, i) => {
+			t.addEventListener('click', () => select(t, false));
+			t.addEventListener('keydown', (e) => {
+				const next = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+				if (next !== 0) {
+					e.preventDefault();
+					select(tabs[(i + next + tabs.length) % tabs.length], true);
+				}
+			});
+		});
+	});
+
+	// Anomaly sensitivity switch: the band, verdict and table row follow data-sens.
+	document.querySelectorAll<HTMLElement>('[data-anomaly]').forEach((root) => {
+		const buttons = root.querySelectorAll<HTMLButtonElement>('[data-sens-btn]');
+		buttons.forEach((b) =>
+			b.addEventListener('click', () => {
+				root.dataset.sens = b.dataset.sensBtn ?? 'medium';
+				buttons.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+			})
+		);
+	});
+</script>
+
+<style>
+	/* ── Hero: fanned notification previews ─────────────────────────────── */
+	.fan { position: relative; height: 420px; max-width: 470px; margin-left: auto; }
+	.fanCard {
+		position: absolute; left: 6%; right: 6%; top: calc(var(--i) * 74px + 8px);
+		background: var(--bx-surface); border: 1px solid var(--bx-border); border-left: 4px solid var(--brand);
+		border-radius: var(--bx-radius); padding: 12px 16px 14px; box-shadow: 0 14px 36px -16px rgba(14, 10, 50, 0.28);
+		transform: translateX(calc((var(--i) - 2) * 10px)) rotate(calc((var(--i) - 2) * 1.6deg));
+		animation: fanIn .6s cubic-bezier(.2, .7, .3, 1) both; animation-delay: calc(var(--i) * 0.09s + 0.1s);
+		transition: transform .2s ease;
+	}
+	.fanCard:hover { transform: translateX(calc((var(--i) - 2) * 10px)) rotate(0deg) translateY(-4px); z-index: 6; }
+	@keyframes fanIn { from { opacity: 0; transform: translateY(-30px) rotate(0deg); } }
+	.fanCard.teams { --brand: #5b5fc7; }
+	.fanCard.slack { --brand: #611f69; }
+	.fanCard.email { --brand: #0f766e; }
+	.fanCard.jira { --brand: #0c66e4; }
+	.fanCard.webhook { --brand: var(--bx-accent); }
+	:root[data-theme='dark'] .fanCard.slack { --brand: #c26fc9; }
+	:root[data-theme='dark'] .fanCard.email { --brand: #2dd4bf; }
+	:root[data-theme='dark'] .fanCard.jira { --brand: #579dff; }
+	:root[data-theme='dark'] .fanCard.teams { --brand: #8b8ff0; }
+	.fanHead { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--bx-text-dim); margin-bottom: 6px; }
+	.fanHead b { color: var(--bx-text); font-size: 12px; }
+	.fanHead span:last-child { margin-left: auto; font-family: var(--sl-font-mono); font-size: 11px; }
+	.fanDot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+	.fanTitle { font-size: 14px; font-weight: 600; color: var(--bx-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.fanLine { font-size: 12.5px; color: var(--bx-text-muted); margin-top: 3px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+	.fanLine.dim { color: var(--bx-text-dim); }
+	.fanCode { font-size: 11.5px; color: var(--bx-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.attach { font-family: var(--sl-font-mono); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: var(--xp-ok-dim); color: var(--xp-ok); }
+	.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px; background: var(--bx-surface2); border: 1px solid var(--bx-border); color: var(--bx-text-muted); }
+
+	/* ── Shared controls ─────────────────────────────────────────────────── */
+	.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border: 1px solid var(--bx-border); border-radius: 20px; background: var(--bx-surface); }
+	.segBtn { font: inherit; font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: 20px; border: none; background: transparent; color: var(--bx-text-muted); cursor: pointer; }
+	.segBtn:hover { color: var(--bx-accent); }
+	.segBtn[aria-pressed='true'] { background: var(--bx-accent); color: #fff; }
+	.segBtn:focus-visible, [role='tab']:focus-visible, .minToggle input:focus-visible { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.seg.small .segBtn { font-size: 11.5px; padding: 3px 10px; letter-spacing: 0; }
+	.scrollX { overflow-x: auto; }
+	.dimTxt { color: var(--bx-text-dim); }
+	kbd { font-family: var(--sl-font-mono); font-size: 11px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--bx-border); border-bottom-width: 2px; background: var(--bx-surface); color: var(--bx-text); }
+
+	/* ── 01 Simulator ────────────────────────────────────────────────────── */
+	.simControls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; margin-bottom: 26px; }
+	.minToggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--bx-text-muted); cursor: pointer; }
+	.minToggle input { width: 16px; height: 16px; accent-color: var(--bx-accent); }
+	.simRuns { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+	.simRun { margin: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 12px 10px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); text-align: center; transition: border-color .2s, background .2s; }
+	.simTime { color: var(--bx-text-dim); font-size: 11.5px; }
+	.simBarBox { height: 70px; display: flex; align-items: flex-end; justify-content: center; border-bottom: 1px solid var(--bx-border); }
+	.simBar { width: 60%; max-width: 34px; border-radius: 4px 4px 0 0; background: var(--bx-text-dim); transition: background .2s; }
+	.simRows { font-size: 12.5px; color: var(--bx-text-muted); }
+	.simRows b { color: var(--bx-text); font-size: 15px; }
+	.simStatus { font-size: 11.5px; font-weight: 600; padding: 3px 6px; border-radius: 20px; background: var(--bx-surface2); color: var(--bx-text-dim); }
+	.simReason { font-size: 11.5px; line-height: 1.35; color: var(--bx-text-dim); min-height: 2.7em; }
+	.simRun.sent { border-color: var(--bx-accent); background: var(--bx-accent-dim); }
+	.simRun.sent .simBar { background: var(--bx-accent); }
+	.simRun.sent .simStatus { background: var(--bx-accent); color: #fff; }
+	.simRun.silent .simBar { background: color-mix(in srgb, var(--bx-accent) 35%, transparent); }
+	.simRun.below .simBar { background: color-mix(in srgb, var(--xp-warn) 55%, transparent); }
+	.simRun.below .simStatus { background: var(--xp-warn-dim); color: var(--xp-warn); }
+	.simRun.none { border-style: dashed; }
+	.simSummary { margin-top: 18px !important; font-size: 15px; color: var(--bx-text-muted); }
+	.simSummary b { color: var(--bx-accent); font-size: 18px; }
+	.simLegend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; font-size: 12.5px; color: var(--bx-text-dim); }
+	.simLegend span { display: inline-flex; align-items: center; gap: 7px; }
+	.simLegend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+	.simLegend .sent { background: var(--bx-accent); }
+	.simLegend .silent { background: color-mix(in srgb, var(--bx-accent) 35%, transparent); }
+	.simLegend .below { background: color-mix(in srgb, var(--xp-warn) 55%, transparent); }
+	.simLegend .none { border: 1px dashed var(--bx-text-dim); }
+
+	/* ── 02 Channels ─────────────────────────────────────────────────────── */
+	.tabList { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 22px; }
+	[role='tab'] { font: inherit; font-size: 13.5px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 20px; border: 1px solid var(--bx-border); background: var(--bx-surface); color: var(--bx-text-muted); cursor: pointer; }
+	[role='tab']:hover { border-color: var(--bx-accent); color: var(--bx-accent); }
+	[role='tab'][aria-selected='true'] { border-color: var(--bx-accent); color: var(--bx-text); box-shadow: inset 0 0 0 1px var(--bx-accent); }
+	.tabDot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+	:root[data-theme='dark'] .tabDot { filter: brightness(1.6); }
+	.chGrid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.chPanel[hidden] { display: none; }
+	.mockTable.compact td, .mockTable.compact th { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
+	.teamsCard { border-left: 4px solid #5b5fc7; }
+	.tcTitle { font-size: 16px; font-weight: 700; }
+	.tcSub { font-size: 13.5px; color: var(--bx-text-muted); margin: 2px 0 12px; }
+	.tcHead { font-size: 12px; font-weight: 600; color: var(--bx-text-dim); margin-bottom: 4px; }
+	.tcBtn, .slBtn { display: inline-block; margin-top: 14px; font-size: 13px; font-weight: 600; padding: 6px 16px; border-radius: 6px; border: 1px solid var(--bx-border); color: var(--bx-accent); }
+	.slackMsg { border-left: 4px solid #611f69; }
+	.slFrom { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin-bottom: 8px; }
+	.slAvatar { width: 26px; height: 26px; border-radius: 6px; background: var(--bx-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+	.slHeader { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+	.slText { font-size: 13.5px; color: var(--bx-text-muted); margin-bottom: 8px; }
+	.slCode { margin: 0; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--bx-border); background: var(--bx-surface2); font-family: var(--sl-font-mono); font-size: 11.5px; line-height: 1.55; color: var(--bx-text); overflow-x: auto; white-space: pre; font-variant-ligatures: none; }
+	.emailMsg { border-left: 4px solid #0f766e; }
+	.emHead { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid var(--bx-border); font-size: 13.5px; }
+	.emHead dt { color: var(--bx-text-dim); }
+	.emHead dd { margin: 0; overflow-wrap: anywhere; }
+	.emLine { font-size: 13.5px; margin-bottom: 8px !important; }
+	.emTable { max-height: 260px; overflow-y: auto; border: 1px solid var(--bx-border); border-radius: 8px; }
+	.emAttach { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--bx-border); border-radius: 10px; font-size: 12.5px; color: var(--bx-text-muted); }
+	.jiraIssue { border-left: 4px solid #0c66e4; }
+	.jiTitle { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+	.jiFields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0 0 14px; font-size: 13px; }
+	.jiFields dt { color: var(--bx-text-dim); }
+	.jiFields dd { margin: 0; }
+	.jiLabel { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--bx-text-dim); margin: 6px 0; }
+	.jiDesc { margin-bottom: 12px; font-size: 13px; }
+	.jiDesc p { margin-bottom: 6px; }
+	.jiSub { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+	.jiComments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--bx-text-muted); }
+	.jiComments li { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--bx-surface2); }
+	.jiComments b { font-family: var(--sl-font-mono); font-size: 11.5px; color: var(--bx-text); margin-right: 6px; }
+	.chTable td { font-size: 13px; vertical-align: top; }
+	:root[data-theme='dark'] .teamsCard { border-left-color: #8b8ff0; }
+	:root[data-theme='dark'] .slackMsg { border-left-color: #c26fc9; }
+	:root[data-theme='dark'] .emailMsg { border-left-color: #2dd4bf; }
+	:root[data-theme='dark'] .jiraIssue { border-left-color: #579dff; }
+
+	/* ── 03 Tasks ────────────────────────────────────────────────────────── */
+	.taskGrid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.stateRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1.2fr) minmax(0, 0.8fr) minmax(0, 1fr); align-items: center; }
+	.state { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); padding: 14px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--bx-text-muted); line-height: 1.45; }
+	.state b { font-size: 15px; color: var(--bx-text); }
+	.state.open { border: 2px solid var(--xp-warn); }
+	.state.done { border-color: var(--xp-ok); }
+	.state .loop { margin-top: 4px; padding: 6px 8px; border-radius: 8px; background: var(--xp-warn-dim); color: var(--xp-warn); font-size: 11.5px; }
+	.edge { position: relative; padding: 0 6px; text-align: center; font-size: 11.5px; color: var(--bx-text-dim); line-height: 1.35; }
+	.edge span { display: block; padding-bottom: 12px; }
+	.edge::after { content: ''; position: absolute; left: 6px; right: 10px; bottom: 0; height: 2px; background: var(--bx-accent); opacity: 0.55; }
+	.edge::before { content: ''; position: absolute; right: 4px; bottom: -4px; border: 5px solid transparent; border-left: 7px solid var(--bx-accent); opacity: 0.8; }
+	.returnEdge { margin: 14px 0 0; padding: 10px 14px; border: 1px dashed var(--bx-border); border-radius: 10px; font-size: 12.5px; color: var(--bx-text-muted); }
+	.resolveNotes { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--bx-text-muted); }
+	.taskMock .tkTitle { font-size: 17px; font-weight: 600; }
+	.tkMeta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--bx-text-muted); margin: 6px 0 14px; }
+	.prio { font-weight: 600; color: var(--xp-warn); }
+	.sla { border: 1px solid var(--bx-border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+	.slaHead { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--bx-text-muted); margin-bottom: 8px; }
+	.slaBar { height: 6px; border-radius: 3px; background: var(--bx-surface2); overflow: hidden; }
+	.slaBar span { display: block; height: 100%; background: var(--xp-ok); }
+	.tkKpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+	.tkKpis div { border: 1px solid var(--bx-border); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; }
+	.tkKpis b { font-size: 18px; }
+	.tkKpis span { font-size: 11px; color: var(--bx-text-dim); }
+	.keys { font-size: 12px; color: var(--bx-text-dim); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+	/* ── 04 Anomaly ──────────────────────────────────────────────────────── */
+	.anomaly { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.anomaly .mockBar { flex-wrap: wrap; }
+	.chart { display: block; width: 100%; height: auto; }
+	.chart .grid { stroke: var(--bx-border); stroke-width: 1; }
+	.chart .axis { fill: var(--bx-text-dim); font-size: 11px; font-family: var(--sl-font-mono); }
+	.chart .band { fill: var(--bx-accent-dim); stroke: var(--bx-accent); stroke-opacity: 0.35; stroke-dasharray: 4 4; display: none; }
+	.chart .meanLine { stroke: var(--bx-accent); stroke-width: 1.5; }
+	.chart .meanLabel { fill: var(--bx-accent); font-size: 11px; font-family: var(--sl-font-mono); }
+	.chart .series { fill: none; stroke: var(--bx-text-muted); stroke-width: 1.5; }
+	.chart .pt { fill: var(--bx-surface); stroke: var(--bx-text-muted); stroke-width: 1.5; }
+	.chart .toCurrent { stroke: var(--bx-text-muted); stroke-width: 1.5; stroke-dasharray: 3 3; }
+	.chart .current { fill: var(--xp-crit); stroke: var(--bx-surface); stroke-width: 2; }
+	.verdicts { margin-top: 10px; }
+	.verdict { display: none; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12.5px; color: var(--bx-text-muted); }
+	.sev { font-weight: 600; color: var(--xp-warn); }
+	[data-sens='low'] .band-low, [data-sens='medium'] .band-medium, [data-sens='high'] .band-high { display: inline; }
+	[data-sens='low'] .v-low, [data-sens='medium'] .v-medium, [data-sens='high'] .v-high { display: flex; }
+	[data-sens='low'] .chart .current { fill: var(--bx-text-muted); }
+	[data-sens='low'] tr[data-row='low'] td, [data-sens='medium'] tr[data-row='medium'] td, [data-sens='high'] tr[data-row='high'] td { background: var(--bx-accent-dim); }
+	.sensTable { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+	.card.mini { padding: 18px 20px; }
+
+	/* ── 05 Worked example ───────────────────────────────────────────────── */
+	.exGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.settings dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 16px; margin: 0; font-size: 13.5px; }
+	.settings dt { color: var(--bx-text-dim); }
+	.settings dd { margin: 0; color: var(--bx-text); }
+	.timeline { list-style: none; margin: 0; padding: 0 0 0 22px; position: relative; display: flex; flex-direction: column; gap: 12px; }
+	.timeline::before { content: ''; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--bx-border); }
+	.timeline li { position: relative; margin: 0; display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); }
+	.timeline li::before { content: ''; position: absolute; left: -21px; top: 18px; width: 10px; height: 10px; border-radius: 50%; background: var(--bx-surface); border: 2px solid var(--bx-text-dim); }
+	.timeline li.sent::before { background: var(--bx-accent); border-color: var(--bx-accent); }
+	.timeline li.done::before { background: var(--xp-ok); border-color: var(--xp-ok); }
+	.timeline li.sent { border-color: color-mix(in srgb, var(--bx-accent) 45%, var(--bx-border)); }
+	.tlTime { font-weight: 600; }
+	.tlRows { font-size: 13px; color: var(--bx-text-muted); }
+	.timeline .badge { justify-self: start; }
+	.tlText { grid-column: 1 / -1; font-size: 13.5px; line-height: 1.5; color: var(--bx-text-muted); }
+
+	/* ── 06 Destinations ─────────────────────────────────────────────────── */
+	.destGrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.destTable td { font-size: 12.5px; white-space: nowrap; }
+	.destCards { gap: 14px; }
+	.destCards .card { padding: 18px 20px; }
+	.destCards .card p { font-size: 13.5px; }
+
+	@media (max-width: 1024px) {
+		.fan { margin: 0 auto; }
+		.chGrid, .taskGrid, .anomaly, .exGrid, .destGrid { grid-template-columns: minmax(0, 1fr); }
+	}
+	@media (max-width: 860px) {
+		.simRuns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+		.stateRow { grid-template-columns: minmax(0, 1fr); gap: 0; }
+		.edge { padding: 8px 0 18px 26px; text-align: left; }
+		.edge span { padding-bottom: 0; }
+		.edge::after { left: 12px; right: auto; top: 0; bottom: 6px; width: 2px; height: auto; }
+		.edge::before { left: 8px; right: auto; bottom: -4px; border: 5px solid transparent; border-top: 7px solid var(--bx-accent); }
+	}
+	@media (max-width: 640px) {
+		.fan { height: 400px; }
+		.fanCard { left: 2%; right: 2%; transform: rotate(calc((var(--i) - 2) * 0.8deg)); top: calc(var(--i) * 72px + 6px); }
+		.fanCard:hover { transform: translateY(-4px); }
+		.simRuns { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+		.destCards { grid-template-columns: minmax(0, 1fr); }
+		.tkKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	}
+</style>

@@ -1,69 +1,50 @@
 ---
 title: Features
-description: Reference guides for Beacon's data sources, queries, subscriptions, notifications, migration, and operations tooling.
+description: "A map of every Beacon feature page: monitoring and moving data, the AI and MCP layer, and governance and security."
 ---
 
-Reference guides for Beacon's capabilities.
+Every feature page, grouped as in the sidebar. New to Beacon? Read [Core concepts](/getting-started/concepts/) first,
+then the [Quick start](/getting-started/quick-start/).
 
-## Core Features
+## Monitor & move data
 
-### [Data Sources](/features/data-sources/)
-Manage connections across nine connectors — PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and a generic REST API. Organize them into projects for your monitoring queries.
+| Page | What it covers |
+|---|---|
+| [Data sources](/features/data-sources/) | Nine connectors (PostgreSQL, SQL Server, MySQL, Azure Synapse, Snowflake, BigQuery, Databricks, AWS CloudWatch, REST API), encrypted connections, metadata, and per-engine read-only guarantees. |
+| [Queries](/features/queries/) | Saved, versioned SQL: steps across data sources, bound `{name}` parameters, an in-memory final query, and optional change review. |
+| [Subscriptions](/features/subscriptions/) | Run a query on a cron schedule as its owner, decide which runs notify, and choose what each notification carries. |
+| [Notifications](/features/notifications/) | Five channels (Email, Teams, Slack, Jira and Webhook) to vetted recipients, with a delivery history. |
+| [Control Tower](/features/control-tower/) | Health across every subscription: success rates, health buckets, open tasks and anomaly sparklines. |
+| [Tasks](/features/tasks/) | Work items a subscription opens while its query returns rows, resolved automatically when the data recovers. |
+| [Anomaly detection](/features/anomaly-detection/) | Notify only when a run's row count is unusual against its own history. |
+| [Data quality](/features/data-quality/) | Data contracts with rule-based checks, a quality score and alerts, on PostgreSQL, SQL Server and MySQL. |
+| [Data migration](/features/data-migration/) | Copy rows from a read source into a database an Admin marked as a write target. Off unless the host enables it. |
 
-### [Queries](/features/queries/)
-Define SQL queries with parameter support. Create simple queries or multi-step workflows.
+## AI & MCP
 
-### [Subscriptions](/features/subscriptions/)
-Schedule query execution with cron expressions. Control when and how often your queries run.
+| Page | What it covers |
+|---|---|
+| [MCP server](/features/mcp-server/) | The governed MCP endpoint at `/beacon/mcp`: eight built-in tools, project scoping, read-only SQL and PII masking. |
+| [Entra ID callers](/features/mcp-entra-callers/) | Calling MCP with Microsoft Entra ID tokens, on behalf of a user or as a system identity. |
+| [Saved query tools](/features/saved-query-tools/) | Approved saved queries exposed as named, read-only MCP tools. |
+| [Host endpoint tools](/features/host-endpoint-tools/) | Selected host endpoints exposed as MCP tools, run in-process as the caller. |
+| [Host DbContext](/features/host-dbcontext/) | The host's own EF Core model as a read-only data source with an allow-list and masking. |
+| [Host docs](/features/host-docs/) | The host's markdown documentation imported into a project and searchable over MCP. |
+| [Knowledge base & grounding](/features/knowledge-base/) | What Beacon gives the model before it writes SQL: schema, relationships, glossary, golden examples, learned patterns. |
+| [AI integration](/features/ai-integration/) | Experimental: generated data source documentation and natural-language alerts through a swappable LLM provider. |
+| [AI actors](/features/ai-actors/) | Experimental: LLM-driven monitoring agents whose plans a person approves before anything runs. |
+| [MCP observability & audit](/features/mcp-observability-and-audit/) | The audit row behind every MCP tool call, trace correlation and OpenTelemetry export. |
 
-### [Notifications](/features/notifications/)
-Deliver query results via Email, Microsoft Teams, Slack, or Jira. Configure recipients and notification formats.
+## Govern & secure
 
-### [Data Migration](/features/data-migration/)
-Extract, transform, and load data between databases using multi-step ETL pipelines. Supports cross-database migrations with scheduling and retry.
+| Page | What it covers |
+|---|---|
+| [Security model](/features/security-model/) | The trust boundaries, deployment locks and guarantees in one place. |
+| [Authorization](/features/authorization/) | Projects as the access boundary, project roles and actions, functional permissions, and host seams. |
+| [Approvals](/features/approvals/) | The opt-in four-eyes review of query changes, migration jobs, Custom SQL rules and recipient destinations. |
+| [User management](/features/user-management/) | Users, roles, password and SSO sign-in, and the first-run setup. |
+| [API keys](/features/api-keys/) | Read and Execute keys bound to their owner, with project lists and a mandatory expiry, stored hashed. |
+| [Admin settings](/features/admin-settings/) | Runtime settings: the LLM provider, the base URL, and their change history. |
 
-### [MCP Server](/features/mcp-server/)
-Connect AI assistants (Claude, Cursor, Windsurf, claude.ai, ChatGPT, VS Code) to your data through the Model Context Protocol. Eight tools covering natural-language questions, grounding context, SQL validation, direct queries, catalog search, documentation, and answer feedback — all project-scoped with API key authentication, AST read-only validation, and a self-improving learning loop.
-
-### [Knowledge Base & Grounding](/features/knowledge-base/)
-What Beacon puts in front of the model before it writes SQL: M-Schema with real sample values, curated join paths, a business glossary, human-verified golden examples, mined learned patterns, and local semantic retrieval.
-
-## Operations & Quality
-
-### [Control Tower](/features/control-tower/)
-A real-time operations view across every scheduled check: health buckets, success rates, anomaly sparklines, and open-task counts — auto-refreshing.
-
-### [Tasks](/features/tasks/)
-Alerting tasks created automatically when a check finds problems, tracked through to resolution and auto-resolved when the data recovers.
-
-### [Data Quality](/features/data-quality/)
-Define data contracts and evaluate them on a schedule, with scoring and evaluation history.
-
-## Advanced Features
-
-### [User Management](/features/user-management/)
-Built-in user management with internal (password) and external (JWT/OAuth) authentication. First-run setup wizard, role assignment, and account administration.
-
-### [Admin Settings](/features/admin-settings/)
-Runtime application configuration through the Admin Settings UI. Hot-swap LLM providers, manage base URL, and view change history — all without restarting.
-
-### [Authorization](/features/authorization/)
-Flexible authorization for your Beacon installation. Supports role-based access control (RBAC), database-backed roles, and custom authorization providers, and integrates with any authentication system.
-
-### [Anomaly Detection](/features/anomaly-detection/)
-Statistical anomaly detection that learns baselines from historical execution data and alerts on unusual patterns.
-
-### [API Keys](/features/api-keys/)
-Scoped API keys (`Read`, `Execute`) with optional per-project restrictions and a mandatory expiry, bound to their owner's account — SHA256-hashed at rest, shown exactly once.
-
-### [AI Integration (Experimental)](/features/ai-integration/)
-Auto-generate data source documentation with ERD diagrams and turn natural language into SQL alerts using a runtime-swappable LLM provider.
-
-### [AI Actors (Experimental)](/features/ai-actors/)
-LLM-driven monitoring agents whose plans pass through a human approval workflow before anything executes.
-
-## Quick Links
-
-New to Beacon? Start with the [Quick Start Guide](/getting-started/quick-start/) to create your first alert.
-
-For advanced use, see [Queries](/features/queries/) for multi-step query chaining and cross-database joins, and [Data Sources](/features/data-sources/) for schema-agnostic, multi-tenant configuration.
+For configuration keys see [Configuration](/getting-started/configuration/); to embed Beacon in your own application
+see [Integrate Beacon](/integrate/).

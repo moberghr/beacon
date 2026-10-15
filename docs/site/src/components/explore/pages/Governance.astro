@@ -1,0 +1,817 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import ExploreLayout from '../ExploreLayout.astro';
+import Section from '../Section.astro';
+import Flow from '../Flow.astro';
+import Shot from '../Shot.astro';
+
+// Hero: concentric layers, outermost first. r = outer radius of the band.
+const CX = 260;
+const RINGS = [
+	{ r: 246, label: 'Audit & security events', dashed: true },
+	{ r: 208, label: 'Identity & sessions' },
+	{ r: 170, label: 'Project access' },
+	{ r: 132, label: 'SQL execution gate' },
+	{ r: 94, label: 'PII masking' },
+];
+const arc = (r: number) => `M ${CX - r} ${CX} A ${r} ${r} 0 0 1 ${CX + r} ${CX}`;
+
+// Project actions, in the order the evaluator names them.
+const ACTIONS = [
+	{ name: 'Read', desc: 'Resources, SQL, metadata, stored results, documentation' },
+	{ name: 'Run', desc: 'Execute saved SQL, evaluate data contracts' },
+	{ name: 'Query', desc: 'Ad-hoc and draft SQL, LLM work (playground, AI actors)' },
+	{ name: 'Write', desc: 'Create and change resources' },
+	{ name: 'Manage', desc: 'Delete, archive, take over a lock, force a metadata refresh' },
+	{ name: 'ManageMembers', desc: 'Manage members, link data sources' },
+	{ name: 'Curate', desc: 'Review learned patterns, documentation and relationships' },
+];
+// Initial state of the switcher: global Editor, Editor member, restricted project.
+const INITIAL: Record<string, string> = { Read: 'yes', Run: 'yes', Query: 'yes', Write: 'yes', Manage: 'owner', ManageMembers: 'no', Curate: 'no' };
+
+const PERMISSIONS = [
+	{ name: 'Approver', grants: 'Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own. Reads every project\'s approval requests.', conflicts: ['SecurityAdmin', 'UserAdmin'] },
+	{ name: 'Auditor', grants: 'Reads the MCP audit, the MCP and project settings, the admin settings (secrets masked) and every user\'s API keys.', conflicts: ['SecurityAdmin', 'UserAdmin'] },
+	{ name: 'SecurityAdmin', grants: 'Changes the MCP settings and the admin settings except the LLM connection and base URL, manages recipients, publishes saved queries as MCP tools, sets repository tokens.', conflicts: ['Approver', 'Auditor'] },
+	{ name: 'UserAdmin', grants: 'Manages external users, their roles and sessions, revokes API keys, changes the owner of scheduled work, manages project members, restricts projects.', conflicts: ['Auditor', 'Approver', 'MigrationOperator'] },
+	{ name: 'DataSourceAdmin', grants: 'Creates, tests and deletes data sources, links a source no open project holds into a project it administers, changes shared data-source state.', conflicts: [] },
+	{ name: 'MigrationOperator', grants: 'Runs data migration for the jobs whose data sources it may query and write. Mapped only while migrations are enabled.', conflicts: ['UserAdmin'] },
+];
+
+// Separation-of-duties graph: hexagon positions and the five conflicting pairs.
+const NODES: Record<string, [number, number]> = {
+	SecurityAdmin: [180, 36],
+	Approver: [282, 94],
+	UserAdmin: [282, 206],
+	MigrationOperator: [180, 264],
+	DataSourceAdmin: [78, 206],
+	Auditor: [78, 94],
+};
+const PAIRS: [string, string][] = [
+	['Approver', 'SecurityAdmin'],
+	['Auditor', 'SecurityAdmin'],
+	['Auditor', 'UserAdmin'],
+	['UserAdmin', 'Approver'],
+	['UserAdmin', 'MigrationOperator'],
+];
+
+const GATE = [
+	{ name: 'Deployment lock', desc: 'Beacon:Mcp:ForceReadOnly (on by default) forces read-only whatever the caller asked.' },
+	{ name: 'Length', desc: 'SQL longer than the ceiling (100,000 characters by default) is refused.' },
+	{ name: 'Characters', desc: 'Control characters other than tab, LF and CR, and Unicode non-characters, are refused.' },
+	{ name: 'Guardrail', desc: 'Write and DDL patterns are refused, judged after the dialect\'s tokenizer strips comments.' },
+	{ name: 'AST validator', desc: 'Parsed in the data source\'s dialect; anything but a read is refused. An unknown dialect is refused.' },
+	{ name: 'Cross-database rule', desc: 'Other databases, remote servers, files, USE, SET ROLE, EXECUTE AS and SQL built from strings are refused.' },
+	{ name: 'Host policy', desc: 'For a host-exposed DbContext: only allow-listed tables and columns.' },
+	{ name: 'Row cap', desc: 'The cap is written into the SQL, overriding any bound the statement sets itself.' },
+];
+
+const SAMPLES = [
+	{
+		id: 'read',
+		label: 'A read',
+		engine: 'PostgreSQL · database shop',
+		sql: "SELECT order_id, total\nFROM shop.orders\nWHERE status = 'paid'\nLIMIT 5000000;",
+		stop: 0,
+		verdict: 'Passes every stage. The row cap replaces the statement\'s own LIMIT, then the statement runs in a READ ONLY transaction.',
+	},
+	{
+		id: 'write',
+		label: 'A write',
+		engine: 'PostgreSQL · database shop',
+		sql: "DELETE FROM shop.orders\nWHERE status = 'test';",
+		stop: 4,
+		verdict: 'Refused at stage 4, Guardrail: a write. Nothing reaches the database.',
+	},
+	{
+		id: 'xdb',
+		label: 'Another database',
+		engine: 'PostgreSQL · database shop',
+		sql: 'SELECT account_id, balance\nFROM finance.public.ledger;',
+		stop: 6,
+		verdict: 'Refused at stage 6, Cross-database rule (cross_database): the name is qualified with finance, not shop.',
+	},
+];
+
+const ENGINES = [
+	{ name: 'PostgreSQL', how: 'READ ONLY transaction, exactly one statement per batch', db: true },
+	{ name: 'MySQL', how: 'START TRANSACTION READ ONLY, statement batches off', db: true },
+	{ name: 'SQL Server', how: 'A transaction that is always rolled back; a statement that ends it fails the run (7116)', db: false },
+	{ name: 'BigQuery', how: 'The connector\'s parser check and a dry run whose statement type must be SELECT', db: false },
+	{ name: 'Databricks', how: 'The connector\'s parser check and the configured catalog', db: false },
+	{ name: 'Synapse, Snowflake', how: 'The gate, and the data source\'s read-only login', db: false },
+];
+
+const SCENARIOS = [
+	{
+		id: 'read-key',
+		label: 'Read key on MCP',
+		input: 'An MCP client is configured with a key that carries only the Read scope and names the project Shop analytics.',
+		steps: [
+			{ s: 'ok', t: 'Identity', d: 'The header starts with Bearer sk-sem_. The key is hashed with SHA-256 and found: not revoked, not expired, owner enabled.' },
+			{ s: 'ok', t: 'Claims', d: 'Scopes: Read. Projects: Shop analytics (12). Owner: Ana Horvat, Editor.' },
+			{ s: 'crit', t: 'Execute-scope policy', d: 'MapBeaconMcp() mounts /beacon/mcp behind the Execute scope, because its tools run SQL. No session opens.' },
+		],
+		out: '<span class="k-dim">POST /beacon/mcp</span>\n<span class="k-red">HTTP/1.1 403 Forbidden</span>\n\n<span class="k-dim"># On a host that maps the route with a weaker policy,</span>\n<span class="k-dim"># the MCP layer still refuses, and audits the tool call:</span>\n<span class="k-yellow">Permission denied: this credential does not have</span>\n<span class="k-yellow">the Execute scope</span>',
+	},
+	{
+		id: 'demoted',
+		label: 'Execute key, owner demoted',
+		input: 'A CI job runs a subscription with an Execute key. Last week its owner, Ana Horvat, was moved from Editor to Viewer.',
+		steps: [
+			{ s: 'ok', t: 'Identity', d: 'The key is valid and its owner is still enabled.' },
+			{ s: 'warn', t: 'Scope follows the owner', d: 'Execute is checked against the owner\'s current roles on every request. A Viewer has no write permission, so the key acts as a Read key; a warning naming the key id is logged once per process.' },
+			{ s: 'crit', t: 'Scope check', d: 'Every /beacon/api request other than GET, HEAD or OPTIONS needs Execute.' },
+		],
+		out: '<span class="k-dim">POST /beacon/api/subscriptions/31/execute</span>\n<span class="k-dim">Authorization: Bearer sk-sem_Xq7…</span>\n\n<span class="k-red">HTTP/1.1 403 Forbidden</span>\n<span class="k-yellow">This operation requires the Execute scope.</span>',
+	},
+	{
+		id: 'viewer',
+		label: 'Viewer in a restricted project',
+		input: 'An Editor\'s Execute key calls the query tool in project 12, a restricted project where the owner is only a Viewer member.',
+		steps: [
+			{ s: 'ok', t: 'Identity and scope', d: 'Valid key, Execute scope, owner holds the Editor role globally. The MCP session opens.' },
+			{ s: 'ok', t: 'Project list', d: 'Project 12 is in the key\'s list, and the owner is still a member of it.' },
+			{ s: 'crit', t: 'Project access evaluator', d: 'In project 12 the owner is a Viewer: Read and Run. The query tool needs Query.' },
+			{ s: 'ok', t: 'Audit', d: 'The refusal is written to the MCP audit log, and the failed query call records its signal.' },
+		],
+		out: '<span class="k-dim">tools/call  query  { "project_id": 12, … }</span>\n\n<span class="k-yellow">Access denied: you may read project 12 but not run</span>\n<span class="k-yellow">ad-hoc queries in it.</span>\n\n<span class="k-dim"># Saved-query tools stay available: they need Run.</span>',
+	},
+];
+
+const LOCKS = [
+	{ name: 'Read-only enforcement', key: 'Beacon:Mcp:ForceReadOnly', value: 'true', state: 'on', pins: 'Read-only SQL everywhere the gate runs.' },
+	{ name: 'PII detection', key: 'Beacon:Mcp:ForcePiiDetection', value: 'true', state: 'on', pins: 'PII detection and masking on.' },
+	{ name: 'Data migration', key: 'Beacon:Migrations:Enabled', value: 'false', state: 'off', pins: 'The only write path. Off: no migration endpoints, no jobs, for anyone.' },
+	{ name: 'No content retention', key: 'Beacon:Mcp:ForceNoContentRetention', value: 'false', state: 'optin', pins: 'Set to true: no question, SQL or error text stored with MCP audit rows.' },
+	{ name: 'No row data to the LLM', key: 'Beacon:Mcp:ForbidRowDataToLlm', value: 'false', state: 'optin', pins: 'Set to true: no row values (samples, value grounding, eval judging) reach the LLM provider.' },
+	{ name: 'MCP row limit ceiling', key: 'Beacon:Mcp:Ceilings:MaxRowLimit', value: 'none', state: 'optin', pins: 'Set a number: the upper bound for every project\'s MCP row limit.' },
+];
+
+const EVENTS = [
+	{ t: '08:59:41', id: '9100', name: 'McpToolAudited', note: 'Tool=query ProjectId=12 Rows=48 DurationMs=212' },
+	{ t: '09:02:13', id: '7108', name: 'AccessRefused', note: 'a 403: ids, reason, principal kind' },
+	{ t: '09:05:20', id: '7101', name: 'MemberAdded', note: 'project and user ids only' },
+	{ t: '09:11:02', id: '7113', name: 'UserRolesChanged', note: 'sessions of the user end', alert: true },
+	{ t: '09:14:37', id: '7115', name: 'MigrationWritesChanged', note: 'write-target flag changed', alert: true },
+	{ t: '09:20:05', id: '7111', name: 'ScheduledWorkSkipped', note: 'owner not authorized' },
+	{ t: '09:31:44', id: '7119', name: 'BreakGlassSignIn', note: 'logged as a warning', alert: true },
+	{ t: '09:40:10', id: '7123', name: 'RowDataSentToLlm', note: 'Categories=sample-values' },
+	{ t: '09:46:58', id: '9103', name: 'McpAuditRead', note: 'reading the audit is audited' },
+];
+
+const APPROVE_BODY = `{
+  "comment": "Window checked against the fulfilment SLA.",
+  "expectedContentHash": "9c41d27a0be35f86c1e2d4a7b09f3e6d5a28c71f40be96d3a1572e8c4f0de07b"
+}`;
+---
+
+<ExploreLayout
+	area="governance"
+	eyebrow="Explore · Security & governance"
+	title="Every request passes the <em>same</em> layers."
+	lede="People, programs, AI assistants and scheduled work all reach your data through one identity layer, one project access evaluator and one SQL execution gate. Results are masked on the way out, and every layer leaves an audit trail."
+	facts={[
+		{ value: '1', label: 'access evaluator' },
+		{ value: '8', label: 'gate stages' },
+		{ value: '6', label: 'functional permissions' },
+	]}
+	deeper={[
+		{ title: 'Security model', href: '/features/security-model/', desc: 'The controls end to end: identity, gate, masking, locks, audit.' },
+		{ title: 'Authorization', href: '/features/authorization/', desc: 'Roles, project actions, functional permissions, 404 versus 403.' },
+		{ title: 'Approvals', href: '/features/approvals/', desc: 'Four-eyes review bound to the exact content reviewed.' },
+	]}
+>
+	<figure slot="hero" class="layers" aria-label="Concentric layers: audit, identity, project access, the SQL gate and PII masking around your databases. A request travels inward; masked rows travel out.">
+		<svg viewBox="0 0 520 520" role="img" aria-hidden="true">
+			<defs>
+				{RINGS.map((x, i) => <path id={`ringArc${i}`} d={arc(x.r - 24)} fill="none" />)}
+			</defs>
+			{
+				RINGS.map((x, i) => (
+					<circle cx={CX} cy={CX} r={x.r} class={`band b${i}${x.dashed ? ' dashed' : ''}`} />
+				))
+			}
+			<circle cx={CX} cy={CX} r="56" class="core" />
+			<text x={CX} y={CX - 4} class="coreText">Your</text>
+			<text x={CX} y={CX + 11} class="coreText">databases</text>
+			{
+				RINGS.map((x, i) => (
+					<text class="ringLabel">
+						<textPath href={`#ringArc${i}`} startOffset="50%">{x.label}</textPath>
+					</text>
+				))
+			}
+			<line x1="8" y1={CX} x2={CX - 56} y2={CX} class="track" />
+			<line x1={CX + 56} y1={CX} x2="512" y2={CX} class="track" />
+			{RINGS.map((x, i) => <circle cx={CX - x.r} cy={CX} r="4" class="check" style={`--i:${i}`} />)}
+			<text x="14" y={CX + 24} class="pathLabel">request</text>
+			<text x="506" y={CX + 24} class="pathLabel end">masked rows</text>
+			<g class="dotIn"><circle cx="14" cy={CX} r="7" class="dot" /></g>
+			<g class="dotOut"><circle cx={CX + 62} cy={CX} r="7" class="dot out" /></g>
+		</svg>
+	</figure>
+
+	<Section num="01" label="Project access" title="Projects are the access boundary." lede="One evaluator decides every access, for the UI, the REST API, MCP and scheduled work alike. A restricted project does not exist for anyone who is neither a member nor an Admin: it answers 404. Pick a caller and a project to see which actions light up.">
+		<div class="switcher" data-switcher>
+			<div class="controls">
+				<fieldset>
+					<legend>Global role</legend>
+					<div class="seg">
+						{['Viewer', 'Editor', 'Admin'].map((x) => <label><input type="radio" name="g" value={x} checked={x === 'Editor'} /><span>{x}</span></label>)}
+					</div>
+				</fieldset>
+				<fieldset>
+					<legend>Membership in this project</legend>
+					<div class="seg">
+						{['None', 'Viewer', 'Editor', 'ProjectAdmin'].map((x) => <label><input type="radio" name="m" value={x} checked={x === 'Editor'} /><span>{x}</span></label>)}
+					</div>
+				</fieldset>
+				<fieldset>
+					<legend>Project</legend>
+					<div class="seg">
+						<label><input type="radio" name="p" value="restricted" checked /><span>Restricted</span></label>
+						<label><input type="radio" name="p" value="open" /><span>Open</span></label>
+					</div>
+				</fieldset>
+			</div>
+			<div class="mock result">
+				<div class="mockBar"><span>PROJECT · SHOP ANALYTICS</span><span class="badge" data-role>Editor</span></div>
+				<div class="mockBody">
+					<ul class="actions">
+						{
+							ACTIONS.map((x) => (
+								<li class={`act ${INITIAL[x.name]}`} data-action={x.name}>
+									<span class="actMark" aria-hidden="true" />
+									<span class="actText">
+										<b>{x.name}</b>
+										<span>{x.desc}</span>
+									</span>
+									<span class="actState">{INITIAL[x.name] === 'yes' ? 'granted' : INITIAL[x.name] === 'owner' ? 'as recorded owner' : 'not granted'}</span>
+								</li>
+							))
+						}
+					</ul>
+					<p class="verdict" data-note aria-live="polite">A restricted project: the Editor member acts with their membership role. Manage applies to what they own (a lock they hold, a subscription or contract they own).</p>
+				</div>
+			</div>
+		</div>
+		<p class="note">ManageMembers and Curate come only from a ProjectAdmin membership or the Admin role. They are never granted by an open project, to an API key, to an MCP caller or to the owner of scheduled work. An API key reaches only the projects it names, capped by the lower of its scope and its owner's global role, and never gets the Admin bypass.</p>
+	</Section>
+
+	<Section num="02" label="Functional permissions" title="Administrative duties without administrative data." alt lede="The Admin role's duties are split into six permissions. Each is held through a functional role (a level-0 system role an Admin assigns) or an identity-provider app role mapped at sign-in. None of them grants project data, and API keys never hold one.">
+		<div class="permGrid">
+			<div class="cols3 perms">
+				{
+					PERMISSIONS.map((x) => (
+						<div class="card perm">
+							<h3>{x.name}</h3>
+							<p>{x.grants}</p>
+							{x.conflicts.length > 0 ? (
+								<div class="conflicts">
+									<span>Conflicts with</span>
+									{x.conflicts.map((y) => <span class="badge crit">{y}</span>)}
+								</div>
+							) : (
+								<div class="conflicts"><span class="badge neutral">No conflicting pair</span></div>
+							)}
+						</div>
+					))
+				}
+			</div>
+			<figure class="sod card">
+				<h3>Separation of duties</h3>
+				<p>With <code>SeparationOfDuties:Enabled</code> (off by default), giving one user both permissions of a pair is refused with 400, also when an Admin assigns them. A user who already holds both holds neither.</p>
+				<svg viewBox="0 0 360 300" role="img" aria-label="Conflicting pairs: Approver and SecurityAdmin, Auditor and SecurityAdmin, Auditor and UserAdmin, UserAdmin and Approver, UserAdmin and MigrationOperator.">
+					{PAIRS.map(([a, b]) => <line x1={NODES[a][0]} y1={NODES[a][1]} x2={NODES[b][0]} y2={NODES[b][1]} class="edge" />)}
+					{
+						Object.entries(NODES).map(([name, [x, y]]) => (
+							<g>
+								<rect x={x - 62} y={y - 15} width="124" height="30" rx="15" class="node" />
+								<text x={x} y={y + 4} class="nodeText">{name}</text>
+							</g>
+						))
+					}
+				</svg>
+			</figure>
+		</div>
+	</Section>
+
+	<Section num="03" label="The SQL execution gate" title="One gate in front of every database." lede="Every statement Beacon runs on a data source for a user or an AI feature passes the same eight stages: MCP tools, previews, scheduled checks, saved-query tools, data-quality rules, AI features and migration reads. Choose a statement to see where it stops.">
+		<div class="gate" data-gate>
+			<div class="stack">
+				<div class="tabs" role="group" aria-label="Sample statements">
+					{SAMPLES.map((x, i) => <button type="button" class="tab" data-sample={x.id} aria-pressed={i === 0 ? 'true' : 'false'}>{x.label}</button>)}
+				</div>
+				{
+					SAMPLES.map((x, i) => (
+						<div class="sample" data-panel={x.id} data-stop={x.stop} hidden={i !== 0}>
+							<div class="terminal">
+								<div class="terminalBar"><i /><i /><i /><span class="terminalLabel">{x.engine}</span></div>
+								<pre class="terminalPre">{x.sql}</pre>
+							</div>
+							<p class={`gateVerdict ${x.stop ? 'crit' : 'ok'}`}>{x.verdict}</p>
+						</div>
+					))
+				}
+			</div>
+			<ol class="stages" data-stages>
+				{
+					GATE.map((x, i) => (
+						<li class="stage pass" data-stage={i + 1}>
+							<span class="stageNum">{i + 1}</span>
+							<span class="stageText"><b>{x.name}</b><span>{x.desc}</span></span>
+						</li>
+					))
+				}
+			</ol>
+		</div>
+
+		<h3 class="subHead">Then the engine's own read-only path</h3>
+		<div class="engines">
+			{
+				ENGINES.map((x) => (
+					<div class="engine">
+						<b>{x.name}</b>
+						<span>{x.how}</span>
+						{x.db && <span class="badge ok">Database refuses writes</span>}
+					</div>
+				))
+			}
+		</div>
+		<p class="note">The gate is the primary control and database-level read-only is defence in depth, so every data source needs a read-only login, on every engine. Every statement has a timeout: 120 seconds by default for scheduled runs, previews and Beacon's own reads, and a fixed 30 seconds for the MCP query and ask tools.</p>
+	</Section>
+
+	<Section num="04" label="Worked example" title="Three calls, traced to the refusal." alt lede="An API key never does more than its owner may do now. Each trace below follows one request through the layers to the point where Beacon refuses it, and the answer the caller receives.">
+		<div class="scenarios" data-scenarios>
+			<div class="tabs" role="group" aria-label="Scenarios">
+				{SCENARIOS.map((x, i) => <button type="button" class="tab" data-scenario={x.id} aria-pressed={i === 0 ? 'true' : 'false'}>{x.label}</button>)}
+			</div>
+			{
+				SCENARIOS.map((x, i) => (
+					<div class="scenario" data-spanel={x.id} hidden={i !== 0}>
+						<div class="stack">
+							<p class="input"><span class="badge neutral">Input</span> {x.input}</p>
+							<ol class="trace">
+								{x.steps.map((y, j) => (
+									<li class={`traceStep ${y.s}`} style={`--i:${j}`}>
+										<span class="traceMark" aria-hidden="true">{y.s === 'ok' ? '✓' : y.s === 'warn' ? '!' : '✕'}</span>
+										<span><b>{y.t}</b><span>{y.d}</span></span>
+									</li>
+								))}
+							</ol>
+						</div>
+						<div class="terminal">
+							<div class="terminalBar"><i /><i /><i /><span class="terminalLabel">What the caller receives</span></div>
+							<pre class="terminalPre" set:html={x.out} />
+						</div>
+					</div>
+				))
+			}
+		</div>
+	</Section>
+
+	<Section num="05" label="Four-eyes approvals" title="SQL goes live only after a second person reviews it." lede="With the approval workflow enabled (it is opt-in), a change to what SQL runs or where data goes takes effect only when someone other than the requester approves exactly the content they reviewed.">
+		<Flow
+			seconds={7}
+			steps={[
+				{ label: 'Save a change', detail: 'Files a PendingApproval version with its exact content and SHA-256 hash. The live query is untouched.' },
+				{ label: 'Review the diff', detail: 'An Approver other than the requester sees each step\'s SQL, data source and parameters side by side.' },
+				{ label: 'Approve the hash', detail: 'The decision carries expectedContentHash: the hash of the content the reviewer was shown.' },
+				{ label: 'Re-check', detail: 'Still pending, not stale, content unchanged, and every step passes the save checks again.' },
+				{ label: 'Go live', tone: 'ok', detail: 'Decision and version move commit in one transaction. Scheduled runs execute only reviewed content.' },
+			]}
+		/>
+
+		<div class="cols2 approval">
+			<div class="mock review">
+				<div class="mockBar"><span>APPROVAL REQUEST · #42</span><span class="badge warn">Pending</span></div>
+				<div class="mockBody">
+					<dl class="kv">
+						<dt>Query</dt><dd>Paid orders without shipment</dd>
+						<dt>Submitted by</dt><dd>Ana Horvat</dd>
+						<dt>Proposed change</dt><dd class="mono">v4 → v5</dd>
+					</dl>
+					<div class="diffHead"><b>Step 1 · Shop (PostgreSQL)</b><span class="badge warn">Modified</span></div>
+					<pre class="diff"><span class="ctx">  SELECT order_id, customer_id, total, paid_at</span>
+<span class="ctx">  FROM shop.orders</span>
+<span class="ctx">  WHERE status = 'paid'</span>
+<span class="del">-   AND paid_at &lt; now() - interval '24 hours';</span>
+<span class="add">+   AND paid_at &lt; now() - interval '12 hours';</span></pre>
+					<div class="hash"><span>Content hash</span><span class="mono">9c41d27a…4f0de07b</span></div>
+					<div class="decide">
+						<span class="who"><b>Marko Kovač</b> may approve: Approver, not the requester.</span>
+						<span class="btns"><span class="btn ghost">Reject</span><span class="btn">Approve</span></span>
+					</div>
+				</div>
+			</div>
+			<div class="stack">
+				<Code code={APPROVE_BODY} lang="json" title="POST /beacon/api/approvals/42/approve" />
+				<div class="card applies">
+					<h3>The approval applies only if</h3>
+					<ul>
+						<li>the request is still pending; a second decision answers 409 and never overwrites the first;</li>
+						<li>no other version went live since the change was made; otherwise it is stale and must be submitted again;</li>
+						<li>the proposal still holds the submitted content, and that content is what the reviewer was shown;</li>
+						<li>every step passes the save checks again: the execution gate and the data source's metadata.</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+
+		<div class="reviewed">
+			<div class="mock">
+				<div class="mockBar"><span>WHAT ELSE WAITS FOR A SECOND PERSON</span><span>defaults</span></div>
+				<div class="mockBody tableScroll">
+					<table class="mockTable">
+						<thead><tr><th>Kind</th><th>Reviewed</th><th>Until approved</th></tr></thead>
+						<tbody>
+							<tr><td>Migration job</td><td>New job, or a changed source, steps, destination, mode or transformation</td><td>Every run is refused and recorded as failed.</td></tr>
+							<tr><td>Custom SQL rule</td><td>New rule, or changed SQL or data source</td><td>The rule is left out of every evaluation.</td></tr>
+							<tr><td>Recipient destination</td><td>New recipient, or changed type, destination or headers</td><td>Deliveries skip the recipient; each skip is logged.</td></tr>
+							<tr><td>Scheduled run</td><td>The query's active version</td><td>Recorded as <span class="badge neutral">Skipped</span> and shown as <b>Not approved</b>.</td></tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+
+		<div style="margin-top: 36px">
+			<Shot name="approval-review-light" alt="An approval request in Beacon: request details, the current and proposed final query side by side, and the decision form" caption="The review page: the request, the proposed change against the active version, and the decision. The requester cannot approve it, and neither can an API key." />
+		</div>
+	</Section>
+
+	<Section num="06" label="Deployment locks" title="Guarantees that do not depend on an Admin." alt lede="Some settings are pinned by host configuration and bind Admins too. While a lock is on, the settings page shows the setting disabled and the API answers 409 (/errors/setting-locked). Only host configuration lifts it.">
+		<div class="locks">
+			{
+				LOCKS.map((x) => (
+					<div class={`lock ${x.state}`}>
+						<span class={`toggle ${x.state}`} aria-hidden="true"><i /></span>
+						<span class="lockText">
+							<b>{x.name}</b>
+							<code>{x.key} = {x.value}</code>
+							<span>{x.pins}</span>
+						</span>
+						<span class="lockVal">
+							{x.state === 'optin' ? (
+								<span class="badge neutral">Opt-in lock</span>
+							) : (
+								<span class="badge">
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></svg>
+									Locked {x.state}
+								</span>
+							)}
+						</span>
+					</div>
+				))
+			}
+		</div>
+		<p class="note">Values shown are the defaults. The first three are pinned out of the box; the others pin their setting once the host sets them. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Every MCP setting change is recorded in the settings history with who changed it.</p>
+	</Section>
+
+	<Section num="07" label="Audit and security events" title="Every layer leaves a record." lede="Beacon keeps two audit tables and writes security-relevant actions as structured log events with identifiers only. The log events are not stored by Beacon: ship them to your log pipeline and alert on them.">
+		<div class="audit">
+			<div class="stack">
+				<div class="card rec">
+					<h3>MCP audit log</h3>
+					<p>One row per tool call, refusals and failures included: tool, caller, project, data source, rows, timing, trace id, MCP session id. Optional fail-closed mode withholds a result whose row could not be written. Auditors read it.</p>
+				</div>
+				<div class="card rec">
+					<h3>Settings history</h3>
+					<p>Admin settings, MCP settings and migration write-target changes, with the old and new value (secrets as <code>***</code>) and who made the change.</p>
+				</div>
+				<div class="card rec">
+					<h3>Security events</h3>
+					<p>Structured log events 7101 to 7123, ids only, no personal data. Alert at least on 7119, 7113, 7114, 7115 and 7116.</p>
+				</div>
+			</div>
+			<div class="terminal stream">
+				<div class="terminalBar"><i /><i /><i /><span class="terminalLabel">log pipeline · Beacon.Audit and security events</span></div>
+				<ol class="events">
+					{
+						EVENTS.map((x, i) => (
+							<li style={`--i:${i}`}>
+								<span class="k-dim">{x.t}</span>
+								<span class="evId">{x.id}</span>
+								<span class="evName">{x.name}</span>
+								<span class="k-mute evNote">{x.note}</span>
+								{x.alert && <span class="evAlert">alert</span>}
+							</li>
+						))
+					}
+				</ol>
+			</div>
+		</div>
+	</Section>
+</ExploreLayout>
+
+<script>
+	type State = 'yes' | 'no' | 'owner';
+	const ACTIONS = ['Read', 'Run', 'Query', 'Write', 'Manage', 'ManageMembers', 'Curate'];
+	const SETS: Record<string, State[]> = {
+		none: ['no', 'no', 'no', 'no', 'no', 'no', 'no'],
+		viewer: ['yes', 'yes', 'no', 'no', 'no', 'no', 'no'],
+		editorRestricted: ['yes', 'yes', 'yes', 'yes', 'owner', 'no', 'no'],
+		editorOpen: ['yes', 'yes', 'yes', 'yes', 'yes', 'no', 'no'],
+		all: ['yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
+	};
+
+	function evaluate(g: string, m: string, p: string): { set: string; role: string; tone: string; note: string } {
+		if (g === 'Admin') {
+			return { set: 'all', role: 'Admin', tone: '', note: 'An Admin reaches every live project with every action, open or restricted, member or not.' };
+		}
+		if (p === 'restricted' && m === 'None') {
+			return { set: 'none', role: '404', tone: 'crit', note: 'A restricted project, and not a member: the project answers 404. The caller cannot tell it from a project that does not exist.' };
+		}
+		if (g === 'Viewer') {
+			const capped = m === 'Editor' || m === 'ProjectAdmin';
+			return {
+				set: 'viewer',
+				role: 'Viewer',
+				tone: '',
+				note: capped
+					? `A global Viewer is a Viewer in every project, whatever their membership. The ${m} membership does not lift it.`
+					: p === 'open' && m === 'None'
+						? 'An open project: everyone with a Beacon role uses it at their global role. A Viewer reads and runs saved SQL.'
+						: 'A Viewer reads and runs saved SQL, and works with no ad-hoc SQL.',
+			};
+		}
+		if (m === 'ProjectAdmin') {
+			return { set: 'all', role: 'ProjectAdmin', tone: '', note: 'A project admin holds every action in the project, including ManageMembers and Curate, which only this membership grants.' };
+		}
+		if (p === 'open') {
+			return { set: 'editorOpen', role: 'Editor', tone: '', note: 'An open project: an Editor acts with the higher of their membership and their global role, and holds Manage. ManageMembers and Curate still need a ProjectAdmin membership.' };
+		}
+		if (m === 'Viewer') {
+			return { set: 'viewer', role: 'Viewer', tone: '', note: 'A restricted project: the member acts with their membership role, here Viewer, even though their global role is Editor.' };
+		}
+		return { set: 'editorRestricted', role: 'Editor', tone: '', note: 'A restricted project: the Editor member acts with their membership role. Manage applies to what they own (a lock they hold, a subscription or contract they own).' };
+	}
+
+	const LABEL: Record<State, string> = { yes: 'granted', no: 'not granted', owner: 'as recorded owner' };
+
+	for (const root of document.querySelectorAll<HTMLElement>('[data-switcher]')) {
+		const update = () => {
+			const value = (name: string) => root.querySelector<HTMLInputElement>(`input[name="${name}"]:checked`)?.value ?? '';
+			const result = evaluate(value('g'), value('m'), value('p'));
+			const states = SETS[result.set];
+			ACTIONS.forEach((name, i) => {
+				const item = root.querySelector<HTMLElement>(`[data-action="${name}"]`);
+				if (!item) {
+					return;
+				}
+				item.classList.remove('yes', 'no', 'owner');
+				item.classList.add(states[i]);
+				const label = item.querySelector('.actState');
+				if (label) {
+					label.textContent = LABEL[states[i]];
+				}
+			});
+			const role = root.querySelector<HTMLElement>('[data-role]');
+			if (role) {
+				role.textContent = result.role === '404' ? '404 Not Found' : `Acts as ${result.role}`;
+				role.className = `badge${result.tone ? ` ${result.tone}` : ''}`;
+			}
+			const note = root.querySelector('[data-note]');
+			if (note) {
+				note.textContent = result.note;
+			}
+		};
+		root.addEventListener('change', update);
+		update();
+	}
+
+	// Gate: highlight the stages a sample passes and the stage that refuses it.
+	for (const root of document.querySelectorAll<HTMLElement>('[data-gate]')) {
+		const show = (id: string) => {
+			let stop = 0;
+			for (const panel of root.querySelectorAll<HTMLElement>('[data-panel]')) {
+				const active = panel.dataset.panel === id;
+				panel.hidden = !active;
+				if (active) {
+					stop = Number(panel.dataset.stop ?? 0);
+				}
+			}
+			for (const button of root.querySelectorAll<HTMLElement>('[data-sample]')) {
+				button.setAttribute('aria-pressed', String(button.dataset.sample === id));
+			}
+			for (const stage of root.querySelectorAll<HTMLElement>('[data-stage]')) {
+				const n = Number(stage.dataset.stage);
+				stage.classList.remove('pass', 'stop', 'skip');
+				stage.classList.add(stop === 0 || n < stop ? 'pass' : n === stop ? 'stop' : 'skip');
+			}
+		};
+		root.addEventListener('click', (event) => {
+			const button = (event.target as HTMLElement).closest<HTMLElement>('[data-sample]');
+			if (button?.dataset.sample) {
+				show(button.dataset.sample);
+			}
+		});
+	}
+
+	// Worked example tabs.
+	for (const root of document.querySelectorAll<HTMLElement>('[data-scenarios]')) {
+		root.addEventListener('click', (event) => {
+			const button = (event.target as HTMLElement).closest<HTMLElement>('[data-scenario]');
+			const id = button?.dataset.scenario;
+			if (!id) {
+				return;
+			}
+			for (const panel of root.querySelectorAll<HTMLElement>('[data-spanel]')) {
+				panel.hidden = panel.dataset.spanel !== id;
+			}
+			for (const tab of root.querySelectorAll<HTMLElement>('[data-scenario]')) {
+				tab.setAttribute('aria-pressed', String(tab.dataset.scenario === id));
+			}
+		});
+	}
+</script>
+
+<style>
+	/* Hero: concentric layers */
+	.layers { margin: 0 0 0 auto; max-width: 500px; }
+	.layers svg { display: block; width: 100%; height: auto; overflow: visible; }
+	.band { fill: var(--bx-accent); stroke: var(--bx-accent); stroke-opacity: 0.35; stroke-width: 1.2; }
+	.b0 { fill-opacity: 0.025; stroke-dasharray: 5 6; stroke-opacity: 0.55; }
+	.b1 { fill-opacity: 0.04; }
+	.b2 { fill-opacity: 0.06; }
+	.b3 { fill-opacity: 0.08; }
+	.b4 { fill-opacity: 0.1; }
+	.core { fill: var(--bx-accent); }
+	.coreText { fill: #fff; font-size: 12px; font-weight: 600; text-anchor: middle; }
+	.ringLabel { fill: var(--bx-text-muted); font-size: 10.5px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; text-anchor: middle; }
+	.track { stroke: var(--bx-accent); stroke-opacity: 0.4; stroke-width: 1.5; stroke-dasharray: 2 5; }
+	.check { fill: var(--bx-surface); stroke: var(--bx-accent); stroke-width: 1.5; animation: check 4.8s linear infinite; animation-delay: calc(var(--i) * 0.42s + 0.15s); }
+	@keyframes check {
+		0%, 10% { fill: var(--bx-accent); }
+		18%, 100% { fill: var(--bx-surface); }
+	}
+	.pathLabel { fill: var(--bx-text-dim); font-size: 11px; font-family: var(--sl-font-mono); }
+	.pathLabel.end { text-anchor: end; }
+	.dot { fill: var(--bx-accent); stroke: var(--bx-surface); stroke-width: 3; }
+	.dot.out { fill: var(--xp-ok); }
+	.dotIn { animation: dotIn 4.8s ease-in-out infinite; }
+	.dotOut { animation: dotOut 4.8s ease-in-out infinite; }
+	@keyframes dotIn {
+		0% { transform: translateX(0); opacity: 1; }
+		44% { transform: translateX(176px); opacity: 1; }
+		50%, 100% { transform: translateX(176px); opacity: 0; }
+	}
+	@keyframes dotOut {
+		0%, 50% { transform: translateX(0); opacity: 0; }
+		56% { opacity: 1; }
+		94% { transform: translateX(178px); opacity: 1; }
+		100% { transform: translateX(178px); opacity: 0; }
+	}
+
+	/* 01 Role switcher */
+	.switcher { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr); gap: 28px; align-items: start; }
+	.controls { display: flex; flex-direction: column; gap: 18px; }
+	fieldset { border: none; margin: 0; padding: 0; min-width: 0; }
+	legend { font-size: 11px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--bx-text-dim); margin-bottom: 8px; padding: 0; }
+	.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+	.seg label { position: relative; cursor: pointer; }
+	.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+	.seg span { display: inline-block; font-size: 13.5px; font-weight: 500; padding: 7px 15px; border-radius: 20px; border: 1px solid var(--bx-border); background: var(--bx-surface); color: var(--bx-text-muted); transition: border-color .15s, background .15s, color .15s; }
+	.seg label:hover span { border-color: var(--bx-accent); color: var(--bx-accent); }
+	.seg input:checked + span { background: var(--bx-accent); border-color: var(--bx-accent); color: #fff; }
+	.seg input:focus-visible + span { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.actions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	.act { margin: 0; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--bx-border); transition: background .2s, border-color .2s, opacity .2s; }
+	.actMark { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--bx-text-dim); }
+	.actText { display: flex; flex-direction: column; min-width: 0; }
+	.actText b { font-size: 14px; color: var(--bx-text); font-family: var(--sl-font-mono); font-weight: 600; }
+	.actText span { font-size: 12.5px; color: var(--bx-text-muted); line-height: 1.45; }
+	.actState { font-size: 11.5px; font-weight: 600; color: var(--bx-text-dim); white-space: nowrap; }
+	.act.yes { background: var(--xp-ok-dim); border-color: color-mix(in srgb, var(--xp-ok) 35%, transparent); }
+	.act.yes .actMark { background: var(--xp-ok); border-color: var(--xp-ok); }
+	.act.yes .actState { color: var(--xp-ok); }
+	.act.owner { background: var(--xp-warn-dim); border-color: color-mix(in srgb, var(--xp-warn) 35%, transparent); }
+	.act.owner .actMark { border-color: var(--xp-warn); background: linear-gradient(90deg, var(--xp-warn) 50%, transparent 50%); }
+	.act.owner .actState { color: var(--xp-warn); }
+	.act.no { opacity: 0.55; }
+	.verdict { margin-top: 14px !important; font-size: 14px; line-height: 1.55; color: var(--bx-text-muted); padding: 12px 14px; border-radius: 10px; background: var(--bx-surface2); }
+
+	/* 02 Functional permissions */
+	.permGrid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+	.permGrid .perms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.perm h3 { font-family: var(--sl-font-mono); font-size: 15px; }
+	.perm p { font-size: 14px !important; }
+	.conflicts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: 12px; color: var(--bx-text-dim); }
+	.sod { margin: 0; }
+	.sod p { font-size: 13.5px !important; margin-bottom: 12px !important; }
+	.sod svg { display: block; width: 100%; height: auto; }
+	.edge { stroke: var(--xp-crit); stroke-width: 1.6; stroke-dasharray: 5 4; opacity: 0.75; }
+	.node { fill: var(--bx-surface); stroke: var(--bx-border-bright, var(--bx-border)); stroke-width: 1.2; }
+	.nodeText { fill: var(--bx-text); font-size: 11.5px; font-weight: 600; text-anchor: middle; font-family: var(--sl-font-mono); }
+
+	/* 03 Gate */
+	.gate { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; align-items: start; }
+	.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+	.tab { font: inherit; font-size: 13.5px; font-weight: 500; padding: 7px 15px; border-radius: 20px; border: 1px solid var(--bx-border); background: var(--bx-surface); color: var(--bx-text-muted); cursor: pointer; }
+	.tab:hover { border-color: var(--bx-accent); color: var(--bx-accent); }
+	.tab[aria-pressed='true'] { background: var(--bx-accent); border-color: var(--bx-accent); color: #fff; }
+	.tab:focus-visible { outline: 2px solid var(--bx-accent); outline-offset: 2px; }
+	.sample { display: flex; flex-direction: column; gap: 14px; }
+	.sample[hidden], .scenario[hidden] { display: none; }
+	.gateVerdict { font-size: 14px; line-height: 1.55; padding: 12px 14px; border-radius: 10px; border-left: 4px solid; }
+	.gateVerdict.ok { background: var(--xp-ok-dim); border-color: var(--xp-ok); color: var(--bx-text); }
+	.gateVerdict.crit { background: var(--xp-crit-dim); border-color: var(--xp-crit); color: var(--bx-text); }
+	.stages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	.stage { margin: 0; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bx-border); background: var(--bx-surface); transition: opacity .2s, background .2s, border-color .2s; }
+	.stageNum { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: var(--sl-font-mono); font-size: 12px; font-weight: 600; border: 1.5px solid var(--bx-accent); color: var(--bx-accent); }
+	.stageText { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+	.stageText b { font-size: 14px; }
+	.stageText span { font-size: 12.5px; color: var(--bx-text-muted); line-height: 1.45; overflow-wrap: anywhere; }
+	.stage.pass .stageNum { background: var(--xp-ok-dim); border-color: var(--xp-ok); color: var(--xp-ok); }
+	.stage.stop { background: var(--xp-crit-dim); border-color: var(--xp-crit); }
+	.stage.stop .stageNum { background: var(--xp-crit); border-color: var(--xp-crit); color: #fff; }
+	.stage.skip { opacity: 0.4; }
+	.subHead { margin: 44px 0 14px !important; }
+	.engines { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+	.engine { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 14px 16px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); }
+	.engine b { font-size: 15px; }
+	.engine > span:not(.badge) { font-size: 13px; line-height: 1.5; color: var(--bx-text-muted); }
+
+	/* 04 Worked example */
+	.scenarios > .tabs { margin-bottom: 20px; }
+	.scenario { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+	.input { font-size: 15px; line-height: 1.55; color: var(--bx-text); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+	.trace { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; position: relative; }
+	.traceStep { margin: 0; position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 0 0 18px; animation: xpFadeUp .45s ease backwards; animation-delay: calc(var(--i) * 0.25s); }
+	.traceStep:not(:last-child)::before { content: ''; position: absolute; left: 14px; top: 30px; bottom: 2px; width: 2px; background: var(--bx-border); }
+	.traceMark { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+	.traceStep.ok .traceMark { background: var(--xp-ok-dim); color: var(--xp-ok); border: 1.5px solid var(--xp-ok); }
+	.traceStep.warn .traceMark { background: var(--xp-warn-dim); color: var(--xp-warn); border: 1.5px solid var(--xp-warn); }
+	.traceStep.crit .traceMark { background: var(--xp-crit); color: #fff; border: 1.5px solid var(--xp-crit); }
+	.traceStep > span:last-child { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; min-width: 0; }
+	.traceStep b { font-size: 14.5px; }
+	.traceStep > span:last-child > span { font-size: 13.5px; line-height: 1.55; color: var(--bx-text-muted); }
+
+	/* 05 Approvals */
+	.approval { margin-top: 48px; }
+	.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0 0 16px; font-size: 13.5px; }
+	.kv dt { color: var(--bx-text-dim); }
+	.kv dd { margin: 0; }
+	.diffHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13.5px; margin-bottom: 8px; }
+	.diff { margin: 0; font-family: var(--sl-font-mono); font-size: 12px; line-height: 1.7; border: 1px solid var(--bx-border); border-radius: 8px; padding: 8px 0; overflow-x: auto; background: var(--bx-surface2); white-space: normal; }
+	.diff span { display: block; padding: 0 12px; white-space: pre; }
+	.diff .ctx { color: var(--bx-text-muted); }
+	.diff .del { background: var(--xp-crit-dim); color: var(--xp-crit); }
+	.diff .add { background: var(--xp-ok-dim); color: var(--xp-ok); }
+	.hash { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--bx-text-dim); margin: 12px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--bx-border); }
+	.hash .mono { color: var(--bx-accent); }
+	.decide { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--bx-text-muted); }
+	.btns { display: inline-flex; gap: 8px; }
+	.btn { font-size: 13px; font-weight: 600; padding: 6px 16px; border-radius: 8px; background: var(--bx-accent); color: #fff; }
+	.btn.ghost { background: transparent; color: var(--xp-crit); border: 1px solid var(--xp-crit); }
+	.applies ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.55; color: var(--bx-text-muted); }
+	.applies li { margin: 0; }
+	.reviewed { margin-top: 28px; }
+	.tableScroll { overflow-x: auto; }
+	.tableScroll .mockTable { min-width: 560px; }
+
+	/* 06 Locks */
+	.locks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+	.lock { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 16px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); }
+	.toggle { width: 38px; height: 22px; border-radius: 11px; position: relative; background: var(--bx-surface2); border: 1px solid var(--bx-border); }
+	.toggle i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bx-text-dim); }
+	.toggle.on { background: var(--bx-accent); border-color: var(--bx-accent); }
+	.toggle.on i { left: 18px; background: #fff; }
+	.toggle.off i { background: var(--bx-text-muted); }
+	.toggle.optin { border-style: dashed; }
+	.toggle.optin i { opacity: 0.35; }
+	.lock.optin { background: transparent; }
+	.lockVal .badge { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+	.lockText { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+	.lockText b { font-size: 14.5px; }
+	.lockText code { align-self: flex-start; overflow-wrap: anywhere; font-size: 11.5px !important; }
+	.lockText > span { font-size: 13px; color: var(--bx-text-muted); line-height: 1.45; }
+
+	/* 07 Audit */
+	.audit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 28px; align-items: start; }
+	.rec p { font-size: 14px !important; }
+	.events { list-style: none; margin: 0; padding: 14px 18px; display: flex; flex-direction: column; gap: 4px; color: #cfd4e2; font-size: 12.5px; }
+	.events li { margin: 0; display: grid; grid-template-columns: 62px 36px minmax(0, 1fr) auto; column-gap: 12px; align-items: baseline; animation: xpFadeUp .4s ease backwards; animation-delay: calc(var(--i) * 0.18s + 0.2s); }
+	.evId { color: #9b8cff; font-weight: 600; }
+	.evName { color: #e5e7f0; }
+	.evNote { grid-column: 3 / span 2; font-size: 11.5px; }
+	.evAlert { grid-column: 4; grid-row: 1; font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 20px; background: rgba(251, 191, 36, 0.14); color: #fbbf24; }
+
+	@media (max-width: 1024px) {
+		.layers { margin: 0 auto; }
+		.switcher, .permGrid, .gate, .scenario, .audit { grid-template-columns: minmax(0, 1fr); }
+		.engines { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	}
+	@media (max-width: 640px) {
+		.permGrid .perms, .engines, .locks { grid-template-columns: minmax(0, 1fr); }
+		.lock { grid-template-columns: auto minmax(0, 1fr); }
+		.lockVal { grid-column: 2; }
+		.act { grid-template-columns: 14px minmax(0, 1fr); }
+		.actState { grid-column: 2; }
+		.events li { grid-template-columns: 36px minmax(0, 1fr) auto; }
+		.events li > .k-dim:first-child { display: none; }
+		.evNote { grid-column: 2 / span 2; }
+		.evAlert { grid-column: 3; }
+	}
+</style>

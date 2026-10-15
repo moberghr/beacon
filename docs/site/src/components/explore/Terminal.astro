@@ -1,0 +1,15 @@
+---
+// A dark terminal or code panel. Pass highlighted HTML (spans with k-* classes from moberg.css)
+// through the `html` prop, or plain text through `code`.
+interface Props {
+	label: string;
+	html?: string;
+	code?: string;
+}
+const { label, html, code } = Astro.props;
+---
+
+<div class="terminal">
+	<div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">{label}</span></div>
+	{html ? <pre class="terminalPre" set:html={html} /> : <pre class="terminalPre">{code}</pre>}
+</div>

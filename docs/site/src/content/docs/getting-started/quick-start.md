@@ -1,340 +1,262 @@
 ---
-title: Quick Start
-description: "Create your first Beacon database alert end to end: data source, query, subscription, and notification."
+title: Quick start
+description: "Run the Beacon sample host from a clone and send your first alert end to end: data source, project, query, recipient and subscription."
 ---
 
-Create your first database alert end to end.
+This guide runs the sample host on your machine and walks you to a first alert: a scheduled query whose rows arrive at a webhook. It takes about 20 minutes.
 
-:::note[Prerequisites]
-Beacon must be running. Either run the `Beacon.SampleProject` host or embed Beacon in your own app — see the [Installation Guide](/getting-started/installation/). You should be able to reach the React app at the root URL `/`.
+You will:
+
+1. Start PostgreSQL and create Beacon's schema.
+2. Run the sample host and the UI.
+3. Create the first admin.
+4. Add a data source, a project, a query, a recipient and a subscription.
+5. Trigger a run and see the notification.
+
+## Prerequisites
+
+| Tool | Version | Check |
+|---|---|---|
+| .NET SDK | 10 | `dotnet --version` |
+| Node.js and npm | Node 22, npm 11 | `node -v`, `npm -v` |
+| Docker | any recent | `docker --version` |
+| `dotnet-ef` | 10 | `dotnet ef --version` |
+| `openssl` | any | `openssl version` |
+
+- The UI's lockfile needs npm 11. If `npm -v` prints 10, run `npm install -g npm@11`.
+- Install the EF Core tools once with `dotnet tool install --global dotnet-ef`.
+- Instead of Docker you can use any PostgreSQL server that has the [pgvector](https://github.com/pgvector/pgvector) extension available.
+
+Clone the repository and run every command below from its root:
+
+```bash
+git clone https://github.com/moberghr/beacon.git
+cd beacon
+```
+
+## Step 1: Start PostgreSQL
+
+Start PostgreSQL with pgvector and a database named `beacon`:
+
+```bash
+docker run -d --name beacon-pg \
+  -e POSTGRES_PASSWORD=beacon \
+  -e POSTGRES_DB=beacon \
+  -p 5432:5432 \
+  pgvector/pgvector:pg17
+```
+
+This database holds Beacon's own data and the sample host's background jobs. In this guide it is also the database you monitor.
+
+## Step 2: Set the two required secrets
+
+The sample host reads its connection string and encryption key from [user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets). User secrets are loaded only in the Development environment, which the launch profile in step 4 sets.
+
+```bash
+dotnet user-secrets --project src/Beacon.SampleProject set \
+  "ConnectionStrings:BeaconContext" \
+  "Host=localhost;Port=5432;Database=beacon;Username=postgres;Password=beacon"
+
+dotnet user-secrets --project src/Beacon.SampleProject set \
+  "Beacon:EncryptionKey" "$(openssl rand -base64 32)"
+```
+
+The encryption key protects connection strings and other secrets at rest. Keep it: values encrypted with it cannot be read with another key.
+
+## Step 3: Create Beacon's schema
+
+The sample host migrates only its job-runner tables at startup. Beacon's own schema is created with the EF Core tools:
+
+```bash
+dotnet ef database update \
+  --project src/Beacon.Core.PostgreSql \
+  --startup-project src/Beacon.SampleProject \
+  --context PostgreSqlBeaconContext
+```
+
+The command builds the sample host and its dependencies, then applies every migration. The migrations create the `beacon` schema and the `vector` extension, so the login in the connection string needs the rights to create both (the `postgres` user in the container has them). The output ends with `Done.`
+
+## Step 4: Run the sample host
+
+Trust the ASP.NET Core development certificate once, then start the host with the `https` launch profile:
+
+```bash
+dotnet dev-certs https --trust
+dotnet run --project src/Beacon.SampleProject --launch-profile https
+```
+
+The profile sets `ASPNETCORE_ENVIRONMENT=Development` and listens on `https://localhost:7187` and `http://localhost:5296`.
+
+While no admin exists, the host prints a one-time setup token to the console (standard error, not the log):
+
+```text
+Beacon first-run setup token (enter it on the setup page): 3f1c…
+```
+
+Copy it. A new token is generated every time the host starts until setup is done.
+
+## Step 5: Open the UI
+
+Pick one way to serve the React UI. Either way, the UI talks to the host from step 4.
+
+### Option A: Vite dev server (no build)
+
+In a second terminal:
+
+```bash
+npm ci --prefix src/Beacon.UI/web
+npm run dev --prefix src/Beacon.UI/web
+```
+
+Open [http://localhost:5173/beacon/setup](http://localhost:5173/beacon/setup). Vite proxies `/beacon/api` and `/beacon/mcp` to `https://localhost:7187`.
+
+### Option B: Build the UI once
+
+```bash
+npm ci --prefix src/Beacon.UI/web
+npm run build --prefix src/Beacon.UI/web
+```
+
+The build writes to `src/Beacon.UI/wwwroot/beacon`. Restart the host from step 4 so it picks up the files, then open [https://localhost:7187/beacon/setup](https://localhost:7187/beacon/setup).
+
+:::tip[Exploring the UI without a backend]
+`npm run dev:mock --prefix src/Beacon.UI/web` serves the UI at `http://localhost:5173/beacon/` with mock data and no backend. Nothing you do there is saved.
 :::
 
-## Overview
+## Step 6: Create the first admin
 
-In this guide, you'll:
+On the setup page, fill in:
 
-1. Open the Beacon app and sign in
-2. Add a data source (the database you want to monitor)
-3. Define a simple query
-4. Test query execution
-5. Create a subscription with a cron schedule
-6. Add a recipient for notifications
-7. Trigger and verify your first notification
+- **Setup token**: the token from step 4.
+- **Username**, and optionally **Email** and **Display name**.
+- **Password** and **Confirm password**: at least 8 characters, with an uppercase letter, a lowercase letter, a digit and a special character.
 
-**Estimated time**: ~30 minutes
+Click **Create super admin**, then **Go to sign in**, and sign in with the account you just created. This first account is the super admin and holds the Admin role, so it can do everything in this guide.
 
-## Step 1: Open Beacon and Sign In
+To confirm the host is healthy:
 
-1. Start the host:
-
-   ```bash
-   dotnet run --project Beacon.SampleProject --no-launch-profile
-   ```
-
-   (Or run your own app with `dotnet run`.)
-
-2. Open your browser to the root URL — the React SPA is served at `/`:
-   - https://localhost:7187/ (or http://localhost:5296/)
-
-3. **First run:** Beacon shows a setup flow that creates the initial admin user — set the admin email and password. There are no default credentials. The setup page asks for a **setup token**: set `Beacon:UserManagement:SetupToken`, or copy the token Beacon prints to the server console (standard error) at startup while no super admin exists yet.
-
-4. On later runs, sign in at the `/login` route with the account you created.
-
-:::note
-If you're developing the frontend, run the Vite dev server with `npm run dev --prefix src/Beacon.UI/web` and open http://localhost:5173 — it proxies API calls to the running host.
-:::
-
-## Step 2: Add a Data Source
-
-A **data source** is a database or API endpoint you want to monitor. Beacon supports nine connectors: PostgreSQL, SQL Server, MySQL, Google BigQuery, Snowflake, Databricks, Azure Synapse, AWS CloudWatch, and generic REST APIs.
-
-1. Open **Data Sources** in the navigation
-2. Click **Add Data Source**
-3. Fill in the details:
-   - **Name**: `My Application Database`
-   - **Type**: select your connector (e.g. PostgreSQL)
-   - **Connection String**: enter the connection string (encrypted at rest with your `Beacon:EncryptionKey`)
-
-**Connection String Examples:**
-
-**PostgreSQL:**
-```
-Host=your-db-host;Database=your-db;Username=readonly;Password=your-password
+```bash
+curl -k https://localhost:7187/beacon/api/health
+# {"status":"ok"}
 ```
 
-**SQL Server:**
+## Step 7: Create a read-only login to monitor
+
+Beacon runs monitoring SQL read-only, but every data source should still use a login that cannot write. Create one in the same container:
+
+```bash
+docker exec -i beacon-pg psql -U postgres -d beacon <<'SQL'
+CREATE ROLE beacon_reader LOGIN PASSWORD 'reader';
+ALTER ROLE beacon_reader SET default_transaction_read_only = on;
+SQL
 ```
-Server=your-server;Database=your-db;User Id=readonly;Password=your-password;TrustServerCertificate=True
-```
 
-**MySQL:**
-```
-Server=your-server;Database=your-db;Uid=readonly;Pwd=your-password
-```
+## Step 8: Add a data source
 
-4. Click **Test Connection** to verify connectivity
-5. Click **Save**
+1. Open **Data Sources** (`/beacon/data-sources`) and click **New data source**.
+2. **Type**: choose **Database**, then **Next**.
+3. **Connection**:
+   - **Name**: `Local PostgreSQL`
+   - **Database engine**: **PostgreSQL**
+   - **Connection string**: `Host=localhost;Port=5432;Database=beacon;Username=beacon_reader;Password=reader`
 
-:::tip
-Use a read-only database user for monitoring queries to prevent accidental data modifications.
-:::
+   Click **Next**.
+4. **Test & save**: click **Test connection** and wait for **Connected**, then click **Create data source**.
 
-## Step 3: Create a Query
+Beacon encrypts the connection string and loads the database's metadata. Until the data source is linked into a project, only Admins can use it.
 
-A **query** defines what data you want to monitor.
+## Step 9: Create a project
 
-1. Open **Queries** in the navigation
-2. Click **Create New Query**
-3. Fill in the details:
-   - **Name**: `Daily New Users`
-   - **Description**: `Count of new users registered today`
+1. Open **Projects** (`/beacon/projects`) and click **New project**.
+2. **Project name**: `Getting started`. Add a **Description** if you like.
+3. Under **Data sources**, pick `Local PostgreSQL`.
+4. Click **Create project**.
 
-4. Add a **query step**:
-   - **Step Name**: `Count Users`
-   - **Data Source**: select `My Application Database`
-   - **SQL**:
+The project is restricted: only its members and Admins see it. You are its project admin.
+
+## Step 10: Write a query
+
+An alert query returns rows when something needs attention, and no rows when all is well. A run with no rows never notifies. For a first test, use a query that always returns rows: the databases that have open connections. Beacon's own connections guarantee at least one.
+
+1. Open **Queries** (`/beacon/queries`) and click **New query**.
+2. **Query name**: `Databases with connections`. **Description**: `Connections per database`.
+3. In the step:
+   - **Step name**: `Connections`
+   - **Target database**: `Local PostgreSQL`
+   - **SQL query**:
+
      ```sql
-     SELECT COUNT(*) as new_users
-     FROM users
-     WHERE created_at >= CURRENT_DATE
+     SELECT datname, numbackends
+     FROM pg_stat_database
+     WHERE numbackends > 0
      ```
-   - **Order**: 1
 
-5. Click **Save**
+4. Click **Save & run**. Beacon saves the query, opens it and runs it. You should see at least one row.
 
-:::note
-Queries can chain multiple steps and join across data sources. Cross-source joins materialize intermediate results in an in-memory engine. See the [Queries Guide](/features/queries/) for multi-step and cross-database queries.
-:::
+For a real alert, raise the threshold in the `WHERE` clause so rows appear only when there is a problem, for example `WHERE numbackends > 50`.
 
-### Data Validation Query Examples
+## Step 11: Add a recipient
 
-**Alert if required fields are NULL:**
-```sql
-SELECT
-    id,
-    email,
-    username,
-    'Required field is NULL' as issue
-FROM users
-WHERE email IS NULL
-   OR username IS NULL
-   OR created_at IS NULL
--- Alert triggers if any rows returned
-```
+A recipient must exist before you create the subscription. A webhook is the quickest to try:
 
-**Detect orphaned records:**
-```sql
-SELECT
-    o.id,
-    o.user_id,
-    'Order has no associated user' as issue
-FROM orders o
-LEFT JOIN users u ON o.user_id = u.id
-WHERE u.id IS NULL
--- Alert if orphaned orders exist
-```
+1. Get a temporary public HTTPS endpoint from a request-inspection service such as [webhook.site](https://webhook.site).
+2. Open **Recipients** (`/beacon/recipients`) and click **Add recipient**.
+3. **Notification type**: **Webhook**. **Name**: `Test webhook`. **Webhook URL**: your endpoint's URL.
+4. Click **Create recipient**.
 
-**Check for invalid state combinations:**
-```sql
-SELECT
-    id,
-    status,
-    payment_status,
-    'Completed order without payment' as issue
-FROM orders
-WHERE status = 'completed'
-  AND payment_status != 'paid'
--- Alert if business rule violated
-```
+Other channels:
 
-**Find duplicate records:**
-```sql
-SELECT
-    email,
-    COUNT(*) as duplicate_count
-FROM users
-GROUP BY email
-HAVING COUNT(*) > 1
--- Alert if duplicates found
-```
+| Channel | What you need |
+|---|---|
+| Email | The sample host sends email over SMTP. Set `Beacon:Smtp:Host`, `Beacon:Smtp:FromAddress`, `Beacon:Smtp:Username` and `Beacon:Smtp:Password` (and `Port`, default `465`; `EnableSsl`, default `true`) in user secrets and restart the host. |
+| Microsoft Teams | A Teams Workflows webhook URL. Beacon accepts Teams URLs on `*.webhook.office.com`, `*.logic.azure.com` and `*.environment.api.powerplatform.com`. |
+| Slack | A Slack incoming-webhook URL on `hooks.slack.com`. |
+| Jira | A connection string in the form `domain;project-key;email;api-key`. |
 
-## Step 4: Test Query Execution
+See [Notifications](/features/notifications/) for the destination rules.
 
-Before scheduling, test that your query works:
+## Step 12: Create the subscription
 
-1. Open your saved query
-2. Click **Preview Query Execution**
-3. Review the results and verify the data looks correct
-4. Note the execution time
+1. Open **Subscriptions** (`/beacon/subscriptions`) and click **New subscription**. (The query's page also has **Add subscription**.)
+2. **Query** step:
+   - **Query**: `Databases with connections`
+   - **Cron expression**: `*/5 * * * *` (every five minutes; standard 5-field cron)
+3. **Notify** step:
+   - **Send notification**: **Every execution**
+   - **Recipients**: tick `Test webhook`
+4. **Results** and **Anomaly**: keep the defaults.
+5. **Review**: click **Create subscription**.
 
-:::tip
-Always test queries before creating subscriptions to avoid scheduling errors.
-:::
+The subscription runs as you, its owner. The sample host's job runner (Warp) picks it up on the schedule.
 
-## Step 5: Create a Subscription
+## Step 13: Trigger a run and check the result
 
-A **subscription** schedules when your query runs and who gets notified.
+You do not need to wait five minutes:
 
-1. Open **Subscriptions** in the navigation
-2. Click **Create New Subscription**
-3. Fill in the details:
-   - **Name**: `Daily User Count Alert`
-   - **Query**: select `Daily New Users`
-   - **Cron Expression**: `0 9 * * *` (daily at 9 AM)
-   - **Timeout**: `60` seconds
-   - **Store Results**: enabled
-   - **Send Notifications**: enabled
+1. On the subscription's page, click **Test now**.
+2. Your webhook endpoint receives a `POST` with a JSON body: the subscription and data source names, the SQL, the row count and the rows.
+3. Open **Notifications** (`/beacon/notifications`) to see the delivery, its status and the stored result.
 
-**Common Cron Expressions:**
-
-| Expression | Description |
-|------------|-------------|
-| `0 9 * * *` | Every day at 9:00 AM |
-| `0 */6 * * *` | Every 6 hours |
-| `*/15 * * * *` | Every 15 minutes |
-| `0 9 * * 1` | Every Monday at 9:00 AM |
-| `0 0 1 * *` | First day of every month at midnight |
-
-4. Click **Save**
-
-:::note
-Use [crontab.guru](https://crontab.guru/) to build and verify cron expressions.
-:::
-
-## Step 6: Add a Recipient
-
-**Recipients** define where notifications are delivered.
-
-1. Open **Recipients** (under Notifications) in the navigation
-2. Click **Create New Recipient**
-3. Choose a notification type:
-
-### Option A: Email
-
-- **Name**: `DevOps Team`
-- **Type**: Email
-- **Email Address**: `devops@yourdomain.com`
-
-:::caution[Email adapter required]
-Email delivery requires an `IEmailAdapter` registered in your host (`options.AddEmailAdapter<...>()`). See the [Configuration Guide](/getting-started/configuration/#email-adapter).
-:::
-
-### Option B: Microsoft Teams
-
-- **Name**: `Alerts Channel`
-- **Type**: Teams
-- **Webhook URL**: `https://outlook.office.com/webhook/...`
-
-### Option C: Jira
-
-- **Name**: `Jira Alerts`
-- **Type**: Jira
-- **Jira Configuration**: enter your Jira details
-
-4. Click **Save**
-
-## Step 7: Attach the Recipient to the Subscription
-
-1. Open `Daily User Count Alert` under **Subscriptions**
-2. In the **Recipients** section, click **Add Recipient**
-3. Select `DevOps Team`
-4. Click **Save**
-
-## Step 8: Trigger a Manual Execution
-
-1. Open the subscription `Daily User Count Alert`
-2. Click **Execute Now**
-3. Wait for execution to complete (usually a few seconds)
-4. Check the execution status
-
-## Step 9: Verify the Notification
-
-- **Email**: check your inbox
-- **Teams**: check your channel for the alert card
-- **Jira**: check your project for the new issue
-
-The notification includes the query name and description, execution timestamp, results, and a link back to the details in the Beacon app (when `BaseUrl` is configured).
-
-## Step 10: View Execution History
-
-1. Open **Notifications** in the navigation
-2. Find your recent execution and open it to view the executed query, timing, results, recipients, and delivery status
-
-## Next Steps
-
-You've created your first Beacon alert.
-
-### Explore More Features
-
-- [Queries (multi-step & cross-database)](/features/queries/) — chain query steps and join across data sources
-- [Data Migration / ETL](/features/data-migration/) — move data between databases with pipelines
-- [MCP Server](/features/mcp-server/) — expose Beacon to AI agents over the Model Context Protocol
-
-### Common Use Cases
-
-**Data validation (primary use case):**
-- Alert when required fields are NULL
-- Detect orphaned records (broken foreign keys)
-- Catch invalid state combinations
-- Find duplicate records that shouldn't exist
-- Validate business-rule compliance
-
-**Database health monitoring:**
-- Table sizes exceeding thresholds
-- Connection counts approaching limits
-- Replication lag warnings
-- Slow query detection
-
-**Scheduled reporting with attachments:**
-- Daily sales reports as CSV/Excel
-- Weekly user-activity summaries
-- Monthly financial reports
-- Inventory snapshots delivered to stakeholders
-
-**Business metrics and alerts:**
-- New user registration alerts
-- Transaction volume monitoring
-- Customer churn indicators
-- Revenue threshold notifications
-
-### Tips for Success
-
-1. **Start simple**: begin with basic queries, add complexity later
-2. **Test first**: always preview queries before scheduling
-3. **Use descriptive names**: make queries and subscriptions easy to identify
-4. **Monitor gradually**: don't create too many alerts at once
-5. **Review history**: check execution history to tune query performance
+You have a working alert. Before you leave it running, click **Archive** on the subscription, or create a new one on a query with a real threshold.
 
 ## Troubleshooting
 
-### Query Execution Failed
+| Symptom | Cause and fix |
+|---|---|
+| The host stops with `Beacon:DataProtection:ApplicationName must be set outside Development` | The host did not run in Development, so user secrets were not loaded either. Start it with `--launch-profile https`. |
+| The host stops with an `EncryptionKey` error | The key is missing or not valid base64 of 32 random bytes. Repeat step 2 and check `dotnet user-secrets --project src/Beacon.SampleProject list`. |
+| `More than one DbContext was found` from `dotnet ef` | Add `--context PostgreSqlBeaconContext`, as in step 3. |
+| `relation "…" does not exist` in the host's log | Beacon's schema was not migrated. Run step 3. |
+| `extension "vector" is not available` | The PostgreSQL server lacks pgvector. Use the `pgvector/pgvector` image or install the extension on your server. |
+| `404` at `/beacon/setup` | The UI is not built. Use Vite (option A) or build it (option B) and restart the host. |
+| Nothing at `https://localhost:7187/` | The UI lives at `/beacon`, not at the site root. |
+| The browser warns about the certificate | Run `dotnet dev-certs https --trust` and restart the browser. |
+| The subscription runs but nothing arrives | The query returned no rows (no notification by design), the trigger skipped the run, or the destination is not allowed. Check the run's status in **Notifications**. |
 
-- Test the query syntax in your database client first
-- Verify the data-source user has SELECT permissions
-- Increase the subscription timeout if needed
-- Review the error message in execution history
+## Next steps
 
-### No Notification Received
-
-- Verify the recipient is attached to the subscription
-- Check the email adapter configuration (for email)
-- Test the Teams webhook URL separately
-- Review notification history for error messages
-
-### Cron Not Triggering
-
-- Verify the cron expression (use crontab.guru)
-- Confirm the subscription is enabled
-- Confirm the scheduler's worker is running — check your job runner's dashboard or logs
-
-### App Not Accessible
-
-- Verify the host is running and reachable at the root URL `/`
-- If developing the frontend, confirm the Vite dev server is running, or that `src/Beacon.UI/wwwroot` was rebuilt
-- Check the browser console for errors
-
-## Need Help?
-
-- [Feature Documentation](/features/) — detailed guides for all Beacon features
-- [Configuration Guide](/getting-started/configuration/) — connection strings, encryption, auth, AI, and scheduling
-- [GitHub Discussions](https://github.com/moberghr/beacon/discussions) — ask questions and share ideas
+- [Core concepts](/getting-started/concepts/): how projects, queries and subscriptions fit together.
+- [Run the sample host](/getting-started/installation/): everything else the sample host can do.
+- [Queries](/features/queries/): multi-step queries and parameters.
+- [MCP server](/features/mcp-server/): connect an AI assistant to the same data.
+- [Integrate Beacon](/integrate/): run Beacon inside your own application.

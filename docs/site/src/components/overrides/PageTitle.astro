@@ -1,0 +1,47 @@
+---
+// Page title plus "for agents" actions: copy the page as Markdown, or open the raw
+// Markdown. Every doc page is also served at <page>.md so an AI assistant can read it.
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+
+const route = Astro.locals.starlightRoute;
+const isSplash = route.entry.data.template === 'splash';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const mdHref = `${base}/${route.id.replace(/\/$/, '') || 'index'}.md`;
+---
+
+<Default />
+{
+	!isSplash && (
+		<div class="bx-page-actions">
+			<button type="button" data-copy-md={mdHref} title="Copy this page as Markdown, ready to paste into Claude">
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+				<span data-label>Copy as Markdown</span>
+			</button>
+			<a href={mdHref} title="Raw Markdown for AI assistants">
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+				View .md
+			</a>
+		</div>
+	)
+}
+
+<script>
+	for (const button of document.querySelectorAll<HTMLButtonElement>('[data-copy-md]')) {
+		button.addEventListener('click', async () => {
+			const label = button.querySelector('[data-label]');
+			try {
+				const response = await fetch(button.dataset.copyMd!);
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}`);
+				}
+				await navigator.clipboard.writeText(await response.text());
+				if (label) label.textContent = 'Copied';
+			} catch {
+				if (label) label.textContent = 'Copy failed. Use View .md';
+			}
+			setTimeout(() => {
+				if (label) label.textContent = 'Copy as Markdown';
+			}, 2200);
+		});
+	}
+</script>

@@ -1,167 +1,148 @@
 ---
 title: Tasks
-description: Alerting work items that open automatically when a scheduled check finds rows and auto-resolve when the data recovers.
+description: Work items that open when a subscription's query returns rows, stay open while it keeps returning rows, and resolve themselves when it returns none.
 ---
 
-Tasks turn alerting subscription results into trackable work items. When a scheduled query finds rows that need attention, Beacon opens a task that stays open — accumulating executions, notifications, and investigation notes — until the underlying condition clears or someone resolves it.
+A task tracks an alert condition of one subscription over time. When a run of a subscription with task creation on
+returns rows, Beacon opens a task. Later runs update it, and a run that returns no rows resolves it. In between, people
+claim it, set its priority, snooze it and log what they find.
 
 ![Tasks](/img/screenshots/tasks-dark.png)
 
-## Overview
+- **One open task per subscription.** Later runs update the open task instead of creating another.
+- **Resolves itself.** A run that returns 0 rows resolves the open task.
+- **Context.** A task links to its subscription, query, runs and notifications.
+- **Team workflow.** Priority, assignee, watchers, snooze, an SLA indicator and an investigation log.
 
-A task represents an ongoing alert condition for one subscription. Instead of receiving a separate notification for every scheduled run that finds rows, you get a single task that tracks the condition over time:
+[Notifications](/features/notifications/) say that something happened; tasks track whether someone dealt with it.
 
-- **One open task per subscription** — repeated runs update the existing unresolved task rather than creating duplicates
-- **Auto-resolution** — when a run returns 0 rows, the open task is automatically resolved
-- **Full context** — each task links back to its subscription, query, execution history, and notifications
-- **Team workflow** — priority, assignee, watchers, snooze, SLA tracking, and an investigation log
+## Turn on task creation
 
-Tasks complement [Notifications](/features/notifications/): notifications tell you *something happened*, tasks track *whether it's been dealt with*.
+Task creation is set when you create the subscription; a subscription cannot be edited afterwards.
 
-## Enabling Task Creation
+1. In **Subscriptions** (`/beacon/subscriptions`), click **New subscription**.
+2. Tick **Create a task and keep it open while the query returns rows**.
+3. Finish and save the subscription.
 
-Tasks are created by subscriptions with the **Create Tasks** option enabled.
+With task creation on, recipients are optional: a subscription can alert through the task list alone. Without it, at
+least one recipient is required. See [Subscriptions](/features/subscriptions/).
 
-1. Create or edit a [subscription](/features/subscriptions/)
-2. Enable **Create Tasks**
-3. Save
+## Task lifecycle
 
-On every scheduled (or manual) execution of that subscription, Beacon records the run in execution history and then creates or updates the task for that subscription — regardless of whether a notification was sent.
+Every run of the subscription that executes its query (scheduled or manual) updates the task, whatever the notification
+status of the run:
 
-:::note
-When **Create Tasks** is enabled, recipients become optional on the subscription. A task-only subscription is valid: the task queue itself is the alerting surface. Without Create Tasks, at least one recipient is required.
-:::
+| Run result | Open task? | What happens |
+|------------|------------|--------------|
+| more than 0 rows | No | A new open task is created with the run's row count. |
+| more than 0 rows | Yes | The open task's latest row count and timestamps are updated. |
+| 0 rows | No | Nothing. |
+| 0 rows | Yes | The task is resolved automatically. |
 
-## Task Lifecycle
+### Automatic resolution
 
-### Creation
+When a run returns 0 rows while a task is open, Beacon resolves it at the time of the run with the note:
 
-When a subscription run with Create Tasks enabled completes:
-
-| Run result | Existing unresolved task? | What happens |
-|------------|---------------------------|--------------|
-| **> 0 rows** | No | A new unresolved task is created with the run's result count |
-| **> 0 rows** | Yes | The existing task is updated — latest result count and last-notification timestamp refresh |
-| **0 rows** | No | Nothing — there is no condition to alert on, so no task is created |
-| **0 rows** | Yes | The task is **auto-resolved** |
-
-This means the task list only ever shows at most one unresolved task per subscription, and that task always reflects the latest state of the alert condition.
-
-### Auto-Resolution
-
-When a run returns **0 rows** while a task is open, Beacon resolves it automatically and stamps the resolution notes with:
-
-```
+```text
 Auto-resolved: Query returned 0 results
 ```
 
-The resolved timestamp is set to the time of the run. No user action is required — if the data problem fixed itself (or someone fixed it upstream), the task closes itself. An auto-resolved task records **no resolver** (nobody resolved it) and always that fixed note; it keeps its assignee.
+An automatically resolved task records no resolver and keeps its assignee. It stays in the history with its note.
 
-:::note
-Auto-resolved tasks stay in the task history with their resolution notes intact, so you can always see when a condition cleared and how long it was open.
+:::caution
+Automatic resolution keys off a run with 0 rows. If your query can return 0 rows while the problem persists (a short
+time window during a quiet period, for example), the task closes and a new one opens when rows come back. Choose the
+query's window with that in mind.
 :::
 
-### Manual Resolution
+### Resolve a task
 
-An open task is resolved by its **assignee**: claim it first (assign it to yourself), then resolve it. An Admin may also resolve a task **nobody is assigned to**; a task assigned to someone else is resolved by that person, or an Admin reassigns it to themselves first. The task page offers **Resolve** only to those who may (the server refuses everyone else with `403`, saying to claim the task first — or, for an Admin, to reassign it to themselves first; a task that does not exist is refused alike, except to an Admin, who is told it was not found):
+A task is resolved by its **assignee**: claim it first (assign it to yourself), then resolve it. An Admin may also
+resolve a task that **nobody** is assigned to; to resolve a task assigned to someone else, an Admin first reassigns it to
+themselves.
 
-1. Open the task and click **Resolve** (or press `R`)
-2. Optionally add **resolution notes** (up to 2000 characters) describing what was done
-3. Confirm
+1. Open the task and click **Resolve** (or press `R`).
+2. Optionally add resolution notes (up to 2,000 characters).
+3. Confirm.
 
-The task records who resolved it, when, and the notes. A resolution is never overwritten: resolving a task that is already resolved fails. If the condition recurs on a later run, a **new** task is created — the resolved task is not reopened, so each incident keeps its own history.
+The task records who resolved it, when, and the notes. **Resolve** is offered only to those who may resolve; the server
+refuses others with `403` and says to claim the task first. A resolution is never overwritten: resolving a resolved task
+fails. If the condition comes back on a later run, a **new** task opens; a resolved task is not reopened, so each incident
+keeps its own history.
 
-## Task Data
+## What a task records
 
-Each task carries:
+| Field | What it is |
+|-------|------------|
+| Latest result count | Row count of the most recent run |
+| Executions | Runs of the subscription since the task was created |
+| Unique counts | Distinct row counts seen since the task was created, a volatility signal |
+| Notifications | Notifications sent while the task was open |
+| Priority | `Critical`, `High`, `Normal` (default) or `Low`, shown as P1 to P4 |
+| Assignee | The user working the task (none by default) |
+| Snoozed until | While in the future, the task is snoozed |
+| Watchers | Users following the task |
+| Resolution | Resolved flag, time, resolving user and notes |
 
-| Field | Description |
-|-------|-------------|
-| **Latest result count** | Row count from the most recent run — the current "size" of the alert condition |
-| **Executions** | Number of subscription executions since the task was created |
-| **Unique counts** | Number of *distinct* result counts seen since the task was created — a volatility signal |
-| **Notifications** | Notifications sent while this task was open |
-| **Priority** | `Critical`, `High`, `Normal` (default), or `Low` |
-| **Assignee** | The user investigating the task (unassigned by default) |
-| **Snoozed until** | When set in the future, the task is considered snoozed until that time |
-| **Watchers** | Users following the task |
-| **Resolution** | Resolved flag, timestamp, resolving user, and resolution notes |
+A task with 40 executions and 1 unique count returned the same row count every time: a stable condition. One with 40
+executions and 25 unique counts changes on almost every run: a moving or growing problem.
 
-**Reading executions vs. unique counts:** a task with 40 executions and 1 unique count has returned the same result count on every run — a stable condition. A task with 40 executions and 25 unique counts is fluctuating on nearly every run — likely a moving or growing problem.
+## Tasks page
 
-## Tasks Page
+Open **Tasks** in the navigation (`/beacon/tasks`). The list shows only tasks of subscriptions in projects you can read.
 
-Open **Tasks** in the left navigation (`/tasks`).
+- **Columns:** **Id**, **Created**, **Subscription** (with the query name), **Latest**, **Execs**, **Unique** and
+  **Status** (**Unresolved** or **Resolved**). Click a header to sort.
+- **Filter:** **Unresolved** (default), **Resolved** or **All**.
+- **Paging:** 20 tasks per page, on the server. Filters, sort and page are kept in the URL.
 
-### List
+Click a row to open the task.
 
-The list shows one row per task with: id, created (relative time), subscription and query name, latest result count, execution count, unique result counts, and status (**Unresolved** / **Resolved**). Results are paginated (25 per page). Click any row to open the detail view.
+## Task detail
 
-### Filters
+The task page (`/beacon/tasks/{id}`) shows:
 
-Filter by status: **Unresolved** (default), **Resolved**, or **All**.
-
-## Task Detail
-
-Clicking a task opens the detail view (`/tasks/{id}`) with:
-
-### Header & SLA
-
-- **Hero** — task identity, age, and a Resolve action
-- **SLA banner** — shows time remaining against the SLA. The SLA comes from the subscription's **SLA hours** setting; if the subscription doesn't define one, a 24-hour default is used for display. For resolved tasks, the banner shows who resolved it and when.
-- **KPI grid** — latest result count, execution count, notification count, and task age at a glance
-
-### Result Trend Chart
-
-A chart of the subscription's result counts over the most recent 100 executions. Use it to see whether the condition is growing, shrinking, stable, or oscillating. Like the **Executions** tab, it lists only the runs the caller may read: a project-restricted API key or MCP caller sees the runs its projects may read, by the rule the [notifications](/features/notifications/#who-sees-a-run) follow.
-
-### Tabs
+- **Header:** the task, its age and the **Resolve** action.
+- **SLA banner:** time left against the subscription's SLA hours, or 24 hours when the subscription sets none. For a
+  resolved task it shows who resolved it and when.
+- **KPIs:** latest row count, executions, notifications and age.
+- **Result trend:** the row counts of the subscription's last 100 runs.
+- **Tabs:**
 
 | Tab | Contents |
 |-----|----------|
-| **Activity** | Timeline of task events — creation, executions, comments, resolution |
-| **Executions** | The last 50 subscription executions with timestamp, duration, notification status, and result count |
-| **Notifications** | Notifications sent for this subscription while the task was open, with their result payloads |
-| **Related** | Other tasks from subscriptions that use the **same query** — the last 20, including archived ones — so you can see how previous incidents of the same condition played out |
+| **Activity** | Timeline of the task: creation, runs, comments, resolution |
+| **Executions** | The last 50 runs of the subscription with time, duration, notification status and row count |
+| **Notifications** | Notifications sent for the subscription while the task was open |
+| **Related** | Up to 20 other tasks from subscriptions on the same query, archived ones included |
 
-### Investigation Log (Comments)
+The result trend and the **Executions** tab list only runs you may read. A project-restricted API key or MCP caller sees
+the runs its projects may read, by the rule [notifications](/features/notifications/) follow.
 
-Every task has a comment thread. Add notes as you investigate — findings, hypotheses, links to fixes. Comments record the author and timestamp and are shown newest first. They persist after resolution, so the next person hitting the same condition can read the history (the **Related** tab gets them there).
+### Investigation log
 
-### Assignment, Watching, Snooze, Priority
+Every task has a comment thread. Comments record author and time, show newest first, and stay after resolution, so the
+next person who meets the same condition can read them (the **Related** tab leads there).
 
-From the detail page's side rail and actions:
+### Assign, watch, snooze, priority
 
-- **Assign** — anyone who can edit may take an unassigned task by assigning it to themselves; the assignee may hand the task over or release it; assigning a task to someone else, or reassigning (or re-confirming) a task that is assigned to someone else, is an Admin's. With Beacon user management the assignee must be an existing, enabled user; a host without it accepts the id its sessions present.
-- **Watch / Unwatch** — follow a task you're not assigned to; the watcher count is visible on the task
-- **Resolve** — the assignee; an Admin only while nobody is assigned (see [Manual Resolution](#manual-resolution))
-- **Snooze** — suppress the task until a chosen time (useful when a fix is deployed but the next run hasn't confirmed it yet); the assignee or an Admin
-- **Priority** — set `Critical`, `High`, `Normal`, or `Low`; the assignee or an Admin
+| Action | Who may do it |
+|--------|---------------|
+| **Assign** | Anyone who can edit may assign an unassigned task to themselves. The assignee may hand it over or release it. Assigning to someone else, or reassigning a task assigned to someone else, is an Admin's. |
+| **Watch / Unwatch** | Follow a task you are not assigned to; the watcher count shows on the task. |
+| **Resolve** | The assignee; an Admin only while nobody is assigned. |
+| **Snooze** | The assignee or an Admin. Not on a resolved task. |
+| **Priority** | The assignee or an Admin. Not on a resolved task. |
 
-Tasks identify people by their user's external id (`Users.ExternalId`), whichever way they sign in: an API key acts as its owner, found by the key's owner id. In a host without Beacon user management the id is the `NameIdentifier` the session presents. The task detail's `assignedToCaller` says whether the signed-in caller is the assignee, and the task page offers its actions by it. For a task whose subscription an AI actor manages, the detail names the actor's creator by display name, or as "User {id}" without one (`hasOwner`, `ownerDisplayName`) — never by user name or external id. "Admin" means the `ClaimTypes.Role` claim `Admin` (see [Authorization](/features/authorization/#admin-role-claim)); a disabled or archived user is never an Admin. To anyone but an Admin, a task that does not exist is refused (403) like a task that is not theirs.
+With Beacon user management, the assignee must be an existing, enabled user. A host without it accepts the id its
+sessions present.
 
-Resolving, assigning, snoozing and setting the priority are written only while the task still has the state the check saw: if someone else resolves or reassigns it in between, the request fails (400) and nothing is overwritten. A resolved task is not snoozed and keeps its priority: both requests fail (400).
+Resolving, assigning, snoozing and setting the priority are written only while the task still has the state the check
+saw. If someone resolves or reassigns it in between, the request fails (`400`) and nothing is overwritten.
 
-:::caution[Upgrading]
-Working a task is now limited to its assignee or an Admin. Resolve, snooze and priority on an unassigned task fail for everyone else until someone assigns it to themselves; reassigning someone else's task needs an Admin; with Beacon user management an assignee that is not an existing, enabled user is rejected; resolving an already-resolved task fails instead of replacing the earlier resolution. A host without Beacon user management keeps working: anyone who can edit claims and works tasks under the id their session presents, and an Admin assigns to any id.
+### Keyboard shortcuts
 
-- Tasks assigned before this version stored the id the session reported (`/auth/me`), which can differ from the external id now stored. They are not rewritten: the signed-in assignee still matches them (by the `/auth/me` id or `NameIdentifier`), and a new claim stores the external id. API keys match only by their owner's external id.
-- `ResolveTaskCommand` no longer takes a user id: the resolver is the signed-in caller, and a caller without a resolvable user cannot resolve.
-- `ITaskService.ResolveTask` throws `InvalidOperationException` for a task that is already resolved (and `BeaconException` for a missing one) instead of overwriting the resolution.
-- The task detail (`GET /tasks/{id}`) has a new `assignedToCaller` flag. `TaskDetailsData.Notifications` no longer carries the notifications' stored result rows (`NotificationSummary.StoredResults` was removed).
-- The task detail no longer returns the AI actor creator's external id and user name (`ownerUserId`, `ownerUserName`): it returns `hasOwner` and `ownerDisplayName` (display name or "User {id}"); `TaskDetailsData` and `TaskDetailResult` changed the same way.
-- Refused assignee and Admin checks are logged at Warning with the task id and the caller's user id.
-- Snoozing a task and setting its priority fail (400) when the task is resolved, or was resolved or reassigned between the check and the write.
-- `GET /tasks/{id}/executions` and `GET /tasks/{id}/result-history` list only the runs the caller may read: project-restricted API keys and MCP callers no longer see other projects' runs, or runs recorded before Beacon kept the data sources a run read. `ITaskService.GetTaskExecutionHistory` and `ITaskService.GetResultCountHistory` take a `StoredRunScope`.
-:::
-
-:::caution[Upgrading: resolving tasks]
-Resolving is now claim-then-resolve: a task is resolved by its assignee, and by an Admin only while nobody is assigned. An Admin no longer resolves a task assigned to someone else directly — reassign it to yourself first (`POST /tasks/{id}/assign`), then resolve it; the refusal (`403`) says so. Snoozing and setting the priority are unchanged (the assignee or an Admin). An auto-resolved task explicitly records no resolver, also when it was resolved by someone before and reopened. `ITaskService.ResolveTask` is unchanged: it checks nothing, so a host calling it decides who may resolve.
-:::
-
-### Keyboard Shortcuts
-
-On the task detail page (when not typing in a field):
+On the task page, when you are not typing in a field:
 
 | Key | Action |
 |-----|--------|
@@ -170,65 +151,72 @@ On the task detail page (when not typing in a field):
 | `S` | Snooze for 1 hour |
 | `C` | Focus the comment box |
 
-## API
+## How people are identified
 
-Tasks are available under `/beacon/api/tasks` (cookie or API-key authentication):
+Tasks identify people by their user's external id (`Users.ExternalId`), however they sign in. An API key acts as its
+owner. In a host without Beacon user management, the id is the `NameIdentifier` the session presents. The task detail's
+`assignedToCaller` says whether the signed-in caller is the assignee. For a task whose subscription an AI actor manages,
+the detail names the actor's creator by display name, or as "User {id}" (`hasOwner`, `ownerDisplayName`), never by user
+name or external id.
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET` | `/tasks` | List tasks — filter by `subscriptionId`, `resolved`; supports sorting and paging |
-| `GET` | `/tasks/{id}` | Task detail |
-| `POST` | `/tasks/{id}/resolve` | Resolve with optional `resolutionNotes` |
-| `GET` | `/tasks/{id}/executions` | Recent executions for the task's subscription (the runs the caller may read) |
-| `GET` | `/tasks/{id}/related` | Tasks from other subscriptions on the same query |
-| `GET` | `/tasks/{id}/result-history` | Result-count data points for the trend chart (the runs the caller may read) |
-| `GET` | `/tasks/{id}/comments` | Comment thread |
-| `POST` | `/tasks/{id}/comments` | Add a comment |
-| `POST` | `/tasks/{id}/assign` | Set (or clear) the assignee |
-| `POST` | `/tasks/{id}/snooze` | Set (or clear) the snooze time |
-| `POST` | `/tasks/{id}/priority` | Set priority |
-| `POST` | `/tasks/{id}/watch` / `/unwatch` | Follow / unfollow the task |
+"Admin" means a user holding the Admin role; a disabled or archived user is never an Admin. To anyone but an Admin, a
+task that does not exist is refused (`403`) like a task that is not theirs.
 
-## Example: Monitoring Failed Payments
+## REST API
 
-**Subscription:**
+Routes under `/beacon/api` (the paths below start at `/tasks`). A scoped API key needs the Execute scope for the `POST` routes.
+
+| Method | Route | What it does |
+|--------|-------|--------------|
+| `GET` | `/tasks` | List tasks. Filters `subscriptionId`, `resolved`; paging `page` (zero-based), `pageSize` (default 20, at most 200), `sort` (for example `-id`). |
+| `GET` | `/tasks/{id}` | Task detail. |
+| `POST` | `/tasks/{id}/resolve` | Resolve, with optional `resolutionNotes`. The resolver is the caller. |
+| `GET` | `/tasks/{id}/executions` | Recent runs of the task's subscription (the runs the caller may read). |
+| `GET` | `/tasks/{id}/related` | Tasks from other subscriptions on the same query. |
+| `GET` | `/tasks/{id}/result-history` | Row counts for the trend chart (the runs the caller may read). |
+| `GET` | `/tasks/{id}/comments` | Comment thread. |
+| `POST` | `/tasks/{id}/comments` | Add a comment. |
+| `POST` | `/tasks/{id}/assign` | Set or clear the assignee. |
+| `POST` | `/tasks/{id}/snooze` | Set or clear the snooze time. |
+| `POST` | `/tasks/{id}/priority` | Set the priority. |
+| `POST` | `/tasks/{id}/watch`, `/tasks/{id}/unwatch` | Follow or stop following the task. |
+
+:::note[For host developers]
+`ITaskService.ResolveTask` checks nothing about the caller: a host calling it in-process decides who may resolve. It
+throws `InvalidOperationException` for a task that is already resolved and `BeaconException` for a missing one.
+`ITaskService.GetTaskExecutionHistory` and `GetResultCountHistory` take a `StoredRunScope`.
+:::
+
+## Example: failed payments
+
+**Subscription**
+
 - Query: `SELECT * FROM payments WHERE status = 'failed' AND created_at > NOW() - INTERVAL '1 hour'`
 - Cron: `*/15 * * * *` (every 15 minutes)
-- Create Tasks: enabled
+- **Create a task and keep it open while the query returns rows**: ticked
 
-**What happens:**
+**What happens**
 
-1. A run finds 12 failed payments → task opens with latest result count 12
-2. The next runs find 12, 15, 18 → the same task updates; executions climb, unique counts show it's growing
-3. An engineer assigns themselves (`A`), sets priority to High, and logs findings in the investigation log
-4. After the payment provider recovers, a run returns 0 rows → the task auto-resolves with `Auto-resolved: Query returned 0 results`
-5. If failures reappear next week, a **new** task opens — and the old one is one click away in the Related tab
-
-:::caution
-Auto-resolution keys off a **0-row** run. If your query can legitimately return 0 rows while the underlying problem persists (for example, a time-windowed query during a quiet period), the task will close and a fresh one will open when rows reappear. Design the query window with that in mind.
-:::
+1. A run finds 12 failed payments: a task opens with latest result count 12.
+2. The next runs find 12, 15, 18: the same task updates; executions climb and unique counts show it is growing.
+3. An engineer presses `A` to claim it, sets the priority to High and logs findings.
+4. After the payment provider recovers, a run returns 0 rows: the task resolves with
+   `Auto-resolved: Query returned 0 results`.
+5. If failures come back next week, a new task opens, and the old one is in the **Related** tab.
 
 ## Troubleshooting
 
-**No task appeared after the subscription ran**
+| Symptom | Cause |
+|---------|-------|
+| No task after the subscription ran | Task creation is off on the subscription, or the run returned 0 rows (a 0-row run never opens a task). |
+| No second task while one is open | Expected: at most one open task per subscription; the open task is updated. |
+| The task closed on its own | A run returned 0 rows. The resolution note reads `Auto-resolved: Query returned 0 results`. |
+| The execution count looks low | It counts runs since the task was created, not since the subscription was created. |
+| **Resolve** is missing | You are not the assignee. Claim the task first (`A`), or ask an Admin. |
 
-Check that **Create Tasks** is enabled on the subscription, and that the run actually returned rows — 0-row runs never open a new task.
+## Related
 
-**A second task didn't open while one is already unresolved**
-
-Expected. Beacon maintains at most one unresolved task per subscription; the existing task's latest result count and timestamps update instead.
-
-**Task closed on its own**
-
-A run returned 0 rows and auto-resolution fired. The resolution notes will read `Auto-resolved: Query returned 0 results`.
-
-**Execution count on the list differs from what I expected**
-
-The list counts executions **since the task was created**, not the subscription's lifetime executions.
-
-## Related Documentation
-
-- [Subscriptions](/features/subscriptions/) — schedule the queries that create tasks
-- [Control Tower](/features/control-tower/) — see open task counts across all subscriptions at a glance
-- [Notifications](/features/notifications/) — delivery channels for the same subscription runs
-- [Anomaly Detection](/features/anomaly-detection/) — alert on unusual result-count patterns instead of fixed conditions
+- [Subscriptions](/features/subscriptions/): the scheduled queries that create tasks
+- [Control Tower](/features/control-tower/): open task counts across subscriptions
+- [Notifications](/features/notifications/): deliveries of the same runs
+- [Anomaly Detection](/features/anomaly-detection/): alert on unusual row counts instead of fixed conditions
