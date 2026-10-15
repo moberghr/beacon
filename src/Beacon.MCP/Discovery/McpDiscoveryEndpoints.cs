@@ -1,3 +1,5 @@
+using Beacon.Core.Authentication;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -48,14 +50,16 @@ public static class McpDiscoveryEndpoints
         // and WWW-Authenticate challenges reflect the request Host header, which a client (or a
         // misconfigured proxy) controls. AllowedHosts defaults to *, so nothing else validates it.
         var configuration = endpoints.ServiceProvider.GetRequiredService<IConfiguration>();
+        var logger = endpoints.ServiceProvider
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger(typeof(McpDiscoveryEndpoints).FullName!);
         if (string.IsNullOrWhiteSpace(configuration[PublicBaseUrlConfigKey]))
         {
-            var logger = endpoints.ServiceProvider
-                .GetRequiredService<ILoggerFactory>()
-                .CreateLogger(typeof(McpDiscoveryEndpoints).FullName!);
             logger.LogWarning(
                 "Beacon:PublicBaseUrl is not configured — MCP discovery documents and WWW-Authenticate challenges will reflect the request Host header. Set Beacon:PublicBaseUrl on public deployments so advertised URLs cannot be influenced by the caller.");
         }
+
+        WarnOnIncompleteProtectedResourceOptions(endpoints.ServiceProvider, configuration, logger);
 
         // Bare well-known path (spec'd probe target) + the RFC 9728 path-inserted variant that
         // clients derive from the /beacon/mcp resource identifier — same document from both.
@@ -156,13 +160,16 @@ public static class McpDiscoveryEndpoints
     private static IResult HandleProtectedResourceMetadata(HttpContext context, IConfiguration configuration)
     {
         var baseUrl = ResolvePublicBaseUrl(context.Request, configuration);
+        var options = GetProtectedResourceOptions(configuration);
+        var authorizationServers = McpDiscoveryDocuments.ResolveAuthorizationServers(
+            options,
+            context.RequestServices.GetService<JwtAuthenticationOptions>(),
+            GetOidcAuthority(configuration));
 
-        var oidcSection = configuration.GetSection(OidcConfigSection);
-        var oidcAuthority = oidcSection.GetValue<bool>("Enabled")
-            ? oidcSection.GetValue<string>("Authority")?.TrimEnd('/')
-            : null;
-
-        var document = McpDiscoveryDocuments.BuildProtectedResourceMetadata(baseUrl, oidcAuthority);
+        var document = McpDiscoveryDocuments.BuildProtectedResourceMetadata(
+            baseUrl,
+            authorizationServers,
+            McpDiscoveryDocuments.ResolveScopesSupported(options));
         context.Response.Headers.CacheControl = CacheControlValue;
         return Results.Text(document.ToJsonString(), "application/json");
     }
@@ -170,10 +177,51 @@ public static class McpDiscoveryEndpoints
     private static IResult HandleServerCard(HttpContext context, IConfiguration configuration)
     {
         var baseUrl = ResolvePublicBaseUrl(context.Request, configuration);
+        var scopes = McpDiscoveryDocuments.ResolveScopesSupported(GetProtectedResourceOptions(configuration));
 
-        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl);
+        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl, scopes);
         context.Response.Headers.CacheControl = CacheControlValue;
         return Results.Text(document.ToJsonString(), "application/json");
+    }
+
+    private static McpProtectedResourceOptions GetProtectedResourceOptions(IConfiguration configuration)
+    {
+        return configuration.GetSection(McpProtectedResourceOptions.SectionName).Get<McpProtectedResourceOptions>()
+            ?? new McpProtectedResourceOptions();
+    }
+
+    private static string? GetOidcAuthority(IConfiguration configuration)
+    {
+        var oidcSection = configuration.GetSection(OidcConfigSection);
+        return oidcSection.GetValue<bool>("Enabled")
+            ? oidcSection.GetValue<string>("Authority")?.TrimEnd('/')
+            : null;
+    }
+
+    // Startup-time: an external-IdP metadata configuration that would send OAuth clients nowhere, or ask the IdP for
+    // scopes it does not know, is logged once rather than discovered from a failing connector.
+    private static void WarnOnIncompleteProtectedResourceOptions(IServiceProvider services, IConfiguration configuration, ILogger logger)
+    {
+        var options = GetProtectedResourceOptions(configuration);
+        var authorizationServers = McpDiscoveryDocuments.ResolveAuthorizationServers(
+            options,
+            services.GetService<JwtAuthenticationOptions>(),
+            GetOidcAuthority(configuration));
+
+        if (options.DeriveAuthorizationServerFromJwtIssuer && options.AuthorizationServers.Count == 0 && authorizationServers.Count == 0)
+        {
+            logger.LogWarning(
+                "{Section}:DeriveAuthorizationServerFromJwtIssuer is on, but bearer JWT authentication is not enabled or has no absolute issuer URL — no authorization_servers will be published. Set {Section}:AuthorizationServers explicitly.",
+                McpProtectedResourceOptions.SectionName,
+                McpProtectedResourceOptions.SectionName);
+        }
+
+        if (options.ScopesSupported.Count == 0 && (options.AuthorizationServers.Count > 0 || options.DeriveAuthorizationServerFromJwtIssuer))
+        {
+            logger.LogWarning(
+                "{Section} publishes an external authorization server but no ScopesSupported — clients will request Beacon's internal scope names (Execute, Admin), which the external identity provider does not know.",
+                McpProtectedResourceOptions.SectionName);
+        }
     }
 
     private static string ResolvePublicBaseUrl(HttpRequest request, IConfiguration configuration)

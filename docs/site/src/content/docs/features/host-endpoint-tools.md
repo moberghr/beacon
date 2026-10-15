@@ -1,6 +1,6 @@
 ---
 title: Host Endpoint Tools
-description: Expose selected read-only endpoints of the host application as MCP tools, invoked in-process as the caller through the endpoint's own model binding, filters and authorization policies.
+description: Expose selected endpoints of the host application as MCP tools — read-only by default, write tools behind an explicit opt-in — invoked in-process as the caller through the endpoint's own model binding, filters and authorization policies.
 ---
 
 A host application already has endpoints that answer the questions an agent asks — a back-office grid of a
@@ -8,8 +8,9 @@ customer's loans, a lookup by id. `AddHostEndpointTools` turns the endpoints you
 **in-process, through the endpoint's real pipeline** (model binding, action filters, authorization policies), as a
 host identity built for the MCP caller — never as Beacon, and never with the caller's own token.
 
-v1 is **read-only only**: an endpoint is exposed only when the host declares it read-only. The HTTP verb is not
-trusted, because back offices read over POST (Kendo grids, `[FromForm]` filters).
+Every exposed endpoint **declares** whether it is read-only. The HTTP verb is never trusted, because back offices
+read over POST (Kendo grids, `[FromForm]` filters). By default only read-only endpoints are exposed; endpoints that
+change data become tools only when the host opts in with `AllowWriteTools` (see [Write tools](#write-tools)).
 
 ## Quick start
 
@@ -22,6 +23,7 @@ builder.Services.AddBeaconMcp()
         o.NamedToolLimit = 20;                         // above this: search_api + call_api
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
         // o.TrustedAuthenticationSchemes = ["..."];   // default none; see "Authentication schemes" below
+        // o.AllowWriteTools = true;                   // default false; see "Write tools" below
     });
 ```
 
@@ -83,8 +85,9 @@ MFA or partner scheme.
 ## What gets exposed
 
 - Only endpoints carrying `[BeaconTool]` / `.WithBeaconTool(...)`. Everything else is invisible.
-- The name must match `^[a-z][a-z0-9_]{2,47}$` and be unique. `ReadOnly = true` is mandatory: a missing or `false`
-  flag **fails startup** with a message naming the endpoint. So do bad or duplicate names, file-upload parameters,
+- The name must match `^[a-z][a-z0-9_]{2,47}$` and be unique. `ReadOnly` must be declared: a missing flag **fails
+  startup** with a message naming the endpoint, and so does `ReadOnly = false` unless `AllowWriteTools` is on (see
+  [Write tools](#write-tools)). So do bad or duplicate names, `Destructive = true` on a read-only tool, file-upload parameters,
   `[AsParameters]`, an endpoint with no authorization at all, and an endpoint whose policy names an authentication
   scheme that is not in `TrustedAuthenticationSchemes` (see above).
 - Endpoints are discovered when the host's pipeline is built (they do not exist at DI time), from the
@@ -113,8 +116,63 @@ Unknown and missing required arguments are rejected before anything is dispatche
 
 Up to `NamedToolLimit` tools, each is its own MCP tool. Above it, agents get two tools instead, so a large host does
 not flood the tool list: `search_api` (keywords → matching tools with their input schemas) and `call_api` (a name
-plus arguments). All of them carry `readOnlyHint = true`, `destructiveHint = false`, `openWorldHint = false`. The
-eight built-in tools are unaffected.
+plus arguments). Read-only tools carry `readOnlyHint = true`, `destructiveHint = false`, `idempotentHint = true`,
+`openWorldHint = false`; write tools carry the hints in [Write tools](#write-tools). `search_api` is always read-only.
+`call_api` is read-only only while every tool it can reach for this caller is; once it can reach a write tool it
+carries `readOnlyHint = false` (and `destructiveHint = true` if any of them is destructive), so clients confirm every
+`call_api` call. Each `search_api` result carries `read_only` (and, for a write tool, `destructive` and `idempotent`).
+The eight built-in tools are unaffected.
+
+## Write tools
+
+A host can let agents change data through its own endpoints — an HR app letting a user book or withdraw their own
+leave from Claude Desktop. This is off unless the host opts in, and each endpoint still declares itself:
+
+```csharp
+.AddHostEndpointTools(o =>
+{
+    o.ProjectName = "Inventhor";
+    o.AllowWriteTools = true;                          // without it, ReadOnly = false fails startup
+});
+
+[HttpPost("leave")]
+[Authorize(Policy = "Employee")]
+[BeaconTool("book_leave", Description = "Book leave for yourself.", ReadOnly = false)]
+public IActionResult BookLeave([FromBody] BookLeaveRequest request) { ... }
+
+[HttpDelete("leave/{id:int}")]
+[Authorize(Policy = "Employee")]
+[BeaconTool("withdraw_leave", Description = "Withdraw one of your leave requests.",
+    ReadOnly = false, Destructive = true, Idempotent = true)]
+public IActionResult WithdrawLeave(int id) { ... }
+
+// Minimal API: .WithBeaconTool("withdraw_leave", "...", readOnly: false, destructive: true, idempotent: true)
+```
+
+- **Opt-in.** `AllowWriteTools` (default `false`) is the host-level switch. `ReadOnly` must still be declared on every
+  endpoint; Beacon never infers it from the verb, in either direction.
+- **Annotations.** A write tool carries `readOnlyHint = false`, `destructiveHint = Destructive` (default `false`),
+  `idempotentHint = Idempotent` (default `false`) and `openWorldHint = false`. Declare `Destructive = true` for an
+  endpoint that deletes or irreversibly overwrites data. Its description says it changes data and should be called
+  only when the user asked for the change.
+- **Confirmation is the client's.** `readOnlyHint = false` is what makes MCP clients (Claude Desktop, Claude Code) ask
+  the user before running the tool. Beacon does not add its own confirmation step: MCP elicitation is not used for
+  write tools, so a client that auto-approves tools runs them without asking.
+- **User callers only.** A write tool is listed to, and runs for, a mapped Entra **user** caller only. A **system**
+  caller (an app-only token or service user) never sees write tools — not in the tool list, not in `search_api` —
+  and a call to one is refused with `Forbidden: api_<name> changes data in the host application, and write tools run
+  only for a signed-in user; a system caller cannot call them.`, whatever `HostClaims` it holds. A system identity
+  acts with standing permissions and has no person who asked for the change and no client to confirm it. API-key
+  callers cannot call any endpoint tool.
+- **The endpoint is the authority.** Beacon checks the caller, the project and the endpoint's authorization policy,
+  exactly as for reads, and adds nothing else. The endpoint must do its own input validation, business rules and
+  record-level authorization ("only your own leave") against the host principal your `IMcpHostPrincipalFactory`
+  builds — treat a tool call like any other request from that user. Antiforgery passes the same way as for reads
+  (see [Antiforgery](#antiforgery)), so it is not a defence here.
+- **Audit.** Write calls are audited under the tool name `api_<name>:write` (see [Audit and privacy](#audit-and-privacy)).
+
+`IBeaconToolMetadata.Destructive` and `Idempotent` are default interface members: a host's own implementation of the
+interface keeps compiling and behaves as `false` for both.
 
 ## Who the call runs as
 
@@ -273,16 +331,21 @@ request) must make sure it accepts these requests.
 ## Audit and privacy
 
 Every call — success, forbidden, refused, invalid arguments, timeout, error — writes an MCP audit row with the tool
-name `api_<name>` (or `search_api`), the project, the duration, the caller kind and hash, and the outcome. The
+name `api_<name>` (or `search_api`), the project, the duration, the caller kind and hash, and the outcome. A call to a
+**write tool** is recorded as `api_<name>:write` — whether it was called by name or through `call_api`, and also when
+it was refused — so writes can be filtered in the audit log (`tool=api_book_leave:write`) without a schema change.
+Metrics still bucket it under `api_*`. The
 arguments are stored only as the project's content-retention settings allow: under the
 [retention lock](/features/mcp-server/) they are reduced to their size. Argument values and response bodies are
 never written to logs.
 
-`get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line).
+`get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line);
+write tools are marked *(writes)*.
 
 ## Limits
 
-- Read-only only (writes come later, behind approval).
+- Write tools are off unless `AllowWriteTools` is on, run for user callers only, and rely on the client's tool
+  approval for confirmation (no Beacon-side approval or elicitation step).
 - Host **middleware does not run** — only the endpoint's own pipeline. Recreate what the endpoint needs from it (an
   ambient principal, a tenant, a culture, an admin user loaded into `HttpContext.Items`) in an
   `IHostEndpointDispatchMiddleware`.

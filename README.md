@@ -319,6 +319,11 @@ Prefer Beacon inside your existing ASP.NET Core host? Install the packages you n
 | `Moberg.Beacon.AI` | LLM integration, auto-documentation, anomaly detection (optional) |
 | `Moberg.Beacon.Connector.*` | One per engine: `PostgreSql`, `SqlServer`, `MySql`, `BigQuery`, `Snowflake`, `Databricks`, `AzureSynapse`, `CloudWatch`, `Api` |
 
+Migration jobs that write into MySQL need `Moberg.Beacon.Connector.MySql` + `.AddMySqlConnector()`, which
+carries the EF Core MySQL provider; `Moberg.Beacon.Core` itself no longer depends on Pomelo. Passing your own
+`NpgsqlDataSource` to `UsePostgreSql` (pgvector, search path, Azure notes) is covered in the
+[installation guide](https://moberghr.github.io/beacon/getting-started/installation/).
+
 Package IDs carry the `Moberg.` prefix; namespaces and assemblies stay `Beacon.*`. If your build
 hits `CS9137` (interceptors not enabled), add
 `<InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.OpenApi.Generated</InterceptorsNamespaces>`
@@ -354,6 +359,8 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddPostgreSqlConnector()
     // .AddSqlServerConnector().AddMySqlConnector().AddBigQueryConnector() ...
     .UsePostgreSql(builder.Configuration.GetConnectionString("BeaconContext")!, "beacon");
+    // Host already owns an NpgsqlDataSource (e.g. Aspire, passwordless Entra auth)? Hand it over instead:
+    // .UsePostgreSql(sp => sp.GetRequiredService<NpgsqlDataSource>());
 
 // 2. Auth (cookie scheme for the React shell at root /)
 builder.Services.AddBeaconCookieAuthentication("/");

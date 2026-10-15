@@ -29,6 +29,13 @@ public class AuthenticationResult
     public ClaimsPrincipal? TokenPrincipal { get; init; }
 
     /// <summary>
+    /// True when the token could not be judged because the signing keys could not be retrieved (JWKS endpoint
+    /// unreachable and nothing cached). The token may well be valid, so bearer callers get <c>503</c>, not <c>401</c>:
+    /// a 401 would tell an OAuth client to throw its token away and re-run the authorization flow, which cannot help.
+    /// </summary>
+    public bool SigningKeysUnavailable { get; init; }
+
+    /// <summary>
     /// The validated token's JOSE header <c>typ</c> (for example <c>at+jwt</c>), set only by bearer-token validation.
     /// The header is not among <see cref="TokenPrincipal"/>'s claims.
     /// </summary>
@@ -52,6 +59,12 @@ public class AuthenticationResult
     /// </summary>
     public static AuthenticationResult Failed(string message) =>
         new() { Success = false, ErrorMessage = message };
+
+    /// <summary>
+    /// Creates a failed result for a token that could not be judged because the signing keys are unavailable.
+    /// </summary>
+    public static AuthenticationResult KeysUnavailable(string message) =>
+        new() { Success = false, ErrorMessage = message, SigningKeysUnavailable = true };
 
     /// <summary>
     /// Creates the result for a user who must choose a new password first: not signed in, with <paramref name="message"/>.

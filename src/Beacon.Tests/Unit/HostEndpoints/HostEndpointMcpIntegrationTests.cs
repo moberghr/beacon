@@ -61,6 +61,45 @@ public class HostEndpointMcpIntegrationTests
     }
 
     [Test]
+    public async Task AnMcpClient_SeesAWriteToolAsNotReadOnly_AndAUserCallsIt()
+    {
+        var caller = HostEndpointTestHost.UserCaller(null, HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewThings));
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [typeof(ThingsController), typeof(LeaveController)],
+            configure: x => x.AllowWriteTools = true,
+            withMcpServer: true,
+            beforeMcp: x => x.Use(async (context, next) =>
+            {
+                context.User = HostEndpointTestHost.McpPrincipal(caller);
+                context.Items[typeof(McpCaller)] = caller;
+                await next(context);
+            }));
+
+        using var httpClient = host.App.GetTestClient();
+        var transport = new HttpClientTransport(
+            new HttpClientTransportOptions
+            {
+                Endpoint = new Uri(httpClient.BaseAddress!, "/beacon/mcp"),
+                TransportMode = HttpTransportMode.StreamableHttp
+            },
+            httpClient,
+            NullLoggerFactory.Instance,
+            ownsHttpClient: false);
+        await using var client = await McpClient.CreateAsync(transport);
+
+        var tools = await client.ListToolsAsync();
+        var result = await client.CallToolAsync("api_leave_withdraw", new Dictionary<string, object?> { ["id"] = 4 });
+
+        var withdraw = tools.Single(x => x.Name == "api_leave_withdraw").ProtocolTool.Annotations!;
+        withdraw.ReadOnlyHint.Should().BeFalse();
+        withdraw.DestructiveHint.Should().BeTrue();
+        tools.Single(x => x.Name == "api_thing_by_id").ProtocolTool.Annotations!.ReadOnlyHint.Should().BeTrue();
+        result.IsError.Should().NotBe(true, HostEndpointDispatchTests.Text(result));
+        result.StructuredContent!.Value.GetProperty("withdrawn").GetInt32().Should().Be(4);
+        host.AuditLogs.Should().Contain(x => x.Tool == "api_leave_withdraw:write" && x.CallerKind == "User");
+    }
+
+    [Test]
     public async Task BuiltInEndpointAndSavedQueryTools_AllCoexist_AndASavedQueryToolRuns()
     {
         var caller = HostEndpointTestHost.SystemCaller(HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewThings));

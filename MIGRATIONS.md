@@ -65,6 +65,13 @@ dotnet ef database update --project Beacon.Core.SqlServer --startup-project Beac
 
 > Note: in normal operation `UseBeacon()` calls `context.Database.Migrate()` at startup, so the host applies
 > pending migrations automatically. The explicit `database update` commands are mainly for tooling and CI.
+>
+> A host that registers PostgreSQL with `UsePostgreSql(NpgsqlDataSource)` or `UsePostgreSql(sp => ...)` (for
+> example an Aspire data source on passwordless Entra auth) is migrated through that data source too; Beacon sets
+> `search_path` to `beacon, public` on each connection it opens, because the migrations' raw SQL
+> (`AddMcpEmbedding`'s pgvector column and HNSW index) names `mcp_embeddings` and `vector` unqualified. The
+> database still needs the `vector` extension available (`azure.extensions` must include `VECTOR` on Azure
+> Flexible Server).
 
 ## Reverting Migrations
 

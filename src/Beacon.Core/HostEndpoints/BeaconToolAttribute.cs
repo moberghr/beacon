@@ -13,20 +13,37 @@ public interface IBeaconToolMetadata
     /// <summary>What the endpoint returns, written for an agent. Falls back to the action's XML doc summary.</summary>
     string? Description { get; }
 
-    /// <summary>The declared read-only flag. v1 only exposes endpoints that declare <c>true</c>.</summary>
+    /// <summary>
+    /// The declared read-only flag. <c>true</c>: the endpoint changes nothing. <c>false</c>: a write tool, exposed only
+    /// when the host opts in with <c>HostEndpointToolOptions.AllowWriteTools</c> (startup fails otherwise).
+    /// </summary>
     bool ReadOnly { get; }
 
     /// <summary>
     /// True when <see cref="ReadOnly"/> was set explicitly. Beacon never infers read-only from the HTTP verb (hosts
-    /// read over POST), so an undeclared flag fails startup like a <c>false</c> one.
+    /// read over POST), so an undeclared flag fails startup.
     /// </summary>
     bool IsReadOnlyDeclared { get; }
+
+    /// <summary>
+    /// Write tools only: the endpoint may delete data or irreversibly overwrite it (MCP <c>destructiveHint</c>). Default
+    /// <c>false</c>. A read-only tool that declares it fails startup. A default member, so existing implementations
+    /// keep compiling and loading unchanged.
+    /// </summary>
+    bool Destructive => false;
+
+    /// <summary>
+    /// Write tools only: repeating the call with the same arguments has no further effect (MCP <c>idempotentHint</c>).
+    /// Default <c>false</c>. Ignored for read-only tools, which are always idempotent.
+    /// </summary>
+    bool Idempotent => false;
 }
 
 /// <summary>
 /// Exposes a controller action as the Beacon MCP tool <c>api_&lt;name&gt;</c>, invoked in-process as the MCP caller's
 /// host principal, through the action's real model binding, filters and authorization policies.
-/// <c>ReadOnly = true</c> is mandatory: it is the host's declaration that the action changes nothing.
+/// <c>ReadOnly</c> is mandatory: <c>true</c> is the host's declaration that the action changes nothing; <c>false</c>
+/// declares a write tool, which also needs <c>HostEndpointToolOptions.AllowWriteTools</c>.
 /// </summary>
 /// <example><code>
 /// [HttpPost]
@@ -54,6 +71,12 @@ public sealed class BeaconToolAttribute(string name) : Attribute, IBeaconToolMet
     }
 
     public bool IsReadOnlyDeclared { get; private set; }
+
+    /// <inheritdoc />
+    public bool Destructive { get; set; }
+
+    /// <inheritdoc />
+    public bool Idempotent { get; set; }
 }
 
 /// <summary>The metadata <c>.WithBeaconTool(...)</c> attaches to a minimal API endpoint.</summary>
@@ -66,4 +89,10 @@ public sealed class BeaconToolMetadata(string name, string? description, bool re
     public bool ReadOnly { get; } = readOnly;
 
     public bool IsReadOnlyDeclared => true;
+
+    /// <inheritdoc />
+    public bool Destructive { get; init; }
+
+    /// <inheritdoc />
+    public bool Idempotent { get; init; }
 }

@@ -134,11 +134,11 @@ Beacon publishes anonymous, read-only discovery metadata so remote clients can b
 
 | Endpoint | What it serves |
 |----------|----------------|
-| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier, `scopes_supported` (`Execute`), bearer-header auth. When SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it |
+| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier (the canonical `/beacon/mcp` URL), `scopes_supported`, bearer-header auth. By default `scopes_supported` is `Execute` and, when SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it. A host whose callers sign in with Microsoft Entra ID publishes the Entra issuer and scopes instead through `Beacon:Mcp:ProtectedResource` — see [Connect Claude](/features/mcp-entra-callers/#connect-claude-claudeai--claude-desktop-custom-connector) |
 | `/.well-known/oauth-protected-resource/beacon/mcp` | The same document at the RFC 9728 path-inserted variant clients derive from the `/beacon/mcp` resource path |
 | `/.well-known/mcp/server-card.json` | A server card (per the draft SEP-2127 proposal): server name and version, transport (`streamable-http`), endpoint URL, auth summary, and the full tool list with titles |
 
-Unauthenticated requests to `/beacon/mcp` answer `401` with a `WWW-Authenticate: Bearer resource_metadata="…"` header pointing at the metadata document, so OAuth-capable clients discover the auth requirements from the challenge itself (RFC 9728 §5.1).
+Unauthenticated requests to `/beacon/mcp` answer `401` with a `WWW-Authenticate: Bearer resource_metadata="…"` header pointing at the metadata document, so OAuth-capable clients discover the auth requirements from the challenge itself (RFC 9728 §5.1). A bearer value that is not a valid token — malformed, wrong algorithm, unknown signing key, expired — gets the same `401`, with `error="invalid_token"` added to the challenge. When the JWKS endpoint cannot be reached and no keys are cached, a bearer JWT gets `503` with `Retry-After` instead: the token was never judged, and a `401` would make an OAuth client throw it away and sign in again for nothing.
 
 Behind a reverse proxy, set `Beacon:PublicBaseUrl` (e.g. `https://beacon.example.com`) so the discovery documents advertise the public origin; when unset, the URLs are derived from the incoming request.
 
@@ -150,7 +150,7 @@ A registry manifest for the official [MCP registry](https://registry.modelcontex
 
 ## Tools
 
-The MCP server exposes **8 tools** that AI clients can call. A host application can add its own read-only endpoints as further tools — see [Host Endpoint Tools](/features/host-endpoint-tools/). Approved saved queries an admin exposes appear as `q_<name>` tools — see [Saved Query Tools](/features/saved-query-tools/).
+The MCP server exposes **8 tools** that AI clients can call. A host application can add its own endpoints as further tools (read-only by default, write tools behind an opt-in) — see [Host Endpoint Tools](/features/host-endpoint-tools/). Approved saved queries an admin exposes appear as `q_<name>` tools — see [Saved Query Tools](/features/saved-query-tools/).
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 

@@ -178,6 +178,7 @@ internal partial class MigrationService
             throw new BeaconException($"Destination data source {destinationDataSource.Id} is not a database type");
 
         var databaseEngineType = destinationDataSource.DatabaseEngineType.Value;
+        bulkContextFactory.EnsureAvailable(databaseEngineType);
 
         DbConnection? connection = null;
         DbTransaction? transaction = null;

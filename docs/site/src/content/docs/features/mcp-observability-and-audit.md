@@ -120,7 +120,8 @@ The `gen_ai.tool.name` **metric** tag is drawn from a closed set instead: a char
 cardinality, because a well-formed but caller-chosen name (`q_1`, `q_2`, ... each a distinct saved-query name) would
 still open a new time series per name. A built-in tool — the attribute tools in `McpToolCatalog`, plus the fixed
 `search_saved_queries` / `run_saved_query` / `search_api` / `call_api` dispatcher names — keeps its own value; an
-unknown name starting with `q_` or `api_` collapses to the fixed bucket `q_*` / `api_*`; anything else is `<other>`.
+unknown name starting with `q_` or `api_` (including a write tool's `api_<name>:write` audit name) collapses to the
+fixed bucket `q_*` / `api_*`; anything else is `<other>`.
 That is a handful of possible values regardless of how many distinct tool names callers invent.
 
 The audit row itself keeps the tool name as before, unredacted.
