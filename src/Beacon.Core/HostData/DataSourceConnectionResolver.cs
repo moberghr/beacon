@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.Configuration;
@@ -11,7 +12,9 @@ namespace Beacon.Core.HostData;
 /// The one place a database data source's stored connection data becomes a live connection string. Ordinary
 /// data sources decrypt their stored string; host-managed ones decrypt a REFERENCE
 /// (<c>{"hostConnectionStringName":"BeaconReadOnly"}</c>) and resolve the real string from the host's
-/// <see cref="IConfiguration"/> at call time, so no host secret is ever persisted (§1.1). A migration write target is
+/// <see cref="IConfiguration"/> at call time, so no host secret is ever persisted (§1.1). A disabled source
+/// (<see cref="DataSource.DisabledTime"/>) is refused first on every path, with a <see cref="DataSourceDisabledException"/>,
+/// before anything is decrypted or its transport checked. A migration write target is
 /// refused here (<see cref="MigrationWriteTargets"/>): its login may write, and only the migration writer connects with it.
 /// The resolved string then passes <see cref="IDataSourceTransportPolicy.EnsureStoredConnectionAllowed"/>: a connection
 /// that does not authenticate the server over TLS is warned about once per data source, or refused. Every connector and
@@ -51,6 +54,7 @@ internal sealed class DataSourceConnectionResolver(
 {
     public string GetConnectionString(DataSource dataSource)
     {
+        EnsureEnabled(dataSource);
         MigrationWriteTargets.EnsureReadable(dataSource);
 
         return Checked(dataSource);
@@ -58,6 +62,7 @@ internal sealed class DataSourceConnectionResolver(
 
     public string GetConnectionData(DataSource dataSource)
     {
+        EnsureEnabled(dataSource);
         MigrationWriteTargets.EnsureReadable(dataSource);
 
         return Checked(dataSource);
@@ -65,6 +70,7 @@ internal sealed class DataSourceConnectionResolver(
 
     public string GetWriteConnectionString(DataSource dataSource)
     {
+        EnsureEnabled(dataSource);
         var refusal = MigrationWriteTargets.DestinationRefusal(dataSource);
         if (refusal != null)
         {
@@ -92,6 +98,16 @@ internal sealed class DataSourceConnectionResolver(
         }
 
         return connectionString;
+    }
+
+    // First on every connection path: a disabled source is refused before its connection data is decrypted or its transport
+    // checked, so nothing connects with its credentials.
+    private static void EnsureEnabled(DataSource dataSource)
+    {
+        if (dataSource.DisabledTime != null)
+        {
+            throw new DataSourceDisabledException(dataSource.Id);
+        }
     }
 
     private string Checked(DataSource dataSource)

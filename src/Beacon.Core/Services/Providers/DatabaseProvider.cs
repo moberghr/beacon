@@ -225,7 +225,7 @@ internal class DatabaseProvider(
             var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 engine,
-                engine == DatabaseEngineType.MySQL ? WithoutStatementBatches(connectionString) : connectionString);
+                engine == DatabaseEngineType.MySQL ? DbConnectionFactory.WithoutStatementBatches(connectionString) : connectionString);
 
             await connection.OpenAsync(cancellationToken);
 
@@ -387,7 +387,7 @@ internal class DatabaseProvider(
             var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 engine,
-                useMySqlReadOnlyTransaction ? WithoutStatementBatches(connectionString) : connectionString);
+                useMySqlReadOnlyTransaction ? DbConnectionFactory.WithoutStatementBatches(connectionString) : connectionString);
 
             await connection.OpenAsync(cancellationToken);
 
@@ -743,26 +743,6 @@ internal class DatabaseProvider(
             FailureCodes.Describe(ex));
 
         return dataSource.HostManagedKey == null ? DatabaseErrorRedactor.TextOf(ex) : HostQueryFailedMessage;
-    }
-
-    // With batches on, MySQL runs every statement of a command, so `COMMIT; <write>` would end the read-only transaction
-    // and then write. The read-only connection turns batches off (MySql.Data's AllowBatch); its connection string
-    // therefore differs from the ordinary one, so it is pooled apart and only ever runs read-only work.
-    private static string WithoutStatementBatches(string connectionString)
-    {
-        var builder = new DbConnectionStringBuilder { ConnectionString = connectionString };
-        var batchKeys = builder.Keys
-            .Cast<string>()
-            .Where(x => x.Replace(" ", "").Equals("allowbatch", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        foreach (var key in batchKeys)
-        {
-            builder.Remove(key);
-        }
-
-        builder["AllowBatch"] = "false";
-
-        return builder.ConnectionString;
     }
 
     // Two belts, as on PostgreSQL. The session default makes every transaction on the connection read-only — a DDL

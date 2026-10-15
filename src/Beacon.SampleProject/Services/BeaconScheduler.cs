@@ -72,6 +72,14 @@ public sealed class BeaconScheduler(
         return jobId.ToString();
     }
 
+    public async Task<string?> EnqueueMetadataRefresh(int dataSourceId)
+    {
+        var jobId = await publisher.Enqueue(new RefreshDataSourceMetadataJob { DataSourceId = dataSourceId });
+        await publisher.SaveChangesAsync();
+
+        return jobId.ToString();
+    }
+
     private async Task RemoveRecurringJobByName(string name)
     {
         var recurringJob = await warpDbContext.Set<RecurringJob>()

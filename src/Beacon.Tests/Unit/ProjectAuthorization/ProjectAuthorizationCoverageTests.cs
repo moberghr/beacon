@@ -44,6 +44,8 @@ public class ProjectAuthorizationCoverageTests
         ["AddWidget"] = "dashboards carry their own access list",
         ["UpdateDashboard"] = "dashboards carry their own access list",
         ["DeleteDataSource"] = "DataSourceAdmin: data-source administration",
+        ["UpdateDataSource"] = "DataSourceAdmin: data-source administration (edit, credential rotation)",
+        ["SetDataSourceEnabled"] = "DataSourceAdmin: data-source administration (disable, enable)",
         ["SetDataSourceMigrationWrites"] = "Admin: marking a data source as a migration write target",
         ["DeleteGlossaryTerm"] = "Admin: glossary curation",
         ["UpdateGlossaryTerm"] = "Admin: glossary curation",

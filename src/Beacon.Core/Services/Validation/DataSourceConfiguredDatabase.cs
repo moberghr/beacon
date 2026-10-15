@@ -165,10 +165,10 @@ internal sealed class ConfiguredDatabaseResolver(
         {
             connectionData = connectionResolver.GetConnectionString(dataSource);
         }
-        catch (Exception ex) when (ex is not DataSourceTransportException)
+        catch (Exception ex) when (ex is not DataSourceTransportException and not DataSourceDisabledException)
         {
             // No qualifier is allowed then; the source's execution fails on the same read anyway. A connection refused for
-            // its transport stays that refusal, never a cross-database verdict.
+            // its transport, or because the source is disabled, stays that refusal, never a cross-database verdict.
             logger.LogWarning(
                 "The configured database of data source {DataSourceId} could not be read ({ExceptionType}); its SQL may not name a database.",
                 dataSource.Id,

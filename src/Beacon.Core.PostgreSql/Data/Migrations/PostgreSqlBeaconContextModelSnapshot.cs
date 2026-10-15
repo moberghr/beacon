@@ -2175,6 +2175,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("database_engine_type");
 
+                    b.Property<int?>("DisabledByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("disabled_by_user_id");
+
+                    b.Property<DateTime?>("DisabledTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("disabled_time");
+
                     b.Property<string>("EncryptedConnectionData")
                         .IsRequired()
                         .HasColumnType("text")

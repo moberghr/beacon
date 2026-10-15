@@ -223,7 +223,8 @@ public class MetadataRefreshTests
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
                 ConnectionString = "Host=fixed;SSL Mode=VerifyFull",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                ConfirmTargetChange = true
             },
             CancellationToken.None);
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
@@ -369,6 +370,30 @@ public class MetadataRefreshTests
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
+    // A disabled source keeps its stored tables and sampled values for when it is enabled, but none of them is served.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task MetadataRead_OfADisabledSource_ServesNoStoredTableOrSampledValue(bool disabled)
+    {
+        var world = new MetadataWorld();
+        world.DataSources.Single().DisabledTime = disabled ? DateTime.UtcNow : null;
+        var table = new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "sales", TableName = "orders", LastRefreshed = DateTime.UtcNow };
+        table.Columns.Add(new ColumnMetadata { ColumnName = "status", DataType = "text", DatabaseMetadata = table, SampleValues = "[\"PAID\"]" });
+        world.Stored.Add(table);
+
+        var catalog = await world.Service().GetMetadataAsync(DataSourceId);
+
+        if (disabled)
+        {
+            catalog.Tables.Should().BeEmpty("a disabled source's catalog is not served");
+            world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("the empty catalog is not cached");
+
+            return;
+        }
+
+        catalog.Tables.Should().ContainSingle().Which.Columns.Should().ContainSingle().Which.SampleValues.Should().Equal("PAID");
+    }
+
     [Test]
     public async Task MetadataRead_OfADataSourceTheDatabaseDoesNotReturn_IsNotFound()
     {
@@ -429,7 +454,8 @@ public class MetadataRefreshTests
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
                 ConnectionString = "Host=elsewhere;SSL Mode=VerifyFull",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                ConfirmTargetChange = true
             },
             CancellationToken.None);
 

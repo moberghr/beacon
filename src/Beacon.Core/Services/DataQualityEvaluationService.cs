@@ -285,7 +285,7 @@ internal class DataQualityEvaluationService(
                     ruleStopwatch.ElapsedMilliseconds,
                     timedOut);
 
-                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource), ruleStopwatch.Elapsed.TotalMilliseconds);
+                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource, exception: null), ruleStopwatch.Elapsed.TotalMilliseconds);
             }
 
             try
@@ -310,7 +310,7 @@ internal class DataQualityEvaluationService(
         {
             ruleStopwatch.Stop();
             LogFailure(rule, contract, ruleStopwatch, ex);
-            var message = timeoutCts.IsCancellationRequested ? TimedOutMessage : FailureMessage(contract.DataSource);
+            var message = timeoutCts.IsCancellationRequested ? TimedOutMessage : FailureMessage(contract.DataSource, ex);
 
             return Failed(rule, message, ruleStopwatch.Elapsed.TotalMilliseconds);
         }
@@ -451,8 +451,15 @@ internal class DataQualityEvaluationService(
             ex.GetType().Name);
     }
 
-    private static string FailureMessage(DataSource dataSource)
+    // A disabled source says so, with the refusal's generic message (a provider that catches the refusal reports a failed
+    // result, so the source's own state is read too); any other failure keeps its generic message.
+    private static string FailureMessage(DataSource dataSource, Exception? exception)
     {
+        if (exception is DataSourceDisabledException || dataSource.DisabledTime != null)
+        {
+            return DataSourceDisabledException.RefusalMessage;
+        }
+
         return dataSource.HostManagedKey == null ? ExecutionFailedMessage : DatabaseProvider.HostQueryFailedMessage;
     }
 

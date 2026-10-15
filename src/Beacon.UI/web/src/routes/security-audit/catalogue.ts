@@ -75,6 +75,8 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'data_sources.metadata_refreshed',
       'data_sources.credentials_rotated',
       'data_sources.migration_writes_changed',
+      'data_sources.data_source_disabled',
+      'data_sources.data_source_enabled',
     ],
   },
   {

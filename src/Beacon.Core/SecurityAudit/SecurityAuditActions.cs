@@ -142,6 +142,8 @@ public static class SecurityAuditActions
     public const string MetadataRefreshed = "data_sources.metadata_refreshed";
     public const string CredentialsRotated = "data_sources.credentials_rotated";
     public const string MigrationWritesChanged = "data_sources.migration_writes_changed";
+    public const string DataSourceDisabled = "data_sources.data_source_disabled";
+    public const string DataSourceEnabled = "data_sources.data_source_enabled";
 
     // Delivery
     public const string RecipientCreated = "delivery.recipient_created";

@@ -12,7 +12,7 @@ public static class ServiceCollectionExtensions
 {
     public static BeaconBuilder AddSqlServerConnector(this BeaconBuilder builder)
     {
-        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, cs => new SqlConnection(cs));
+        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, cs => new SqlConnection(cs), x => SqlConnection.ClearPool((SqlConnection)x));
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.MSSQL, "MSSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SqlServerMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SqlServerTransportInspector>());

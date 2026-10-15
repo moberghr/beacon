@@ -221,7 +221,7 @@ The Admin role's duties are split into six functional permissions. An Admin hold
 | **Auditor** | Reads and verifies the [security audit trail](/features/security-audit/); reads the MCP audit, the MCP and project settings, the admin settings (secrets masked), every user's API keys and what a user owns, created or changed last |
 | **SecurityAdmin** | Changes the MCP settings and the admin settings except the LLM connection and base URL; manages recipients; publishes saved queries as MCP tools; sets repository access tokens |
 | **UserAdmin** | Manages users (external users only) and their roles and sessions, sees what a user owns, created or changed last, revokes any user's API keys, changes the owner of scheduled work, manages the members of any project, restricts projects |
-| **DataSourceAdmin** | Creates, tests and deletes data sources; links a data source no open project holds into a project it administers, when it can read the source; changes shared data-source state; forces a metadata refresh without the cooldown |
+| **DataSourceAdmin** | Creates, tests, edits (replacing the connection), disables, enables and deletes data sources; links a data source no open project holds into a project it administers, when it can read the source; changes shared data-source state; forces a metadata refresh without the cooldown |
 | **MigrationOperator** | Runs [data migration](/features/data-migration/) for the jobs whose data sources it may query and write (mapped only while `Beacon:Migrations:Enabled`) |
 
 **Admin only:** the glossary and eval/golden curation, the LLM provider, endpoint, region, authentication mode and credentials, the base URL, turning read-only enforcement or PII detection off (only where the deployment unlocks them, see [MCP safety locks](#mcp-safety-locks)), opening a restricted project, unlinking a data source, marking a migration write target, creating data contracts with Custom SQL rules, and the sample host's Warp dashboard.
@@ -249,7 +249,7 @@ Paths are under `/beacon/api`. "Requires" means the route's policy is the permis
 | `PUT /subscriptions/{id}/owner`, `/data-quality/contracts/{id}/owner`, `/ai-actors/{id}/owner` | UserAdmin | |
 | `PUT /projects/{id}/access` | UserAdmin (opening: Admin, checked by the handler) | |
 | `GET /projects/{projectId}/members`, `/projects/{id}/member-candidates`, `PUT`/`DELETE /projects/{id}/members/{userId}` | | UserAdmin |
-| `POST /data-sources`, `POST /data-sources/test-connection`, `DELETE /data-sources/{id}` | DataSourceAdmin | |
+| `POST /data-sources`, `POST /data-sources/test-connection`, `PUT /data-sources/{id}`, `PUT /data-sources/{id}/enabled`, `DELETE /data-sources/{id}` | DataSourceAdmin | |
 | `/migrations/*` | MigrationOperator | |
 | `GET /home/migration-summary` | | MigrationOperator |
 | `/glossary/*`, `/eval/*`, `PUT /data-sources/{id}/migration-writes`, `DELETE /projects/{id}/data-sources/{dataSourceId}` | Admin | |

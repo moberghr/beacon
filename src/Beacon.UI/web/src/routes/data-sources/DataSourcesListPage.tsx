@@ -18,6 +18,7 @@ import {
 import { AddDataSourceDialog } from './AddDataSourceDialog';
 import { ProjectChips } from './ProjectChips';
 import { ReadOnlyEnforcementBadge } from './ReadOnlyEnforcementBadge';
+import { DataSourceStateBadges } from './DataSourceStateBadges';
 
 const GRID_TEMPLATE = '0.6fr 1.6fr 0.8fr 0.9fr 1.6fr 0.7fr 0.7fr 60px';
 
@@ -60,6 +61,7 @@ export default function DataSourcesListPage() {
             ? <span className="mono text-text-muted">{r.databaseEngineType}</span>
             : <span className="text-text-muted">—</span>}
           <ReadOnlyEnforcementBadge enforced={r.databaseReadOnlyEnforced} writeTarget={r.allowMigrationWrites} />
+          <DataSourceStateBadges disabled={r.disabled} transportVerified={r.transportVerified} />
         </span>
       ),
     },

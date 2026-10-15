@@ -110,7 +110,7 @@ public class DataResourceEventTests
         rotated.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.CredentialsRotated, ResourceType = SecurityAuditResources.DataSource, ResourceId = "12" },
             x => x.ExcludingMissingMembers());
-        rotated.DetailsJson.Should().Be("{\"connectionChanged\":true,\"changedFields\":[\"Name\"]}");
+        rotated.DetailsJson.Should().Be("{\"connectionChanged\":true,\"targetChanged\":false,\"changedFields\":[\"Name\"]}");
         _audit.Ways.Should().Equal("staged");
     }
 
@@ -118,16 +118,16 @@ public class DataResourceEventTests
     public async Task ChangingADataSourceKeepingItsConnection_StagesDataSourceUpdated_AndAnEditThatChangesNothing_StagesNothing()
     {
         var saved = new List<object>();
-        var source = new DataSource { Id = 12, Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "enc", MetadataMaxTables = 50 };
+        var source = new DataSource { Id = 12, Name = "warehouse", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.PostgreSQL, EncryptedConnectionData = "enc", MetadataMaxTables = 50 };
         var service = DataSources(saved, [source], storedConnection: "Host=db.internal;Password=hunter2");
-        var edit = new DataSourceData { DataSourceId = 12, Name = "warehouse", ConnectionString = "Host=db.internal;Password=hunter2", MetadataMaxTables = 80 };
+        var edit = new DataSourceData { DataSourceId = 12, Name = "warehouse", DatabaseEngineType = DatabaseEngineType.PostgreSQL, ConnectionString = "Host=db.internal;Password=hunter2", MetadataMaxTables = 80 };
 
         await service.UpdateDataSource(edit, CancellationToken.None);
         await service.UpdateDataSource(edit, CancellationToken.None);
 
         var updated = _audit.Single("hunter2", "db.internal");
         updated.Action.Should().Be(SecurityAuditActions.DataSourceUpdated);
-        updated.DetailsJson.Should().Be("{\"connectionChanged\":false,\"changedFields\":[\"MetadataMaxTables\"]}");
+        updated.DetailsJson.Should().Be("{\"connectionChanged\":false,\"targetChanged\":false,\"changedFields\":[\"MetadataMaxTables\"]}");
     }
 
     [Test]

@@ -145,8 +145,9 @@ public class DatabaseMetadataService(
             throw new BeaconException($"Data source {dataSourceId} is not a database type");
 
         // Check if metadata loading is disabled for this data source; a migration write target has no catalog in Beacon
-        // (it is never read, so neither its stored tables nor a scan are offered to anyone).
-        if (!dataSource.MetadataLoadingEnabled || dataSource.AllowMigrationWrites)
+        // (it is never read, so neither its stored tables nor a scan are offered to anyone), nor has a disabled source while
+        // it is disabled (its stored tables and sampled values are kept for when it is enabled, but not served).
+        if (!dataSource.MetadataLoadingEnabled || dataSource.AllowMigrationWrites || dataSource.DisabledTime != null)
         {
             logger.LogDebug("Metadata loading is disabled for data source {DataSourceId}", dataSourceId);
             return new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, new List<TableMetadataDto>(), DateTime.UtcNow);

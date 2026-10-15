@@ -1700,6 +1700,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int?>("DatabaseEngineType")
                         .HasColumnType("int");
 
+                    b.Property<int?>("DisabledByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("DisabledTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("EncryptedConnectionData")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");

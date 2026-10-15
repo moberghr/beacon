@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
 {
     public static BeaconBuilder AddPostgreSqlConnector(this BeaconBuilder builder)
     {
-        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, cs => new NpgsqlConnection(cs));
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, cs => new NpgsqlConnection(cs), x => NpgsqlConnection.ClearPool((NpgsqlConnection)x));
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.PostgreSQL, "PostgreSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, PostgreSqlMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, PostgreSqlTransportInspector>());

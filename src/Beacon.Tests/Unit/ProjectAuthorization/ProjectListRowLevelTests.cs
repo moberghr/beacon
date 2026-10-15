@@ -128,6 +128,39 @@ public class ProjectListRowLevelTests
     }
 
     [Test]
+    public async Task DataSource_ByIdRead_CarriesTheTransportBadge_TheStoredSettings_AndWhetherTheHostManagesIt()
+    {
+        var world = new World();
+        var source = world.Source(10);
+        source.DatabaseEngineType = DatabaseEngineType.PostgreSQL;
+        source.EncryptedConnectionData = new EncryptionService(TestEncryptionKey.Value).Encrypt("Host=db;SSL Mode=Require");
+        source.MetadataMaxTables = 250;
+        source.MetadataMaxColumnsPerTable = 80;
+        source.MetadataLoadTableNamesOnly = true;
+        source.MetadataExcludeSchemas = "audit,tmp";
+        world.Source(11).HostManagedKey = "ledger";
+        var harness = new ListHandlerHarness(Scope);
+
+        var entry = (DataSourceEntry?)await harness.AnswerAsync(
+            new GetDataSourceQuery(10),
+            world.Factory(),
+            x => x.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, PostgreSqlTransportInspector>()));
+        var hostManaged = (DataSourceEntry?)await harness.AnswerAsync(new GetDataSourceQuery(11), world.Factory());
+
+        entry!.TransportVerified.Should().BeFalse("SSL Mode=Require does not verify the server");
+        entry.EditSettings.Should().BeEquivalentTo(new DataSourceEditSettings
+        {
+            HostManaged = false,
+            MetadataMaxTables = 250,
+            MetadataMaxColumnsPerTable = 80,
+            MetadataLoadTableNamesOnly = true,
+            MetadataExcludeSchemas = "audit,tmp",
+            MetadataIncludeSchemas = null
+        });
+        hostManaged!.EditSettings!.HostManaged.Should().BeTrue();
+    }
+
+    [Test]
     public async Task DataSources_CountMigrationJobs_ForAnAdminOnly()
     {
         var listForAdmin = string.Join("\n", await new ListHandlerHarness(TestProjectAccess.Unrestricted).SendAsync(new GetDataSourcesQuery()));

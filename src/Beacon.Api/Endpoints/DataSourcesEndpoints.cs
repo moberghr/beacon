@@ -1,6 +1,7 @@
 using Beacon.Api.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataSources;
 using MediatR;
 
@@ -42,6 +43,34 @@ internal static class DataSourcesEndpoints
                 m.Send(new RefreshDataSourceMetadataCommand(id), ct))
             .WithName("RefreshDataSourceMetadata");
 
+        // Edits the source and replaces its connection (credential rotation). The stored connection is never sent: an omitted
+        // connection keeps it. A connection that points somewhere else answers 409 unless the body confirms the change.
+        ds.MapPut("/{id:int}", async (int id, UpdateDataSourceBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(
+                new UpdateDataSourceCommand(
+                    id,
+                    body.Name,
+                    body.DatabaseEngineType,
+                    body.ConnectionString,
+                    body.MetadataLoadingEnabled,
+                    body.MetadataMaxTables,
+                    body.MetadataMaxColumnsPerTable,
+                    body.MetadataLoadTableNamesOnly,
+                    body.MetadataExcludeSchemas,
+                    body.MetadataIncludeSchemas,
+                    body.ConfirmTargetChange),
+                ct);
+            return TypedResults.NoContent();
+        }).WithName("UpdateDataSource").RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
+
+        // Disables a source (no connection is made with it) or enables it again, at once.
+        ds.MapPut("/{id:int}/enabled", async (int id, SetDataSourceEnabledBody body, IMediator m, CancellationToken ct) =>
+        {
+            await m.Send(new SetDataSourceEnabledCommand(id, body.Enabled), ct);
+            return TypedResults.NoContent();
+        }).WithName("SetDataSourceEnabled").RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
+
         ds.MapDelete("/{id:int}", async (int id, IMediator m, CancellationToken ct) =>
         {
             await m.Send(new DeleteDataSourceCommand(id), ct);
@@ -66,3 +95,23 @@ internal static class DataSourcesEndpoints
 /// subscriptions or data contracts read.
 /// </summary>
 internal sealed record SetDataSourceMigrationWritesBody(bool AllowMigrationWrites, bool Force = false);
+
+/// <summary>
+/// A data source's editable settings. <paramref name="ConnectionString"/> null or empty keeps the stored connection;
+/// <paramref name="ConfirmTargetChange"/> confirms a connection to another engine, host, port or database. A metadata option
+/// left out (null) keeps the stored value; an empty schema list clears it.
+/// </summary>
+internal sealed record UpdateDataSourceBody(
+    string Name,
+    DatabaseEngineType? DatabaseEngineType,
+    string? ConnectionString,
+    bool? MetadataLoadingEnabled = null,
+    int? MetadataMaxTables = null,
+    int? MetadataMaxColumnsPerTable = null,
+    bool? MetadataLoadTableNamesOnly = null,
+    List<string>? MetadataExcludeSchemas = null,
+    List<string>? MetadataIncludeSchemas = null,
+    bool ConfirmTargetChange = false);
+
+/// <summary>Whether the data source is enabled: false disables it, so Beacon makes no connection with it.</summary>
+internal sealed record SetDataSourceEnabledBody(bool Enabled);
