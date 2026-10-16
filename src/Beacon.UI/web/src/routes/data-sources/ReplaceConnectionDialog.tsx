@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Banner, Button, Field, Input, Pill, Select, Textarea } from '@/components/beacon';
 import { Dialog } from '@/components/ui/Dialog';
@@ -14,7 +14,7 @@ import {
 type TestState =
   | { status: 'idle' }
   | { status: 'pending' }
-  | { status: 'success'; message: string }
+  | { status: 'success'; message: string; revision: number }
   | { status: 'error'; message: string };
 
 /** The server's answer (409) to a connection that points at another target (DataSourceService.TargetChangeUnconfirmedMessage). */
@@ -34,7 +34,8 @@ function engineOf(entry: DataSourceEntry): DatabaseEngineType | null {
 /**
  * Replaces a data source's connection: the way its credentials are rotated. The stored connection is never shown or
  * prefilled. The new one must pass "Test connection" before it can be saved, and testing again is required after any
- * change. A connection that points at another server, port, database or engine is saved only after the admin confirms
+ * change: a test counts only for the exact input it tested, so an answer that arrives after an edit, or after the dialog
+ * closed, is ignored. A connection that points at another server, port, database or engine is saved only after the admin confirms
  * the target change (the server answers 409 until then). The metadata settings are not sent, so they stay as stored.
  */
 export function ReplaceConnectionDialog({
@@ -56,8 +57,15 @@ export function ReplaceConnectionDialog({
   const testMutation = useTestDataSourceConnection();
   const updateMutation = useUpdateDataSource();
 
+  // Every change to what would be saved, and closing the dialog, starts a new input revision; a test's answer is kept
+  // only while the revision it tested is still the current one.
+  const revision = useRef(0);
+  const [currentRevision, setCurrentRevision] = useState(0);
+
   // Any change to what would be saved needs a fresh test and a fresh confirmation.
   const edited = () => {
+    revision.current += 1;
+    setCurrentRevision(revision.current);
     setTest({ status: 'idle' });
     setTargetChange(null);
     setConfirmTarget(false);
@@ -72,8 +80,10 @@ export function ReplaceConnectionDialog({
   };
 
   const onTest = async () => {
+    const tested = revision.current;
     setTest({ status: 'pending' });
     setError(null);
+    let answer: TestState;
     try {
       const result = await testMutation.mutateAsync({
         name: entry.name,
@@ -81,11 +91,16 @@ export function ReplaceConnectionDialog({
         databaseEngineType: isDatabase ? engine : null,
         connectionString: connection,
       });
-      setTest(result.success
-        ? { status: 'success', message: result.message ?? 'Connected.' }
-        : { status: 'error', message: result.message ?? 'Connection failed. The server returned no reason.' });
+      answer = result.success
+        ? { status: 'success', message: result.message ?? 'Connected.', revision: tested }
+        : { status: 'error', message: result.message ?? 'Connection failed. The server returned no reason.' };
     } catch (err) {
-      setTest({ status: 'error', message: describeError(err, 'Connection test failed') });
+      answer = { status: 'error', message: describeError(err, 'Connection test failed') };
+    }
+
+    // The input changed, or the dialog closed, while the test ran: its answer is about another input.
+    if (revision.current === tested) {
+      setTest(answer);
     }
   };
 
@@ -114,7 +129,9 @@ export function ReplaceConnectionDialog({
   };
 
   const canTest = connection.trim() !== '' && (!isDatabase || engine != null) && test.status !== 'pending';
-  const canSave = test.status === 'success' && (targetChange === null || confirmTarget) && !updateMutation.isPending;
+  const canSave = test.status === 'success'
+    && test.revision === currentRevision
+    && (targetChange === null || confirmTarget) && !updateMutation.isPending;
 
   return (
     <Dialog

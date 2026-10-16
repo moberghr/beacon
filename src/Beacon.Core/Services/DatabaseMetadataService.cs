@@ -45,10 +45,17 @@ public class DatabaseMetadataService(
         {
             // Double-check cache after acquiring lock (another thread may have just completed refresh).
             // Skipped on explicit user-driven refresh so a hot cache doesn't mask a live re-scan.
+            // The cached snapshot is served only while the source may still be read; otherwise the full path below refuses it.
             if (!forceRefresh && cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
             {
-                logger.LogDebug("Metadata for data source {DataSourceId} was refreshed by another thread", dataSourceId);
-                return cachedSnapshot;
+                var cachedState = await ReadStateAsync(dataSourceId, cancellationToken);
+                if (cachedState is { Readable: true })
+                {
+                    logger.LogDebug("Metadata for data source {DataSourceId} was refreshed by another thread", dataSourceId);
+                    return cachedSnapshot;
+                }
+
+                cache.Remove(GetCacheKey(dataSourceId));
             }
 
             logger.LogInformation("Refreshing metadata for data source {DataSourceId}", dataSourceId);
@@ -76,6 +83,10 @@ public class DatabaseMetadataService(
             // The resolver refuses it too, and applies the transport check.
             MigrationWriteTargets.EnsureReadable(dataSource);
 
+            // What the scan reads with, kept to tell whether the source changed while it ran.
+            var scannedConnection = dataSource.EncryptedConnectionData;
+            var scannedEngine = dataSource.DatabaseEngineType;
+
             // Extract metadata based on database type using registered extractors
             var connectionString = connectionResolver.GetConnectionString(dataSource);
             var extractor = metadataExtractors.FirstOrDefault(e => e.SupportedEngineType == dataSource.DatabaseEngineType.Value)
@@ -101,13 +112,34 @@ public class DatabaseMetadataService(
             // Store in database
             var stored = await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
 
-            // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read
-            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, stored, DateTime.UtcNow)
+            // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read.
+            // A scan that a disable, a migration-write mark or a connection change overtook publishes nothing to the cache:
+            // the source is read again here, after the scan, and a disabled or write-target source returns no catalog.
+            var snapshot = new DatabaseMetadataSnapshot(dataSourceId, scannedEngine, stored, DateTime.UtcNow)
             {
                 SkippedNameCount = skippedNames
             };
-            cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            var current = await ReadStateAsync(dataSourceId, cancellationToken);
+            var unchanged = current is { Readable: true }
+                && current.EncryptedConnectionData == scannedConnection
+                && current.DatabaseEngineType == scannedEngine;
+            if (unchanged)
+            {
+                cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            }
+
             schemaGraphService.Invalidate(dataSourceId);
+
+            if (current is not { Readable: true })
+            {
+                logger.LogInformation("Metadata refresh of data source {DataSourceId} finished after the source was disabled or marked as a migration write target; nothing is served", dataSourceId);
+                return EmptySnapshot(dataSourceId, scannedEngine);
+            }
+
+            if (!unchanged)
+            {
+                logger.LogInformation("Metadata refresh of data source {DataSourceId} finished after its connection changed; its snapshot is not cached", dataSourceId);
+            }
 
             logger.LogInformation("Refreshed metadata for data source {DataSourceId}: {TableCount} tables", dataSourceId, tables.Count);
 
@@ -121,6 +153,20 @@ public class DatabaseMetadataService(
 
     public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
+        // A migration write target has no catalog in Beacon (it is never read, so neither its stored tables nor a scan are
+        // offered to anyone), nor has a disabled source while it is disabled (its stored tables and sampled values are kept
+        // for when it is enabled, but not served). Its current state is read first — before the cache and before any
+        // source-specific loader — so a snapshot cached before the change, by this instance or another, is never served.
+        // An archived data source is not found (the soft-delete filter).
+        var state = await ReadStateAsync(dataSourceId, cancellationToken)
+            ?? throw new BeaconNotFoundException($"Data source {dataSourceId} not found");
+        if (!state.Readable)
+        {
+            logger.LogDebug("Metadata is not served for disabled or write-target data source {DataSourceId}", dataSourceId);
+            cache.Remove(GetCacheKey(dataSourceId));
+            return EmptySnapshot(dataSourceId, state.DatabaseEngineType);
+        }
+
         // Try to get from cache first
         if (cache.TryGetValue(GetCacheKey(dataSourceId), out DatabaseMetadataSnapshot? cachedSnapshot) && cachedSnapshot != null)
         {
@@ -144,10 +190,8 @@ public class DatabaseMetadataService(
         if (!dataSource.DatabaseEngineType.HasValue)
             throw new BeaconException($"Data source {dataSourceId} is not a database type");
 
-        // Check if metadata loading is disabled for this data source; a migration write target has no catalog in Beacon
-        // (it is never read, so neither its stored tables nor a scan are offered to anyone), nor has a disabled source while
-        // it is disabled (its stored tables and sampled values are kept for when it is enabled, but not served).
-        if (!dataSource.MetadataLoadingEnabled || dataSource.AllowMigrationWrites || dataSource.DisabledTime != null)
+        // Check if metadata loading is disabled for this data source
+        if (!dataSource.MetadataLoadingEnabled)
         {
             logger.LogDebug("Metadata loading is disabled for data source {DataSourceId}", dataSourceId);
             return new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, new List<TableMetadataDto>(), DateTime.UtcNow);
@@ -489,6 +533,21 @@ public class DatabaseMetadataService(
         return snapshot;
     }
 
+    // The source's state that decides whether its catalog may be served: one by-id read of the columns it needs.
+    private async Task<SourceState?> ReadStateAsync(int dataSourceId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Select(x =>
+                new SourceState(x.DisabledTime, x.AllowMigrationWrites, x.DatabaseEngineType, x.EncryptedConnectionData))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private static DatabaseMetadataSnapshot EmptySnapshot(int dataSourceId, DatabaseEngineType? engine) =>
+        new(dataSourceId, engine, new List<TableMetadataDto>(), DateTime.UtcNow);
+
     private static List<string> ParseSchemaList(string? commaSeparated)
     {
         if (string.IsNullOrWhiteSpace(commaSeparated)) return new List<string>();
@@ -540,4 +599,9 @@ public class DatabaseMetadataService(
     }
 
     internal static string GetCacheKey(int dataSourceId) => $"{CacheKeyPrefix}{dataSourceId}";
+
+    private sealed record SourceState(DateTime? DisabledTime, bool AllowMigrationWrites, DatabaseEngineType? DatabaseEngineType, string EncryptedConnectionData)
+    {
+        public bool Readable => DisabledTime == null && !AllowMigrationWrites;
+    }
 }

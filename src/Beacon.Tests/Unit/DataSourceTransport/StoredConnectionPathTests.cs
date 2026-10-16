@@ -48,6 +48,7 @@ public class StoredConnectionPathTests
         ["src/Beacon.Core/HostData/DataSourceConnectionResolver.cs"] = "the one decrypt that becomes a connection",
         ["src/Beacon.Core/HostData/HostDataSourceSynchronizer.cs"] = "writes a host source's reference (a connection string name, never a credential) and reads it back to compare",
         ["src/Beacon.Core/Services/DataSourceService.cs"] = "encrypts a connection on create and update; its StoredConnection helper decrypts the stored one only to compare an update's connection and target with it and to empty the old connection's driver pool, never to connect",
+        ["src/Beacon.Core/Services/DatabaseMetadataService.cs"] = "projects the encrypted value, never decrypted, to tell whether a source's connection changed while its metadata scan ran",
         ["src/Beacon.Core/Services/StoredValueReEncryptionService.cs"] = "re-encrypts stored values under the current key",
         ["src/Beacon.Core/Services/Providers/DataSourceTransportStatus.cs"] = "projects the encrypted value and hands it to the resolver's badge check",
         ["src/Beacon.AI/Services/Ai/AiActor/AiActorService.cs"] = "projects a data source with empty connection data"

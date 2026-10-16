@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
@@ -68,6 +68,24 @@ function renderWith(payload: Record<string, unknown>, ...extra: Parameters<typeo
 
 function testConnectionAnswers(success: boolean, message: string) {
   return http.post('*/beacon/api/data-sources/test-connection', () => HttpResponse.json({ success, message }));
+}
+
+// Connection tests the test answers one by one, in the order it chooses.
+function heldTestAnswers() {
+  const held: { connectionString: unknown; answer: (success: boolean) => void }[] = [];
+  const handler = http.post('*/beacon/api/data-sources/test-connection', async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const success = await new Promise<boolean>(resolve => held.push({ connectionString: body.connectionString, answer: resolve }));
+    return HttpResponse.json({ success, message: success ? 'Connected.' : 'Authentication failed.' });
+  });
+  return { held, handler };
+}
+
+// Lets an answer that was released reach the dialog.
+async function settle() {
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  });
 }
 
 async function openDialog() {
@@ -277,6 +295,82 @@ describe('Replace connection dialog state', () => {
 
     expect(await within(dialog).findByText('The data source changed meanwhile.')).toBeInTheDocument();
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('ignores a test that passes after the connection was edited, so the edit cannot be saved untested', async () => {
+    const tests = heldTestAnswers();
+    renderWith(entry(), me, dataSourceAdmin, tests.handler);
+
+    const dialog = await openDialog();
+    const input = within(dialog).getByLabelText('New connection string');
+    fireEvent.change(input, { target: { value: 'Host=db2;Password=tested' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(tests.held).toHaveLength(1));
+    fireEvent.change(input, { target: { value: 'Host=db2;Password=untested' } });
+    tests.held[0].answer(true);
+    await settle();
+
+    expect(within(dialog).queryByText('Connected')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Test connection' })).toBeEnabled();
+  });
+
+  it('keeps only the answer for the current input when tests answer out of order', async () => {
+    const tests = heldTestAnswers();
+    renderWith(entry(), me, dataSourceAdmin, tests.handler);
+
+    const dialog = await openDialog();
+    const input = within(dialog).getByLabelText('New connection string');
+    fireEvent.change(input, { target: { value: 'Host=db2;Password=first' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(tests.held).toHaveLength(1));
+    fireEvent.change(input, { target: { value: 'Host=db2;Password=second' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(tests.held).toHaveLength(2));
+    expect(tests.held.map(x => x.connectionString)).toEqual(['Host=db2;Password=first', 'Host=db2;Password=second']);
+
+    // The later test answers first and passes; the earlier one's failure, arriving after it, changes nothing.
+    tests.held[1].answer(true);
+    expect(await within(dialog).findByText('Connected')).toBeInTheDocument();
+    tests.held[0].answer(false);
+    await settle();
+    expect(within(dialog).queryByText('Authentication failed.')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeEnabled();
+
+    // And the other way round: an earlier test's pass is ignored, the current input's failure is shown.
+    fireEvent.change(input, { target: { value: 'Host=db2;Password=third' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(tests.held).toHaveLength(3));
+    fireEvent.change(input, { target: { value: 'Host=db2;Password=fourth' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(tests.held).toHaveLength(4));
+    tests.held[2].answer(true);
+    await settle();
+    expect(within(dialog).queryByText('Connected')).not.toBeInTheDocument();
+    tests.held[3].answer(false);
+    expect(await within(dialog).findByText('Authentication failed.')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Connected')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('ignores a test that answers after the dialog closed', async () => {
+    const tests = heldTestAnswers();
+    renderWith(entry(), me, dataSourceAdmin, tests.handler);
+
+    let dialog = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText('New connection string'), { target: { value: 'Host=db2' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(tests.held).toHaveLength(1));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    tests.held[0].answer(true);
+    await settle();
+
+    dialog = await openDialog();
+    expect(within(dialog).queryByText('Connected')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('New connection string'), { target: { value: 'Host=db2' } });
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 });
 
