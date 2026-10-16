@@ -518,12 +518,16 @@ public class PiiRowMaskerTests
         masked[0]["tag"].Should().Be("Alice");
     }
 
-    // A generator over a column renames table values: its column list fails closed like any other.
+    // A generator over a column or a database function renames table values: its column list fails closed like any other.
     [TestCase("SELECT u.x FROM customers c, UNNEST(c.contacts) AS u(x)", "PostgreSQL")]
     [TestCase("SELECT x FROM customers c CROSS JOIN LATERAL unnest(contacts) AS u(x)", "PostgreSQL")]
     [TestCase("SELECT n FROM customers c CROSS JOIN LATERAL generate_series(1, c.visits) AS g(n)", "PostgreSQL")]
     [TestCase("SELECT n FROM generate_series(1, (SELECT max(visits) FROM customers)) AS g(n)", "PostgreSQL")]
     [TestCase("SELECT s.n FROM customers c CROSS APPLY STRING_SPLIT(c.tags, ',') AS s(n)", "MSSQL")]
+    [TestCase("SELECT x FROM unnest(get_contacts()) AS u(x)", "PostgreSQL")]
+    [TestCase("SELECT n FROM generate_series(1, contact_count()) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT x FROM unnest(ARRAY[app.lower('a')]) AS u(x)", "PostgreSQL")]
+    [TestCase("SELECT n FROM STRING_SPLIT(dbo.contacts_csv(), ',') AS s(n)", "MSSQL")]
     public void Mask_ColumnListOnAGeneratorReadingAColumn_MasksEveryColumn(string sql, string dialect)
     {
         var rows = new List<Dictionary<string, object?>>

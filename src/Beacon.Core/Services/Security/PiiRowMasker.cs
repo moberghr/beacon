@@ -234,6 +234,30 @@ public static class PiiRowMasker
             "string_split"
         };
 
+        // Pure built-in scalars a generator's arguments may call and still read no data. Any other call, a schema-qualified
+        // one included, may be a database function that reads a table (unnest(get_contacts())), so it fails closed.
+        private static readonly HashSet<string> PureScalarFunctions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "abs",
+            "ceil",
+            "ceiling",
+            "coalesce",
+            "concat",
+            "floor",
+            "generate_series",
+            "greatest",
+            "least",
+            "length",
+            "lower",
+            "nullif",
+            "replace",
+            "round",
+            "substr",
+            "substring",
+            "trim",
+            "upper"
+        };
+
         private static readonly char[] KeyPathSeparators = ['.', ',', '{', '}', '[', ']', '$', '"', '\'', ':', '*', ' '];
 
         private static readonly ConcurrentDictionary<Type, PropertyInfo[]> PropertyCache = new();
@@ -829,7 +853,8 @@ public static class PiiRowMasker
             };
         }
 
-        // Whether any column, row or subquery is read under the node; literals, parameters and calls of them read none.
+        // Whether any column, row, subquery or non-pure function call is read under the node; literals, parameters and pure
+        // built-in calls of them read none.
         private static bool ReadsColumn(object? node, int depth)
         {
             if (depth > MaxDepth)
@@ -843,6 +868,8 @@ public static class PiiRowMasker
                     return false;
                 case Expression.Identifier or Expression.CompoundIdentifier or Expression.Wildcard or Expression.QualifiedWildcard
                     or FunctionArgExpression.Wildcard or FunctionArgExpression.QualifiedWildcard or Query:
+                    return true;
+                case Expression.Function function when function.Name.Values.Count != 1 || !PureScalarFunctions.Contains(LastName(function.Name) ?? ""):
                     return true;
                 case IEnumerable enumerable:
                     foreach (var item in enumerable)
