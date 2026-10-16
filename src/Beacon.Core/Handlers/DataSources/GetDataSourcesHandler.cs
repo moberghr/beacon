@@ -59,6 +59,7 @@ internal sealed class GetDataSourcesHandler(
                     MetadataLoadingEnabled = x.MetadataLoadingEnabled,
                     OpenWhenUnlinked = x.OpenWhenUnlinked,
                     AllowMigrationWrites = x.AllowMigrationWrites,
+                    DisabledTime = x.DisabledTime,
                     Projects = context.ProjectDataSources
                         .Where(y => y.DataSourceId == x.Id)
                         .Where(shownProject)
@@ -127,6 +128,15 @@ public record DataSourceEntry
     /// </summary>
     public bool AllowMigrationWrites { get; init; }
 
+    /// <summary>
+    /// When a DataSourceAdmin disabled the source; null while it is enabled. A disabled source makes no connection: what
+    /// reads it fails until it is enabled again.
+    /// </summary>
+    public DateTime? DisabledTime { get; init; }
+
+    /// <summary>Whether the source is disabled (<see cref="DisabledTime"/> is set).</summary>
+    public bool Disabled => DisabledTime != null;
+
     /// <summary>The live projects linking the source that the caller may read.</summary>
     public List<DataSourceProjectChip> Projects { get; init; } = [];
 
@@ -146,6 +156,30 @@ public record DataSourceEntry
     /// such sources); null when its connection data cannot be read.
     /// </summary>
     public bool? TransportVerified { get; init; }
+
+    /// <summary>
+    /// What the edit form sends back unchanged, and whether the host application manages the source (then it cannot be
+    /// edited, disabled or deleted here). Set by the by-id read only; null in the list. Never the connection.
+    /// </summary>
+    public DataSourceEditSettings? EditSettings { get; init; }
+}
+
+/// <summary>A data source's stored metadata-loading options, and whether the host application manages it.</summary>
+public record DataSourceEditSettings
+{
+    public bool HostManaged { get; init; }
+
+    public int MetadataMaxTables { get; init; }
+
+    public int MetadataMaxColumnsPerTable { get; init; }
+
+    public bool MetadataLoadTableNamesOnly { get; init; }
+
+    /// <summary>Comma-separated schema names, as stored; null when none.</summary>
+    public string? MetadataExcludeSchemas { get; init; }
+
+    /// <summary>Comma-separated schema names, as stored; null when none.</summary>
+    public string? MetadataIncludeSchemas { get; init; }
 }
 
 /// <summary>A project linking a data source.</summary>

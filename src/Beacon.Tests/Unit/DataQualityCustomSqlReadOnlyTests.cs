@@ -584,6 +584,28 @@ public class DataQualityCustomSqlReadOnlyTests
         StoredRuleResult(saved).Message.Should().Be(DataQualityEvaluationService.ExecutionFailedMessage);
     }
 
+    // A source disabled while its rules run: the connection is refused, and the rule result says the source is disabled,
+    // with the refusal's generic message.
+    [Test]
+    public async Task EvaluateContractAsync_OnASourceDisabledMeanwhile_SaysItIsDisabled()
+    {
+        var source = OrdinarySource(DatabaseEngineType.PostgreSQL);
+        source.DisabledTime = DateTime.UtcNow;
+        var resolver = new Mock<IDataSourceConnectionResolver>();
+        resolver
+            .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
+            .Throws(new DataSourceDisabledException(source.Id));
+        var saved = new List<object>();
+        var service = CreateService(Contract(source, Rule(DataContractRuleType.Volume, "{}")), saved, resolver: resolver);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        var ruleResult = result.RuleResults.Should().ContainSingle().Subject;
+        ruleResult.Passed.Should().BeFalse();
+        ruleResult.Message.Should().Be(DataSourceDisabledException.RefusalMessage);
+        StoredRuleResult(saved).Message.Should().Be(DataSourceDisabledException.RefusalMessage);
+    }
+
     [TestCase("row_count", RowValue)]
     [TestCase("other_column", 5L)]
     public async Task EvaluateContractAsync_ResultOfTheWrongShape_ReturnsAFixedMessage(string column, object value)
@@ -827,12 +849,16 @@ public class DataQualityCustomSqlReadOnlyTests
         List<DatabaseMetadata>? metadata = null,
         McpSettingsData? piiSettings = null,
         Beacon.Core.BeaconConfiguration? configuration = null,
-        Microsoft.Extensions.Logging.ILogger<DataQualityEvaluationService>? logger = null)
+        Microsoft.Extensions.Logging.ILogger<DataQualityEvaluationService>? logger = null,
+        Mock<IDataSourceConnectionResolver>? resolver = null)
     {
-        var resolver = new Mock<IDataSourceConnectionResolver>();
-        resolver
-            .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
-            .Returns("Server=unused");
+        if (resolver == null)
+        {
+            resolver = new Mock<IDataSourceConnectionResolver>();
+            resolver
+                .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
+                .Returns("Server=unused");
+        }
         var hostGuard = new HostDataSourceGuard(new SingleSnapshotRegistry());
         var provider = new DatabaseProvider(
             resolver.Object,

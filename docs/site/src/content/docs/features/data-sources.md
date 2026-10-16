@@ -130,8 +130,93 @@ Click a row to open the data source page: type, table, column and query counts, 
 status, **Metadata loading**, the linked projects, and the schema browser. Its actions are **Relationships**,
 **Refresh metadata** and **Delete**.
 
-There is no edit in the UI or the REST API. A host can change a data source in code with
-`IDataSourceService.UpdateDataSource`, which also evicts its cached metadata and relationship graph.
+### Edit a data source and replace its connection
+
+`PUT /beacon/api/data-sources/{id}` (DataSourceAdmin or Admin) changes a data source's name, engine, metadata loading
+options and connection. It is how credentials are rotated: send the new connection string, and the next connection uses
+it. The stored connection is never shown, so it is never sent back: a body whose `connectionString` is `null` or empty
+keeps the stored connection and changes only the other fields. A stored connection Beacon cannot decrypt (encrypted under
+a key no longer configured) cannot be kept; enter it again. Beacon logs that it could not decrypt it, with the data source
+id and engine only.
+
+`name` is required. A database data source needs `databaseEngineType`, and changing the engine needs the connection
+entered again: a stored connection is never read as another engine's (`400`). The metadata options are optional: one
+that is left out or `null` keeps the stored value, and an empty schema list clears the stored one.
+
+```json
+{
+  "name": "warehouse",
+  "databaseEngineType": "PostgreSQL",
+  "connectionString": "Host=db.example.com;Database=sales;Username=beacon_reader;Password=...;SSL Mode=VerifyFull",
+  "metadataLoadingEnabled": true,
+  "metadataMaxTables": 0,
+  "metadataMaxColumnsPerTable": 0,
+  "metadataLoadTableNamesOnly": false,
+  "metadataExcludeSchemas": [],
+  "metadataIncludeSchemas": [],
+  "confirmTargetChange": false
+}
+```
+
+- **Transport.** A new connection, or the stored one read as another engine's, must authenticate the server over TLS
+  (see [Transport security](#transport-security-tls)); otherwise the request answers `400` naming the option to change.
+- **Change of target.** A connection to another engine, host, port or database than the stored one, as the engine's
+  transport check reads them, is saved only when the body sets `confirmTargetChange: true`; otherwise the request
+  answers `409` and nothing changes. A connection whose host, port or database Beacon cannot read (the JSON-configured
+  connectors without a host) counts as a change of target. The host name is compared without regard to case, the
+  database name exactly. A confirmed change removes the column [sample values](#sample-values) stored for the source, in
+  the same save, because they were read from the old target.
+- **Schema after a change of target.** The stored tables and columns are not deleted: a confirmed change of target
+  enqueues a background metadata refresh (when the source loads metadata) that replaces them with the new target's,
+  keeping the curated descriptions of the tables and columns that still exist. Until it finishes, the schema browser and
+  AI grounding show the old target's tables. A host whose job runner has no metadata refresh job logs that none was
+  enqueued; run **Refresh metadata** then.
+- **Old connections.** After a connection change, Beacon empties the driver's connection pools for the old connection
+  string on PostgreSQL, MySQL (the read-only pool, which connects without statement batches, included), SQL Server and
+  Azure Synapse, so no idle connection opened with the old credentials is reused. A connection already in use finishes
+  its work and is closed when it is returned. Snowflake and the JSON-configured connectors (Databricks, BigQuery,
+  CloudWatch, API) keep no pool Beacon can empty; for a database engine without one, Beacon logs that no pool was
+  cleared. A pool that cannot be cleared does not undo the saved change; the failure is logged by its type.
+- **Caches.** Every edit evicts the cached metadata and relationship graph and restarts the forced-refresh cooldown.
+- **Audit.** A change of connection is recorded as `data_sources.credentials_rotated`, any other edit as
+  `data_sources.data_source_updated`; each names the fields that changed and whether the target changed, never a value
+  (see [Security audit trail](/features/security-audit/)).
+
+A data source the host registered (a [host DbContext](/features/host-dbcontext/) source) cannot be edited here
+(`400`): the host rotates its credentials in its own configuration. A rotation takes effect at once; it needs no second
+person's approval.
+
+- **Who may point a source elsewhere.** A DataSourceAdmin may point a data source at another server or database, as one
+  may create a data source there. The change must be confirmed and is recorded with `targetChanged: true`, so the audit
+  trail shows every such change; a second person's approval of a target change is not required.
+- **Concurrent edits.** Two edits of the same data source saved at the same time are not merged: the one saved last is
+  kept. Queries already running when the connection changes finish on the connection they opened.
+
+### Disable and enable a data source
+
+`PUT /beacon/api/data-sources/{id}/enabled` with `{ "enabled": false }` (DataSourceAdmin or Admin) disables a data
+source at once; `{ "enabled": true }` enables it again. Disabling is the emergency stop for a source whose credentials
+may be compromised: it takes effect immediately and needs no second person's approval.
+
+A disabled source makes no connection at all. The connection resolver, the one place a source's stored connection data
+is decrypted, refuses it first, before anything is decrypted or its transport checked. So, while it is disabled:
+
+- queries, previews, ad-hoc queries, data-quality checks, AI and MCP paths and metadata scans that read it fail with
+  the message "This data source is disabled" (`400`); a data-quality rule result says the same;
+- a subscription run whose query reads it fails before any step runs, and is recorded in the run history as failed
+  with the reason "Failed: a data source this query reads is disabled." (no task, no delivery); a run someone starts
+  answers `409`;
+- the project listings that MCP tools and AI grounding read leave it out;
+- its stored catalog is not served: a metadata read answers an empty catalog (as for a migration write target), and its
+  cached metadata and relationship graph are evicted when it is disabled or enabled, so none of its stored tables,
+  columns or sample values is shown while it is disabled;
+- the driver's connection pool for its connection is emptied when it is disabled.
+
+The data source keeps its queries, subscriptions, projects and metadata, and all of them work again once it is enabled.
+The list and detail responses carry `disabled` and `disabledTime`. Who disabled it and when are stored on the source;
+each change is recorded as `data_sources.data_source_disabled` or `data_sources.data_source_enabled`, with the data
+source id only. Setting the state a source already has changes and records nothing. A host-registered data source
+cannot be disabled here (`400`).
 
 ### Delete a data source
 

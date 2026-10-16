@@ -81,6 +81,8 @@ public class AdminGatedRoutesTests
 
         ["POST /beacon/api/data-sources/"] = BeaconPermissions.DataSourceAdminPolicy,
         ["POST /beacon/api/data-sources/test-connection"] = BeaconPermissions.DataSourceAdminPolicy,
+        ["PUT /beacon/api/data-sources/{id:int}"] = BeaconPermissions.DataSourceAdminPolicy,
+        ["PUT /beacon/api/data-sources/{id:int}/enabled"] = BeaconPermissions.DataSourceAdminPolicy,
         ["DELETE /beacon/api/data-sources/{id:int}"] = BeaconPermissions.DataSourceAdminPolicy,
 
         ["GET /beacon/api/migrations/jobs"] = BeaconPermissions.MigrationOperatorPolicy,

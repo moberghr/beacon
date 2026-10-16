@@ -130,3 +130,33 @@ describe('DataSourcesListPage and the DataSourceAdmin permission', () => {
     expect(screen.queryByRole('button', { name: /refresh/i })).not.toBeInTheDocument();
   });
 });
+
+describe('DataSourcesListPage state badges', () => {
+  it('badges disabled sources and connections whose transport is not verified, and nothing else', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/data-sources', () =>
+        HttpResponse.json({
+          items: [
+            source({ id: 1, name: 'ledger-db', transportVerified: true, disabled: false }),
+            source({ id: 2, name: 'crm-db', transportVerified: false, disabled: false }),
+            source({ id: 3, name: 'old-db', transportVerified: null, disabled: true }),
+          ],
+          totalCount: 3,
+          pageCount: 1,
+        }),
+      ),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const ledger = (await screen.findByText('ledger-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(ledger).queryByText('Transport not verified')).not.toBeInTheDocument();
+    expect(within(ledger).queryByText('Disabled')).not.toBeInTheDocument();
+    const crm = screen.getByText('crm-db').closest('[role="row"]') as HTMLElement;
+    expect(within(crm).getByText('Transport not verified')).toBeInTheDocument();
+    expect(within(crm).queryByText('Disabled')).not.toBeInTheDocument();
+    const old = screen.getByText('old-db').closest('[role="row"]') as HTMLElement;
+    expect(within(old).getByText('Disabled')).toBeInTheDocument();
+    expect(within(old).queryByText('Transport not verified')).not.toBeInTheDocument();
+  });
+});

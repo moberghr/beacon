@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
 {
     public static BeaconBuilder AddMySqlConnector(this BeaconBuilder builder)
     {
-        DbConnectionFactory.Register(DatabaseEngineType.MySQL, cs => new MySqlConnection(cs));
+        DbConnectionFactory.Register(DatabaseEngineType.MySQL, cs => new MySqlConnection(cs), x => MySqlConnection.ClearPool((MySqlConnection)x));
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.MySQL, "MySQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, MySqlMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, MySqlTransportInspector>());

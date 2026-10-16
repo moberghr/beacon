@@ -12,7 +12,7 @@ public static class ServiceCollectionExtensions
 {
     public static BeaconBuilder AddAzureSynapseConnector(this BeaconBuilder builder)
     {
-        DbConnectionFactory.Register(DatabaseEngineType.AzureSynapse, cs => new SqlConnection(cs));
+        DbConnectionFactory.Register(DatabaseEngineType.AzureSynapse, cs => new SqlConnection(cs), x => SqlConnection.ClearPool((SqlConnection)x));
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.AzureSynapse, "Azure Synapse");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, AzureSynapseMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, AzureSynapseTransportInspector>());

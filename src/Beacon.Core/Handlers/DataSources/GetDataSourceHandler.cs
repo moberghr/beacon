@@ -9,7 +9,8 @@ namespace Beacon.Core.Handlers.DataSources;
 internal sealed class GetDataSourceHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
-    IDataSourceProviderFactory providers)
+    IDataSourceProviderFactory providers,
+    DataSourceTransportStatus transportStatus)
     : IRequestHandler<GetDataSourceQuery, DataSourceEntry?>
 {
     public async Task<DataSourceEntry?> Handle(GetDataSourceQuery request, CancellationToken cancellationToken)
@@ -46,6 +47,16 @@ internal sealed class GetDataSourceHandler(
                     MetadataLoadingEnabled = x.MetadataLoadingEnabled,
                     OpenWhenUnlinked = x.OpenWhenUnlinked,
                     AllowMigrationWrites = x.AllowMigrationWrites,
+                    DisabledTime = x.DisabledTime,
+                    EditSettings = new DataSourceEditSettings
+                    {
+                        HostManaged = x.HostManagedKey != null,
+                        MetadataMaxTables = x.MetadataMaxTables,
+                        MetadataMaxColumnsPerTable = x.MetadataMaxColumnsPerTable,
+                        MetadataLoadTableNamesOnly = x.MetadataLoadTableNamesOnly,
+                        MetadataExcludeSchemas = x.MetadataExcludeSchemas,
+                        MetadataIncludeSchemas = x.MetadataIncludeSchemas
+                    },
                     Projects = context.ProjectDataSources
                         .Where(y => y.DataSourceId == x.Id)
                         .Where(shownProject)
@@ -62,7 +73,14 @@ internal sealed class GetDataSourceHandler(
                 })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return entry == null ? null : DataSourceProjects.WithReadOnlyEnforcement(entry, providers);
+        if (entry == null)
+        {
+            return null;
+        }
+
+        var transportVerified = await transportStatus.VerifiedAsync([entry.Id], cancellationToken);
+
+        return DataSourceProjects.WithReadOnlyEnforcement(entry, providers) with { TransportVerified = transportVerified.GetValueOrDefault(entry.Id) };
     }
 }
 

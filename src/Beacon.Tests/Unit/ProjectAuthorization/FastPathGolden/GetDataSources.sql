@@ -2,7 +2,7 @@ SELECT count(*)::int
 FROM beacon.data_sources AS d
 WHERE d.archived_time IS NULL
 ;
-SELECT d0.id, d0.name, d0.c, d0.c0, d0.c1, d0.metadata_loading_enabled, d0.open_when_unlinked, d0.allow_migration_writes, s0."Id", s0."Name", s0.id0, s0.id1, d0.c2
+SELECT d0.id, d0.name, d0.c, d0.c0, d0.c1, d0.metadata_loading_enabled, d0.open_when_unlinked, d0.allow_migration_writes, d0.disabled_time, s0."Id", s0."Name", s0.id0, s0.id1, d0.c2
 FROM (
     SELECT d.id, d.name, CASE d.data_source_type
         WHEN 1 THEN 'Database'
@@ -35,7 +35,7 @@ FROM (
                 WHERE q0.archived_time IS NULL
             ) AS q1 ON q.query_id = q1.id
             WHERE d.id = q.data_source_id AND q1.archived_time IS NULL
-        ) AS s) AS c1, d.metadata_loading_enabled, d.open_when_unlinked, d.allow_migration_writes, (
+        ) AS s) AS c1, d.metadata_loading_enabled, d.open_when_unlinked, d.allow_migration_writes, d.disabled_time, (
         SELECT count(*)::int
         FROM beacon.projects AS p2
         WHERE FALSE) AS c2

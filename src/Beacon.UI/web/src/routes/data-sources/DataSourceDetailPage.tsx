@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { AlertTriangle, Database, GitFork, Key, Layers, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Ban, Database, GitFork, Key, KeyRound, Layers, RefreshCw, X } from 'lucide-react';
 import {
   PageHeader,
   Banner,
@@ -21,6 +21,9 @@ import { useAccess } from '@/auth/useAuth';
 import { ProjectChips } from './ProjectChips';
 import { ENGINE_READ_ONLY_HINT, READ_ONLY_LOGIN_HINT, ReadOnlyEnforcementBadge, WRITE_TARGET_HINT } from './ReadOnlyEnforcementBadge';
 import { MigrationWritesControl } from './MigrationWritesControl';
+import { DataSourceEnabledControl } from './DataSourceEnabledControl';
+import { DataSourceStateBadges, DISABLED_HINT } from './DataSourceStateBadges';
+import { ReplaceConnectionDialog } from './ReplaceConnectionDialog';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourceQuery,
@@ -45,6 +48,7 @@ export default function DataSourceDetailPage() {
   const refreshMetadata = useRefreshDataSourceMetadata();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
+  const [replacing, setReplacing] = useState(false);
   // Deleting a data source is a DataSourceAdmin's (an Admin holds it).
   const canDelete = useAccess().hasPermission('DataSourceAdmin');
 
@@ -116,6 +120,10 @@ export default function DataSourceDetailPage() {
     }
   };
 
+  // Replacing the connection and disabling are a DataSourceAdmin's too, never on a source the host application manages
+  // (its connection is declared in code); `editSettings` comes only with the by-id read.
+  const canEdit = canDelete && entry.editSettings != null && entry.editSettings.hostManaged !== true;
+
   const tableCount = metadataQuery.data?.tables.length ?? 0;
   const columnCount = metadataQuery.data?.tables.reduce((acc, t) => acc + t.columns.length, 0) ?? 0;
 
@@ -177,6 +185,11 @@ export default function DataSourceDetailPage() {
             >
               Refresh metadata
             </Button>}
+            {canEdit && (
+              <Button type="button" onClick={() => setReplacing(true)} icon={<KeyRound />}>
+                Replace connection
+              </Button>
+            )}
             {canDelete && (
               <Button
                 variant="danger"
@@ -201,10 +214,12 @@ export default function DataSourceDetailPage() {
       <Card className={tab === 'schema' ? 'flex flex-col flex-1 min-h-0' : undefined}>
         <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-        {tab === 'overview' && <OverviewTab entry={entry} metadataLoading={metadataQuery.isLoading} />}
+        {tab === 'overview' && <OverviewTab entry={entry} canEdit={canEdit} metadataLoading={metadataQuery.isLoading} />}
         {tab === 'schema' && <SchemaTab query={metadataQuery} />}
         {tab === 'connection' && <ConnectionTab entry={entry} />}
       </Card>
+
+      {canEdit && <ReplaceConnectionDialog entry={entry} open={replacing} onClose={() => setReplacing(false)} />}
 
       <ConfirmDialog
         open={confirmDelete}
@@ -224,13 +239,23 @@ export default function DataSourceDetailPage() {
 
 interface OverviewProps {
   entry: DataSourceEntry;
+  canEdit: boolean;
   metadataLoading: boolean;
 }
 
-function OverviewTab({ entry, metadataLoading }: OverviewProps) {
+function OverviewTab({ entry, canEdit, metadataLoading }: OverviewProps) {
   const isWriteTarget = entry.allowMigrationWrites === true;
   return (
     <CardBody>
+      {entry.disabled === true && (
+        <Banner
+          tone="crit"
+          icon={<Ban />}
+          title="Disabled"
+          sub={DISABLED_HINT}
+          className="mb-4"
+        />
+      )}
       {isWriteTarget && (
         <Banner
           tone="info"
@@ -262,14 +287,17 @@ function OverviewTab({ entry, metadataLoading }: OverviewProps) {
             ? <span className="mono">{entry.databaseEngineType}</span>
             : <span className="text-text-muted">—</span>}
         </dd>
+        <dt className="text-text-muted">Status</dt>
+        <dd><DataSourceEnabledControl entry={entry} canManage={canEdit} /></dd>
         <dt className="text-text-muted">Read-only</dt>
-        <dd>
+        <dd className="flex flex-wrap items-center gap-2">
           {isWriteTarget && <span className="text-text-muted">Not read by Beacon</span>}
           {!isWriteTarget && entry.databaseReadOnlyEnforced === true && (
             <Pill tone="ok" title={ENGINE_READ_ONLY_HINT}>Enforced by the engine — still use a read-only login</Pill>
           )}
           {!isWriteTarget && entry.databaseReadOnlyEnforced === false && <ReadOnlyEnforcementBadge enforced={false} />}
           {!isWriteTarget && entry.databaseReadOnlyEnforced == null && <span className="text-text-muted">—</span>}
+          <DataSourceStateBadges transportVerified={entry.transportVerified} />
         </dd>
         <dt className="text-text-muted">Migration writes</dt>
         <dd><MigrationWritesControl entry={entry} /></dd>
@@ -442,11 +470,11 @@ function TableDetails({ table }: { table: TableMetadataDto }) {
   );
 }
 
-function ConnectionTab({ entry }: { entry: { dataSourceType: string; databaseEngineType: string | null; metadataLoadingEnabled: boolean } }) {
+function ConnectionTab({ entry }: { entry: DataSourceEntry }) {
   return (
     <CardBody>
       <div className="text-xs text-text-muted mb-3">
-        Connection details are encrypted at rest and not returned by the API. To rotate credentials, delete the data source and re-create it.
+        Connection details are encrypted at rest and never returned by the API. To rotate credentials, a DataSourceAdmin replaces the connection (Replace connection); a data source the host application manages is changed in the host's code.
       </div>
       <dl className="grid grid-cols-[200px_1fr] gap-x-3 gap-y-2 m-0 text-sm">
         <dt className="text-text-muted">Source type</dt>
@@ -455,6 +483,12 @@ function ConnectionTab({ entry }: { entry: { dataSourceType: string; databaseEng
         <dd>{entry.databaseEngineType ? <span className="mono">{entry.databaseEngineType}</span> : <span className="text-text-muted">—</span>}</dd>
         <dt className="text-text-muted">Metadata loading</dt>
         <dd>{entry.metadataLoadingEnabled ? 'Enabled' : 'Disabled'}</dd>
+        <dt className="text-text-muted">Transport</dt>
+        <dd>
+          {entry.transportVerified === true && <Pill tone="ok">Server verified over TLS</Pill>}
+          {entry.transportVerified === false && <DataSourceStateBadges transportVerified={false} />}
+          {entry.transportVerified == null && <span className="text-text-muted">—</span>}
+        </dd>
       </dl>
     </CardBody>
   );

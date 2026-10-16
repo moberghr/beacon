@@ -57,6 +57,17 @@ internal partial class QueryService
             throw new ExecutionRefusedException(dataSourceIds, "Running this subscription's query is not allowed.");
         }
 
+        // A disabled data source makes no connection (the connection resolver refuses it too): the run fails before any
+        // step does, so no step reads a source while another is disabled.
+        var disabledSourceId = subscription.Query.Steps
+            .Where(x => x.DataSource?.DisabledTime != null)
+            .Select(x => (int?)x.DataSourceId)
+            .FirstOrDefault();
+        if (disabledSourceId.HasValue)
+        {
+            throw new DataSourceDisabledException(disabledSourceId.Value, dataSourceIds);
+        }
+
         if (workflow.Enabled)
         {
             if (ReviewedQueryContent.RunRefusal(QueryContentHash.Of(subscription.Query), active, workflow.RequireApprovedVersionToRun) != null)

@@ -47,20 +47,24 @@ public class StoredConnectionPathTests
         ["src/Beacon.Core/Data/Entities/DataSource.cs"] = "the entity property itself",
         ["src/Beacon.Core/HostData/DataSourceConnectionResolver.cs"] = "the one decrypt that becomes a connection",
         ["src/Beacon.Core/HostData/HostDataSourceSynchronizer.cs"] = "writes a host source's reference (a connection string name, never a credential) and reads it back to compare",
-        ["src/Beacon.Core/Services/DataSourceService.cs"] = "encrypts a connection on create and update, and decrypts the stored one only to tell whether an update changes it",
+        ["src/Beacon.Core/Services/DataSourceService.cs"] = "encrypts a connection on create and update; its StoredConnection helper decrypts the stored one only to compare an update's connection and target with it and to empty the old connection's driver pool, never to connect",
+        ["src/Beacon.Core/Services/DatabaseMetadataService.cs"] = "projects the encrypted value, never decrypted, to tell whether a source's connection changed while its metadata scan ran",
         ["src/Beacon.Core/Services/StoredValueReEncryptionService.cs"] = "re-encrypts stored values under the current key",
         ["src/Beacon.Core/Services/Providers/DataSourceTransportStatus.cs"] = "projects the encrypted value and hands it to the resolver's badge check",
         ["src/Beacon.AI/Services/Ai/AiActor/AiActorService.cs"] = "projects a data source with empty connection data"
     };
 
-    // A decrypt of the stored value itself: only the resolver (a connection) and the host sync (a reference) may.
+    // A decrypt of the stored value itself: only the resolver (a connection), the host sync (a reference) and the data-source
+    // update (a comparison and a pool clear, through its StoredConnection helper) may.
     private static readonly HashSet<string> AllowedDecrypts = new(StringComparer.Ordinal)
     {
         "src/Beacon.Core/HostData/DataSourceConnectionResolver.cs",
-        "src/Beacon.Core/HostData/HostDataSourceSynchronizer.cs"
+        "src/Beacon.Core/HostData/HostDataSourceSynchronizer.cs",
+        "src/Beacon.Core/Services/DataSourceService.cs"
     };
 
-    private static readonly Regex DecryptOfStoredData = new(@"Decrypt\(\s*[\w.]*EncryptedConnectionData\b", RegexOptions.CultureInvariant);
+    // A decrypt call, or the data-source service's StoredConnection helper, handed the stored value.
+    private static readonly Regex DecryptOfStoredData = new(@"\b(?:Decrypt|StoredConnection)\(\s*[\w.]*EncryptedConnectionData\b", RegexOptions.CultureInvariant);
 
     [Test]
     public async Task TheApiConnector_RefusesAStoredInsecureConnection_BeforeAnyRequest()
@@ -246,6 +250,7 @@ public class StoredConnectionPathTests
         readers.Should().BeSubsetOf(AllowedReaders.Keys, "a new reader of stored connection data must connect through IDataSourceConnectionResolver");
         decrypts.Should().BeSubsetOf(AllowedDecrypts);
         decrypts.Should().Contain("src/Beacon.Core/HostData/DataSourceConnectionResolver.cs", "the pattern still finds the resolver's own decrypt");
+        decrypts.Should().Contain("src/Beacon.Core/Services/DataSourceService.cs", "the pattern sees the StoredConnection helper");
     }
 
     private const string DatabricksJson = """{"Host":"adb.example","HttpPath":"/sql/1.0/warehouses/w","Token":"t","Catalog":"main","QueryTimeoutSeconds":5}""";

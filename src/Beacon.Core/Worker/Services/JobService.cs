@@ -77,15 +77,27 @@ internal class JobService(
         }
         catch (ExecutionRefusedException ex) when (isScheduledRun)
         {
-            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, NotificationFailureReasons.OwnerNotAuthorized, cancellationToken);
+            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Skipped, NotificationFailureReasons.OwnerNotAuthorized, cancellationToken);
 
             return;
+        }
+        catch (DataSourceDisabledException ex)
+        {
+            // Nothing ran: recorded as failed with a generic reason (never the exception's text), with the data sources the
+            // run would have read. A run a request asks for then answers 409.
+            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Failed, NotificationFailureReasons.DataSourceDisabled, cancellationToken);
+            if (isScheduledRun)
+            {
+                return;
+            }
+
+            throw new BeaconConflictException(NotificationFailureReasons.DataSourceDisabled);
         }
         catch (QueryNotReviewedException ex)
         {
             // With the approval workflow on, the stored SQL is not the reviewed version: nothing ran. Recorded for a run a
             // request asks for too, which then answers 409.
-            await RecordSkippedRunAsync(context, subscriptionId, ex.DataSourceIds, NotificationFailureReasons.NotApproved, cancellationToken);
+            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Skipped, NotificationFailureReasons.NotApproved, cancellationToken);
             if (isScheduledRun)
             {
                 return;
@@ -661,21 +673,23 @@ internal class JobService(
     }
 
     // A run that may not happen (a scheduled run its owner may no longer make, a run of SQL the approval workflow has not
-    // approved): recorded as skipped with a neutral reason, with the data sources it would have read so the readers of
-    // the subscription see it, and nothing else happens (no task, no baseline, no delivery, no AI actor).
-    private static async Task RecordSkippedRunAsync(
+    // approved: skipped; a run on a disabled data source: failed): recorded with a neutral reason, with the data sources it
+    // would have read so the readers of the subscription see it, and nothing else happens (no task, no baseline, no
+    // delivery, no AI actor).
+    private static async Task RecordRunNotMadeAsync(
         BeaconContext context,
         int subscriptionId,
         IReadOnlyList<int> dataSourceIds,
+        NotificationStatus status,
         string reason,
         CancellationToken cancellationToken)
     {
-        var skipped = new QueryExecutionHistory
+        var run = new QueryExecutionHistory
         {
             SubscriptionId = subscriptionId,
             ResultCount = 0,
             CompiledSql = string.Empty,
-            NotificationStatus = NotificationStatus.Skipped,
+            NotificationStatus = status,
             ExecutionTimeMs = 0,
             Comment = reason,
             DataSourceIds = dataSourceIds
@@ -684,7 +698,7 @@ internal class JobService(
                 .ToArray()
         };
 
-        await context.QueryExecutionHistory.AddAsync(skipped, cancellationToken);
+        await context.QueryExecutionHistory.AddAsync(run, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }
 

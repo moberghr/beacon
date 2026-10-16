@@ -12,7 +12,7 @@ namespace Beacon.Core.Services;
 /// carry a login with write grants, which only the migration writer may use. Every other data source stays a read source,
 /// which should be connected with a login that can only read. The read refusal is enforced where a database connection is
 /// made from a data source's credentials (the connection resolver, the metadata scan), and project-scoped listings for
-/// MCP and AI leave write targets out (<see cref="WhereReadable"/>).
+/// MCP and AI leave write targets (and disabled sources) out (<see cref="WhereReadable"/>).
 /// </summary>
 public static class MigrationWriteTargets
 {
@@ -78,12 +78,15 @@ public static class MigrationWriteTargets
     }
 
     /// <summary>
-    /// The project links whose data source Beacon reads: every link but a write target's. A link read without its data
-    /// source (an in-memory projection) has nothing marking it and counts as readable; in SQL the data source is joined.
+    /// The project links whose data source Beacon reads: every link but a write target's or a disabled source's. A link read
+    /// without its data source (an in-memory projection) has nothing marking it and counts as readable; in SQL the data
+    /// source is joined.
     /// </summary>
     public static IQueryable<ProjectDataSource> WhereReadable(this IQueryable<ProjectDataSource> links)
     {
-        return links.Where(x => x.DataSource == null || !x.DataSource.AllowMigrationWrites);
+        return links
+            .Where(x => x.DataSource == null || !x.DataSource.AllowMigrationWrites)
+            .Where(x => x.DataSource == null || x.DataSource.DisabledTime == null);
     }
 
     /// <summary>

@@ -71,6 +71,12 @@ public static class NotificationFailureReasons
     /// </summary>
     public const string AllRecipientsAwaitApproval = "Skipped: every recipient waits for approval of where it delivers, so nobody was notified. Approve the recipients' changes on the Approvals page.";
 
+    /// <summary>
+    /// Not a delivery failure: the comment of a run that failed before anything ran because a data source its query reads
+    /// is disabled (<see cref="Data.Enums.NotificationStatus.Failed"/>). It names neither the source nor a connection value.
+    /// </summary>
+    public const string DataSourceDisabled = "Failed: a data source this query reads is disabled.";
+
     private static readonly Regex RecordedComment = BuildRecordedCommentPattern();
 
     /// <summary>The reason for an HTTP response that was not a success: only the status class is kept.</summary>
@@ -144,7 +150,8 @@ public static class NotificationFailureReasons
                 OwnerNotAuthorized,
                 NotApproved,
                 AwaitingApproval,
-                AllRecipientsAwaitApproval
+                AllRecipientsAwaitApproval,
+                DataSourceDisabled
             }
             .Concat(Enumerable.Range(1, 5).Select(x => ForStatus((HttpStatusCode)(x * 100))))
             .Select(Regex.Escape);

@@ -21,7 +21,7 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// security audit table and the MCP audit statement table (cascading from its audit row), adds the MCP audit content hash
 /// and the attribution columns of queries, subscriptions, recipients, data contracts and migration jobs — every added
 /// column nullable, with no default, so existing rows are left as they are — and runs no SQL. Down removes exactly what Up
-/// adds. Its target model is the snapshot, the model has no pending changes, and it sorts last.
+/// adds. The next migration builds on its target model, the model has no pending changes, and it sorts after the grounding-provenance migration.
 /// </summary>
 [TestFixture]
 public class SecurityAuditMigrationTests
@@ -30,7 +30,7 @@ public class SecurityAuditMigrationTests
 
     [TestCase(false, "security_audit_events", "mcp_audit_statements", "mcp_audit_logs", "content_hash", "fk_mcp_audit_statements_mcp_audit_logs_mcp_audit_log_id")]
     [TestCase(true, "SecurityAuditEvents", "McpAuditStatements", "McpAuditLogs", "ContentHash", "FK_McpAuditStatements_McpAuditLogs_McpAuditLogId")]
-    public void TheMigration_CreatesTwoTablesAndAddsNullableColumns_WithoutSql_AndItsTargetModelIsTheSnapshot(
+    public void TheMigration_CreatesTwoTablesAndAddsNullableColumns_WithoutSql_AndTheNextMigrationBuildsOnItsTargetModel(
         bool sqlServer,
         string events,
         string statements,
@@ -84,13 +84,19 @@ public class SecurityAuditMigrationTests
         differences.OfType<CreateIndexOperation>().Select(x => $"{x.Table}({string.Join(",", x.Columns)}) {x.IsUnique}")
             .Should().BeEquivalentTo(migration.UpOperations.OfType<CreateIndexOperation>().Select(x => $"{x.Table}({string.Join(",", x.Columns)}) {x.IsUnique}"));
         differences.Should().HaveCount(migration.UpOperations.Count, "the target model differs from the one before only by this migration");
+        var next = MigrationNamed(context, migrations, "_AddDataSourceDisable");
         context.GetService<IMigrationsModelDiffer>()
-            .GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+            .GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Select(x => x.GetType().Name)
+            .Should().BeEquivalentTo(
+                next.UpOperations.Select(x => x.GetType().Name),
+                "the next migration's target model differs from its target model only by that migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_AddGroundingProvenance", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 

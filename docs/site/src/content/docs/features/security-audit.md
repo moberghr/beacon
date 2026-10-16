@@ -118,8 +118,10 @@ their volume.
 **Data sources** (`data_sources`): `data_sources.data_source_created`, `data_sources.data_source_updated` (which fields
 changed, by name), `data_sources.credentials_rotated` (the connection changed: its credentials, host or database; never
 a value), `data_sources.data_source_deleted`, `data_sources.metadata_refreshed` (a forced refresh someone started, and
-whether they were exempt from its cooldown) and `data_sources.migration_writes_changed`. An edit that changes the
-connection is recorded as `credentials_rotated` only, with the other fields it changed.
+whether they were exempt from its cooldown), `data_sources.migration_writes_changed`,
+`data_sources.data_source_disabled` and `data_sources.data_source_enabled` (the data source id only). An edit that
+changes the connection is recorded as `credentials_rotated` only, with the other fields it changed; both edit events
+carry `targetChanged`, whether the connection now points at another engine, host, port or database (never which).
 
 **Delivery** (`delivery`): `delivery.recipient_created`, `delivery.recipient_updated` (which fields changed, whether the
 destination or the secret changed, and the change request that governs it), `delivery.recipient_deleted`,

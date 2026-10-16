@@ -28,7 +28,8 @@
  *   PUT/DELETE projects/:id/members/:userId, PUT projects/:id/access, POST projects/:id/data-sources,
  *   DELETE projects/:id/data-sources/:dataSourceId (no state kept)
  * - queries, query-folders, queries/:id, queries/:id/versions, query-versions/:id
- * - data-sources, data-sources/:id/metadata
+ * - data-sources, data-sources/:id/metadata, POST data-sources/test-connection, PUT data-sources/:id,
+ *   PUT data-sources/:id/enabled (no state kept)
  * - notifications (filters by ?subscriptionId), notifications/:id
  * - tasks, tasks/:id (+ executions / related / result-history / comments)
  * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id
@@ -548,6 +549,9 @@ const dataSourceEntries = [
           otherProjectCount: 1,
           databaseReadOnlyEnforced: true,
           allowMigrationWrites: false,
+          transportVerified: true,
+          // The by-id read's stored settings, which the Replace connection dialog sends back unchanged.
+          editSettings: { hostManaged: false, metadataMaxTables: 0, metadataMaxColumnsPerTable: 0, metadataLoadTableNamesOnly: false },
         },
         {
           id: 2,
@@ -563,6 +567,9 @@ const dataSourceEntries = [
           // SQL Server does not refuse writes in a read-only session: the page warns.
           databaseReadOnlyEnforced: false,
           allowMigrationWrites: false,
+          // Its connection does not make the driver verify the server: badged "Transport not verified".
+          transportVerified: false,
+          editSettings: { hostManaged: false, metadataMaxTables: 0, metadataMaxColumnsPerTable: 0, metadataLoadTableNamesOnly: false },
         },
         {
           id: 3,
@@ -593,6 +600,10 @@ const dataSourcesHandlers = [
     )));
   }),
   http.put('/beacon/api/data-sources/:id/migration-writes', () => new HttpResponse(null, { status: 204 })),
+  http.post('/beacon/api/data-sources/test-connection', () =>
+    HttpResponse.json({ success: true, message: 'Connection successful.' })),
+  http.put('/beacon/api/data-sources/:id/enabled', () => new HttpResponse(null, { status: 204 })),
+  http.put('/beacon/api/data-sources/:id', () => new HttpResponse(null, { status: 204 })),
   // Schema explorer on the detail page (DatabaseMetadataSnapshot, unwrapped).
   http.get('/beacon/api/data-sources/:id/metadata', ({ params }) => {
     const id = Number(params.id);

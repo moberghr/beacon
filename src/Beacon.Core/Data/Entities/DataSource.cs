@@ -72,5 +72,15 @@ public class DataSource : ArchivableBaseEntity
     /// </summary>
     public bool AllowMigrationWrites { get; set; }
 
+    /// <summary>
+    /// When a DataSourceAdmin disabled the source; null while it is enabled. A disabled source makes no connection at all:
+    /// the connection resolver refuses it before anything is decrypted, so every query, preview, subscription, data-quality
+    /// check, MCP tool, AI path and metadata scan that reads it fails, and the project listings MCP and AI read leave it out.
+    /// </summary>
+    public DateTime? DisabledTime { get; set; }
+
+    /// <summary>The <c>Users.Id</c> of who disabled the source (no foreign key); null while it is enabled.</summary>
+    public int? DisabledByUserId { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

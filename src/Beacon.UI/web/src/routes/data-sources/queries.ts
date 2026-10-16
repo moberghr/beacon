@@ -40,6 +40,28 @@ export interface DataSourceEntry {
    * checks are the only guard, so the source must be connected with a login that can only read; null when it runs no SQL.
    */
   databaseReadOnlyEnforced?: boolean | null;
+  /** A DataSourceAdmin disabled it: Beacon makes no connection with it, so every run, query and MCP call on it fails. */
+  disabled?: boolean;
+  disabledTime?: string | null;
+  /**
+   * False when its connection does not authenticate the server over TLS ("transport not verified"); true when it does;
+   * null when the connection data cannot be read.
+   */
+  transportVerified?: boolean | null;
+  /** The stored settings an edit sends back unchanged, and whether the host manages the source. By-id read only. */
+  editSettings?: DataSourceEditSettings | null;
+}
+
+/** A data source's stored metadata-loading options (never its connection), and whether the host application manages it. */
+export interface DataSourceEditSettings {
+  hostManaged?: boolean;
+  metadataMaxTables?: number;
+  metadataMaxColumnsPerTable?: number;
+  metadataLoadTableNamesOnly?: boolean;
+  /** Comma-separated, as stored. */
+  metadataExcludeSchemas?: string | null;
+  /** Comma-separated, as stored. */
+  metadataIncludeSchemas?: string | null;
 }
 
 /** A project linking a data source. */
@@ -177,6 +199,54 @@ export function useTestDataSourceConnection() {
         return { success: r.success ?? false, message: r.message ?? null };
       },
       errorFallback: 'Connection test failed',
+    }),
+  );
+}
+
+export interface UpdateDataSourcePayload {
+  id: number;
+  name: string;
+  databaseEngineType: DatabaseEngineType | null;
+  /** Null keeps the stored connection, which is never shown or sent back. */
+  connectionString: string | null;
+  /** The metadata settings are optional: omitted (null) keeps the stored value. */
+  metadataLoadingEnabled?: boolean | null;
+  metadataMaxTables?: number | null;
+  metadataMaxColumnsPerTable?: number | null;
+  metadataLoadTableNamesOnly?: boolean | null;
+  metadataExcludeSchemas?: string[] | null;
+  metadataIncludeSchemas?: string[] | null;
+  /** Confirms a connection to another engine, host, port or database (the server answers 409 without it). */
+  confirmTargetChange: boolean;
+}
+
+/**
+ * Edits a data source and replaces its connection (credential rotation). A connection pointing somewhere else answers 409
+ * until `confirmTargetChange` is sent, and a refused connection answers 400 naming the option, so the caller shows the
+ * server's reason itself (no toast here).
+ */
+export function useUpdateDataSource() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<UpdateDataSourcePayload, void>({
+      qc,
+      mutationFn: ({ id, ...body }) => beaconApi().updateDataSource(id, body as never),
+      invalidate: [DATA_SOURCES_KEY],
+      errorFallback: 'Replacing the connection failed',
+      errorToast: false,
+    }),
+  );
+}
+
+/** Disables a data source (Beacon makes no connection with it) or enables it again. DataSourceAdmin only. */
+export function useSetDataSourceEnabled() {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<{ id: number; enabled: boolean }, void>({
+      qc,
+      mutationFn: ({ id, enabled }) => beaconApi().setDataSourceEnabled(id, { enabled }),
+      invalidate: [DATA_SOURCES_KEY],
+      errorFallback: 'Changing whether the data source is enabled failed',
     }),
   );
 }

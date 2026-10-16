@@ -223,7 +223,8 @@ public class MetadataRefreshTests
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
                 ConnectionString = "Host=fixed;SSL Mode=VerifyFull",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                ConfirmTargetChange = true
             },
             CancellationToken.None);
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
@@ -369,6 +370,144 @@ public class MetadataRefreshTests
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
+    // A disabled source keeps its stored tables and sampled values for when it is enabled, but none of them is served.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task MetadataRead_OfADisabledSource_ServesNoStoredTableOrSampledValue(bool disabled)
+    {
+        var world = new MetadataWorld();
+        world.DataSources.Single().DisabledTime = disabled ? DateTime.UtcNow : null;
+        var table = new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "sales", TableName = "orders", LastRefreshed = DateTime.UtcNow };
+        table.Columns.Add(new ColumnMetadata { ColumnName = "status", DataType = "text", DatabaseMetadata = table, SampleValues = "[\"PAID\"]" });
+        world.Stored.Add(table);
+
+        var catalog = await world.Service().GetMetadataAsync(DataSourceId);
+
+        if (disabled)
+        {
+            catalog.Tables.Should().BeEmpty("a disabled source's catalog is not served");
+            world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("the empty catalog is not cached");
+
+            return;
+        }
+
+        catalog.Tables.Should().ContainSingle().Which.Columns.Should().ContainSingle().Which.SampleValues.Should().Equal("PAID");
+    }
+
+    // An API source's stored endpoints are not served while it is disabled either: the state is checked before any
+    // source-specific loader.
+    [Test]
+    public async Task MetadataRead_OfADisabledApiSource_ServesNoStoredEndpoint()
+    {
+        var world = new MetadataWorld();
+        var source = world.DataSources.Single();
+        source.DataSourceType = DataSourceType.Api;
+        source.DatabaseEngineType = null;
+        source.DisabledTime = DateTime.UtcNow;
+        var endpoint = new DatabaseMetadata { DataSourceId = DataSourceId, SchemaName = "api", TableName = "GET /orders", LastRefreshed = DateTime.UtcNow };
+        endpoint.Columns.Add(new ColumnMetadata { ColumnName = "status", DataType = "string", DatabaseMetadata = endpoint });
+        world.Stored.Add(endpoint);
+
+        var catalog = await world.Service().GetMetadataAsync(DataSourceId);
+
+        catalog.Tables.Should().BeEmpty("a disabled API source's endpoints are not served");
+        catalog.DatabaseEngineType.Should().BeNull();
+        world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("the empty catalog is not cached");
+    }
+
+    // A snapshot cached before the source was disabled or marked as a write target — by this instance or another, whose
+    // eviction never reaches this cache — is not served once the database says so, on the refresh's cached path neither.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ACachedCatalog_OfASourceDisabledOrMarkedElsewhere_IsNotServed(bool writeTarget)
+    {
+        var world = new MetadataWorld();
+        var source = world.DataSources.Single();
+        source.AllowMigrationWrites = writeTarget;
+        source.DisabledTime = writeTarget ? null : DateTime.UtcNow;
+        var key = DatabaseMetadataService.GetCacheKey(DataSourceId);
+        world.Cache.Set(key, CachedCatalog());
+        var service = world.Service();
+
+        var catalog = await service.GetMetadataAsync(DataSourceId);
+
+        catalog.Tables.Should().BeEmpty("the cached catalog outlived the change");
+        world.Cache.TryGetValue(key, out _).Should().BeFalse("the stale entry is evicted");
+
+        world.Cache.Set(key, CachedCatalog());
+        var refresh = () => service.RefreshMetadataAsync(DataSourceId, forceRefresh: false);
+
+        if (writeTarget)
+        {
+            await refresh.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(MigrationWriteTargets.ReadRefusedMessage);
+        }
+        else
+        {
+            await refresh.Should().ThrowAsync<DataSourceDisabledException>();
+        }
+
+        world.Cache.TryGetValue(key, out _).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task ACachedCatalog_OfAnEnabledSource_IsServed()
+    {
+        var world = new MetadataWorld();
+        var cached = CachedCatalog();
+        world.Cache.Set(DatabaseMetadataService.GetCacheKey(DataSourceId), cached);
+
+        var catalog = await world.Service().GetMetadataAsync(DataSourceId);
+
+        catalog.Should().BeSameAs(cached);
+    }
+
+    // A disable that lands while a refresh is scanning: the refresh publishes nothing, returns no catalog, and the next
+    // read is empty.
+    [Test]
+    public async Task ARefresh_ThatADisableOvertakes_PublishesNothing_AndTheNextReadIsEmpty()
+    {
+        var world = new MetadataWorld();
+        world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
+        var scanning = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.BeforeExtract = async () =>
+        {
+            scanning.SetResult();
+            await release.Task;
+        };
+        var service = world.Service();
+
+        var refresh = service.RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+        await scanning.Task;
+        world.DataSources.Single().DisabledTime = DateTime.UtcNow;
+        release.SetResult();
+        var refreshed = await refresh;
+
+        refreshed.Tables.Should().BeEmpty();
+        world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("the overtaken scan is not published");
+        (await service.GetMetadataAsync(DataSourceId)).Tables.Should().BeEmpty();
+    }
+
+    // A connection change that lands while a refresh is scanning: the old connection's scan is not cached.
+    [Test]
+    public async Task ARefresh_ThatAConnectionChangeOvertakes_IsNotCached()
+    {
+        var world = new MetadataWorld();
+        world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
+        world.BeforeExtract = () =>
+        {
+            world.DataSources.Single().EncryptedConnectionData = "re-encrypted";
+
+            return Task.CompletedTask;
+        };
+
+        var refreshed = await world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        refreshed.Tables.Should().ContainSingle();
+        world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse();
+        world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+    }
+
     [Test]
     public async Task MetadataRead_OfADataSourceTheDatabaseDoesNotReturn_IsNotFound()
     {
@@ -429,7 +568,8 @@ public class MetadataRefreshTests
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
                 ConnectionString = "Host=elsewhere;SSL Mode=VerifyFull",
-                DatabaseEngineType = DatabaseEngineType.PostgreSQL
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                ConfirmTargetChange = true
             },
             CancellationToken.None);
 
@@ -459,6 +599,11 @@ public class MetadataRefreshTests
             new MetadataSampleView(permissions ?? TestPermissions.None, Mock.Of<ISharedSourceSettings>(), new QueryGuardrailService()),
             audit ?? new RecordingSecurityAudit(),
             NullLogger<RefreshDataSourceMetadataHandler>.Instance);
+    }
+
+    private static DatabaseMetadataSnapshot CachedCatalog()
+    {
+        return new DatabaseMetadataSnapshot(DataSourceId, DatabaseEngineType.PostgreSQL, [Extracted("sales", "orders", null, ("id", null))], DateTime.UtcNow);
     }
 
     private static DatabaseMetadataSnapshot Snapshot()
@@ -538,6 +683,9 @@ public class MetadataRefreshTests
 
         public IReadOnlyList<TableMetadataDto> Extracted { get; set; } = [];
 
+        /// <summary>Runs as the scan starts, before the extracted tables are returned.</summary>
+        public Func<Task>? BeforeExtract { get; set; }
+
         public List<object> Saved { get; } = [];
 
         public MemoryCache Cache { get; } = new(new MemoryCacheOptions());
@@ -553,7 +701,15 @@ public class MetadataRefreshTests
             extractor.SetupGet(x => x.SupportedEngineType).Returns(DatabaseEngineType.PostgreSQL);
             extractor
                 .Setup(x => x.ExtractMetadataAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => Extracted);
+                .Returns(async () =>
+                {
+                    if (BeforeExtract != null)
+                    {
+                        await BeforeExtract();
+                    }
+
+                    return Extracted;
+                });
 
             return new DatabaseMetadataService(
                 Factory(),
