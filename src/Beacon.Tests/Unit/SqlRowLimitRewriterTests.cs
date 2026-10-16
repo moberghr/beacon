@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NUnit.Framework;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.Tests.Unit;
@@ -186,13 +187,26 @@ public class SqlRowLimitRewriterTests
         result.Outcome.Should().Be(SqlRowLimitOutcome.NotApplicable);
     }
 
-    [Test]
-    public void Apply_MaxRowsZero_Unchanged()
+    // A cap of zero or below is refused, never read as "no cap", so the caller cannot run the statement uncapped.
+    [TestCase(0)]
+    [TestCase(-1)]
+    [TestCase(int.MinValue)]
+    public void Apply_NonPositiveMaxRows_Refused(int maxRows)
     {
-        var result = SqlRowLimitRewriter.Apply("SELECT a FROM t", 0, "PostgreSQL");
+        var result = SqlRowLimitRewriter.Apply("SELECT a FROM t", maxRows, "PostgreSQL");
 
-        result.Sql.Should().Be("SELECT a FROM t");
-        result.Outcome.Should().Be(SqlRowLimitOutcome.NotApplicable);
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Refused);
+        result.RefusalCode.Should().Be(SqlGateCodes.InvalidRowCap);
+        result.RefusalMessage.Should().Be(SqlRowLimitRewriter.InvalidRowCapMessage);
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void ApplyRowLimit_NonPositiveMaxRows_Throws(int maxRows)
+    {
+        var act = () => new QueryGuardrailService().ApplyRowLimit("SELECT a FROM t", maxRows, "PostgreSQL");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage(SqlRowLimitRewriter.InvalidRowCapMessage);
     }
 
     [Test]

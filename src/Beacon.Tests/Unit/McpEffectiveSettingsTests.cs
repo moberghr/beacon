@@ -167,6 +167,22 @@ public class McpEffectiveSettingsTests
         other.MaxRowLimit.Should().Be(500, "a project with no row gets the global effective settings");
     }
 
+    // Rows stored before the settings handlers refused a row cap below one row: the effective cap is one row, globally
+    // and per project, so every tool reading the settings caps at one row instead of reading 0 as "no cap".
+    [TestCase(0)]
+    [TestCase(-3)]
+    public async Task StoredRowCapBelowOne_IsOneRow_GloballyAndPerProject(int stored)
+    {
+        _globalRows.Add(new McpSettingsEntity { Id = 1, MaxRowLimit = stored });
+        _projectRows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, MaxRowLimit = stored });
+        var provider = CreateProvider(NoLocks());
+
+        (await provider.GetSettingsAsync()).MaxRowLimit.Should().Be(1);
+        (await provider.GetEffectiveSettingsAsync(ProjectId)).MaxRowLimit.Should().Be(1);
+        (await provider.GetEffectiveSettingsAsync(ProjectId + 1)).MaxRowLimit.Should().Be(1, "a project without a row inherits the global cap");
+        (await provider.GetEffectiveSettingsDetailAsync(ProjectId)).Effective.MaxRowLimit.Should().Be(1);
+    }
+
     [Test]
     public async Task GetEffectiveSettingsAsync_ProjectIdZeroOrNegative_IsGlobal()
     {

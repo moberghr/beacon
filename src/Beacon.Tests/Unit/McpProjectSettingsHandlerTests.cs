@@ -193,6 +193,58 @@ public class McpProjectSettingsHandlerTests
         _rows.Should().BeEmpty();
     }
 
+    [TestCase(0)]
+    [TestCase(-1)]
+    public async Task Update_MaxRowLimitBelowOne_IsRejectedBeforeAnyWrite(int maxRowLimit)
+    {
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = maxRowLimit }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("MaxRowLimit must be at least 1.");
+        _rows.Should().BeEmpty();
+        _saveCalls.Should().Be(0);
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public async Task Update_LearningSignalRetentionDaysBelowOne_IsRejectedBeforeAnyWrite(int retentionDays)
+    {
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { LearningSignalRetentionDays = retentionDays }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("LearningSignalRetentionDays must be at least 1.");
+        _rows.Should().BeEmpty();
+        _saveCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task Update_OneRowAndOneDay_AreWritten()
+    {
+        await CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = 1, LearningSignalRetentionDays = 1 }),
+            CancellationToken.None);
+
+        _rows.Should().ContainSingle();
+        _rows[0].MaxRowLimit.Should().Be(1);
+        _rows[0].LearningSignalRetentionDays.Should().Be(1);
+        _saveCalls.Should().Be(1);
+    }
+
+    [Test]
+    public async Task Update_NullRowCapAndRetention_KeepTheGlobalValues()
+    {
+        await CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = null, LearningSignalRetentionDays = null }),
+            CancellationToken.None);
+
+        _rows.Should().ContainSingle();
+        _rows[0].MaxRowLimit.Should().BeNull("null inherits the global row cap");
+        _rows[0].LearningSignalRetentionDays.Should().BeNull("null inherits the global retention window");
+        _saveCalls.Should().Be(1);
+    }
+
     [Test]
     public async Task Update_UnknownProject_Throws()
     {

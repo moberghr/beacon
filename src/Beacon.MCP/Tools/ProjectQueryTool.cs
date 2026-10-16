@@ -84,7 +84,8 @@ internal sealed class ProjectQueryTool(
 
         // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
         var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
-        var maxRows = Math.Min(max_rows ?? 100, settings.MaxRowLimit);
+        // The cap is at least one row: a max_rows of zero or below never removes it.
+        var maxRows = Math.Clamp(max_rows ?? 100, 1, Math.Max(1, settings.MaxRowLimit));
 
         // MaxConcurrentQueriesPerKey: refused at once, never queued, and audited like every other refusal (§1.7/§9.5).
         using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);

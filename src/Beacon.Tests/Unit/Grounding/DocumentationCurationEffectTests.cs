@@ -5,6 +5,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.Projects;
+using Beacon.Core.Models;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +19,8 @@ namespace Beacon.Tests.Unit.Grounding;
 /// What a curator's documentation decisions change, once the route's Curate check passed: editing a section replaces its
 /// content; applying a patch writes its proposed content to the column or table description or appends it to the project's
 /// latest documentation section of that title, and records who applied it and when; rejecting one records who rejected it
-/// and when and changes nothing else. A decided patch is not decided again, and a patch whose target is gone stays
+/// and when and changes nothing else. A decided patch is not decided again, a patch whose target is gone stays
+/// proposed, and a description patch whose target no longer holds what it was proposed on is refused (409) and stays
 /// proposed. Real handlers over in-memory sets, no database (§4.7).
 /// </summary>
 [TestFixture]
@@ -27,6 +29,8 @@ public class DocumentationCurationEffectTests
     private const int ProjectId = 1;
     private const int DataSourceId = 10;
     private const int CuratorUserId = 42;
+    private const string StatusDescription = "The order's state.";
+    private const string OrdersDescription = "Orders.";
 
     [Test]
     public async Task EditingASection_ReplacesItsContent()
@@ -118,6 +122,69 @@ public class DocumentationCurationEffectTests
         patch.Should().BeEquivalentTo(new { Status = McpDocPatchStatus.Proposed, AppliedByUserId = (int?)null, AppliedAt = (DateTime?)null }, x => x.ExcludingMissingMembers());
     }
 
+    // Two projects sharing the data source each hold a patch proposed on the same description: the first applies, and the
+    // second, proposed on content the column no longer holds, is refused and stays proposed.
+    [Test]
+    public async Task TwoPatchesProposedOnTheSameSharedDescription_TheSecondIsRefused_AndTheFirstsTextStays()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(CuratorUserId, "ext-curator"));
+        var store = new Store();
+        store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Where the order is in fulfilment."));
+        var second = store.Add(Patch(32, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Shipping state.", projectId: 2));
+
+        await Apply(store, 31, audit);
+        var act = () => Apply(store, 32, audit);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(ApplyDocumentationPatchHandler.TargetChangedMessage);
+        store.Status.Description.Should().Be("Where the order is in fulfilment.");
+        second.Should().BeEquivalentTo(new { Status = McpDocPatchStatus.Proposed, AppliedByUserId = (int?)null, AppliedAt = (DateTime?)null }, x => x.ExcludingMissingMembers());
+        audit.Events.Select(x => x.ResourceId).Should().Equal("31");
+    }
+
+    // The description no longer holds what the patch was proposed on, compared exactly: an edit by hand, a change of case
+    // or of a trailing space, or an empty description where none was captured.
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", "Edited by hand.", StatusDescription)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", "the order's state.", StatusDescription)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", "The order's state. ", StatusDescription)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", "", null)]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", "Edited by hand.", OrdersDescription)]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", null, "")]
+    public async Task APatchWhoseTargetChangedSinceItWasProposed_IsRefused_AndWritesNothing(
+        McpDocPatchTarget target, string targetIdentifier, string? now, string? captured)
+    {
+        var audit = new RecordingSecurityAudit();
+        var store = new Store();
+        var patch = store.Add(Patch(31, target, targetIdentifier, "Proposed text."));
+        patch.CurrentContent = captured;
+        store.Status.Description = now;
+        store.Orders.TableDescription = now;
+
+        var act = () => Apply(store, 31, audit);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(ApplyDocumentationPatchHandler.TargetChangedMessage);
+        store.Status.Description.Should().Be(now);
+        store.Orders.TableDescription.Should().Be(now);
+        patch.Should().BeEquivalentTo(new { Status = McpDocPatchStatus.Proposed, AppliedByUserId = (int?)null, AppliedAt = (DateTime?)null }, x => x.ExcludingMissingMembers());
+        audit.Events.Should().BeEmpty();
+    }
+
+    // A patch proposed on a description that was absent applies while it still is.
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status")]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders")]
+    public async Task APatchProposedOnAnAbsentDescription_AppliesWhileItIsStillAbsent(McpDocPatchTarget target, string targetIdentifier)
+    {
+        var store = new Store();
+        var patch = store.Add(Patch(31, target, targetIdentifier, "Proposed text."));
+        patch.CurrentContent = null;
+        store.Status.Description = null;
+        store.Orders.TableDescription = null;
+
+        await Apply(store, 31);
+
+        (target == McpDocPatchTarget.ColumnDescription ? store.Status.Description : store.Orders.TableDescription).Should().Be("Proposed text.");
+        patch.Status.Should().Be(McpDocPatchStatus.Applied);
+    }
+
     [Test]
     public async Task RejectingAPatch_RecordsWhoRejected_AndWritesNothing()
     {
@@ -156,7 +223,7 @@ public class DocumentationCurationEffectTests
             auditEvent.DetailsJson.Should().StartWith("{\"targetType\":\"ColumnDescription\",\"dataSourceId\":");
         }
 
-        audit.Ways.Should().Equal("staged", "staged");
+        audit.Ways.Should().Equal("saved", "staged");
     }
 
     // A decision is made once: a decided patch is neither applied nor rejected again, and keeps who decided it.
@@ -199,15 +266,22 @@ public class DocumentationCurationEffectTests
             .Handle(new ApplyDocumentationPatchCommand { PatchId = patchId, AppliedByUserId = CuratorUserId }, CancellationToken.None);
     }
 
-    private static McpDocumentationPatch Patch(int id, McpDocPatchTarget target, string targetIdentifier, string proposed)
+    // A patch proposed on the store's current content: the status column's and the orders table's descriptions.
+    private static McpDocumentationPatch Patch(int id, McpDocPatchTarget target, string targetIdentifier, string proposed, int projectId = ProjectId)
     {
         return new McpDocumentationPatch
         {
             Id = id,
-            ProjectId = ProjectId,
+            ProjectId = projectId,
             DataSourceId = DataSourceId,
             TargetType = target,
             TargetIdentifier = targetIdentifier,
+            CurrentContent = target switch
+            {
+                McpDocPatchTarget.ColumnDescription => StatusDescription,
+                McpDocPatchTarget.TableDescription => OrdersDescription,
+                _ => null
+            },
             ProposedContent = proposed,
             Reasoning = "Asked about often.",
             Status = McpDocPatchStatus.Proposed
@@ -224,8 +298,8 @@ public class DocumentationCurationEffectTests
 
         public Store()
         {
-            Orders = new DatabaseMetadata { Id = 3, DataSourceId = DataSourceId, SchemaName = "public", TableName = "orders", TableDescription = "Orders." };
-            Status = new ColumnMetadata { Id = 8, ColumnName = "status", DataType = "text", Description = "The order's state.", DatabaseMetadata = Orders };
+            Orders = new DatabaseMetadata { Id = 3, DataSourceId = DataSourceId, SchemaName = "public", TableName = "orders", TableDescription = OrdersDescription };
+            Status = new ColumnMetadata { Id = 8, ColumnName = "status", DataType = "text", Description = StatusDescription, DatabaseMetadata = Orders };
             var id = new ColumnMetadata { Id = 9, ColumnName = "id", DataType = "integer", DatabaseMetadata = Orders };
             Orders.Columns = [id, Status];
             var latest = new ProjectDocumentation { Id = 5, ProjectId = ProjectId, GeneratedByModel = "model", GeneratedAt = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc) };

@@ -44,6 +44,47 @@ public class UpdateMcpSettingsHandlerTests
             .WithMessage("*valid regular expression*");
     }
 
+    // A row cap below one row is refused before any DB access (the strict factory throws on one).
+    [TestCase(0)]
+    [TestCase(-1)]
+    public async Task Handle_MaxRowLimitBelowOne_Throws_AndWritesNothing(int maxRowLimit)
+    {
+        var act = async () => await CreateHandler().Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = maxRowLimit }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("MaxRowLimit must be at least 1.");
+    }
+
+    // A retention window below one day is refused before any DB access (the strict factory throws on one).
+    [TestCase(0)]
+    [TestCase(-1)]
+    public async Task Handle_LearningSignalRetentionDaysBelowOne_Throws_AndWritesNothing(int retentionDays)
+    {
+        var act = async () => await CreateHandler().Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { LearningSignalRetentionDays = retentionDays }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("LearningSignalRetentionDays must be at least 1.");
+    }
+
+    [Test]
+    public async Task Handle_OneRowAndOneDay_AreWritten()
+    {
+        var stored = new McpSettings { MaxRowLimit = 1000, LearningSignalRetentionDays = 90 };
+        var (handler, saves) = CreateHandlerWithRow(stored, Unlocked());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 1, LearningSignalRetentionDays = 1 }),
+            CancellationToken.None);
+
+        stored.MaxRowLimit.Should().Be(1);
+        stored.LearningSignalRetentionDays.Should().Be(1);
+        saves().Should().Be(1);
+    }
+
     // SC4 (global half of spec mcp-project-settings): the global PUT refuses a write that contradicts a
     // deployment lock with SettingLockedException (→ 409) and touches nothing — the strict factory throws
     // on any DB access.

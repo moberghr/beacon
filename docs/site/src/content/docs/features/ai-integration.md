@@ -40,8 +40,11 @@ The model is the string you enter: Beacon does not restrict or recommend model i
 their public API endpoints; there is no base-URL or proxy setting for them. Azure OpenAI uses your resource's endpoint,
 and Bedrock your AWS region, so you choose where requests go.
 
-For Bedrock, the provider uses the host's default AWS credentials (an IAM role, environment variables) unless
-`ApiKey` holds an access key pair as `accessKey:secretKey`, optionally with `SessionToken` for temporary credentials.
+For Bedrock, the authentication mode decides the credentials: the IAM role mode (the default) uses the host's default AWS
+credentials (an IAM role, environment variables), the access key mode an access key id and secret access key, and the
+temporary credentials mode those keys with a session token. An `ApiKey` that holds a pair as `accessKey:secretKey`, from
+an older install, is still used when the key fields are empty; in the IAM role mode a warning is logged when it is (see
+[Admin Settings](/features/admin-settings/)).
 
 ## Configuration
 

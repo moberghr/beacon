@@ -91,6 +91,22 @@ public class ProjectQueryToolSchemaGateTests
             Times.Once);
     }
 
+    // A max_rows of zero or below never removes the row cap: the effective cap is at least one row and lands in the SQL.
+    [TestCase(0)]
+    [TestCase(-1)]
+    [TestCase(int.MinValue)]
+    public async Task NonPositiveMaxRows_IsClampedToOneRow_TheCapReachesTheSql(int maxRows)
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+
+        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: maxRows, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), "SELECT id FROM orders LIMIT 1", It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     // The gate gets the database the source's connection is configured for: a name in it runs, a name in another is refused.
     [TestCase("SELECT id FROM sales.public.orders", false)]
     [TestCase("SELECT id FROM hr.public.orders", true)]

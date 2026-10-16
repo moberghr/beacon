@@ -7,6 +7,7 @@ using Beacon.AI.Services.Embeddings;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
@@ -245,6 +246,12 @@ public class EmbeddingIndexingGoldenCaseTests
             if (typeof(TEntity) == typeof(McpEmbedding))
             {
                 return (DbSet<TEntity>)(object)_embeddings;
+            }
+
+            // No learned patterns here, so no project links either.
+            if (typeof(TEntity) == typeof(ProjectDataSource))
+            {
+                return (DbSet<TEntity>)(object)BuildDbSet(new List<ProjectDataSource>()).Object;
             }
 
             return base.Set<TEntity>();
