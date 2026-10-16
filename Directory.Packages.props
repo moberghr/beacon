@@ -46,7 +46,8 @@
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageVersion Include="Microsoft.OpenApi.Readers" Version="1.6.31" />
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.12.0" />
+    <PackageVersion Include="Microsoft.OpenApi.YamlReader" Version="2.12.0" />
     <PackageVersion Include="Moberg.Warp.Core" Version="3.11.0" />
     <PackageVersion Include="Moberg.Warp.Provider.PostgreSql" Version="3.11.0" />
     <PackageVersion Include="Moberg.Warp.Provider.SqlServer" Version="3.11.0" />

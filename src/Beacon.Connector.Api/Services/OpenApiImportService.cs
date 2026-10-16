@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.OpenApi.Models;
-using Microsoft.OpenApi.Readers;
+using Microsoft.OpenApi;
+using Microsoft.OpenApi.Reader;
 using Beacon.Connector.Api.Models;
 using Beacon.Core.Models.Providers;
 
@@ -22,25 +22,35 @@ public class OpenApiImportService(
         response.EnsureSuccessStatusCode();
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        return ParseSpec(stream, filter);
+        var result = await OpenApiDocument.LoadAsync(stream, null, ReaderSettings(), ct);
+        return ToEndpoints(result, filter);
     }
 
     public List<ApiEndpointMetadata> ImportFromString(string specContent, ApiEndpointFilter? filter)
     {
-        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(specContent));
-        return ParseSpec(stream, filter);
+        var result = OpenApiDocument.Parse(specContent, null, ReaderSettings());
+        return ToEndpoints(result, filter);
     }
 
-    private List<ApiEndpointMetadata> ParseSpec(Stream stream, ApiEndpointFilter? filter)
+    // JSON is built in; YAML needs its reader registered. External references stay unloaded, so parsing a
+    // description never fetches another document.
+    private static OpenApiReaderSettings ReaderSettings()
     {
-        var document = new OpenApiStreamReader().Read(stream, out var diagnostic);
+        var settings = new OpenApiReaderSettings { LoadExternalRefs = false };
+        settings.AddYamlReader();
+        return settings;
+    }
 
-        if (diagnostic.Errors.Any())
+    private List<ApiEndpointMetadata> ToEndpoints(ReadResult result, ApiEndpointFilter? filter)
+    {
+        var errorCount = result.Diagnostic?.Errors.Count ?? 0;
+        if (errorCount > 0)
         {
-            var errors = string.Join("; ", diagnostic.Errors.Select(e => e.Message));
-            logger.LogWarning("OpenAPI spec parsing had errors: {Errors}", errors);
+            // The count only (§1.11): the reader's messages quote the description.
+            logger.LogWarning("OpenAPI spec parsing had {ErrorCount} errors", errorCount);
         }
 
+        var document = result.Document;
         if (document?.Paths == null)
         {
             logger.LogWarning("OpenAPI spec has no paths");
@@ -53,32 +63,37 @@ public class OpenApiImportService(
         {
             var path = pathItem.Key;
 
-            if (!MatchesFilter(path, filter))
+            if (!MatchesFilter(path, filter) || pathItem.Value.Operations == null)
+            {
                 continue;
+            }
 
-            var pathLevelParams = pathItem.Value.Parameters ?? new List<OpenApiParameter>();
+            var pathLevelParams = pathItem.Value.Parameters ?? [];
 
             foreach (var operation in pathItem.Value.Operations)
             {
-                var method = operation.Key.ToString().ToUpperInvariant();
+                var method = operation.Key.Method.ToUpperInvariant();
                 var op = operation.Value;
 
                 var tag = op.Tags?.FirstOrDefault()?.Name;
 
                 var allParams = pathLevelParams
-                    .Concat(op.Parameters ?? Enumerable.Empty<OpenApiParameter>())
-                    .GroupBy(p => (p.Name, p.In))
-                    .Select(g => g.Last())
+                    .Concat(op.Parameters ?? [])
+                    .GroupBy(x => (x.Name, x.In))
+                    .Select(x => x.Last())
                     .ToList();
 
-                var parameters = allParams.Select(p => new ApiParameterMetadata
-                {
-                    Name = p.Name,
-                    In = p.In?.ToString()?.ToLowerInvariant() ?? "query",
-                    Type = GetSchemaType(p.Schema),
-                    Required = p.Required,
-                    Description = p.Description
-                }).ToList();
+                var parameters = allParams
+                    .Select(x =>
+                        new ApiParameterMetadata
+                        {
+                            Name = x.Name ?? string.Empty,
+                            In = x.In?.ToString().ToLowerInvariant() ?? "query",
+                            Type = GetSchemaType(x.Schema),
+                            Required = x.Required,
+                            Description = x.Description
+                        })
+                    .ToList();
 
                 var responseFields = ExtractResponseFields(op);
 
@@ -101,34 +116,40 @@ public class OpenApiImportService(
 
     private static List<ApiResponseFieldMetadata> ExtractResponseFields(OpenApiOperation operation)
     {
-        var successResponse = operation.Responses
-            .Where(r => r.Key.StartsWith("2"))
-            .OrderBy(r => r.Key)
-            .Select(r => r.Value)
+        var successResponse = (operation.Responses ?? [])
+            .Where(x => x.Key.StartsWith('2'))
+            .OrderBy(x => x.Key)
+            .Select(x => x.Value)
             .FirstOrDefault();
 
-        if (successResponse == null)
+        if (successResponse?.Content == null)
+        {
             return new List<ApiResponseFieldMetadata>();
+        }
 
         var content = successResponse.Content
-            .Where(c => c.Key.Contains("json", StringComparison.OrdinalIgnoreCase))
-            .Select(c => c.Value)
+            .Where(x => x.Key.Contains("json", StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Value)
             .FirstOrDefault();
 
         if (content?.Schema == null)
+        {
             return new List<ApiResponseFieldMetadata>();
+        }
 
         return FlattenSchema(content.Schema, maxDepth: 2);
     }
 
-    private static List<ApiResponseFieldMetadata> FlattenSchema(OpenApiSchema schema, int maxDepth, int currentDepth = 0, string prefix = "")
+    private static List<ApiResponseFieldMetadata> FlattenSchema(IOpenApiSchema schema, int maxDepth, int currentDepth = 0, string prefix = "")
     {
         var fields = new List<ApiResponseFieldMetadata>();
 
         if (currentDepth > maxDepth)
+        {
             return fields;
+        }
 
-        if (schema.Type == "array" && schema.Items != null)
+        if (TypeOf(schema) == JsonSchemaType.Array && schema.Items != null)
         {
             return FlattenSchema(schema.Items, maxDepth, currentDepth, prefix);
         }
@@ -139,7 +160,7 @@ public class OpenApiImportService(
             {
                 var fieldName = string.IsNullOrEmpty(prefix) ? prop.Key : $"{prefix}.{prop.Key}";
 
-                if (prop.Value.Type == "object" && prop.Value.Properties?.Count > 0)
+                if (TypeOf(prop.Value) == JsonSchemaType.Object && prop.Value.Properties?.Count > 0)
                 {
                     fields.AddRange(FlattenSchema(prop.Value, maxDepth, currentDepth + 1, fieldName));
                 }
@@ -158,16 +179,25 @@ public class OpenApiImportService(
         return fields;
     }
 
-    private static string GetSchemaType(OpenApiSchema? schema)
+    private static string GetSchemaType(IOpenApiSchema? schema)
     {
-        if (schema == null) return "string";
-        var type = schema.Type ?? "string";
-        if (type == "array") return "array";
-        if (type is "integer" or "number") return "number";
-        if (type == "boolean") return "boolean";
-        if (type == "object") return "object";
-        return schema.Format ?? type;
+        if (schema == null)
+        {
+            return "string";
+        }
+
+        return TypeOf(schema) switch
+        {
+            JsonSchemaType.Array => "array",
+            JsonSchemaType.Integer or JsonSchemaType.Number => "number",
+            JsonSchemaType.Boolean => "boolean",
+            JsonSchemaType.Object => "object",
+            _ => schema.Format ?? "string"
+        };
     }
+
+    // The schema's type without the 3.1 "null" member, so ["string", "null"] reads as the 3.0 nullable string did.
+    private static JsonSchemaType? TypeOf(IOpenApiSchema schema) => schema.Type & ~JsonSchemaType.Null;
 
     private static bool MatchesFilter(string path, ApiEndpointFilter? filter)
     {

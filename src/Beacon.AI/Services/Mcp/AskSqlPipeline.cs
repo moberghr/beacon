@@ -35,6 +35,9 @@ internal sealed class AskSqlPipeline(
     // Non-zero so the N samples diverge; provider-agnostic (§9.4) — no per-provider tuning.
     private const decimal SelfConsistencyTemperature = 0.7m;
 
+    // Rows an ask execution reads at most, before a lower configured MaxRowLimit.
+    private const int AskRowCap = 100;
+
     public async Task<AskSqlOutcome> RunAsync(
         ILlmProvider llmProvider,
         int dataSourceId,
@@ -353,7 +356,7 @@ internal sealed class AskSqlPipeline(
             repairs.Add(new AskRepairStep("dry-run", redactedDryRunError, dryRunRepairSql, dryRunRepairOk));
         }
 
-        var execResult = await ExecuteForAsync(McpStatementPurposes.Initial, executor, dataSourceId, generatedSql, ct);
+        var execResult = await ExecuteForAsync(McpStatementPurposes.Initial, executor, dataSourceId, generatedSql, settings, ct);
 
         // A statement Beacon refused before it ran (a cost limit) is not repaired: the limit, not the SQL's correctness,
         // stopped it, so the call ends with the refusal.
@@ -376,7 +379,7 @@ internal sealed class AskSqlPipeline(
             {
                 if (ValidateGeneratedSql(retriedSql, settings, smartContext) == null)
                 {
-                    var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, retriedSql, ct);
+                    var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, retriedSql, settings, ct);
                     repairs.Add(new AskRepairStep("execution", redactedExecutionError, retriedSql, retryExec.IsSuccess));
                     text += $"*Initial query failed ({CallerError(execResult.ErrorMessage, generatedSql)}), retried with corrected SQL.*\n\n";
                     text += $"### Corrected SQL\n```sql\n{retriedSql}\n```\n\n";
@@ -409,7 +412,7 @@ internal sealed class AskSqlPipeline(
             {
                 if (ValidateGeneratedSql(emptyRetry, settings, smartContext) == null)
                 {
-                    var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, emptyRetry, ct);
+                    var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, emptyRetry, settings, ct);
                     if (retryExec.IsSuccess && retryExec.RowCount > 0)
                     {
                         repairs.Add(new AskRepairStep("empty-result", emptyResultError, emptyRetry, true));
@@ -487,7 +490,7 @@ internal sealed class AskSqlPipeline(
                 continue;
             }
 
-            var execResult = await ExecuteForAsync(McpStatementPurposes.Candidate, executor, dataSourceId, candidate.Sql, ct);
+            var execResult = await ExecuteForAsync(McpStatementPurposes.Candidate, executor, dataSourceId, candidate.Sql, settings, ct);
             evaluated.Add((candidate, ResultFingerprint(execResult), execResult.IsSuccess));
         }
 
@@ -619,11 +622,14 @@ internal sealed class AskSqlPipeline(
     }
 
     // Runs a statement under the purpose the call's audit row records it with (the executor records it there).
-    private async Task<AskExecutionResult> ExecuteForAsync(string purpose, IAskSqlExecutor executor, int dataSourceId, string sql, CancellationToken ct)
+    private async Task<AskExecutionResult> ExecuteForAsync(string purpose, IAskSqlExecutor executor, int dataSourceId, string sql, McpSettingsData settings, CancellationToken ct)
     {
         using var scope = statementLog.BeginPurpose(purpose);
 
-        return await executor.ExecuteAsync(dataSourceId, sql, 100, ct);
+        // A configured limit below the usual 100 rows wins.
+        var maxRows = Math.Min(AskRowCap, Math.Max(1, settings.MaxRowLimit));
+
+        return await executor.ExecuteAsync(dataSourceId, sql, maxRows, ct);
     }
 
     private async Task<string?> TryDryRunAsync(IAskSqlExecutor executor, int dataSourceId, string sql, CancellationToken ct)

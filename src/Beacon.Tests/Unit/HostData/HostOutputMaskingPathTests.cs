@@ -10,6 +10,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -210,6 +211,30 @@ public class HostOutputMaskingPathTests
             .Should().Equal((1, HostResultMasker.MaskedValue), (2, HostResultMasker.MaskedValue));
     }
 
+    // A provider that returns the host-masked value as it is: the tool masks it in full from the gate's report, whatever
+    // the detection setting, and leaves the other column alone.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task McpQueryTool_ARawHostMaskedValue_IsMaskedInFull(bool piiDetection)
+    {
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["Id"] = 1, ["kt"] = Ssn }]
+            });
+
+        var result = await QueryTool(provider.Object, piiDetection).ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().NotContain(Ssn);
+        result.StructuredContent!.Value.GetProperty("rows").EnumerateArray()
+            .Select(x => (x[0].GetInt32(), x[1].GetString()))
+            .Should().Equal((1, HostResultMasker.MaskedValue));
+    }
+
     private static IReadOnlyList<(string Name, Func<int, object?> Value)> ServerColumns() => [("Id", x => x + 1), (ServerLabel, _ => Ssn)];
 
     private static string Sql(bool npgsql) => npgsql ? PostgresSql : SqlServerSql;
@@ -290,7 +315,7 @@ public class HostOutputMaskingPathTests
         };
     }
 
-    private static ProjectQueryTool QueryTool()
+    private static ProjectQueryTool QueryTool(IDataSourceProvider? provider = null, bool piiDetection = false)
     {
         var guard = Guard(npgsql: true);
         var saved = new List<object>();
@@ -305,7 +330,7 @@ public class HostOutputMaskingPathTests
                 },
                 saved));
 
-        var settings = new McpSettingsData { EnablePiiDetection = false };
+        var settings = new McpSettingsData { EnablePiiDetection = piiDetection };
         var settingsProvider = SettingsProviderMock.Create(settings);
         var knowledgeGraph = new Mock<IKnowledgeGraphService>();
         knowledgeGraph
@@ -330,7 +355,7 @@ public class HostOutputMaskingPathTests
 
         return new ProjectQueryTool(
             factory.Object,
-            TestQueryServices.Providers(Provider(npgsql: true)),
+            TestQueryServices.Providers(provider ?? Provider(npgsql: true)),
             guardrail,
             TestSqlGate.Create(guardrail, guard),
             TestConfiguredDatabases.None,

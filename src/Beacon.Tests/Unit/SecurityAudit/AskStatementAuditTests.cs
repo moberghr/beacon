@@ -399,7 +399,8 @@ public class AskStatementAuditTests
             SettingsProviderMock.Unshared(settings.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = ProjectId, AllowedProjectIds = [ProjectId] },
             log,
-            TestQueryCostLimit.Passing);
+            TestQueryCostLimit.Passing,
+            new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources()));
     }
 
     // The ask tool over a routed single source, its pipeline running the generated SQL once through the real execution

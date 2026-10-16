@@ -166,7 +166,7 @@ internal partial class QueryService
             HeadersJson = r.HeadersJson
         }).ToList();
 
-        queryResult.MaxRows = subscription.MaxRows ?? Constants.Query.DefaultMaxRows;
+        queryResult.MaxRows = subscription.MaxRows is > 0 ? subscription.MaxRows : Constants.Query.DefaultMaxRows;
 
         // The fetch itself is capped at ExecutionRowCeiling (a larger result failed the run above), so this trims an
         // already bounded, exactly counted result to what the subscription delivers.

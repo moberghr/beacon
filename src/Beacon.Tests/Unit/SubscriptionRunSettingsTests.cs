@@ -164,22 +164,22 @@ public class SubscriptionRunSettingsTests
         result.QueryResults.Should().NotContain("@bank.example");
     }
 
-    // address_id is a PII-like name: masked in the rows a recipient gets, but the steps' rows keep their values so the join
-    // pairs each customer with their own address.
+    // zip_code is a PII name: masked in the rows a recipient gets, but the steps' rows keep their values so the join
+    // pairs each customer with their own city.
     [Test]
     public async Task AJoinKeyNamedLikePii_JoinsOnItsValues_AndIsMaskedOnlyInTheDeliveredRows()
     {
-        ConnectLedger([("address_id", x => x + 1), ("name", x => $"name{x + 1}")]);
-        ConnectCrm([("address_id", x => x + 1), ("city", x => $"city{x + 1}")]);
+        ConnectLedger([("zip_code", x => x + 1), ("name", x => $"name{x + 1}")]);
+        ConnectCrm([("zip_code", x => x + 1), ("city", x => $"city{x + 1}")]);
         var service = Service(
-            [(Ledger, "SELECT address_id, name FROM customers"), (Crm, "SELECT address_id, city FROM addresses")],
-            "SELECT a.name, b.city, a.address_id FROM @result1 a JOIN @result2 b ON a.address_id = b.address_id",
+            [(Ledger, "SELECT zip_code, name FROM customers"), (Crm, "SELECT zip_code, city FROM addresses")],
+            "SELECT a.name, b.city, a.zip_code FROM @result1 a JOIN @result2 b ON a.zip_code = b.zip_code",
             new Dictionary<int, McpSettingsData> { [Ledger] = new(), [Crm] = new() });
 
         var result = await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
 
         result.AllRecords.Select(x => $"{x["name"]}:{x["city"]}").Should().Equal("name1:city1", "name2:city2", "name3:city3");
-        result.AllRecords.Should().OnlyContain(x => (string)x["address_id"]! == "***");
+        result.AllRecords.Should().OnlyContain(x => (string)x["zip_code"]! == "***");
     }
 
     // Three different e-mail addresses that all mask to c***e: the steps' rows join on the addresses as read, each customer
@@ -275,6 +275,21 @@ public class SubscriptionRunSettingsTests
         result.QueryResults.Should().NotContain("0101302");
     }
 
+    [TestCase(2, 2)]
+    [TestCase(0, 3)]
+    [TestCase(-5, 3)]
+    [TestCase(null, 3)]
+    public async Task ASubscriptionsRowCap_TrimsTheDelivery_AndANonPositiveOneFallsBackToTheDefault(int? maxRows, int delivered)
+    {
+        ConnectLedger([("id", x => x + 1)]);
+        var service = Service([(Ledger, "SELECT id FROM customers")], maxRows: maxRows);
+
+        var result = await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        result.AllRecords.Should().HaveCount(delivered);
+        result.MaxRows.Should().Be(maxRows is > 0 ? maxRows : Constants.Query.DefaultMaxRows);
+    }
+
     private static void ConnectLedger(IReadOnlyList<(string Name, Func<int, object?> Value)> columns)
     {
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => new RecordingDbConnection { Columns = columns, RowCount = 3 });
@@ -295,7 +310,8 @@ public class SubscriptionRunSettingsTests
         IDataSourceProviderFactory? providers = null,
         TimeSpan? statementTimeout = null,
         int? finalQueryTimeoutSeconds = null,
-        HostExposureSnapshot? hostSnapshot = null)
+        HostExposureSnapshot? hostSnapshot = null,
+        int? maxRows = 50)
     {
         var dataSources = new List<DataSource>
         {
@@ -327,7 +343,7 @@ public class SubscriptionRunSettingsTests
             QueryId = QueryId,
             Query = query,
             CronExpression = "0 * * * *",
-            MaxRows = 50,
+            MaxRows = maxRows,
             TimeoutSeconds = timeoutSeconds
         };
         var saved = new List<object>();

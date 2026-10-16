@@ -1,9 +1,9 @@
+using System.Runtime.CompilerServices;
+using Microsoft.AspNetCore.Authorization;
 using Beacon.Api.Endpoints;
 using Beacon.Core;
-using System.Runtime.CompilerServices;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
-using Microsoft.AspNetCore.Authorization;
 
 namespace Beacon.Api.Authentication;
 

@@ -202,4 +202,11 @@ public sealed record SqlGateReport(
     IReadOnlyList<string> ColumnsUsed,
     IReadOnlyList<string> PiiColumns,
     IReadOnlyList<SqlLintFinding> LintFindings,
-    SqlGateVerdicts Verdicts);
+    SqlGateVerdicts Verdicts)
+{
+    /// <summary>
+    /// The output columns a host data source's policy masks for this statement (also in <see cref="PiiColumns"/>). Their
+    /// values are masked in full, never partially: pass them to <c>PiiRowMasker.Mask</c> as its host-masked columns.
+    /// </summary>
+    public IReadOnlyList<string> HostMaskedColumns { get; init; } = [];
+}

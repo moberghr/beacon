@@ -1,9 +1,11 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reflection;
+using Beacon.Core.HostData;
 using Beacon.Core.Services.Validation;
 using SqlParser;
 using SqlParser.Ast;
+using SqlParser.Dialects;
 
 namespace Beacon.Core.Services.Security;
 
@@ -18,14 +20,26 @@ namespace Beacon.Core.Services.Security;
 /// wildcard over a CTE or derived table of known columns is expanded so its positions line up;</item>
 /// <item>a CTE / derived-table column-list rename (<c>AS d(contact)</c>), a Snowflake <c>* RENAME</c> and a BigQuery
 /// <c>* REPLACE</c> of a PII column;</item>
-/// <item>a whole-row reference to a base table (<c>row_to_json(c)</c>, <c>to_json(c.*)</c>, <c>OBJECT_CONSTRUCT(*)</c>).</item>
+/// <item>a whole-row reference to a base table (<c>row_to_json(c)</c>, <c>to_json(c.*)</c>, <c>OBJECT_CONSTRUCT(*)</c>); a
+/// bare name is never one on T-SQL, MySQL or SQLite, which read it as a column only, and on PostgreSQL and DuckDB only
+/// when no relation the query can see (its own FROM items, and the enclosing ones for a correlated subquery or LATERAL)
+/// is known to have a column of that name; other engines read every collision as a whole row;</item>
+/// <item>a JSON document or map read by a literal key whose name is PII (<c>profile->>'email'</c>, <c>p #>> '{a,email}'</c>,
+/// <c>p #> ARRAY['email']</c>, <c>JSON_VALUE(profile, '$.email')</c>, Snowflake <c>v:email</c>, <c>m['email']</c>); a key
+/// computed by an expression is not followed.</item>
 /// </list>
+/// An EXISTS or IN (subquery) test yields a boolean, never a value of its subquery, so the subquery does not make its
+/// output PII; a scalar subquery's value is its own output and does.
 /// Where the resolver cannot prove where PII went, every result column is masked (fail closed): a column list on a base
 /// table or table function, a set-operation arm or column-list rename over a wildcard of unknown columns, a table
 /// function / UNNEST / LATERAL VIEW / PIVOT / UNPIVOT fed from PII, a VALUES list reading PII, an unaliased computed
-/// expression reading PII (<c>SELECT lower(email)</c>, <c>SELECT row_to_json(c)</c> — the engine names it), and the table
-/// factors the resolver does not model. A plain <c>SELECT *</c> over a base table is not one of them: its result keys are
-/// the table's own column names.
+/// expression reading PII (<c>SELECT lower(email)</c>, <c>SELECT row_to_json(c)</c> — the engine names it), a T-SQL
+/// <c>FOR JSON</c> / <c>FOR XML</c> statement (every row folded into one column), and the table factors the resolver does
+/// not model. A plain <c>SELECT *</c> over a base table is not one of them: its result keys are the table's own column
+/// names. Nor is a column list on a built-in generator whose arguments read no column (<c>generate_series(1, 10) AS
+/// g(n)</c>, <c>UNNEST(ARRAY['a']) AS u(x)</c>); one over a column (<c>UNNEST(c.contacts) AS u(x)</c>) fails closed.
+/// <para>Host-masked columns (<see cref="HostResultMasker"/>) are masked in full, as the provider masks
+/// them; every other PII column is masked partially by <see cref="IQueryGuardrailService.MaskPiiValues"/>.</para>
 /// </summary>
 public static class PiiRowMasker
 {
@@ -36,21 +50,33 @@ public static class PiiRowMasker
         bool detectByColumnName,
         IReadOnlyList<string>? customPatterns,
         string? sql = null,
-        string? dialect = null)
+        string? dialect = null,
+        IEnumerable<string>? hostMaskedColumns = null)
     {
+        var hostMasked = new HashSet<string>(hostMaskedColumns ?? [], StringComparer.OrdinalIgnoreCase);
         var resultColumns = rows
             .SelectMany(x => x.Keys);
-        var piiColumns = ResolvePiiColumns(guardrail, resultColumns, sqlPiiColumns, detectByColumnName, customPatterns, sql, dialect);
+        var piiColumns = ResolvePiiColumns(guardrail, resultColumns, sqlPiiColumns.Concat(hostMasked), detectByColumnName, customPatterns, sql, dialect);
 
         if (piiColumns.Count == 0)
         {
             return rows.ToList();
         }
 
+        var partialColumns = piiColumns
+            .Where(x => !hostMasked.Contains(x))
+            .ToList();
+
         var masked = new List<Dictionary<string, object?>>(rows.Count);
         foreach (var row in rows)
         {
-            masked.Add(row.Keys.Any(x => piiColumns.Contains(x)) ? guardrail.MaskPiiValues(row, piiColumns) : row);
+            if (!row.Keys.Any(x => piiColumns.Contains(x)))
+            {
+                masked.Add(row);
+                continue;
+            }
+
+            masked.Add(MaskHostColumns(guardrail.MaskPiiValues(row, partialColumns), hostMasked));
         }
 
         return masked;
@@ -128,6 +154,20 @@ public static class PiiRowMasker
         return lineage;
     }
 
+    // A host-masked value is replaced in full and null stays null, whatever the value already is (§1.6).
+    private static Dictionary<string, object?> MaskHostColumns(Dictionary<string, object?> row, IReadOnlySet<string> hostMasked)
+    {
+        foreach (var key in row.Keys.ToList())
+        {
+            if (hostMasked.Contains(key) && row[key] != null)
+            {
+                row[key] = HostResultMasker.MaskedValue;
+            }
+        }
+
+        return row;
+    }
+
     /// <summary>
     /// One pass over the parsed SQL — CTEs before the body, FROM before the projection — so a name an inner query gives
     /// PII data is known by the time an outer query reads it back. Relations (CTEs, FROM items) are scoped per query so a
@@ -135,12 +175,90 @@ public static class PiiRowMasker
     /// statement, not per scope: a name reused elsewhere in the statement for non-PII data is masked too (over-masking,
     /// never a leak).
     /// </summary>
-    private sealed class ProjectionAliases(Func<string, bool> isPii)
+    private sealed class ProjectionAliases(Func<string, bool> isPii, Dialect? dialect = null)
     {
         private const int MaxDepth = 400;
 
         // count(*) / COUNT_BIG(*) count rows: their * passes no column value.
         private static readonly HashSet<string> RowCountFunctions = new(StringComparer.OrdinalIgnoreCase) { "count", "count_big" };
+
+        // Functions that read a JSON document by a path or key given after the document: JSON_VALUE(doc, '$.email'),
+        // Snowflake GET(doc, 'email'), Spark json_tuple(doc, 'name', 'email') (every argument after the first counts).
+        private static readonly HashSet<string> JsonPathFunctions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "json_value",
+            "json_query",
+            "json_extract",
+            "json_extract_scalar",
+            "json_extract_path",
+            "json_extract_path_text",
+            "jsonb_extract_path",
+            "jsonb_extract_path_text",
+            "jsonb_path_query",
+            "jsonb_path_query_array",
+            "jsonb_path_query_first",
+            "json_extract_array",
+            "json_extract_string",
+            "json_extract_string_array",
+            "json_query_array",
+            "json_value_array",
+            "json_tuple",
+            "get",
+            "get_ignore_case",
+            "get_json_object",
+            "get_path"
+        };
+
+        // The JSON operators that read a value by key or path: -> ->> #> #>>. The containment and existence operators
+        // (@>, ?) yield a boolean.
+        private static readonly HashSet<BinaryOperator> JsonAccessOperators =
+        [
+            BinaryOperator.Arrow,
+            BinaryOperator.LongArrow,
+            BinaryOperator.HashArrow,
+            BinaryOperator.HashLongArrow
+        ];
+
+        // Built-in generators per engine whose output is computed from their arguments alone. An unknown function may read
+        // a table, so a column list on it still fails closed.
+        private static readonly HashSet<string> PostgreSqlGenerators = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "generate_series",
+            "generate_subscripts",
+            "unnest"
+        };
+
+        private static readonly HashSet<string> TSqlGenerators = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "generate_series",
+            "string_split"
+        };
+
+        // Pure built-in scalars a generator's arguments may call and still read no data. Any other call, a schema-qualified
+        // one included, may be a database function that reads a table (unnest(get_contacts())), so it fails closed.
+        private static readonly HashSet<string> PureScalarFunctions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "abs",
+            "ceil",
+            "ceiling",
+            "coalesce",
+            "concat",
+            "floor",
+            "generate_series",
+            "greatest",
+            "least",
+            "length",
+            "lower",
+            "nullif",
+            "replace",
+            "round",
+            "substr",
+            "substring",
+            "trim",
+            "upper"
+        };
+
+        private static readonly char[] KeyPathSeparators = ['.', ',', '{', '}', '[', ']', '$', '"', '\'', ':', '*', ' '];
 
         private static readonly ConcurrentDictionary<Type, PropertyInfo[]> PropertyCache = new();
 
@@ -170,19 +288,25 @@ public static class PiiRowMasker
                 return All;
             }
 
-            var resolver = new ProjectionAliases(isPii);
+            var resolver = new ProjectionAliases(isPii, SqlDialects.Resolve(dialect));
             foreach (var statement in statements)
             {
                 if (statement is Statement.Select select)
                 {
                     resolver.Traced(resolver.AnalyzeQuery(select.Query, new Scope(null), 0));
+
+                    // T-SQL FOR JSON / FOR XML folds every column of every row into one column the engine names.
+                    resolver.MaskAll |= FoldsRowsIntoOneColumn(select.Query);
                 }
             }
 
             return resolver;
         }
 
-        private List<OutputColumn> AnalyzeQuery(Query query, Scope parent, int depth)
+        // A correlated query (a scalar, EXISTS or IN subquery, a LATERAL derived table) sees the columns of the enclosing
+        // queries' FROM relations; a CTE body or a plain derived table does not, so a sibling FROM item's column never
+        // shadows a relation name there.
+        private List<OutputColumn> AnalyzeQuery(Query query, Scope parent, int depth, bool correlated = true)
         {
             if (!Enter(depth))
             {
@@ -190,13 +314,23 @@ public static class PiiRowMasker
             }
 
             // A CTE is visible to the later CTEs and the body of its own query only.
-            var scope = new Scope(parent);
+            var scope = new Scope(parent, correlated);
             foreach (var cte in query.With?.CteTables ?? [])
             {
-                scope.AddCte(cte.Alias?.Name.Value, Traced(Rename(cte.Alias, AnalyzeQuery(cte.Query, scope, depth + 1))));
+                scope.AddCte(cte.Alias?.Name.Value, Traced(Rename(cte.Alias, AnalyzeQuery(cte.Query, scope, depth + 1, correlated: false))));
             }
 
-            return AnalyzeSetExpression(query.Body, scope, depth + 1);
+            var outputs = AnalyzeSetExpression(query.Body, scope, depth + 1);
+            if (!FoldsRowsIntoOneColumn(query))
+            {
+                return outputs;
+            }
+
+            // Every column reaches the folded value: it carries PII when any of them does.
+            var pii = outputs.Any(x => x.Pii);
+            return outputs
+                .Select(x => x.Wildcard ? x with { Pii = pii } : Named(x.Name, pii))
+                .ToList();
         }
 
         private List<OutputColumn> AnalyzeSetExpression(SetExpression body, Scope scope, int depth)
@@ -309,16 +443,18 @@ public static class PiiRowMasker
                     scope.AddRelation(new Relation(alias?.Name.Value ?? tableName, Rename(alias, cte), IsFunction: false));
                     break;
                 case TableFactor.Table table:
-                    AnalyzeTableFunction(alias?.Name.Value ?? LastName(table.Name), table.Args, alias, scope, depth + 1);
+                    AnalyzeTableFunction(alias?.Name.Value ?? LastName(table.Name), table.Args, alias, IsGenerator(table.Name), scope, depth + 1);
                     break;
                 case TableFactor.Function function:
-                    AnalyzeTableFunction(alias?.Name.Value ?? LastName(function.Name), function.Args, alias, scope, depth + 1);
+                    AnalyzeTableFunction(alias?.Name.Value ?? LastName(function.Name), function.Args, alias, IsGenerator(function.Name), scope, depth + 1);
                     break;
                 case TableFactor.UnNest unnest:
-                    AnalyzeTableFunction(alias?.Name.Value, unnest.ArrayExpressions, alias, scope, depth + 1);
+                    // UNNEST returns the elements of the arrays it is given, nothing else.
+                    AnalyzeTableFunction(alias?.Name.Value, unnest.ArrayExpressions, alias, true, scope, depth + 1);
                     break;
                 case TableFactor.Derived derived:
-                    scope.AddRelation(new Relation(alias?.Name.Value, Traced(Rename(alias, AnalyzeQuery(derived.SubQuery, scope, depth + 1))), IsFunction: false));
+                    var derivedColumns = AnalyzeQuery(derived.SubQuery, scope, depth + 1, correlated: derived.Lateral);
+                    scope.AddRelation(new Relation(alias?.Name.Value, Traced(Rename(alias, derivedColumns)), IsFunction: false));
                     break;
                 case TableFactor.NestedJoin nested:
                     // (a JOIN b) AS j: j is the join's whole row, and a column list renames positions nothing can follow.
@@ -346,10 +482,14 @@ public static class PiiRowMasker
         }
 
         // A table-valued function (generate_series, unnest, jsonb_each_text, a UDF): its columns are unknown. Arguments
-        // that read PII make every output PII, and a column list renames columns the function may fill from a table.
-        private void AnalyzeTableFunction(string? name, object? arguments, TableAlias? alias, Scope scope, int depth)
+        // that read PII make every output PII, and a column list renames columns the function may fill from a table,
+        // unless it is a built-in generator whose arguments read no column (literals, parameters, nested calls of them):
+        // its output is then only what those literals give it. A generator over a column (UNNEST(c.contacts)) renames
+        // values of a table whose names are unknown, so it fails closed.
+        private void AnalyzeTableFunction(string? name, object? arguments, TableAlias? alias, bool generator, Scope scope, int depth)
         {
-            MaskAll |= HasColumnList(alias) || ReferencesPii(arguments, scope, depth + 1);
+            var renamesTableValues = HasColumnList(alias) && (!generator || ReadsColumn(arguments, depth + 1));
+            MaskAll |= renamesTableValues || ReferencesPii(arguments, scope, depth + 1);
             scope.AddRelation(new Relation(name, null, IsFunction: true));
         }
 
@@ -496,12 +636,23 @@ public static class PiiRowMasker
                 return true;
             }
 
+            if (node is Expression expression && ReadsPiiKey(expression))
+            {
+                return true;
+            }
+
             switch (node)
             {
                 case null or string or Ident or ObjectName:
                     return false;
+                case Expression.Exists:
+                    // A boolean: none of the subquery's values reaches the output.
+                    return false;
+                case Expression.InSubquery inSubquery:
+                    // A boolean over the tested operand; the subquery's values do not reach the output.
+                    return ReferencesPii(inSubquery.Expression, scope, depth + 1);
                 case Expression.Identifier identifier:
-                    return IsPiiName(identifier.Ident.Value) || IsPiiRow(identifier.Ident.Value, scope);
+                    return IsPiiName(identifier.Ident.Value) || IsPiiBareRow(identifier.Ident.Value, scope);
                 case Expression.CompoundIdentifier compound:
                     return compound.Idents.Count > 0 && IsPiiName(compound.Idents[^1].Value);
                 case Expression.QualifiedWildcard qualified:
@@ -557,6 +708,91 @@ public static class PiiRowMasker
             return _names.Contains(name) || isPii(name);
         }
 
+        // A literal key read out of a JSON document or map is the value stored under it: PII when the key's name is. Each
+        // step of a path counts ('$.contact.email', '{a,email}', ARRAY['contact', 'email']), through a cast or
+        // parentheses. Snowflake v:email is a JsonAccess path; a bracket key (m['email']) is a MapAccess or Subscript. A
+        // Databricks v:email path does not parse, so its statement masks every column. A key computed by an expression
+        // is not followed.
+        private bool ReadsPiiKey(Expression expression)
+        {
+            var keys = expression switch
+            {
+                Expression.BinaryOp operation when JsonAccessOperators.Contains(operation.Op) => new List<Expression> { operation.Right },
+                Expression.Subscript { Key: Subscript.Index index } => new List<Expression> { index.IndexExpression },
+                Expression.MapAccess map => map.Keys
+                    .Select(x => x.Key)
+                    .ToList(),
+                Expression.JsonAccess json => (json.Path.Path ?? [])
+                    .Select(x => x is JsonPathElement.Bracket bracket ? bracket.Key : null)
+                    .OfType<Expression>()
+                    .ToList(),
+                Expression.Function function when JsonPathFunctions.Contains(LastName(function.Name) ?? "") => PathArguments(function),
+                _ => new List<Expression>()
+            };
+
+            var dotKeys = expression is Expression.JsonAccess access
+                ? (access.Path.Path ?? [])
+                    .OfType<JsonPathElement.Dot>()
+                    .Select(x => x.Key)
+                : Enumerable.Empty<string>();
+
+            return keys
+                .SelectMany(LiteralTexts)
+                .Concat(dotKeys)
+                .Any(IsPiiKey);
+        }
+
+        private bool IsPiiKey(string key)
+        {
+            return IsPiiName(key) || key
+                .Split(KeyPathSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(IsPiiName);
+        }
+
+        // A bare name read as a value is the whole row of the FROM relation it names (SELECT c FROM customers c) only on
+        // the engines that read it so. On PostgreSQL and DuckDB a column wins over a relation name, so a name that a
+        // visible relation is known to have as a column is that column; a base table's columns are unknown, so its name
+        // stays a whole row. Elsewhere the order is not relied on and a name collision stays a whole row (fail closed).
+        private bool IsPiiBareRow(string name, Scope? scope)
+        {
+            if (!ReadsBareNameAsRow())
+            {
+                return false;
+            }
+
+            var column = PrefersColumnOverRow() && scope?.HasKnownColumn(name) == true;
+            return !column && IsPiiRow(name, scope);
+        }
+
+        private bool PrefersColumnOverRow()
+        {
+            return dialect is PostgreSqlDialect or DuckDbDialect;
+        }
+
+        // T-SQL, MySQL and SQLite read a bare name as a column only. Every other engine, an unknown one included, may read
+        // it as a whole row (fail closed).
+        private bool ReadsBareNameAsRow()
+        {
+            return dialect is not (MsSqlDialect or MySqlDialect or SQLiteDialect);
+        }
+
+        // generate_series and the like: what they return is computed from their arguments alone, never read from a table.
+        private bool IsGenerator(ObjectName? name)
+        {
+            var function = LastName(name);
+            if (function == null || name!.Values.Count != 1)
+            {
+                return false;
+            }
+
+            return dialect switch
+            {
+                PostgreSqlDialect => PostgreSqlGenerators.Contains(function),
+                MsSqlDialect => TSqlGenerators.Contains(function),
+                _ => false
+            };
+        }
+
         // Too deep to analyse: mask every result column rather than miss an alias (fail closed).
         private bool Enter(int depth)
         {
@@ -573,6 +809,105 @@ public static class PiiRowMasker
         private static bool IsPiiRow(string? name, Scope? scope)
         {
             return name != null && scope?.FindRelation(name)?.WholeRowIsPii == true;
+        }
+
+        private static List<Expression> PathArguments(Expression.Function function)
+        {
+            if (function.Args is not FunctionArguments.List { ArgumentList.Args: { } args })
+            {
+                return [];
+            }
+
+            return args
+                .Skip(1)
+                .Select(x => x is FunctionArg.Unnamed { FunctionArgExpression: FunctionArgExpression.FunctionExpression argument } ? argument.Expression : null)
+                .OfType<Expression>()
+                .ToList();
+        }
+
+        // The literal text of a key: a string, through a cast ('email'::text, '{email}'::text[]) or parentheses, and each
+        // element of an array of them (ARRAY['contact', 'email']).
+        private static IEnumerable<string> LiteralTexts(Expression expression)
+        {
+            return expression switch
+            {
+                Expression.LiteralValue literal => StringValue(literal.Value) is { } text ? [text] : [],
+                Expression.Cast cast => LiteralTexts(cast.Expression),
+                Expression.Nested nested => LiteralTexts(nested.Expression),
+                Expression.Array array => (array.Arr.Element ?? [])
+                    .SelectMany(LiteralTexts)
+                    .ToList(),
+                _ => []
+            };
+        }
+
+        private static string? StringValue(Value value)
+        {
+            return value switch
+            {
+                Value.SingleQuotedString x => x.Value,
+                Value.DoubleQuotedString x => x.Value,
+                Value.NationalStringLiteral x => x.Value,
+                Value.EscapedStringLiteral x => x.Value,
+                _ => null
+            };
+        }
+
+        // Whether any column, row, subquery or non-pure function call is read under the node; literals, parameters and pure
+        // built-in calls of them read none.
+        private static bool ReadsColumn(object? node, int depth)
+        {
+            if (depth > MaxDepth)
+            {
+                return true;
+            }
+
+            switch (node)
+            {
+                case null or string or Ident or ObjectName:
+                    return false;
+                case Expression.Identifier or Expression.CompoundIdentifier or Expression.Wildcard or Expression.QualifiedWildcard
+                    or FunctionArgExpression.Wildcard or FunctionArgExpression.QualifiedWildcard or Query:
+                    return true;
+                case Expression.Function function when function.Name.Values.Count != 1 || !PureScalarFunctions.Contains(LastName(function.Name) ?? ""):
+                    return true;
+                case IEnumerable enumerable:
+                    foreach (var item in enumerable)
+                    {
+                        if (ReadsColumn(item, depth + 1))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+            }
+
+            foreach (var property in AstProperties(node.GetType()))
+            {
+                object? value;
+                try
+                {
+                    value = property.GetValue(node);
+                }
+                catch (TargetInvocationException)
+                {
+                    // A node that cannot be read cannot be cleared (fail closed).
+                    return true;
+                }
+
+                if (ReadsColumn(value, depth + 1))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool FoldsRowsIntoOneColumn(Query query)
+        {
+            return query.ForClause is ForClause.Json or ForClause.Xml;
         }
 
         private static bool IsRowCount(Expression.Function function)
@@ -666,9 +1001,11 @@ public static class PiiRowMasker
         }
 
         /// <summary>The CTEs of a query and the FROM relations of a SELECT; lookups fall back to the enclosing scopes.</summary>
-        private sealed class Scope(Scope? parent)
+        private sealed class Scope(Scope? parent, bool seesParentRelations = true)
         {
             private readonly Scope? _parent = parent;
+
+            private readonly bool _seesParentRelations = seesParentRelations;
 
             private readonly Dictionary<string, List<OutputColumn>> _ctes = new(StringComparer.OrdinalIgnoreCase);
 
@@ -720,6 +1057,23 @@ public static class PiiRowMasker
                 }
 
                 return null;
+            }
+
+            // A relation here or in an enclosing query this one can see (a correlated subquery) whose known columns include
+            // the name. A CTE body or a plain derived table stops the walk: its siblings' columns are not visible to it.
+            public bool HasKnownColumn(string name)
+            {
+                for (var scope = this; scope != null; scope = scope._seesParentRelations ? scope._parent : null)
+                {
+                    var known = scope._relations
+                        .Any(x => x.Columns?.Any(y => string.Equals(y.Name, name, StringComparison.OrdinalIgnoreCase)) == true);
+                    if (known)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
 
             // A name bound twice resolves to the binding that can carry PII (fail closed).

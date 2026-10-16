@@ -491,4 +491,34 @@ public class SqlExecutionGateTests
         atCap.Blocked.Should().BeFalse();
         atCap.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Pass);
     }
+
+    // MySQL ends a block comment at its first `*/`; the parser would read the text after it as still commented.
+    [TestCase("SELECT 1 /* /* */ ; DELETE FROM orders; -- */")]
+    [TestCase("SELECT 1 /* /* */ ; DELETE FROM orders; # */")]
+    [TestCase("SELECT 1 /* # /* */ ; DELETE FROM orders\n# */")]
+    [TestCase("SELECT 1 /*! /* */ ; DELETE FROM orders; -- */")]
+    [TestCase("SELECT 1 /*!50000 /* */ ; DELETE FROM orders; -- */")]
+    [TestCase("SELECT 1 /*+ /* */ ; DELETE FROM orders; -- */")]
+    [TestCase("SELECT 1 /* /* */ ; DELETE FROM orders; /* */")]
+    [TestCase("SELECT id FROM orders /*! ; DELETE FROM orders */")]
+    [TestCase("SELECT id FROM orders /*+ MAX_EXECUTION_TIME(1000) */")]
+    public void Evaluate_MySqlNestedBlockComment_IsBlocked(string sql)
+    {
+        var report = _gate.Evaluate(Request(sql, "MySQL") with { MaxRows = 10 });
+
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
+        report.Verdicts.ReadOnly.Code.Should().BeOneOf("guardrail", "ast");
+        report.FinalSql.Should().Be(sql);
+    }
+
+    [TestCase("SELECT '/* not a comment' AS note FROM orders")]
+    [TestCase("SELECT id /* first */ FROM orders /* second */")]
+    public void Evaluate_MySqlCommentLikeTextThatIsNotNested_Passes(string sql)
+    {
+        var report = _gate.Evaluate(Request(sql, "MySQL") with { MaxRows = 10 });
+
+        report.Blocked.Should().BeFalse();
+        report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Pass);
+    }
 }

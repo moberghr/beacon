@@ -133,6 +133,107 @@ public class AiActorCycleProposeOnlyTests
     }
 
     [Test]
+    public async Task ExecuteThinkCycleAsync_CancelledMidCycle_ClosesOnlyTheExecutionRowWithALiveTokenAndRethrows()
+    {
+        var actor = SeedActor();
+        using var cancellation = new CancellationTokenSource();
+        var service = BuildService(PlanJson, onLlmCall: () => cancellation.Cancel());
+
+        var act = () => service.ExecuteThinkCycleAsync(ActorId, cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        actor.Status.Should().Be(AiActorStatus.Active, "a shutdown must not stop the actor");
+        actor.LastError.Should().BeNull();
+        AssertCancelledExecution();
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_CancelledMidCycle_DoesNotWriteWhatTheCycleHadChangedButNotSaved()
+    {
+        var actor = SeedActor();
+        using var cancellation = new CancellationTokenSource();
+        var service = BuildService(
+            PlanJson,
+            onLlmCall: () =>
+            {
+                var context = _store.Contexts.First();
+                context.Attach(actor).Property(x => x.LastError).CurrentValue = "unsaved";
+                cancellation.Cancel();
+            });
+
+        var act = () => service.ExecuteThinkCycleAsync(ActorId, cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        _store.TrackedEntitiesAtSave.Last().Should().Be(0, "the unsaved change to the actor must not be written by the cancelled cycle");
+    }
+
+    [Test]
+    public async Task RefineActorAsync_CancelledMidCycle_ClosesOnlyTheExecutionRowWithALiveTokenAndRethrows()
+    {
+        var actor = SeedActor();
+        using var cancellation = new CancellationTokenSource();
+        var service = BuildService(PlanJson, onLlmCall: () => cancellation.Cancel());
+
+        var act = () => service.RefineActorAsync(ActorId, "also watch failed payments", cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        actor.Status.Should().Be(AiActorStatus.Active);
+        AssertCancelledExecution();
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_RealFailure_StillSavesTheFailedStatusWithALiveToken()
+    {
+        var actor = SeedActor();
+        var service = BuildService(PlanJson, onLlmCall: () => throw new InvalidOperationException("model unavailable"));
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be("model unavailable");
+        actor.Status.Should().Be(AiActorStatus.Failed);
+        _store.Executions.Should().ContainSingle().Which.Phase.Should().Be(AiActorExecutionPhase.Failed);
+        _store.SaveTokensCancelled.Last().Should().BeFalse();
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_WhenTheFailureSaveFails_KeepsTheOriginalFailure()
+    {
+        SeedActor();
+        var service = BuildService(
+            PlanJson,
+            onLlmCall: () =>
+            {
+                _store.FailSaves = true;
+
+                throw new InvalidOperationException("model unavailable");
+            });
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be("model unavailable");
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_CancelledWhenTheFailureSaveFails_RethrowsTheCancellation()
+    {
+        SeedActor();
+        using var cancellation = new CancellationTokenSource();
+        var service = BuildService(
+            PlanJson,
+            onLlmCall: () =>
+            {
+                _store.FailSaves = true;
+                cancellation.Cancel();
+            });
+
+        var act = () => service.ExecuteThinkCycleAsync(ActorId, cancellationToken: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Test]
     public async Task RefineActorAsync_RequiresApproval_StoresProposalsAndExecutesNothing()
     {
         SeedActor();
@@ -203,6 +304,15 @@ public class AiActorCycleProposeOnlyTests
         return actor;
     }
 
+    private void AssertCancelledExecution()
+    {
+        var execution = _store.Executions.Should().ContainSingle().Subject;
+        execution.Phase.Should().Be(AiActorExecutionPhase.Failed);
+        execution.ErrorMessage.Should().Be("cancelled");
+        _store.SaveTokensCancelled.Should().NotBeEmpty();
+        _store.SaveTokensCancelled.Last().Should().BeFalse("the failure record must not be written with the cancelled token");
+    }
+
     private AiActorExecution SingleCompletedExecution()
     {
         var execution = _store.Executions.Should().ContainSingle().Subject;
@@ -240,7 +350,7 @@ public class AiActorCycleProposeOnlyTests
         return JsonSerializer.Deserialize<List<AiActorAction>>(execution.ActionsJson!, ReadOptions)!;
     }
 
-    private AiActorService BuildService(string llmContent)
+    private AiActorService BuildService(string llmContent, Action? onLlmCall = null)
     {
         var sets = new Dictionary<Type, object>
         {
@@ -256,17 +366,30 @@ public class AiActorCycleProposeOnlyTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new CycleContext(sets));
+            .ReturnsAsync(
+                () =>
+                {
+                    var context = new CycleContext(sets, _store);
+                    _store.Contexts.Add(context);
+
+                    return context;
+                });
 
         var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
         llm
             .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(
-                new LlmResponse
-                {
-                    Content = llmContent,
-                    Model = "stub"
-                });
+            .Returns<LlmRequest, CancellationToken>((_, token) =>
+            {
+                onLlmCall?.Invoke();
+                token.ThrowIfCancellationRequested();
+
+                return Task.FromResult(
+                    new LlmResponse
+                    {
+                        Content = llmContent,
+                        Model = "stub"
+                    });
+            });
 
         var metadata = new Mock<IDatabaseMetadataService>(MockBehavior.Strict);
         metadata
@@ -324,9 +447,17 @@ public class AiActorCycleProposeOnlyTests
         public List<AiActorConversation> Conversations { get; } = [];
 
         public List<AiActorPlan> Plans { get; } = [];
+
+        public List<bool> SaveTokensCancelled { get; } = [];
+
+        public bool FailSaves { get; set; }
+
+        public List<BeaconContext> Contexts { get; } = [];
+
+        public List<int> TrackedEntitiesAtSave { get; } = [];
     }
 
-    private sealed class CycleContext(IReadOnlyDictionary<Type, object> sets) : BeaconContext(Options, "beacon")
+    private sealed class CycleContext(IReadOnlyDictionary<Type, object> sets, Store store) : BeaconContext(Options, "beacon")
     {
         private static readonly DbContextOptions<CycleContext> Options =
             new DbContextOptionsBuilder<CycleContext>()
@@ -344,7 +475,16 @@ public class AiActorCycleProposeOnlyTests
             return base.Set<TEntity>();
         }
 
-        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default) =>
-            Task.FromResult(0);
+        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        {
+            store.SaveTokensCancelled.Add(cancellationToken.IsCancellationRequested);
+            store.TrackedEntitiesAtSave.Add(ChangeTracker.Entries().Count());
+            if (store.FailSaves)
+            {
+                throw new InvalidOperationException("database unavailable");
+            }
+
+            return Task.FromResult(0);
+        }
     }
 }

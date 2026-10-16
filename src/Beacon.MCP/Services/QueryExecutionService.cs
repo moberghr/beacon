@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.HostData;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -18,7 +19,8 @@ internal sealed class QueryExecutionService(
     ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
     IMcpStatementLog statementLog,
-    IQueryCostLimit costLimit) : IQueryExecutionService
+    IQueryCostLimit costLimit,
+    IHostDataSourceGuard hostGuard) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -83,6 +85,18 @@ internal sealed class QueryExecutionService(
                 }).PiiColumns ?? []
                 : [];
 
+            // The output columns the host policy masks for this statement, as the gate's report carries them on the query
+            // tool path: masked in full whatever the detection setting, on top of the provider's own positional masking. A
+            // check that refuses names no masked column, so every result column is masked in full (fail closed); its
+            // error is not logged, as it can quote the SQL (§1.11).
+            var hostCheck = hostGuard.Check(dataSource, limitedSql);
+            var hostMaskedColumns = hostCheck.Allowed
+                ? hostCheck.MaskedOutputColumns
+                : result.Rows
+                    .SelectMany(x => x.Keys)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
             // The executed SQL resolves the names it aliases PII columns to (email AS contact).
             var rows = PiiRowMasker.Mask(
                 guardrailService,
@@ -91,7 +105,8 @@ internal sealed class QueryExecutionService(
                 settings.EnablePiiDetection,
                 customPatterns,
                 limitedSql,
-                DataSourceSqlDialect.Of(dataSource));
+                DataSourceSqlDialect.Of(dataSource),
+                hostMaskedColumns);
 
             // The text and the structured payload together stay within the resolved MaxResultBytes.
             var (text, structured) = ToolHelper.FormatResultWithinBudget($"### Results ({rows.Count} rows)\n\n", rows, maxRows, settings.MaxResultBytes);

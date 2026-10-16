@@ -306,6 +306,367 @@ public class PiiRowMaskerTests
         masked[0]["n"].Should().Be("a***m");
     }
 
+    // A JSON document or map read by a literal PII key carries that value under the alias.
+    [TestCase("SELECT profile ->> 'email' AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile -> 'email' AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile #>> '{work,email}' AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile['email'] AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT jsonb_extract_path_text(profile, 'contact', 'email') AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT JSON_VALUE(profile, '$.email') AS contact FROM users", "MSSQL")]
+    [TestCase("SELECT JSON_QUERY(profile, '$.home_address') AS contact FROM users", "MSSQL")]
+    [TestCase("SELECT profile ->> '$.email' AS contact FROM users", "MySQL")]
+    [TestCase("SELECT JSON_UNQUOTE(JSON_EXTRACT(profile, '$.phone')) AS contact FROM users", "MySQL")]
+    public void Mask_JsonReadByALiteralPiiKey_IsMasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["contact"] = RawEmail, ["name"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["contact"].Should().Be("a***m");
+        masked[0]["name"].Should().Be("Alice");
+    }
+
+    // A key that is not PII, or a key computed by an expression, is not followed.
+    [TestCase("SELECT profile ->> 'nickname' AS label FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile ->> k.name AS label FROM users, keys k", "PostgreSQL")]
+    [TestCase("SELECT profile ->> 'address_id' AS label FROM users", "PostgreSQL")]
+    [TestCase("SELECT JSON_VALUE(profile, '$.nickname') AS label FROM users", "MSSQL")]
+    [TestCase("SELECT profile ->> '$.nickname' AS label FROM users", "MySQL")]
+    public void Mask_JsonReadByANonPiiOrComputedKey_StaysUnmasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["label"] = "Ally" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["label"].Should().Be("Ally");
+    }
+
+    // EXISTS / NOT EXISTS / IN (subquery) yield a boolean: no value of the subquery reaches the output.
+    [TestCase("SELECT EXISTS (SELECT * FROM users u WHERE u.email = 'x') AS has_orders FROM orders", "PostgreSQL")]
+    [TestCase("SELECT NOT EXISTS (SELECT email FROM users) AS has_orders", "PostgreSQL")]
+    [TestCase("SELECT o.id IN (SELECT u.email FROM users u) AS has_orders FROM orders o", "PostgreSQL")]
+    [TestCase("SELECT CASE WHEN EXISTS (SELECT * FROM users u WHERE u.email = o.ref) THEN 1 ELSE 0 END AS has_orders FROM orders o", "MSSQL")]
+    [TestCase("SELECT CASE WHEN o.id IN (SELECT u.phone FROM users u) THEN 1 ELSE 0 END AS has_orders FROM orders o", "MSSQL")]
+    public void Mask_ExistsOrInSubquery_DoesNotMaskTheBoolean(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["has_orders"] = "True" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["has_orders"].Should().Be("True");
+    }
+
+    // A scalar subquery's value is its own output, and the operand of an IN test is checked as before.
+    [TestCase("SELECT (SELECT email FROM users LIMIT 1) AS has_orders", "PostgreSQL")]
+    [TestCase("SELECT u.email IN (SELECT ref FROM orders) AS has_orders FROM users u", "PostgreSQL")]
+    [TestCase("SELECT (SELECT TOP 1 email FROM users) AS has_orders", "MSSQL")]
+    public void Mask_ScalarSubqueryOrPiiOperand_IsStillMasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["has_orders"] = "True" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["has_orders"].Should().Be("T***e");
+    }
+
+    // A column list on a built-in generator renames what its literal arguments produce, never table data.
+    [TestCase("SELECT n FROM generate_series(1, 10) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM unnest(ARRAY['a', 'b']) AS u(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM GENERATE_SERIES(1, 10) AS g(n)", "MSSQL")]
+    [TestCase("SELECT n FROM STRING_SPLIT('a,b', ',') AS s(n)", "MSSQL")]
+    public void Mask_ColumnListOnABuiltInGenerator_MasksNothing(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["n"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["n"].Should().Be("Alice");
+    }
+
+    // An unknown function, or a generator fed from PII, keeps failing closed.
+    [TestCase("SELECT n FROM my_rows(1) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM users u CROSS JOIN LATERAL unnest(ARRAY[u.email]) AS x(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM dbo.my_rows(1) AS g(n)", "MSSQL")]
+    [TestCase("SELECT n FROM users u CROSS APPLY STRING_SPLIT(u.email, '@') AS s(n)", "MSSQL")]
+    public void Mask_ColumnListOnAnUnknownOrPiiFedFunction_MasksEveryColumn(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["n"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["n"].Should().Be("A***e");
+    }
+
+    // A bare name equal to the table's name is a column where the engine reads it as one.
+    [TestCase("SELECT tag FROM tag", "MSSQL")]
+    [TestCase("SELECT tag FROM tag", "MySQL")]
+    [TestCase("SELECT tag FROM tag", "SQLite")]
+    [TestCase("WITH tag AS (SELECT name AS tag, email FROM users) SELECT tag FROM tag", "PostgreSQL")]
+    [TestCase("SELECT tag FROM (SELECT name AS tag, email FROM users) AS tag", "PostgreSQL")]
+    public void Mask_BareNameThatIsAColumn_IsNotAWholeRow(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["tag"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["tag"].Should().Be("Alice");
+    }
+
+    // PostgreSQL reads a bare relation name as its whole row when no column of that name is known.
+    [TestCase("SELECT tag FROM tag", "PostgreSQL")]
+    [TestCase("SELECT c FROM customers c", "PostgreSQL")]
+    [TestCase("WITH tag AS (SELECT email FROM users) SELECT tag FROM tag", "PostgreSQL")]
+    [TestCase("WITH tag AS (SELECT email AS tag FROM users) SELECT tag FROM tag", "PostgreSQL")]
+    public void Mask_BareNameThatIsAWholeRow_IsMasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["tag"] = "Alice", ["c"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0].Values.Should().Contain("A***e");
+    }
+
+    // A plain derived table or a CTE body does not see a sibling FROM item, so a sibling's column of the same name does
+    // not turn the relation's whole row into a column.
+    [TestCase("SELECT j FROM (SELECT 1 AS c) x, (SELECT to_json(c) AS j FROM customers c) y", "PostgreSQL")]
+    [TestCase("SELECT j FROM (SELECT 1 AS c) x, (SELECT row_to_json(c) AS j FROM customers c) y", "PostgreSQL")]
+    [TestCase("WITH x AS (SELECT 1 AS c) SELECT j FROM x, (SELECT to_json(c) AS j FROM customers c) y", "PostgreSQL")]
+    [TestCase("SELECT j FROM (SELECT 1 AS c) x, (WITH y AS (SELECT to_json(c) AS j FROM customers c) SELECT j FROM y) z", "PostgreSQL")]
+    [TestCase("SELECT (SELECT j FROM (SELECT to_json(c) AS j FROM customers c) y) AS j FROM (SELECT 1 AS c) x", "PostgreSQL")]
+    [TestCase("SELECT j FROM (SELECT 1 AS c) x, (SELECT OBJECT_CONSTRUCT(c) AS j FROM customers c) y", "Snowflake")]
+    public void Mask_WholeRowBesideASiblingColumnOfTheSameName_IsMasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["j"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["j"].Should().Be("A***e");
+    }
+
+    // A LATERAL derived table or a scalar subquery sees the enclosing FROM items: the visible column wins on PostgreSQL.
+    [TestCase("SELECT j FROM (SELECT 1 AS c) x, LATERAL (SELECT to_json(c) AS j FROM customers c) y")]
+    [TestCase("SELECT (SELECT to_json(c) FROM customers c LIMIT 1) AS j FROM (SELECT 1 AS c) x")]
+    public void Mask_BareNameThatIsAVisibleCorrelatedColumn_IsNotAWholeRow(string sql)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["j"] = "1" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, "PostgreSQL");
+
+        masked[0]["j"].Should().Be("1");
+    }
+
+    // Outside PostgreSQL and DuckDB the order between a column and a relation name is not relied on: a collision is read
+    // as a whole row.
+    [TestCase("BigQuery")]
+    [TestCase("Databricks")]
+    [TestCase("Snowflake")]
+    [TestCase(null)]
+    public void Mask_BareNameCollidingWithAColumn_IsAWholeRowOutsidePostgreSql(string? dialect)
+    {
+        const string sql = "WITH tag AS (SELECT name AS tag, email FROM users) SELECT tag FROM tag";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["tag"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["tag"].Should().Be("A***e");
+    }
+
+    [Test]
+    public void Mask_BareNameCollidingWithAColumn_IsTheColumnOnDuckDb()
+    {
+        const string sql = "WITH tag AS (SELECT name AS tag, email FROM users) SELECT tag FROM tag";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["tag"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, "DuckDB");
+
+        masked[0]["tag"].Should().Be("Alice");
+    }
+
+    // A generator over a column or a database function renames table values: its column list fails closed like any other.
+    [TestCase("SELECT u.x FROM customers c, UNNEST(c.contacts) AS u(x)", "PostgreSQL")]
+    [TestCase("SELECT x FROM customers c CROSS JOIN LATERAL unnest(contacts) AS u(x)", "PostgreSQL")]
+    [TestCase("SELECT n FROM customers c CROSS JOIN LATERAL generate_series(1, c.visits) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM generate_series(1, (SELECT max(visits) FROM customers)) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT s.n FROM customers c CROSS APPLY STRING_SPLIT(c.tags, ',') AS s(n)", "MSSQL")]
+    [TestCase("SELECT x FROM unnest(get_contacts()) AS u(x)", "PostgreSQL")]
+    [TestCase("SELECT n FROM generate_series(1, contact_count()) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT x FROM unnest(ARRAY[app.lower('a')]) AS u(x)", "PostgreSQL")]
+    [TestCase("SELECT n FROM STRING_SPLIT(dbo.contacts_csv(), ',') AS s(n)", "MSSQL")]
+    public void Mask_ColumnListOnAGeneratorReadingAColumn_MasksEveryColumn(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["x"] = "Alice", ["n"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0].Values.Should().OnlyContain(x => (string)x! == "A***e");
+    }
+
+    // Literals, parameters and calls of them read no table: the generator's column list stays exempt.
+    [TestCase("SELECT n FROM generate_series(1, $1) AS g(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM unnest(ARRAY[lower('A'), 'b']) AS u(n)", "PostgreSQL")]
+    [TestCase("SELECT n FROM generate_series(1, abs(-3)) AS g(n)", "PostgreSQL")]
+    public void Mask_ColumnListOnAGeneratorOfLiterals_MasksNothing(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["n"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["n"].Should().Be("Alice");
+    }
+
+    // A base table that happens to carry a generator's name, read without arguments, is a base table.
+    [TestCase("SELECT contact FROM string_split AS s(contact, n)", "MSSQL")]
+    [TestCase("SELECT contact FROM generate_series AS g(contact, n)", "PostgreSQL")]
+    public void Mask_ColumnListOnABaseTableNamedLikeAGenerator_MasksEveryColumn(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["contact"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["contact"].Should().Be("A***e");
+    }
+
+    // Key forms through arrays, casts and parentheses, and the per-engine JSON and map readers.
+    [TestCase("SELECT profile #> ARRAY['email'] AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile #>> ARRAY['contact', 'email'] AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile #>> '{email}'::text[] AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile ->> 'email'::text AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile ->> ('email') AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT jsonb_path_query_array(profile, '$.email') AS contact FROM users", "PostgreSQL")]
+    [TestCase("SELECT JSON_EXTRACT_ARRAY(profile, '$.email') AS contact FROM users", "BigQuery")]
+    [TestCase("SELECT JSON_VALUE_ARRAY(profile, '$.email') AS contact FROM users", "BigQuery")]
+    [TestCase("SELECT JSON_QUERY_ARRAY(profile, '$.email') AS contact FROM users", "BigQuery")]
+    [TestCase("SELECT JSON_EXTRACT_STRING_ARRAY(profile, '$.email') AS contact FROM users", "BigQuery")]
+    [TestCase("SELECT profile['email'] AS contact FROM users", "BigQuery")]
+    [TestCase("SELECT json_extract_string(profile, '$.email') AS contact FROM users", "DuckDB")]
+    [TestCase("SELECT GET(profile, 'email') AS contact FROM users", "Snowflake")]
+    [TestCase("SELECT GET_IGNORE_CASE(profile, 'email') AS contact FROM users", "Snowflake")]
+    [TestCase("SELECT profile:email AS contact FROM users", "Snowflake")]
+    [TestCase("SELECT profile:contact.email AS contact FROM users", "Snowflake")]
+    [TestCase("SELECT profile['email'] AS contact FROM users", "Snowflake")]
+    [TestCase("SELECT profile['email'] AS contact FROM users", "Databricks")]
+    [TestCase("SELECT t.contact FROM users LATERAL VIEW json_tuple(profile, 'name', 'email') t AS nick, contact", "Databricks")]
+    public void Mask_JsonOrMapReadByALiteralPiiKeyInAnyForm_IsMasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["contact"] = RawEmail }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["contact"].Should().Be("a***m");
+    }
+
+    [TestCase("SELECT profile #>> ARRAY['nickname'] AS label FROM users", "PostgreSQL")]
+    [TestCase("SELECT profile ->> 'nickname'::text AS label FROM users", "PostgreSQL")]
+    [TestCase("SELECT GET(profile, 'nickname') AS label FROM users", "Snowflake")]
+    [TestCase("SELECT profile:nickname AS label FROM users", "Snowflake")]
+    [TestCase("SELECT profile['nickname'] AS label FROM users", "Databricks")]
+    public void Mask_JsonOrMapReadByANonPiiKeyInAnyForm_StaysUnmasked(string sql, string dialect)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["label"] = "Ally" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, dialect);
+
+        masked[0]["label"].Should().Be("Ally");
+    }
+
+    // The Databricks colon path does not parse: the statement masks every result column.
+    [Test]
+    public void Mask_DatabricksColonPath_MasksEveryResultColumn()
+    {
+        const string sql = "SELECT profile:nickname AS label FROM users";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["label"] = "Ally" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, [], true, null, sql, "Databricks");
+
+        masked[0]["label"].Should().Be("A***y");
+    }
+
+    // FOR JSON / FOR XML folds every column of every row into one column the engine names.
+    [TestCase("SELECT * FROM users FOR JSON AUTO", "JSON_F52E2B61-18A1-11d1-B105-00805F49916B")]
+    [TestCase("SELECT id, name FROM users FOR JSON PATH", "JSON_F52E2B61-18A1-11d1-B105-00805F49916B")]
+    [TestCase("SELECT name FROM users FOR XML RAW", "XML_F52E2B61-18A1-11d1-B105-00805F49916B")]
+    [TestCase("SELECT d.x FROM (SELECT name AS n, email AS e FROM users FOR XML PATH('r')) AS d(x)", "x")]
+    public void Mask_ForJsonOrForXml_MasksTheFoldedColumn(string sql, string key)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { [key] = RawEmail }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, "MSSQL");
+
+        masked[0][key].Should().Be("a***m");
+    }
+
+    // FOR XML PATH('') string aggregation over a column that is not PII stays as it is.
+    [Test]
+    public void Mask_ForXmlInASubqueryOverNonPiiColumns_StaysUnmasked()
+    {
+        const string sql = "SELECT STUFF((SELECT ',' + name FROM tags FOR XML PATH('')), 1, 1, '') AS label";
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["label"] = "a,b" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, SqlTextMatches(sql), true, null, sql, "MSSQL");
+
+        masked[0]["label"].Should().Be("a,b");
+    }
+
     [Test]
     public void ResolvePiiColumns_ReturnsThePassedColumnsPlusThePiiResultColumns()
     {
@@ -313,7 +674,7 @@ public class PiiRowMaskerTests
 
         var columns = PiiRowMasker.ResolvePiiColumns(_guardrail, ["address_id", "contact", "city"], ["email"], true, null, sql, "PostgreSQL");
 
-        columns.Should().BeEquivalentTo(new[] { "email", "address_id", "contact" });
+        columns.Should().BeEquivalentTo(new[] { "email", "contact" });
     }
 
     // "reach" is a step's PII column whose name no pattern matches: only the lineage through the select list masks it.
@@ -372,6 +733,41 @@ public class PiiRowMaskerTests
         masked[0]["customer_email"].Should().Be(RawEmail);
         masked[0]["ref_code"].Should().Be("1***9");
         masked[0]["name"].Should().Be("Alice");
+    }
+
+    // A host-masked column is masked in full, never partially, whatever the detection setting; a value the provider
+    // already masked stays exactly as it was.
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Mask_HostMaskedColumn_IsMaskedInFullOnce(bool detectByColumnName)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["ref_code"] = "123456789", ["customer_email"] = "***", ["note"] = null, ["name"] = "Alice" }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, ["ref_code", "customer_email", "note"], detectByColumnName, null, hostMaskedColumns: ["ref_code", "customer_email", "note"]);
+
+        masked[0]["ref_code"].Should().Be("***");
+        masked[0]["customer_email"].Should().Be("***");
+        masked[0]["note"].Should().BeNull();
+        masked[0]["name"].Should().Be("Alice");
+        rows[0]["ref_code"].Should().Be("123456789", "the input rows are not changed");
+    }
+
+    // Detector-found PII beside a host-masked column keeps its partial mask.
+    [Test]
+    public void Mask_DetectorFoundPiiBesideAHostMaskedColumn_KeepsThePartialMask()
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["ref_code"] = "123456789", ["customer_email"] = RawEmail }
+        };
+
+        var masked = PiiRowMasker.Mask(_guardrail, rows, ["ref_code"], true, null, hostMaskedColumns: ["ref_code"]);
+
+        masked[0]["ref_code"].Should().Be("***");
+        masked[0]["customer_email"].Should().Be("a***m");
     }
 
     [Test]
