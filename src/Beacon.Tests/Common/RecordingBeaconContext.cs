@@ -44,6 +44,7 @@ internal sealed class RecordingBeaconContext(
 
     public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Saving?.Invoke();
         var added = ChangeTracker.Entries()
             .Where(x => x.State == EntityState.Added)

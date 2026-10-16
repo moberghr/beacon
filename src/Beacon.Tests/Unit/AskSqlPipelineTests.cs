@@ -96,6 +96,26 @@ public class AskSqlPipelineTests
         log.CurrentPurpose.Should().BeNull("each purpose ends with its execution");
     }
 
+    [TestCase(10, 10)]
+    [TestCase(100, 100)]
+    [TestCase(5000, 100)]
+    [TestCase(0, 1)]
+    public async Task RunAsync_ExecutesWithTheLowerOfTheAskCapAndTheConfiguredRowLimit(int configured, int expected)
+    {
+        _settings.MaxRowLimit = configured;
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["sales"]));
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (3 rows)\n", null, 3, true));
+
+        await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        _executor.Verify(x => x.ExecuteAsync(DataSourceId, GeneratedSql, expected, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // A statement Beacon refused before it ran (MaxExplainCost) ends the call: no repair is generated or run, and the
     // caller reads the refusal as written.
     [Test]

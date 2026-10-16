@@ -60,6 +60,8 @@ public class AiActorService : IAiActorServiceExtended
     private readonly ISecurityAuditRecorder _securityAudit;
     private readonly ILogger<AiActorService> _logger;
 
+    private static readonly TimeSpan FailureSaveTimeout = TimeSpan.FromSeconds(30);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -360,6 +362,11 @@ public class AiActorService : IAiActorServiceExtended
 
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await RecordCancelledAsync(context, execution);
+            throw;
+        }
         catch (Exception ex)
         {
             execution.Phase = AiActorExecutionPhase.Failed;
@@ -369,7 +376,7 @@ public class AiActorService : IAiActorServiceExtended
             actor.Status = AiActorStatus.Failed;
             actor.LastError = ex.Message;
 
-            await context.SaveChangesAsync(cancellationToken);
+            await TrySaveFailureAsync(context);
 
             _logger.LogError("Think cycle failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
 
@@ -571,12 +578,17 @@ public class AiActorService : IAiActorServiceExtended
 
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await RecordCancelledAsync(context, execution);
+            throw;
+        }
         catch (Exception ex)
         {
             execution.Phase = AiActorExecutionPhase.Failed;
             execution.ErrorMessage = ex.Message;
             execution.CompletedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync(cancellationToken);
+            await TrySaveFailureAsync(context);
 
             _logger.LogError("Refinement failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);
@@ -760,6 +772,41 @@ public class AiActorService : IAiActorServiceExtended
 
     #region Private Helper Methods
 
+    // The failure record is written even when the cycle was cancelled (the cancelled token would drop it), bounded so a
+    // database that does not answer cannot hold the cycle. A save that fails is logged by class and never replaces the
+    // failure being handled.
+    private async Task TrySaveFailureAsync(BeaconContext context)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(FailureSaveTimeout);
+            await context.SaveChangesAsync(timeout.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("The failure record could not be saved ({Failure})", FailureCodes.Describe(ex));
+        }
+    }
+
+    // A cancelled cycle (host shutdown) only closes its own execution row; the actor and the plan keep their status, and
+    // whatever the interrupted cycle had changed but not saved (a plan marked executed, new queries) is not written.
+    private async Task RecordCancelledAsync(BeaconContext context, AiActorExecution execution)
+    {
+        var unsaved = context.ChangeTracker.Entries()
+            .Where(x => x.Entity != execution)
+            .ToList();
+        foreach (var entry in unsaved)
+        {
+            entry.State = EntityState.Detached;
+        }
+
+        execution.Phase = AiActorExecutionPhase.Failed;
+        execution.ErrorMessage = "cancelled";
+        execution.CompletedAt = DateTime.UtcNow;
+
+        await TrySaveFailureAsync(context);
+    }
+
     private async Task RunAsCreatorAsync(int actorId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(CancellationToken.None);
@@ -900,12 +947,17 @@ public class AiActorService : IAiActorServiceExtended
             _logger.LogInformation("Initial setup completed for actor {ActorId}: {QueriesCreated} queries, {SubscriptionsCreated} subscriptions",
                 actorId, execution.QueriesCreated, execution.SubscriptionsCreated);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await RecordCancelledAsync(context, execution);
+            throw;
+        }
         catch (Exception ex)
         {
             execution.Phase = AiActorExecutionPhase.Failed;
             execution.ErrorMessage = ex.Message;
             execution.CompletedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync(cancellationToken);
+            await TrySaveFailureAsync(context);
             throw;
         }
     }
@@ -1077,7 +1129,7 @@ public class AiActorService : IAiActorServiceExtended
     {
         var action = new AiActorAction
         {
-            Reasoning = plan.Reasoning
+            Reasoning = plan?.Reasoning
         };
 
         try
@@ -1122,7 +1174,7 @@ public class AiActorService : IAiActorServiceExtended
         {
             action.Success = false;
             action.ErrorMessage = ex.Message;
-            _logger.LogError("Failed to execute action {ActionType} ({Failure})", plan.ActionType, FailureCodes.Describe(ex));
+            _logger.LogError("Failed to execute action {ActionType} ({Failure})", plan?.ActionType, FailureCodes.Describe(ex));
         }
 
         return action;
@@ -2030,6 +2082,11 @@ public class AiActorService : IAiActorServiceExtended
 
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await RecordCancelledAsync(context, execution);
+            throw;
+        }
         catch (Exception ex)
         {
             execution.Phase = AiActorExecutionPhase.Failed;
@@ -2038,7 +2095,7 @@ public class AiActorService : IAiActorServiceExtended
 
             plan.Status = AiActorPlanStatus.Rejected;
 
-            await context.SaveChangesAsync(cancellationToken);
+            await TrySaveFailureAsync(context);
 
             _logger.LogError("Failed to execute approved plan {PlanId} ({Failure})", options.PlanId, FailureCodes.Describe(ex));
             return AiActorThinkResult.CreateFailure(execution.Id, ex.Message);

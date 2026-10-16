@@ -40,7 +40,7 @@ const SCHEMA = z.object({
   notificationTrigger: z.number().int(),
   minimumRowCount: optionalCount,
   recipientIds: z.array(z.number().int()),
-  maxRows: optionalCount,
+  maxRows: z.number({ message: 'Enter a whole number' }).int().min(1, 'Max rows must be at least 1, or empty for the default').nullable().optional(),
   timeoutSeconds: optionalCount,
   includeAttachment: z.boolean(),
   resultAttachmentType: z.number().int(),
@@ -142,6 +142,9 @@ const LABEL_CLS = 'text-2xs font-semibold uppercase tracking-eyebrow text-text-m
  * seconds unless the host changed it); the server refuses a subscription timeout above that limit.
  */
 const DEFAULT_STATEMENT_TIMEOUT_SECONDS = 120;
+
+/** The cap the server applies to a subscription whose Max rows is empty (`Constants.Query.DefaultMaxRows`). */
+const DEFAULT_MAX_ROWS = 10_000;
 
 interface AddSubscriptionDialogProps {
   open: boolean;
@@ -394,9 +397,11 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
               <Input
                 id="sub-max-rows"
                 type="number"
-                placeholder="No limit"
+                placeholder={`Default (${DEFAULT_MAX_ROWS.toLocaleString('en-US')} rows)`}
+                aria-invalid={!!errors.maxRows}
                 {...register('maxRows', { setValueAs: nullableNumber })}
               />
+              {errors.maxRows && <span className="text-xs text-crit">{errors.maxRows.message}</span>}
             </Field>
 
             <Field
@@ -572,7 +577,7 @@ export function AddSubscriptionDialog({ open, onClose, initialQueryId }: AddSubs
                 )}
             </dd>
             <dt className={LABEL_CLS}>Max rows</dt>
-            <dd>{values.maxRows ?? <span className="text-text-muted">No limit</span>}</dd>
+            <dd>{values.maxRows ?? <span className="text-text-muted">Default ({DEFAULT_MAX_ROWS.toLocaleString('en-US')} rows)</span>}</dd>
             <dt className={LABEL_CLS}>Timeout</dt>
             <dd>
               {values.timeoutSeconds == null

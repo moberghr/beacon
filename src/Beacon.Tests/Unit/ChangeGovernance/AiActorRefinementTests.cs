@@ -354,6 +354,43 @@ public class AiActorRefinementTests
             Times.Once);
     }
 
+    // A host shutdown mid-execution closes the execution row only: the plan is not rejected for good.
+    [Test]
+    public async Task ApprovingAPlan_CancelledMidExecution_DoesNotRejectThePlanAndRethrows()
+    {
+        var store = OwnedQuery();
+        var actor = Actor();
+        actor.DataSource = store.Warehouse;
+        store.Plans.Add(new AiActorPlan { Id = 31, AiActorId = ActorId, AiActor = actor, Status = AiActorPlanStatus.PendingApproval, Analysis = "a", ActionsJson = RefinementActions("SELECT 2") });
+        using var cancellation = new CancellationTokenSource();
+        _proposals
+            .Setup(x => x.RejectionAsync(It.IsAny<QueryDraft>(), It.IsAny<CancellationToken>()))
+            .Callback<QueryDraft, CancellationToken>((_, _) => cancellation.Cancel())
+            .ReturnsAsync((string?)null);
+
+        var act = () => Service(store, WorkflowOn()).ApprovePlanAsync(new ApprovePlanOptions { PlanId = 31, UserId = "ext-ben" }, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        store.Plans.Single().Status.Should().NotBe(AiActorPlanStatus.Rejected, "the approved plan is not rejected by a shutdown");
+        store.Saved.OfType<AiActorExecution>().Distinct().Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { Phase = AiActorExecutionPhase.Failed, ErrorMessage = "cancelled" },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task ApprovingAPlan_ThatFailsForARealReason_RejectsThePlan()
+    {
+        var store = OwnedQuery();
+        var actor = Actor();
+        actor.DataSource = store.Warehouse;
+        store.Plans.Add(new AiActorPlan { Id = 31, AiActorId = ActorId, AiActor = actor, Status = AiActorPlanStatus.PendingApproval, Analysis = "a", ActionsJson = "not json" });
+
+        var result = await Service(store, WorkflowOn()).ApprovePlanAsync(new ApprovePlanOptions { PlanId = 31, UserId = "ext-ben" }, CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        store.Plans.Single().Status.Should().Be(AiActorPlanStatus.Rejected);
+    }
+
     [TestCase(AiActorPlanStatus.Executing)]
     [TestCase(AiActorPlanStatus.Rejected)]
     [TestCase(AiActorPlanStatus.RevisionRequested)]

@@ -82,6 +82,64 @@ public class SubscriptionLifecycleTests
         context.Added.Should().ContainSingle().Which.TimeoutSeconds.Should().Be(60);
     }
 
+    // A cap below one row would deliver an empty result that looks like success, so it is refused on create and on update;
+    // an empty cap (the default) and a positive one are kept.
+    [TestCase(0)]
+    [TestCase(-1)]
+    public async Task ANonPositiveMaxRows_IsRefused_OnCreateAndUpdate(int maxRows)
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+        var service = BuildService(context);
+        var data = NewSubscriptionData(query.Id);
+        data.MaxRows = maxRows;
+
+        var create = () => service.CreateSubscription(data, CancellationToken.None);
+        var update = () => service.UpdateSubscription(data, CancellationToken.None);
+
+        await create.Should().ThrowAsync<InvalidOperationException>().WithMessage("*at least 1*");
+        await update.Should().ThrowAsync<InvalidOperationException>().WithMessage("*at least 1*");
+        context.Added.Should().BeEmpty();
+        context.SaveCount.Should().Be(0, "a refused cap saves nothing, on create or on update");
+    }
+
+    [Test]
+    public async Task APositiveMaxRows_IsStored_OnUpdate()
+    {
+        var subscription = new Subscription
+        {
+            Id = 37,
+            QueryId = 3,
+            CronExpression = "0 8 * * *",
+            MaxRows = 500,
+            Query = new Query { Id = 3, Name = "Overdue invoices" }
+        };
+        var context = new SubscriptionContext([subscription], [subscription.Query]);
+        var data = NewSubscriptionData(subscription.QueryId);
+        data.SubscriptionId = subscription.Id;
+        data.MaxRows = 25;
+
+        await BuildService(context).UpdateSubscription(data, CancellationToken.None);
+
+        subscription.MaxRows.Should().Be(25);
+        context.SaveCount.Should().BeGreaterThan(0, "the update reached the context");
+    }
+
+    [TestCase(null)]
+    [TestCase(1)]
+    public async Task AnEmptyOrPositiveMaxRows_IsKept_OnCreate(int? maxRows)
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+        var service = BuildService(context);
+        var data = NewSubscriptionData(query.Id);
+        data.MaxRows = maxRows;
+
+        (await service.CreateSubscription(data, CancellationToken.None)).Success.Should().BeTrue();
+
+        context.Added.Should().ContainSingle().Which.MaxRows.Should().Be(maxRows);
+    }
+
     [TestCase(true, false)]
     [TestCase(false, true)]
     public async Task CreateSubscription_ByACallerWithoutAStoredUser_NeedsAHostWithoutUserManagement(bool userManagement, bool created)
@@ -245,6 +303,8 @@ public class SubscriptionLifecycleTests
         private readonly DbSet<Query> _queries;
         private readonly DbSet<QueryStep> _querySteps = BuildSet(new List<QueryStep>());
         private readonly DbSet<Recipient> _recipients = BuildSet(new List<Recipient>());
+        private readonly DbSet<QueryParameter> _queryParameters = BuildSet(new List<QueryParameter>());
+        private readonly DbSet<SubscriptionParameter> _subscriptionParameters = BuildSet(new List<SubscriptionParameter>());
 
         public List<Subscription> Added { get; } = [];
 
@@ -267,6 +327,8 @@ public class SubscriptionLifecycleTests
                 var x when x == typeof(Query) => _queries,
                 var x when x == typeof(QueryStep) => _querySteps,
                 var x when x == typeof(Recipient) => _recipients,
+                var x when x == typeof(QueryParameter) => _queryParameters,
+                var x when x == typeof(SubscriptionParameter) => _subscriptionParameters,
                 _ => null
             };
 

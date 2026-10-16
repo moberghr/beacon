@@ -160,7 +160,10 @@ public sealed class SqlExecutionGate(
             schemaResult.ColumnsUsed,
             piiColumns,
             lintFindings,
-            new SqlGateVerdicts(readOnly, schema, lint, rowLimit));
+            new SqlGateVerdicts(readOnly, schema, lint, rowLimit))
+        {
+            HostMaskedColumns = hostCheck?.MaskedOutputColumns ?? []
+        };
     }
 
     private bool IsTooLong(string? sql, out int maxSqlChars)

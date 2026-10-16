@@ -39,7 +39,7 @@ evaluated: write relative dates into the query's SQL instead.
 
 | Field | Default | What it does |
 |---|---|---|
-| **Max rows** | no limit | The most rows that reach recipients: the inline table and the attachment. The run's record count is always the full count. |
+| **Max rows** | default cap (10,000) | At least 1; empty or a stored 0 uses the default. The most rows that reach recipients: the inline table and the attachment. The run's record count is always the full count. |
 | **Timeout (seconds)** | the deployment's limit | How long each statement of a run may take, the in-memory final query included. Empty uses `Beacon:Query:StatementTimeoutSeconds` (default 120). A longer value than that limit is refused when you save. |
 | **Include results as attachment** | off | Attach the result to the notification as **CSV** or **XLSX** (**Attachment format**). Only email delivers attachments. |
 | **Show query text in notification** | off | Include the SQL in the message. |

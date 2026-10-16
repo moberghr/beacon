@@ -33,8 +33,10 @@ internal sealed class LoginRateLimiter : IDisposable
                         AutoReplenishment = true
                     }));
 
-    // Exists for hosts that call MapBeaconApi() without AddBeaconApiServices(), where no LoginRateLimiter is registered.
-    /// <summary>Process-wide fallback used when the host never called <c>AddBeaconApiServices</c>.</summary>
+    /// <summary>
+    /// Process-wide fallback for hosts that call <c>MapBeaconApi()</c> without <c>AddBeaconApiServices()</c>, where no
+    /// <see cref="LoginRateLimiter"/> is registered.
+    /// </summary>
     internal static LoginRateLimiter Default => DefaultInstance.Value;
 
     public bool TryAcquire(string partitionKey, out TimeSpan retryAfter)

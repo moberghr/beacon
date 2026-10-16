@@ -420,6 +420,32 @@ public class HostDataSourceSynchronizerTests
         report.PiiColumns.Should().Contain("n", "the masked column leaves the query under its alias");
     }
 
+    // The report names the host-masked output columns exactly as the host check derived them, for full masking.
+    [Test]
+    public void Gate_HostMaskedColumns_AreTheHostChecksMaskedOutputColumns()
+    {
+        const string sql = "SELECT Id, Name AS n FROM dbo.Customer";
+        var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "Name")));
+        var gate = TestSqlGate.Create(hostGuard: guard);
+
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "MSSQL", TestSqlGate.DefaultSettings()) with
+        {
+            HostManagedKey = "efcore:Netgiro"
+        });
+
+        report.Blocked.Should().BeFalse(report.BlockReason);
+        report.HostMaskedColumns.Should().Equal(guard.Check("efcore:Netgiro", sql).MaskedOutputColumns);
+        report.HostMaskedColumns.Should().Equal("n");
+    }
+
+    [Test]
+    public void Gate_OrdinarySource_HasNoHostMaskedColumns()
+    {
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT email FROM users", "PostgreSQL", TestSqlGate.DefaultSettings()));
+
+        report.HostMaskedColumns.Should().BeEmpty();
+    }
+
     [Test]
     public void Gate_HostKeyWithoutGuard_FailsClosed()
     {
