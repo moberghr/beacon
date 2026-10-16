@@ -210,7 +210,7 @@ Execute a direct SQL query against a specific data source. Use this when you alr
 | `datasource_id` | integer | No* | None | ID of the data source (alternative to name) |
 | `sql` | string | No | None | SQL query (SELECT only) for database sources |
 | `api_query` | string | No | None | JSON query definition for REST API sources |
-| `max_rows` | integer | No | `100` | Maximum rows to return, capped at the project's max row limit (default 1000) |
+| `max_rows` | integer | No | `100` | Maximum rows to return, capped at the project's max row limit (default 1000). A value of 0 or below is raised to 1. |
 | `project_id` | integer | No | None | Specify project if needed |
 
 *Either `datasource_name` or `datasource_id` is required.
@@ -448,7 +448,7 @@ The tabs:
 - Override the description returned by `tools/list` for `get_context`, `ask`, `query`, `get_documentation`, and `search`. Leave a field blank to keep the built-in description. Overrides are applied to the live tool list, so connected clients see your wording. `dry_run`, `get_query_context`, and `feedback` currently use their built-in descriptions only.
 
 **Guardrails**
-- **Max row limit**: the ceiling on rows returned (default: 1000)
+- **Max row limit**: the ceiling on rows returned (default: 1000). It must be at least 1; a save with a lower value, globally or for a project, is rejected with `400`. A lower value stored before this check is read as 1, so `query`, `dry_run`, `ask`, cross-source queries and evaluations all cap at one row, never run uncapped and never refuse the cap itself.
 - **Read-only enforcement**: the SELECT-only restriction; locked on by default (see below)
 - **PII detection**: enable/disable, plus custom PII regex patterns; detection is locked on by default (see below)
 - **Row data sent to the LLM provider**: sample-value collection and value grounding, both off by default (see [What reaches the LLM provider](#what-reaches-the-llm-provider))

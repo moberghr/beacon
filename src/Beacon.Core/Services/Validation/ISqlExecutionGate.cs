@@ -159,6 +159,9 @@ public static class SqlGateCodes
     /// <summary>Row limit: the outermost query's own bound can neither be checked against the cap nor capped, so it is blocked.</summary>
     public const string UncappableBound = "uncappable_bound";
 
+    /// <summary>Row limit: the requested cap is zero or below, so the statement is blocked rather than run uncapped.</summary>
+    public const string InvalidRowCap = "invalid_row_cap";
+
     /// <summary>Row limit: the statement carries no result set to cap.</summary>
     public const string NotApplicable = "not_applicable";
 

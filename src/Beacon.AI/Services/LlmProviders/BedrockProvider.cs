@@ -12,6 +12,7 @@ public class BedrockProvider : ILlmProvider
 {
     private readonly AmazonBedrockRuntimeClient _client;
     private readonly string _modelId;
+    private readonly Amazon.Runtime.AWSCredentials? _explicitCredentials;
     private readonly Dictionary<string, (decimal input, decimal output)> _pricing = new()
     {
         // Claude Sonnet 4.5 pricing (per million tokens)
@@ -63,7 +64,8 @@ public class BedrockProvider : ILlmProvider
         ArgumentNullException.ThrowIfNullOrWhiteSpace(modelId);
 
         var config = CreateConfig(region);
-        _client = new AmazonBedrockRuntimeClient(accessKey, secretKey, config);
+        _explicitCredentials = new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey);
+        _client = new AmazonBedrockRuntimeClient(_explicitCredentials, config);
         _modelId = modelId;
     }
 
@@ -78,8 +80,8 @@ public class BedrockProvider : ILlmProvider
         try
         {
             var config = CreateConfig(region);
-            var credentials = new Amazon.Runtime.SessionAWSCredentials(accessKey, secretKey, sessionToken);
-            _client = new AmazonBedrockRuntimeClient(credentials, config);
+            _explicitCredentials = new Amazon.Runtime.SessionAWSCredentials(accessKey, secretKey, sessionToken);
+            _client = new AmazonBedrockRuntimeClient(_explicitCredentials, config);
             _modelId = modelId;
         }
         catch (Exception ex)
@@ -87,6 +89,9 @@ public class BedrockProvider : ILlmProvider
             throw new InvalidOperationException($"Failed to initialize BedrockProvider: {ex.Message}", ex);
         }
     }
+
+    /// <summary>The static credentials the client was built with; null when it uses the default AWS credential chain.</summary>
+    internal Amazon.Runtime.AWSCredentials? ExplicitCredentials => _explicitCredentials;
 
     private static AmazonBedrockRuntimeConfig CreateConfig(string region)
     {

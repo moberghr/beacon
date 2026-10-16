@@ -25,13 +25,16 @@ public enum SqlRowLimitOutcome
     /// </summary>
     OwnBoundCapped,
 
-    /// <summary>The statement cannot carry a row limit (blank SQL, non-query statement, maxRows &lt;= 0).</summary>
+    /// <summary>The statement cannot carry a row limit (blank SQL, non-query statement).</summary>
     NotApplicable,
 
     /// <summary>The SQL did not parse, so the legacy regex heuristic decided the placement.</summary>
     TextualFallback,
 
-    /// <summary>The SQL parsed but is nested too deeply to place a cap safely; it must not run.</summary>
+    /// <summary>
+    /// The statement must not run: the SQL parsed but is nested too deeply to place a cap safely, its own bound cannot be
+    /// capped, or the cap itself is zero or below.
+    /// </summary>
     Refused
 }
 
@@ -58,6 +61,8 @@ public sealed record SqlRowLimitResult(string Sql, SqlRowLimitOutcome Outcome, s
 /// </summary>
 public static class SqlRowLimitRewriter
 {
+    public const string InvalidRowCapMessage = "The row cap must be at least 1 row.";
+
     // Legacy textual heuristics, retained only for the parse-failure fallback path.
     private static readonly Regex SelectKeywordPattern = new(
         @"\bSELECT\b",
@@ -80,11 +85,20 @@ public static class SqlRowLimitRewriter
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <param name="sql">The query to bound.</param>
-    /// <param name="maxRows">Row cap; zero or negative leaves the SQL untouched.</param>
+    /// <param name="maxRows">Row cap; zero or below is refused, never read as "no cap".</param>
     /// <param name="dialect">Database engine name (PostgreSQL, MSSQL, AzureSynapse, MySQL, …).</param>
     public static SqlRowLimitResult Apply(string sql, int maxRows, string? dialect)
     {
-        if (maxRows <= 0 || string.IsNullOrWhiteSpace(sql))
+        if (maxRows <= 0)
+        {
+            return new SqlRowLimitResult(sql, SqlRowLimitOutcome.Refused)
+            {
+                RefusalCode = SqlGateCodes.InvalidRowCap,
+                RefusalMessage = InvalidRowCapMessage
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(sql))
         {
             return new SqlRowLimitResult(sql, SqlRowLimitOutcome.NotApplicable);
         }

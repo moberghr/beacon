@@ -288,6 +288,116 @@ public class McpLearningDetectionTests
     }
 
     [Test]
+    public async Task CleanupOldSignalsAsync_ThroughTheInterface_GlobalLearningOff_StillAppliesEachProjectsWindow()
+    {
+        // Learning is off globally but on for project 1 (30-day window), so its signals are still recorded and must
+        // still expire. Called the way the job calls it: through the interface, with no argument.
+        var p1Old = AgedSignal(projectId: 1, ageDays: 45);
+        var p1Fresh = AgedSignal(projectId: 1, ageDays: 10);
+        var noneOld = AgedSignal(projectId: null, ageDays: 95);
+        var noneFresh = AgedSignal(projectId: null, ageDays: 30);
+        var signals = new List<McpQuerySignal> { p1Old, p1Fresh, noneOld, noneFresh };
+        IMcpLearningAggregationService service = BuildAggregationService(
+            signals,
+            [],
+            perProject: new Dictionary<int, McpSettingsData>
+            {
+                [1] = new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = 30 }
+            },
+            globalSettings: new McpSettingsData { EnableLearning = false, LearningSignalRetentionDays = 90 });
+
+        await service.CleanupOldSignalsAsync();
+
+        signals.Should().Equal([p1Fresh, noneFresh],
+            "project 1's 45-day row exceeds its 30-day window and the 95-day projectless row exceeds the global 90, whatever the global learning switch says");
+    }
+
+    [Test]
+    public async Task CleanupOldSignalsAsync_LegacyWindowsBelowOneDay_FallBackToTheDefault_NeverDeleteRecentSignals()
+    {
+        // Rows stored before the settings handlers refused a window below one day: the global 0 falls back to the
+        // default 90 days, project 1's 0 to that global window, project 2's 10 days still applies.
+        var p1Recent = AgedSignal(projectId: 1, ageDays: 1);
+        var p1Old = AgedSignal(projectId: 1, ageDays: 95);
+        var p2Old = AgedSignal(projectId: 2, ageDays: 15);
+        var noneRecent = AgedSignal(projectId: null, ageDays: 1);
+        var noneOld = AgedSignal(projectId: null, ageDays: 95);
+        var signals = new List<McpQuerySignal> { p1Recent, p1Old, p2Old, noneRecent, noneOld };
+        var service = BuildAggregationService(
+            signals,
+            [],
+            perProject: new Dictionary<int, McpSettingsData>
+            {
+                [1] = new McpSettingsData { LearningSignalRetentionDays = 0 },
+                [2] = new McpSettingsData { LearningSignalRetentionDays = 10 }
+            },
+            globalSettings: new McpSettingsData { LearningSignalRetentionDays = 0 });
+
+        await service.CleanupOldSignalsAsync(ct: CancellationToken.None);
+
+        signals.Should().Equal([p1Recent, noneRecent],
+            "a window below one day is the default 90 days, never \"delete every signal\"; project 2's own 10 days still applies");
+    }
+
+    [Test]
+    public async Task CleanupOldSignalsAsync_AProjectsLegacyWindowBelowOneDay_UsesTheGlobalWindow()
+    {
+        var p1Recent = AgedSignal(projectId: 1, ageDays: 10);
+        var p1Old = AgedSignal(projectId: 1, ageDays: 45);
+        var signals = new List<McpQuerySignal> { p1Recent, p1Old };
+        var service = BuildAggregationService(
+            signals,
+            [],
+            perProject: new Dictionary<int, McpSettingsData> { [1] = new McpSettingsData { LearningSignalRetentionDays = -1 } },
+            globalSettings: new McpSettingsData { LearningSignalRetentionDays = 30 });
+
+        await service.CleanupOldSignalsAsync(ct: CancellationToken.None);
+
+        signals.Should().Equal([p1Recent], "project 1's -1 is the global 30 days");
+    }
+
+    [Test]
+    public async Task CleanupOldSignalsAsync_OneProjectFailing_StillPurgesTheOthers_ThenThrows()
+    {
+        // Project 2 comes first and fails; project 1 and the projectless signals are still cleaned up.
+        var p2Old = AgedSignal(projectId: 2, ageDays: 95);
+        var p1Old = AgedSignal(projectId: 1, ageDays: 95);
+        var p1Fresh = AgedSignal(projectId: 1, ageDays: 5);
+        var noneOld = AgedSignal(projectId: null, ageDays: 95);
+        var signals = new List<McpQuerySignal> { p2Old, p1Old, p1Fresh, noneOld };
+        var service = BuildAggregationService(
+            signals,
+            [],
+            configureSettings: x => x
+                .Setup(y => y.GetEffectiveSettingsAsync(2, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("settings row unreadable")));
+
+        var act = () => service.CleanupOldSignalsAsync(ct: CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*1 project(s) could not be cleaned up*");
+        signals.Should().Equal([p2Old, p1Fresh], "project 2 was skipped; project 1 and the projectless signals were cleaned up");
+    }
+
+    [Test]
+    public async Task CleanupOldSignalsAsync_Cancelled_Propagates_WithoutTheRemainingDeletes()
+    {
+        var p1Old = AgedSignal(projectId: 1, ageDays: 95);
+        var noneOld = AgedSignal(projectId: null, ageDays: 95);
+        var signals = new List<McpQuerySignal> { p1Old, noneOld };
+        var service = BuildAggregationService(
+            signals,
+            [],
+            configureSettings: x => x
+                .Setup(y => y.GetEffectiveSettingsAsync(1, It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new OperationCanceledException()));
+
+        var act = () => service.CleanupOldSignalsAsync(ct: CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        signals.Should().Equal([p1Old, noneOld], "a cancelled run stops at once");
+    }
+
+    [Test]
     public async Task CleanupOldSignalsAsync_ExplicitRetentionDays_WinsOverEveryWindow()
     {
         var p1 = AgedSignal(projectId: 1, ageDays: 15);
@@ -411,7 +521,9 @@ public class McpLearningDetectionTests
         List<McpQuerySignal> signals,
         List<McpLearnedPattern> captured,
         IReadOnlyDictionary<int, McpSettingsData>? perProject = null,
-        ILessonExtractor? lessonExtractor = null)
+        ILessonExtractor? lessonExtractor = null,
+        McpSettingsData? globalSettings = null,
+        Action<Mock<IMcpSettingsProvider>>? configureSettings = null)
     {
         var patternSet = BuildDbSet(Array.Empty<McpLearnedPattern>());
         patternSet
@@ -436,13 +548,14 @@ public class McpLearningDetectionTests
             .ReturnsAsync(context);
 
         var settingsProvider = SettingsProviderMock.Create(
-            new McpSettingsData
+            globalSettings ?? new McpSettingsData
             {
                 EnableLearning = true,
                 LearningSignalRetentionDays = 90,
                 EnableReplayVerification = false
             },
             projectSettings: perProject);
+        configureSettings?.Invoke(settingsProvider);
 
         return new McpLearningAggregationService(
             factory.Object,

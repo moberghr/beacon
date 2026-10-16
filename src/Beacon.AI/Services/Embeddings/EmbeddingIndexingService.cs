@@ -129,8 +129,18 @@ internal sealed class EmbeddingIndexingService(
         // ExampleQuestion (corrections, joins, doc-gaps) embed their PatternContent instead so they can be
         // ranked by masked-question similarity too. Superseded (stale) patterns are skipped: they are never
         // injected, so indexing their vectors would only waste space and risk a stale hit mapping back.
+        // A pattern belongs to its project (§1.12): only the projects that link this data source contribute
+        // exemplars, and each exemplar row is stamped with its own project, never another project sharing the source.
+        // Archiving a project keeps its links, so an archived project is excluded here.
+        var linkedProjectIds = await context.ProjectDataSources
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.Project.ArchivedTime == null)
+            .Select(x => x.ProjectId)
+            .ToListAsync(ct);
+
         var exemplars = await context.McpLearnedPatterns
             .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => linkedProjectIds.Contains(x.ProjectId))
             .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
             .Where(x => x.SupersededAt == null)
             .Select(x =>

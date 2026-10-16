@@ -103,6 +103,11 @@ internal sealed class McpSettingsProvider(
         }
 
         ApplyCeilings(effective, options.Ceilings ?? new McpCeilingOptions(), clamped);
+
+        // A stored row cap below one row (written before the write handlers refused it) is one row: every tool that
+        // reads the effective settings gets the same cap, never an uncapped read or a refusal of the cap itself.
+        effective.MaxRowLimit = Math.Max(1, effective.MaxRowLimit);
+
         ApplyLocks(effective, options, locked);
 
         return new McpEffectiveSettings(effective, locked, clamped);

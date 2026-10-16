@@ -32,7 +32,7 @@ The provider is built from `Beacon:LLM` each time the process starts. Keep that 
 | `OpenAI` | `ApiKey`, `Model` | Calls the public OpenAI API. |
 | `Claude` (shown as **Anthropic** in the UI) | `ApiKey`, `Model` | Calls `https://api.anthropic.com`. |
 | `AzureOpenAI` | `Endpoint`, `ApiKey`, `Model` (the **deployment name**) | |
-| `Bedrock` | `Region`, `Model` (model id) | `ApiKey` empty → the default AWS credential chain (instance role, environment); `accessKey:secretKey` → explicit keys, plus `SessionToken` for temporary credentials. |
+| `Bedrock` | `Region`, `Model` (model id) | `BedrockAuthMode`: `IamRole` (default) → the default AWS credential chain (instance role, environment); `AccessKey` → `AwsAccessKeyId` and `AwsSecretAccessKey`; `TemporaryCredentials` → those plus `SessionToken`. A legacy `ApiKey` of `accessKey:secretKey` is used when both key fields are empty; under `IamRole` a warning is logged. |
 
 ```json
 {

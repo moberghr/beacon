@@ -41,6 +41,18 @@ internal sealed class UpdateMcpProjectSettingsHandler(
             }
         }
 
+        // Same row-cap floor as the global handler; null keeps the global value.
+        if (data.MaxRowLimit is < 1)
+        {
+            throw new InvalidOperationException("MaxRowLimit must be at least 1.");
+        }
+
+        // Same retention floor as the global handler; null keeps the global window.
+        if (data.LearningSignalRetentionDays is < 1)
+        {
+            throw new InvalidOperationException("LearningSignalRetentionDays must be at least 1.");
+        }
+
         // Same write-time regex validation as the global handler — an unparseable pattern must never be persisted.
         foreach (var pattern in data.CustomPiiPatterns ?? [])
         {

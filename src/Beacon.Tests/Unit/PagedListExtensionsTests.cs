@@ -31,6 +31,7 @@ public class PagedListExtensionsTests
     [TestCase(-3, 0, 0, 1)]
     [TestCase(2, 100_000, 2, ListRequest.MaxPageSize)]
     [TestCase(1, 5, 1, 5)]
+    [TestCase(int.MaxValue, int.MaxValue, ListRequest.MaxPage, ListRequest.MaxPageSize)]
     public void PagingValues_AreDefaultedAndClamped(int? page, int? pageSize, int expectedPage, int expectedPageSize)
     {
         var request = new TestRequest { Page = page, PageSize = pageSize };
@@ -47,6 +48,16 @@ public class PagedListExtensionsTests
         criteria.Select(x => (x.SortColumn, x.SortDirection)).Should().Equal(
             ("score", SortDirection.Descending),
             ("name", SortDirection.Ascending));
+    }
+
+    // A page past the end is empty: the offset never overflows into a negative skip that would serve the first page.
+    [Test]
+    public void ToPagedList_HugePage_IsEmpty_NeverTheFirstPage()
+    {
+        var page = Rows.ToPagedList(new TestRequest { Page = int.MaxValue, PageSize = ListRequest.MaxPageSize });
+
+        page.Items.Should().BeEmpty();
+        page.TotalCount.Should().Be(Rows.Length);
     }
 
     [Test]

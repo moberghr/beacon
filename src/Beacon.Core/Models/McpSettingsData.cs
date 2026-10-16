@@ -2,6 +2,9 @@ namespace Beacon.Core.Models;
 
 public class McpSettingsData
 {
+    /// <summary>The learning-signal retention window a new settings row starts with, in days.</summary>
+    public const int DefaultLearningSignalRetentionDays = 90;
+
     public string? AskSystemPrompt { get; set; }
     public string? GlobalInstruction { get; set; }
     public string? GetContextDescription { get; set; }
@@ -20,7 +23,7 @@ public class McpSettingsData
     public bool EnableLearning { get; set; } = true;
     public double LearningAutoApproveThreshold { get; set; } = 0.7;
     public int LearningInjectionBudgetChars { get; set; } = 1500;
-    public int LearningSignalRetentionDays { get; set; } = 90;
+    public int LearningSignalRetentionDays { get; set; } = DefaultLearningSignalRetentionDays;
 
     // Self-learning settings
     public bool EnableSelfConsistency { get; set; } = false;

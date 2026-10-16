@@ -370,6 +370,19 @@ public class SqlExecutionGateTests
         report.FinalSql.Should().EndWith(" LIMIT 100");
     }
 
+    // A requested cap of zero or below blocks the statement: the row-limit stage fails closed, never "no cap".
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void Evaluate_NonPositiveMaxRows_Blocked(int maxRows)
+    {
+        var report = _gate.Evaluate(Request("SELECT id FROM orders") with { MaxRows = maxRows });
+
+        report.Blocked.Should().BeTrue();
+        report.BlockReason.Should().Be(SqlRowLimitRewriter.InvalidRowCapMessage);
+        report.Verdicts.RowLimit.Status.Should().Be(SqlGateStatus.Fail);
+        report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.InvalidRowCap);
+    }
+
     [Test]
     public void Evaluate_ExplainTable_RowLimitNotApplicable()
     {

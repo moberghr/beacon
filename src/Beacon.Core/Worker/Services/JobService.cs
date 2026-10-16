@@ -106,9 +106,9 @@ internal class JobService(
             throw new BeaconConflictException(ex.Message);
         }
 
-        // Set subscription specific parameters
+        // Set subscription specific parameters. MaxRows stays the effective cap the query service applied (the
+        // subscription's own, else the default); the subscription's nullable value would erase the default.
         queryResult.ShowQuery = subscription.ShowQuery;
-        queryResult.MaxRows = subscription.MaxRows;
 
         // Apply max rows limit if specified
         if (subscription.MaxRows.HasValue && subscription.MaxRows > 0)
@@ -582,7 +582,8 @@ internal class JobService(
             return;
         }
 
-        await mcpLearningService.CleanupOldSignalsAsync(ct: cancellationToken);
+        // 0: each project's own retention window, the global window for signals without a project.
+        await mcpLearningService.CleanupOldSignalsAsync(retentionDays: 0, ct: cancellationToken);
     }
 
     public async Task ReindexEmbeddings(CancellationToken cancellationToken)

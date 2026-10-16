@@ -71,6 +71,17 @@ public class SqlPageExecutorTests
         page.SortApplied.Should().BeFalse();
     }
 
+    // A huge page reads past the end on both paths: the offset never overflows into a negative one that serves the first rows.
+    [TestCase("SELECT id, name FROM people")]
+    [TestCase("SELECT id, name FROM people -- streamed")]
+    public async Task HugePage_IsEmpty_NeverTheFirstPage(string sql)
+    {
+        var page = await Run(sql, new Paging { Page = int.MaxValue, PageSize = int.MaxValue }, _ => true);
+
+        page.TotalCount.Should().Be(45);
+        page.Rows.Should().BeEmpty();
+    }
+
     private Task<SqlResultPage> Run(string sql, ListRequest paging, Func<string, bool> isAllowed) =>
         SqlPageExecutor.ExecuteAsync(_connection, sql, null, "SQLite", paging, isAllowed, null, CancellationToken.None);
 

@@ -1,5 +1,6 @@
 using Beacon.AI.Models.Configuration;
 using Beacon.Core.Data.Enums;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.AI.Services.LlmProviders;
 
@@ -11,10 +12,12 @@ namespace Beacon.AI.Services.LlmProviders;
 public class LlmProviderFactory
 {
     private readonly Func<LlmConfiguration> _configAccessor;
+    private readonly ILogger? _logger;
 
-    public LlmProviderFactory(Func<LlmConfiguration> configAccessor)
+    public LlmProviderFactory(Func<LlmConfiguration> configAccessor, ILogger<LlmProviderFactory>? logger = null)
     {
         _configAccessor = configAccessor ?? throw new ArgumentNullException(nameof(configAccessor));
+        _logger = logger;
     }
 
     public ILlmProvider CreateProvider()
@@ -62,7 +65,7 @@ public class LlmProviderFactory
         return new AzureOpenAiProvider(config.Endpoint, config.ApiKey, model);
     }
 
-    private static BedrockProvider CreateBedrockProvider(LlmConfiguration config, bool useFastModel)
+    private BedrockProvider CreateBedrockProvider(LlmConfiguration config, bool useFastModel)
     {
         if (string.IsNullOrEmpty(config.Region))
         {
@@ -72,21 +75,80 @@ public class LlmProviderFactory
         var modelId = (useFastModel && !string.IsNullOrEmpty(config.FastModel) ? config.FastModel : config.Model)
             ?? throw new InvalidOperationException("Model ID is required for Bedrock provider");
 
-        // If ApiKey contains both access and secret keys (format: "accessKey:secretKey")
-        if (!string.IsNullOrEmpty(config.ApiKey) && config.ApiKey.Contains(':'))
+        switch (config.BedrockAuthMode)
         {
-            var parts = config.ApiKey.Split(':', 2);
-            if (parts.Length != 2)
-            {
-                throw new InvalidOperationException("ApiKey format should be 'accessKey:secretKey'");
-            }
+            case BedrockAuthMode.AccessKey:
+                {
+                    var (accessKeyId, secretAccessKey) = RequireAccessKeyPair(config);
 
-            return !string.IsNullOrEmpty(config.SessionToken)
-                ? new BedrockProvider(parts[0], parts[1], config.SessionToken, config.Region, modelId)
-                : new BedrockProvider(parts[0], parts[1], config.Region, modelId);
+                    return new BedrockProvider(accessKeyId, secretAccessKey, config.Region, modelId);
+                }
+
+            case BedrockAuthMode.TemporaryCredentials:
+                {
+                    var (accessKeyId, secretAccessKey) = RequireAccessKeyPair(config);
+                    if (string.IsNullOrWhiteSpace(config.SessionToken))
+                    {
+                        throw new InvalidOperationException("Bedrock temporary credentials require a session token");
+                    }
+
+                    return new BedrockProvider(accessKeyId, secretAccessKey, config.SessionToken, config.Region, modelId);
+                }
+
+            case BedrockAuthMode.IamRole:
+                // Installs that stored the pair as "accessKeyId:secretAccessKey" in ApiKey keep working, with a warning:
+                // the client then uses those static keys, not the default AWS credential chain the mode names.
+                if (LegacyPairOf(config) is { } legacy)
+                {
+                    _logger?.LogWarning(
+                        "Bedrock is set to the IAM role mode but uses the static access keys stored in the legacy API key field, not the default AWS credential chain. Store the keys in the access key mode, or clear the API key field to use the IAM role.");
+
+                    return !string.IsNullOrEmpty(config.SessionToken)
+                        ? new BedrockProvider(legacy.AccessKeyId, legacy.SecretAccessKey, config.SessionToken, config.Region, modelId)
+                        : new BedrockProvider(legacy.AccessKeyId, legacy.SecretAccessKey, config.Region, modelId);
+                }
+
+                // Default AWS credentials (IAM role, environment variables, etc.)
+                break;
+
+            default:
+                throw new InvalidOperationException($"Bedrock authentication mode {config.BedrockAuthMode} is not supported");
         }
 
-        // Use default AWS credentials (IAM role, environment variables, etc.)
         return new BedrockProvider(config.Region, modelId);
+    }
+
+    /// <summary>
+    /// The access key fields when both are set. When both are empty, the pair an older install stored as
+    /// <c>accessKeyId:secretAccessKey</c> in ApiKey; a missing half, or neither, fails instead of reaching the default chain.
+    /// </summary>
+    private static (string AccessKeyId, string SecretAccessKey) RequireAccessKeyPair(LlmConfiguration config)
+    {
+        var hasAccessKeyId = !string.IsNullOrWhiteSpace(config.AwsAccessKeyId);
+        var hasSecretAccessKey = !string.IsNullOrWhiteSpace(config.AwsSecretAccessKey);
+        if (hasAccessKeyId && hasSecretAccessKey)
+        {
+            return (config.AwsAccessKeyId!, config.AwsSecretAccessKey!);
+        }
+
+        if (!hasAccessKeyId && !hasSecretAccessKey && LegacyPairOf(config) is { } legacy)
+        {
+            return legacy;
+        }
+
+        throw new InvalidOperationException(
+            $"Bedrock {config.BedrockAuthMode} authentication requires both an AWS access key id and a secret access key");
+    }
+
+    private static (string AccessKeyId, string SecretAccessKey)? LegacyPairOf(LlmConfiguration config)
+    {
+        if (string.IsNullOrEmpty(config.ApiKey) || !config.ApiKey.Contains(':'))
+        {
+            return null;
+        }
+
+        var parts = config.ApiKey.Split(':', 2);
+
+        return (parts[0], parts[1]);
     }
 }

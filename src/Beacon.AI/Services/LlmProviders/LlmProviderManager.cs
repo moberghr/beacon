@@ -1,5 +1,6 @@
 using Beacon.AI.Models.Configuration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Settings;
 using Beacon.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -38,10 +39,11 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             }
             catch (Exception ex)
             {
+                // The failure's types and codes only: an SDK message can carry credential or profile details.
                 _logger.LogWarning(
-                    ex,
-                    "Initial LLM provider construction failed for provider {Provider}. Starting with no active provider; configure via Admin Settings.",
-                    _config.Provider);
+                    "Initial LLM provider construction failed for provider {Provider} ({Failure}). Starting with no active provider; configure via Admin Settings.",
+                    _config.Provider,
+                    FailureCodes.Describe(ex));
             }
         }
     }
@@ -66,6 +68,9 @@ public class LlmProviderManager : ILlmConfigurationUpdater
                 Endpoint = settings.LlmEndpoint,
                 Region = settings.LlmRegion,
                 SessionToken = settings.LlmSessionToken,
+                AwsAccessKeyId = settings.LlmAwsAccessKeyId,
+                AwsSecretAccessKey = settings.LlmAwsSecretAccessKey,
+                BedrockAuthMode = settings.LlmBedrockAuthMode,
                 Model = settings.LlmModel ?? string.Empty,
                 FastModel = settings.LlmFastModel,
                 Limits = new ProviderLimits
@@ -81,22 +86,25 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             // factory accessor will see either the old or the new instance, never a torn one.
             Interlocked.Exchange(ref _config, next);
 
-            // Recreate provider with updated config
+            // The active provider always matches the published configuration: when the new one cannot build a provider,
+            // there is no active provider, never the previous one (which could run under other credentials).
+            ILlmProvider? rebuilt = null;
             if (!string.IsNullOrEmpty(next.ApiKey) || next.Provider == AiProvider.Bedrock)
             {
                 try
                 {
-                    var rebuilt = _factory.CreateProvider();
-                    Interlocked.Exchange(ref _currentProvider, rebuilt);
+                    rebuilt = _factory.CreateProvider();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(
-                        ex,
-                        "LLM provider rebuild after configuration update failed for provider {Provider}. Keeping previous provider.",
-                        next.Provider);
+                        "LLM provider rebuild after configuration update failed for provider {Provider} ({Failure}). No provider is active until the configuration is fixed.",
+                        next.Provider,
+                        FailureCodes.Describe(ex));
                 }
             }
+
+            Interlocked.Exchange(ref _currentProvider, rebuilt);
         }
     }
 }

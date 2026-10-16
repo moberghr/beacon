@@ -16,6 +16,12 @@ public abstract record ListRequest
 
     public const int MaxPageSize = 200;
 
+    /// <summary>
+    /// The highest page served: <c>MaxPage * MaxPageSize</c> still fits an <see cref="int"/>, so the row offset every
+    /// list computes as <c>PageOrDefault * PageSizeOrDefault</c> never overflows into a negative OFFSET.
+    /// </summary>
+    public const int MaxPage = int.MaxValue / MaxPageSize;
+
     public int? Page { get; init; }
 
     public int? PageSize { get; init; }
@@ -27,7 +33,7 @@ public abstract record ListRequest
     /// </summary>
     public string? Sort { get; init; }
 
-    public int PageOrDefault => Math.Max(0, Page ?? 0);
+    public int PageOrDefault => Math.Clamp(Page ?? 0, 0, MaxPage);
 
     public int PageSizeOrDefault => Math.Clamp(PageSize ?? DefaultPageSize, 1, MaxPageSize);
 

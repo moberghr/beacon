@@ -367,6 +367,42 @@ public class NotificationDeliveryTests
         store.History.Single().DataSourceIds.Should().Equal(10, 20);
     }
 
+    // The run reports the row cap the query service applied: a subscription without its own MaxRows gets the default.
+    [Test]
+    public async Task ExecuteQuery_SubscriptionWithoutMaxRows_ReportsTheDefaultCap()
+    {
+        var store = new JobStore();
+        var notifications = new Mock<INotificationService>();
+        var sent = new List<RecipientQueryResult>();
+        notifications
+            .Setup(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientQueryResult, int?, CancellationToken>((x, _, _) => sent.Add(x));
+
+        await JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [9], maxRows: Constants.Query.DefaultMaxRows)
+            .ExecuteQuery(5, CancellationToken.None);
+
+        store.Subscriptions.Single().MaxRows.Should().BeNull();
+        sent.Should().ContainSingle().Which.QueryResult.MaxRows.Should().Be(Constants.Query.DefaultMaxRows);
+    }
+
+    // A subscription with its own MaxRows reports that cap: the query service applied it, and the run keeps it.
+    [Test]
+    public async Task ExecuteQuery_SubscriptionWithItsOwnMaxRows_ReportsThatCap()
+    {
+        var store = new JobStore();
+        store.Subscriptions.Single().MaxRows = 25;
+        var notifications = new Mock<INotificationService>();
+        var sent = new List<RecipientQueryResult>();
+        notifications
+            .Setup(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientQueryResult, int?, CancellationToken>((x, _, _) => sent.Add(x));
+
+        await JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [9], maxRows: 25)
+            .ExecuteQuery(5, CancellationToken.None);
+
+        sent.Should().ContainSingle().Which.QueryResult.MaxRows.Should().Be(25);
+    }
+
     [Test]
     public async Task ExecuteQuery_AllRecipientsNotified_KeepsEveryNotification()
     {
@@ -817,7 +853,8 @@ public class NotificationDeliveryTests
         IAnomalyDetectionService? anomaly = null,
         int[]? dataSourceIds = null,
         RecipientDeliveryApproval? deliveries = null,
-        IReadOnlyDictionary<int, string>? copies = null)
+        IReadOnlyDictionary<int, string>? copies = null,
+        int? maxRows = null)
     {
         var queryService = new Mock<IQueryService>();
         queryService
@@ -832,6 +869,7 @@ public class NotificationDeliveryTests
                 SubscriptionId = 5,
                 Recipients = [.. recipientIds.Select(x => new RecipientData { RecipientId = x, Name = $"r{x}", Destination = copies?.GetValueOrDefault(x) ?? HookCopy, NotificationType = NotificationType.Webhook })],
                 DataSourceIds = dataSourceIds ?? [],
+                MaxRows = maxRows,
             });
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();

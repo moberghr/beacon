@@ -39,6 +39,18 @@ internal sealed class UpdateMcpSettingsHandler(
             }
         }
 
+        // A row cap below one row is refused: the query tools would otherwise read it as no cap at all.
+        if (data.MaxRowLimit < 1)
+        {
+            throw new InvalidOperationException("MaxRowLimit must be at least 1.");
+        }
+
+        // A retention window below one day would delete every learning signal on each cleanup run.
+        if (data.LearningSignalRetentionDays < 1)
+        {
+            throw new InvalidOperationException("LearningSignalRetentionDays must be at least 1.");
+        }
+
         // Reject invalid custom PII regexes at write time (before touching the DB) so an unparseable
         // pattern can never be persisted and later silently skipped in the detection hot paths
         // (fail-open PII leak).

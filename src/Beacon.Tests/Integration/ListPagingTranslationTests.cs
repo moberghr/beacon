@@ -43,6 +43,30 @@ public class ListPagingTranslationTests
         sql.Should().Contain("LIMIT").And.Contain("OFFSET");
     }
 
+    // The largest page and page size reach the database as a non-negative OFFSET that fits an int, never an overflowed one.
+    [Test]
+    public void HugePage_Translates()
+    {
+        using var context = NpgsqlTestContext.Create();
+        var request = new TestRequest { Page = int.MaxValue, PageSize = int.MaxValue };
+
+        var sql = context.QueryExecutionHistory
+            .Select(x =>
+                new HistoryRow
+                {
+                    Id = x.Id,
+                    QueryName = x.Subscription.Query.Name,
+                    CreatedTime = x.CreatedTime,
+                })
+            .ApplyListRequest(request, defaultSort: "-createdTime")
+            .ToQueryString();
+
+        var offset = (long)ListRequest.MaxPage * ListRequest.MaxPageSize;
+        offset.Should().BeLessThanOrEqualTo(int.MaxValue);
+        sql.Should().Contain($"='{offset}'").And.Contain($"='{ListRequest.MaxPageSize}'");
+        sql.Should().NotMatchRegex(@"@\w+='-\d+'");
+    }
+
     [TestCase(null)]
     [TestCase("queryName")]
     [TestCase("-successRate")]

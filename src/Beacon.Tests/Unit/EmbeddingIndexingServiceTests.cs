@@ -7,6 +7,7 @@ using Beacon.AI.Services.Embeddings;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
@@ -122,6 +123,87 @@ public class EmbeddingIndexingServiceTests
             && x.EmbeddingVersion == 1
             && x.Model == "bge-small-en-v1.5"
             && x.EmbeddingBytes.Length == ExpectedByteLength);
+    }
+
+    [Test]
+    public async Task ReindexDataSourceAsync_SharedDataSource_StampsEachExemplarWithItsOwnProject_AndSkipsUnlinkedProjects()
+    {
+        // Projects 1 and 2 share data source 1; project 3 no longer links it but still owns a pattern on it.
+        var projectA = NewPattern(600, McpPatternType.CommonQuery, McpPatternStatus.Approved, "project a question");
+        var projectB = NewPattern(601, McpPatternType.CommonQuery, McpPatternStatus.Approved, "project b question");
+        projectB.ProjectId = 2;
+        var unlinked = NewPattern(602, McpPatternType.CommonQuery, McpPatternStatus.Approved, "unlinked question");
+        unlinked.ProjectId = 3;
+        var unlinkedVector = StaleVector(70, McpEmbeddingOwnerType.Exemplar, 602);
+
+        var captured = new List<McpEmbedding>();
+        var removed = new List<McpEmbedding>();
+        var service = BuildService(
+            tables: [],
+            [projectA, projectB, unlinked],
+            existingEmbeddings: [unlinkedVector],
+            captured,
+            removed,
+            out _,
+            projectLinks:
+            [
+                Link(1, 1),
+                Link(2, 1)
+            ]);
+
+        await service.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        captured.Select(x => (x.OwnerId, x.ProjectId)).Should().BeEquivalentTo(new[] { (600, (int?)1), (601, (int?)2) });
+        captured.Where(x => x.ProjectId == 2).Select(x => x.OwnerId).Should().Equal(601);
+        removed.Should().Equal(unlinkedVector);
+    }
+
+    [Test]
+    public async Task ReindexDataSourceAsync_AnArchivedProjectKeepsItsLink_ButContributesNoExemplars()
+    {
+        var live = NewPattern(610, McpPatternType.CommonQuery, McpPatternStatus.Approved, "live project question");
+        var archived = NewPattern(611, McpPatternType.CommonQuery, McpPatternStatus.Approved, "archived project question");
+        archived.ProjectId = 2;
+
+        var captured = new List<McpEmbedding>();
+        var service = BuildService(
+            tables: [],
+            [live, archived],
+            existingEmbeddings: [],
+            captured,
+            removed: [],
+            out _,
+            projectLinks: [Link(1, 1), Link(2, 1, archived: true)]);
+
+        await service.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        captured.Select(x => x.OwnerId).Should().Equal(610);
+    }
+
+    // The linked-project predicate is in the SQL of the learned-pattern read, on both providers.
+    [TestCase(false, "pattern_content", "m.project_id = ANY (@linkedProjectIds)", "archived_time IS NULL")]
+    [TestCase(true, "[PatternContent]", "[m].[ProjectId] IN (@linkedProjectIds1, @linkedProjectIds2)", "[ArchivedTime] IS NULL")]
+    public async Task ReindexDataSourceAsync_PatternReadCarriesTheLinkedProjectPredicate_Translates(bool sqlServer, string patternColumn, string project, string live)
+    {
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture())
+            .ThenNoRows()
+            .ThenRows([1], [2])
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenNoRows();
+        var settings = SettingsProviderMock.Create();
+        var service = new EmbeddingIndexingService(
+            capture.Factory(),
+            new FakeEmbeddingService(),
+            settings.Object,
+            new FakeVectorColumnWriter(),
+            NullLogger<EmbeddingIndexingService>.Instance);
+
+        await service.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        var patternRead = capture.Commands.Should().ContainSingle(x => x.Contains(patternColumn)).Subject;
+        patternRead.Should().Contain(project);
+        capture.Commands[1].Should().Contain(live, "the link read counts live projects only");
     }
 
     [Test]
@@ -372,6 +454,17 @@ public class EmbeddingIndexingServiceTests
             EmbeddingVersion = 0
         };
 
+    // A link to a live project; archiving a project keeps its links, so the indexer reads the project's state through it.
+    private static ProjectDataSource Link(int projectId, int dataSourceId, bool archived = false)
+    {
+        return new ProjectDataSource
+        {
+            ProjectId = projectId,
+            DataSourceId = dataSourceId,
+            Project = new Project { Id = projectId, Name = $"project {projectId}", ArchivedTime = archived ? DateTime.UtcNow : null }
+        };
+    }
+
     private static EmbeddingIndexingService BuildService(
         List<DatabaseMetadata> tables,
         List<McpLearnedPattern> patterns,
@@ -379,10 +472,13 @@ public class EmbeddingIndexingServiceTests
         List<McpEmbedding> captured,
         List<McpEmbedding> removed,
         out Mock<IDbContextFactory<BeaconContext>> factory,
-        FakeVectorColumnWriter? vectorWriter = null)
+        FakeVectorColumnWriter? vectorWriter = null,
+        List<ProjectDataSource>? projectLinks = null)
     {
         var metadataSet = BuildDbSet(tables);
         var patternSet = BuildDbSet(patterns);
+        // By default project 1 (every NewPattern's project) links data source 1.
+        var linkSet = BuildDbSet(projectLinks ?? [Link(1, 1)]);
         var embeddingSet = BuildDbSet(existingEmbeddings);
         embeddingSet
             .Setup(x => x.AddRangeAsync(It.IsAny<IEnumerable<McpEmbedding>>(), It.IsAny<CancellationToken>()))
@@ -400,7 +496,7 @@ public class EmbeddingIndexingServiceTests
         var goldenSet = BuildDbSet(new List<McpEvalCase>());
 
         var context = new IndexingTestContext(
-            metadataSet.Object, patternSet.Object, embeddingSet.Object, goldenSet.Object);
+            metadataSet.Object, patternSet.Object, embeddingSet.Object, goldenSet.Object, linkSet.Object);
 
         factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -451,17 +547,20 @@ public class EmbeddingIndexingServiceTests
         private readonly DbSet<McpLearnedPattern> _patterns;
         private readonly DbSet<McpEmbedding> _embeddings;
         private readonly DbSet<McpEvalCase> _goldenCases;
+        private readonly DbSet<ProjectDataSource> _projectLinks;
 
         public IndexingTestContext(
             DbSet<DatabaseMetadata> metadata,
             DbSet<McpLearnedPattern> patterns,
             DbSet<McpEmbedding> embeddings,
-            DbSet<McpEvalCase> goldenCases) : base(Options, "beacon")
+            DbSet<McpEvalCase> goldenCases,
+            DbSet<ProjectDataSource> projectLinks) : base(Options, "beacon")
         {
             _metadata = metadata;
             _patterns = patterns;
             _embeddings = embeddings;
             _goldenCases = goldenCases;
+            _projectLinks = projectLinks;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
@@ -484,6 +583,11 @@ public class EmbeddingIndexingServiceTests
             if (typeof(TEntity) == typeof(McpEvalCase))
             {
                 return (DbSet<TEntity>)(object)_goldenCases;
+            }
+
+            if (typeof(TEntity) == typeof(ProjectDataSource))
+            {
+                return (DbSet<TEntity>)(object)_projectLinks;
             }
 
             return base.Set<TEntity>();

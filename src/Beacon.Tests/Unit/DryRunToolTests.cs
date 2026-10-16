@@ -155,6 +155,23 @@ public class DryRunToolTests
     }
 
 
+    // A row cap stored below one row (before the settings handlers refused it) reaches dry_run as the provider resolves
+    // it: one row, never an invalid_row_cap refusal.
+    [Test]
+    public async Task StoredRowCapOfZero_ResolvesToOneRow_AndCapsTheExecutableSql()
+    {
+        var effective = McpSettingsProvider.Resolve(new McpSettingsData { MaxRowLimit = 0 }, null, new McpDeploymentOptions()).Effective;
+        var settingsProvider = SettingsProviderMock.Create(effective);
+
+        var result = await CreateTool(settingsProvider).ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        GetText(result).Should().NotContain(SqlGateCodes.InvalidRowCap);
+        result.StructuredContent!.Value.GetProperty("valid").GetBoolean().Should().BeTrue();
+        result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 1");
+    }
+
     [Test]
     public async Task ProjectMaxRowLimitOverride_CapsTheExecutableSql_BelowTheGlobalLimit()
     {

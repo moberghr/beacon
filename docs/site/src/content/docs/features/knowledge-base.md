@@ -193,7 +193,7 @@ The aggregation refresh never rewrites the content, example question or example 
 
 ### Documentation patches
 
-Approved schema corrections and documentation gaps also propose **documentation patches**: a new column or table description (a patch can also target a section of the project's documentation). Applying or rejecting one is curation: a section patch needs Curate in its project; a description patch changes the data source's shared metadata, so it needs Curate in every live project linking the source, or a DataSourceAdmin (see [Who curates grounding](#who-curates-grounding)). This is deliberate: a description patch is mined from one project's signals, but the description it writes is what every project linking the source sees, so a project admin of the mining project alone does not apply it. The **Doc patches** tab shows each patch's current and proposed content in full and who applied or rejected it.
+Approved schema corrections and documentation gaps also propose **documentation patches**: a new column or table description (a patch can also target a section of the project's documentation). Applying or rejecting one is curation: a section patch needs Curate in its project; a description patch changes the data source's shared metadata, so it needs Curate in every live project linking the source, or a DataSourceAdmin (see [Who curates grounding](#who-curates-grounding)). This is deliberate: a description patch is mined from one project's signals, but the description it writes is what every project linking the source sees, so a project admin of the mining project alone does not apply it. The **Doc patches** tab shows each patch's current and proposed content in full and who applied or rejected it. Patches are proposed project by project: a project's patches come only from its own approved patterns, only for the data sources it links today, and only its own proposed or applied patches stop a duplicate, so a data source shared by two projects never carries one project's patterns into the other project's patches, and a project that unlinked a source proposes nothing more for it. Archiving a project keeps its data source links, so an archived project proposes no patches.
 
 ### Decay
 
@@ -201,7 +201,9 @@ A schema correction points at a specific column. When a schema refresh shows tha
 
 ### Retention
 
-Signals older than `LearningSignalRetentionDays` (default 90) are removed by the nightly cleanup job.
+Signals older than `LearningSignalRetentionDays` (default 90) are removed by the nightly cleanup job. Each project's signals use that project's effective window, and signals recorded without a project use the global one. The cleanup runs whether learning is on or off, so signals recorded while a project's own settings turn learning on still expire when the global switch is off.
+
+The window is at least one day: a save with a lower value, globally or for a project, is rejected with `400` (a project's empty value inherits the global window). A window below one day stored before this check is never read as "delete every signal": a project's falls back to the global window, and the global one to the default 90 days. When one project's signals cannot be cleaned up, the job logs the project id and the failure's type, still cleans up every other project and the signals without a project, and then fails, so the run is recorded as failed rather than successful.
 
 ## Semantic retrieval
 
@@ -230,7 +232,7 @@ On PostgreSQL, vectors are additionally written to a **pgvector** column with an
 Where a dense arm is available, its ranked results are merged with the keyword results using **reciprocal rank fusion**, with deterministic tie-breaks so paging stays stable. This drives:
 
 - The `search` MCP tool across tables, columns, and documentation.
-- Exemplar selection for golden examples and learned patterns (`ExemplarTopK`, default 4).
+- Exemplar selection for golden examples and learned patterns (`ExemplarTopK`, default 4). A learned pattern is indexed only while its project links the data source and is not archived, its vector carries its own project, and selection filters on the caller's project, so a shared data source never surfaces another project's patterns.
 - Documentation chunk retrieval (`DocChunkTopK`, default 6).
 
 Every dense path **fails open**: with no embedder configured, or with rows not yet indexed, retrieval falls back to the keyword/overlap path and returns results rather than failing.
@@ -267,7 +269,7 @@ These are the grounding, retrieval and learning settings of `McpSettingsData`; t
 | `EnableLearning` | `true` | Master switch for signal mining |
 | `LearningAutoApproveThreshold` | `0.7` | Stored with the settings; promotion is decided by replay verification (`EnableReplayVerification`, `LearningReplayMinFlips`) |
 | `LearningInjectionBudgetChars` | `1500` | Character budget for the learned-patterns block |
-| `LearningSignalRetentionDays` | `90` | Signal retention window |
+| `LearningSignalRetentionDays` | `90` | Signal retention window, in days; at least 1 |
 | `EnableReplayVerification` | `true` | Auto-approve a `NeedsEvidence` candidate only when golden-case replay shows it helps; off, nothing is auto-approved |
 | `LearningReplayMinFlips` | `1` | Fail→pass flips a candidate must produce to be promoted |
 | `EnableSemanticRetrieval` | `true` | Use the dense arm when an embedder is available |

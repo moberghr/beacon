@@ -838,14 +838,127 @@ internal sealed class McpLearningAggregationService(
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
+        // Patches are proposed project by project, each from that project's own patterns (§1.12): a data source shared
+        // by two projects never carries one project's learned patterns into the other project's patches.
+        var projectIds = await context.McpLearnedPatterns
+            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
+            .Where(x => x.PatternType == McpPatternType.SchemaCorrection || x.PatternType == McpPatternType.DocumentationGap)
+            .Select(x => x.ProjectId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var patchCount = 0;
+        foreach (var projectId in projectIds)
+        {
+            patchCount += await AddDocumentationPatchesForProjectAsync(context, projectId, ct);
+        }
+
+        if (patchCount > 0)
+        {
+            await context.SaveChangesAsync(ct);
+            logger.LogInformation("Generated {Count} documentation patches from learned patterns", patchCount);
+        }
+    }
+
+    public async Task CleanupOldSignalsAsync(int retentionDays = 0, CancellationToken ct = default)
+    {
+        // Retention runs whether learning is on or off: signals are still recorded for projects whose own
+        // settings turn learning on while the global switch is off, and they must still expire.
+        var settings = await settingsProvider.GetSettingsAsync(ct);
+
+        // A stored window below one day (a row written before the settings handlers refused it) never means "delete
+        // every signal": the global window falls back to the default, a project's window to the global one.
+        var globalDays = settings.LearningSignalRetentionDays > 0
+            ? settings.LearningSignalRetentionDays
+            : McpSettingsData.DefaultLearningSignalRetentionDays;
+
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        // Retention is a per-project setting: delete each project's signals with that project's effective
+        // window; signals with no project use the global window. An explicit retentionDays argument wins.
+        var projectIds = await context.McpQuerySignals
+            .Where(x => x.ProjectId != null)
+            .Select(x => x.ProjectId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var deleted = 0;
+        var failedProjects = 0;
+        foreach (var projectId in projectIds)
+        {
+            // One project's failure must not keep every other project's signals past their window.
+            try
+            {
+                var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                var projectWindow = projectSettings.LearningSignalRetentionDays > 0 ? projectSettings.LearningSignalRetentionDays : globalDays;
+                var projectDays = retentionDays > 0 ? retentionDays : projectWindow;
+                var projectCutoff = DateTime.UtcNow.AddDays(-projectDays);
+                deleted += await context.McpQuerySignals
+                    .Where(x => x.ProjectId == projectId)
+                    .Where(x => x.CreatedTime < projectCutoff)
+                    .ExecuteDeleteAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                failedProjects++;
+                logger.LogWarning("Failed to clean up old MCP query signals for project {ProjectId} ({Failure})", projectId, FailureCodes.Describe(ex));
+            }
+        }
+
+        var days = retentionDays > 0 ? retentionDays : globalDays;
+        var cutoff = DateTime.UtcNow.AddDays(-days);
+        deleted += await context.McpQuerySignals
+            .Where(x => x.ProjectId == null)
+            .Where(x => x.CreatedTime < cutoff)
+            .ExecuteDeleteAsync(ct);
+
+        if (deleted > 0)
+        {
+            logger.LogInformation("Cleaned up {Count} old MCP query signals (global retention: {Days} days; per-project windows applied)", deleted, days);
+        }
+
+        // The run is not a success while a project's signals were left past their window: the job is recorded failed.
+        if (failedProjects > 0)
+        {
+            throw new InvalidOperationException(
+                $"Old MCP query signals of {failedProjects} project(s) could not be cleaned up; every other project's signals were.");
+        }
+    }
+
+    private async Task<int> AddDocumentationPatchesForProjectAsync(BeaconContext context, int projectId, CancellationToken ct)
+    {
+        // A project proposes patches only for the data sources it links today, as the exemplar index does: a project that
+        // unlinked a source no longer speaks for it. Archiving a project keeps its links, so an archived project links none.
+        var linkedDataSourceIds = await context.ProjectDataSources
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.Project.ArchivedTime == null)
+            .Select(x => x.DataSourceId)
+            .ToListAsync(ct);
+
+        if (linkedDataSourceIds.Count == 0)
+        {
+            return 0;
+        }
+
         var approvedPatterns = await context.McpLearnedPatterns
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => linkedDataSourceIds.Contains(x.DataSourceId))
             .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
             .Where(x => x.PatternType == McpPatternType.SchemaCorrection || x.PatternType == McpPatternType.DocumentationGap)
             .ToListAsync(ct);
 
-        if (approvedPatterns.Count == 0) return;
+        if (approvedPatterns.Count == 0)
+        {
+            return 0;
+        }
 
+        // Only this project's own patches decide what is already proposed or applied for it.
         var existingTargets = await context.McpDocumentationPatches
+            .Where(x => x.ProjectId == projectId)
             .Where(x => x.Status == McpDocPatchStatus.Proposed || x.Status == McpDocPatchStatus.Applied)
             .Select(x => new { x.DataSourceId, x.TargetType, x.TargetIdentifier })
             .ToListAsync(ct);
@@ -876,7 +989,7 @@ internal sealed class McpLearningAggregationService(
 
                         context.McpDocumentationPatches.Add(new McpDocumentationPatch
                         {
-                            ProjectId = pattern.ProjectId,
+                            ProjectId = projectId,
                             DataSourceId = pattern.DataSourceId,
                             TargetType = McpDocPatchTarget.ColumnDescription,
                             TargetIdentifier = targetId,
@@ -909,7 +1022,7 @@ internal sealed class McpLearningAggregationService(
 
                         context.McpDocumentationPatches.Add(new McpDocumentationPatch
                         {
-                            ProjectId = pattern.ProjectId,
+                            ProjectId = projectId,
                             DataSourceId = pattern.DataSourceId,
                             TargetType = McpDocPatchTarget.TableDescription,
                             TargetIdentifier = targetId,
@@ -926,56 +1039,7 @@ internal sealed class McpLearningAggregationService(
             }
         }
 
-        if (patchCount > 0)
-        {
-            await context.SaveChangesAsync(ct);
-            logger.LogInformation("Generated {Count} documentation patches from learned patterns", patchCount);
-        }
-    }
-
-    public async Task CleanupOldSignalsAsync(int retentionDays = 0, CancellationToken ct = default)
-    {
-        try
-        {
-            var settings = await settingsProvider.GetSettingsAsync(ct);
-            if (!settings.EnableLearning) return;
-
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-            // Retention is a per-project setting: delete each project's signals with that project's effective
-            // window; signals with no project use the global window. An explicit retentionDays argument wins.
-            var projectIds = await context.McpQuerySignals
-                .Where(x => x.ProjectId != null)
-                .Select(x => x.ProjectId!.Value)
-                .Distinct()
-                .ToListAsync(ct);
-
-            var deleted = 0;
-            foreach (var projectId in projectIds)
-            {
-                var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
-                var projectDays = retentionDays > 0 ? retentionDays : projectSettings.LearningSignalRetentionDays;
-                var projectCutoff = DateTime.UtcNow.AddDays(-projectDays);
-                deleted += await context.McpQuerySignals
-                    .Where(x => x.ProjectId == projectId)
-                    .Where(x => x.CreatedTime < projectCutoff)
-                    .ExecuteDeleteAsync(ct);
-            }
-
-            var days = retentionDays > 0 ? retentionDays : settings.LearningSignalRetentionDays;
-            var cutoff = DateTime.UtcNow.AddDays(-days);
-            deleted += await context.McpQuerySignals
-                .Where(x => x.ProjectId == null)
-                .Where(x => x.CreatedTime < cutoff)
-                .ExecuteDeleteAsync(ct);
-
-            if (deleted > 0)
-                logger.LogInformation("Cleaned up {Count} old MCP query signals (global retention: {Days} days; per-project windows applied)", deleted, days);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Failed to cleanup old MCP query signals ({Failure})", FailureCodes.Describe(ex));
-        }
+        return patchCount;
     }
 
     private static List<string> TryDeserializeJsonArray(string json)

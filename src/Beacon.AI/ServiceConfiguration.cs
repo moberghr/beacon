@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Beacon.AI.Models.Configuration;
 using Beacon.AI.Services.Ai;
 using Beacon.AI.Services.Ai.AiActor;
@@ -59,11 +60,13 @@ public static class ServiceConfiguration
         services.AddSingleton(sp =>
         {
             var bootstrap = sp.GetRequiredService<LlmConfiguration>();
-            return new LlmProviderFactory(() =>
-            {
-                var manager = sp.GetService<LlmProviderManager>();
-                return manager is null ? bootstrap : manager.CurrentConfiguration;
-            });
+            return new LlmProviderFactory(
+                () =>
+                {
+                    var manager = sp.GetService<LlmProviderManager>();
+                    return manager is null ? bootstrap : manager.CurrentConfiguration;
+                },
+                sp.GetService<ILogger<LlmProviderFactory>>());
         });
 
         // LLM Provider — delegating proxy that always uses the latest provider and funnels
