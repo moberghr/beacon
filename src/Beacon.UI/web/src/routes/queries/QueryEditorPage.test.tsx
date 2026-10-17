@@ -13,7 +13,12 @@ vi.mock('sonner', () => ({
 
 // Monaco depends on a real DOM environment + dynamic loader; replace the
 // editor with a minimal textarea so the smoke tests stay deterministic.
+vi.mock('@/components/ui/monacoLocal', () => ({
+  loadLocalMonaco: async () => ({}),
+}));
+
 vi.mock('@monaco-editor/react', () => ({
+  loader: { config: vi.fn() },
   default: ({
     value,
     onChange,

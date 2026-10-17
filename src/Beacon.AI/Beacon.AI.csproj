@@ -7,12 +7,12 @@
 
 		<!-- Package Information -->
 		<Authors>Moberg</Authors>
-		<Description>Beacon AI extensions library providing LLM-powered documentation generation, alert creation, and AI actors. Optional add-on for Beacon core.</Description>
+		<Description>Beacon AI extensions library providing LLM-powered documentation generation, query assistance, and AI actors. Optional add-on for Beacon core.</Description>
 		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
-		<PackageTags>beacon;ai;llm;openai;anthropic;documentation;database</PackageTags>
+		<PackageTags>beacon;ai;llm;openai;anthropic;bedrock;documentation;database</PackageTags>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<IsPackable>true</IsPackable>
 	</PropertyGroup>
@@ -31,13 +31,8 @@
 
 	<ItemGroup>
 		<!-- LLM Provider packages -->
-		<PackageReference Include="Anthropic" />
 		<PackageReference Include="Azure.AI.OpenAI" />
 		<PackageReference Include="OpenAI" />
-		<PackageReference Include="Microsoft.Agents.AI" />
-		<PackageReference Include="Microsoft.Agents.AI.OpenAI" />
-		<PackageReference Include="Microsoft.Agents.AI.Workflows" />
-		<PackageReference Include="Microsoft.Extensions.AI" />
 		<PackageReference Include="AWSSDK.BedrockRuntime" />
 
 		<!-- Local in-process embeddings (ONNX; bge-small-en-v1.5). No network egress. -->
@@ -46,11 +41,6 @@
 
 		<!-- Document generation packages -->
 		<PackageReference Include="Markdig" />
-
-		<!-- Required dependencies from Core -->
-		<PackageReference Include="MediatR" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore" />
-		<PackageReference Include="Microsoft.Extensions.Http" />
 	</ItemGroup>
 
 </Project>

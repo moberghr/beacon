@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Refit;
 using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Jira;
@@ -87,11 +86,11 @@ public class JiraApiAdapter(
                 var issueUrl = $"{credentials.DomainUrl}/browse/{newIssue.Key}";
                 return new CreateWorkItemResult(newIssue.Key, issueUrl, true);
             }
-            catch (ApiException ex)
+            catch (HttpRequestException ex) when (ex.StatusCode != null)
             {
                 // The response body is remote content: never logged (§1.11) and never in the exception users see.
-                logger.LogDebug("Jira rejected the issue ({IssueType}) with HTTP {StatusCode}", issueType, (int)ex.StatusCode);
-                throw NotificationDeliveryException.ForStatus(ex.StatusCode);
+                logger.LogDebug("Jira rejected the issue ({IssueType}) with HTTP {StatusCode}", issueType, (int)ex.StatusCode.Value);
+                throw NotificationDeliveryException.ForStatus(ex.StatusCode.Value);
             }
         }
         else
