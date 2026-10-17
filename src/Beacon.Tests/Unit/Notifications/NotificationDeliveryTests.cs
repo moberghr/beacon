@@ -12,7 +12,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
-using Refit;
 using Beacon.Core;
 using Beacon.Core.Adapters;
 using Beacon.Core.Adapters.Jira;
@@ -808,13 +807,9 @@ public class NotificationDeliveryTests
         };
     }
 
-    private static async Task<ApiException> JiraError(HttpStatusCode statusCode)
+    private static Task<HttpRequestException> JiraError(HttpStatusCode statusCode)
     {
-        return await ApiException.Create(
-            new HttpRequestMessage(HttpMethod.Post, "https://acme.atlassian.net/rest/api/3/issue"),
-            HttpMethod.Post,
-            new HttpResponseMessage(statusCode) { Content = new StringContent(RemoteBody) },
-            new RefitSettings());
+        return Task.FromResult(new HttpRequestException($"Jira returned HTTP {(int)statusCode}.", null, statusCode));
     }
 
     private static JiraApiAdapter JiraAdapter(Mock<IJiraRestClient> client, ILogger<JiraApiAdapter> logger)

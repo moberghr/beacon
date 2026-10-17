@@ -117,7 +117,7 @@ internal sealed class ProxiedDestinationCheckHandler(OutboundAddressPolicy addre
 
 /// <summary>
 /// Runs first on every notification request: marks it for tracing filters (before the handler that starts the tracing
-/// activity) and pins it to exactly HTTP/1.1, whoever built it (the sender or Jira's Refit client).
+/// activity) and pins it to exactly HTTP/1.1, whoever built it (the sender or the Jira client).
 /// </summary>
 internal sealed class NotificationRequestMarker : DelegatingHandler
 {

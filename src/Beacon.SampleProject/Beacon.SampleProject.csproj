@@ -11,10 +11,8 @@
         <PackageReference Include="Moberg.Warp.Core" />
         <PackageReference Include="Moberg.Warp.Worker" />
         <PackageReference Include="Moberg.Warp.Provider.PostgreSql" />
-        <PackageReference Include="Moberg.Warp.Provider.SqlServer" />
         <PackageReference Include="Moberg.Warp.UI" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
         <!-- Enabled only when OTEL_EXPORTER_OTLP_ENDPOINT is configured (Program.cs) — the sample host is the
              one place in the solution that picks an exporter/backend; Beacon libraries never do (§2.4). -->
         <PackageReference Include="OpenTelemetry.Extensions.Hosting" />

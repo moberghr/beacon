@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -7,12 +7,12 @@
 
         <!-- Package Information -->
         <Authors>Moberg</Authors>
-        <Description>MCP (Model Context Protocol) server for Beacon. Exposes data sources, knowledge graph, and query capabilities to AI tools via SSE transport.</Description>
+        <Description>MCP (Model Context Protocol) server for Beacon. Exposes data sources, knowledge graph, and query capabilities to AI tools via the Streamable HTTP transport.</Description>
         <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
         <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
-        <PackageTags>beacon;mcp;model-context-protocol;ai;sse</PackageTags>
+        <PackageTags>beacon;mcp;model-context-protocol;ai;streamable-http</PackageTags>
         <IsPackable>true</IsPackable>
     </PropertyGroup>
 
@@ -27,7 +27,6 @@
 
     <ItemGroup>
         <PackageReference Include="ModelContextProtocol.AspNetCore" />
-        <PackageReference Include="SqlParserCS" />
     </ItemGroup>
 
     <ItemGroup>

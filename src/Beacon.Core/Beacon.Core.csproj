@@ -28,15 +28,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="AdaptiveCards" />
 		<PackageReference Include="ClosedXML" />
 		<PackageReference Include="CronExpressionDescriptor" />
 		<PackageReference Include="Cronos" />
-		<PackageReference Include="CsvHelper" />
 		<PackageReference Include="Dapper" />
 		<PackageReference Include="EFCore.BulkExtensions" />
 		<PackageReference Include="MediatR" />
-		<PackageReference Include="MessageCardModel" />
 		<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
 		<PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" />
@@ -45,7 +42,6 @@
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" />
 		<PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
 		<PackageReference Include="Microsoft.Extensions.Http" />
-		<PackageReference Include="Refit" />
 		<PackageReference Include="SqlParserCS" />
 		<PackageReference Include="Microsoft.Data.Sqlite" />
 		<PackageReference Include="System.IdentityModel.Tokens.Jwt" />

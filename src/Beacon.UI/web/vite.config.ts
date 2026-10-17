@@ -61,9 +61,10 @@ export default defineConfig({
   build: {
     outDir: '../wwwroot/beacon',
     emptyOutDir: true,
-    // 'hidden' emits .map files for tooling but omits the sourceMappingURL
-    // reference from the served JS, so maps aren't exposed to production users.
-    sourcemap: 'hidden',
+    // Source maps are not part of the shipped bundle: everything in wwwroot/beacon is packed and
+    // served to anonymous callers, and the maps carry the full TSX sources. Set VITE_SOURCEMAP=1
+    // for a local build that needs them ('hidden' omits the sourceMappingURL from the served JS).
+    sourcemap: process.env.VITE_SOURCEMAP === '1' ? 'hidden' : false,
   },
   server: {
     port: 5173,

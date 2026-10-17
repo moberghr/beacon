@@ -12,3 +12,8 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Side-effect entry points of monaco-editor; the package ships no typings for them.
+declare module 'monaco-editor/esm/vs/editor/editor.all';
+declare module 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
+declare module 'monaco-editor/esm/vs/editor/editor.api';

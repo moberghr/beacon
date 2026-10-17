@@ -1,8 +1,7 @@
 ﻿using ClosedXML.Excel;
-using CsvHelper;
-using CsvHelper.Configuration;
 using Beacon.Core.Adapters;
 using Beacon.Core.Data.Enums;
+using System.Collections;
 using System.Data;
 using System.Globalization;
 using System.Text;
@@ -47,38 +46,70 @@ internal static class CsvBuilder
 
     public static async Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
     {
-        var csvConfiguration = new CsvConfiguration(CultureInfo.InvariantCulture);
-
         using var memoryStream = new MemoryStream();
-        using var streamWriter = new StreamWriter(memoryStream, Encoding.UTF8);
+        using var streamWriter = new StreamWriter(memoryStream, Encoding.UTF8) { NewLine = _newLine };
 
         var preambleBytes = Encoding.UTF8.GetPreamble();
         streamWriter.BaseStream.Write(preambleBytes, 0, preambleBytes.Length);
 
-        using var csvWriter = new CsvWriter(streamWriter, csvConfiguration);
-
-        csvWriter.Context.TypeConverterOptionsCache.GetOptions<DateTime>().Formats = new[] { _csvDateTimeFormat };
-
-        foreach (var col in data?.FirstOrDefault()?.Select(x => x.Key) ?? [])
-        {
-            csvWriter.WriteField(col);
-        }
-
-        await csvWriter.NextRecordAsync();
+        await WriteRecordAsync(streamWriter, (data?.FirstOrDefault()?.Select(x => x.Key) ?? []).Select(x => (string?)x));
 
         foreach (var item in data ?? [])
         {
-            foreach (var value in item?.Select(x => x.Value) ?? [])
-            {
-                csvWriter.WriteField(value);
-            }
-
-            await csvWriter.NextRecordAsync();
+            await WriteRecordAsync(streamWriter, (item?.Select(x => x.Value) ?? []).Select(Format));
         }
 
         await streamWriter.FlushAsync();
 
         return memoryStream.ToArray();
+    }
+
+    private static async Task WriteRecordAsync(StreamWriter writer, IEnumerable<string?> fields)
+    {
+        var first = true;
+        foreach (var field in fields)
+        {
+            if (!first)
+            {
+                await writer.WriteAsync(_csvDelimiter);
+            }
+
+            first = false;
+            await writer.WriteAsync(Escape(field));
+        }
+
+        await writer.WriteAsync(_newLine);
+    }
+
+    private static string? Format(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            string x => x,
+            DateTime x => x.ToString(_csvDateTimeFormat, CultureInfo.InvariantCulture),
+            byte[] x => "0x" + Convert.ToHexString(x),
+            IEnumerable x => string.Join(_csvDelimiter, x.Cast<object?>().Select(y => Format(y) ?? string.Empty)),
+            IFormattable x => x.ToString(null, CultureInfo.InvariantCulture),
+            _ => value.ToString(),
+        };
+    }
+
+    private static string Escape(string? field)
+    {
+        if (string.IsNullOrEmpty(field))
+        {
+            return string.Empty;
+        }
+
+        var needsQuotes = field.Contains('"')
+            || field.Contains(',')
+            || field.Contains('\r')
+            || field.Contains('\n')
+            || field[0] == ' '
+            || field[^1] == ' ';
+
+        return needsQuotes ? "\"" + field.Replace("\"", "\"\"") + "\"" : field;
     }
 }
 
