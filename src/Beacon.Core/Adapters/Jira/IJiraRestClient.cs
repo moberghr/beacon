@@ -56,12 +56,20 @@ internal sealed class JiraRestClient(HttpClient httpClient) : IJiraRestClient
         Converters = { new InferredObjectConverter(), new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    // A Jira served under a context path (https://host/jira) keeps it: a rooted request path would drop it.
-    private string BasePath => httpClient.BaseAddress?.AbsolutePath.TrimEnd('/') ?? string.Empty;
+    // Every request URL is absolute, with the configured scheme, host and port fixed: a Jira served under a context path
+    // (https://host/jira) keeps it, and a path that starts with "//" stays a path instead of naming another host.
+    private string Root
+    {
+        get
+        {
+            var baseAddress = httpClient.BaseAddress ?? throw new InvalidOperationException("The Jira client has no base address.");
+            return baseAddress.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped) + baseAddress.AbsolutePath.TrimEnd('/');
+        }
+    }
 
     public async Task<JiraSearchResponse> SearchAsync(string jql, int maxResults = 50, int startAt = 0, string? fields = null, CancellationToken cancellationToken = default)
     {
-        var url = $"{BasePath}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}&maxResults={maxResults}&startAt={startAt}";
+        var url = $"{Root}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}&maxResults={maxResults}&startAt={startAt}";
         if (fields != null)
         {
             url += $"&fields={Uri.EscapeDataString(fields)}";
@@ -73,25 +81,25 @@ internal sealed class JiraRestClient(HttpClient httpClient) : IJiraRestClient
 
     public async Task<JiraCreateIssueResponse> CreateIssueAsync(JiraCreateIssueRequest request, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsJsonAsync($"{BasePath}/rest/api/3/issue", request, JsonOptions, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync($"{Root}/rest/api/3/issue", request, JsonOptions, cancellationToken);
         return await ReadAsync<JiraCreateIssueResponse>(response, cancellationToken);
     }
 
     public async Task<JiraCommentResponse> AddCommentAsync(string issueIdOrKey, JiraAddCommentRequest request, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsJsonAsync($"{BasePath}/rest/api/3/issue/{Uri.EscapeDataString(issueIdOrKey)}/comment", request, JsonOptions, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync($"{Root}/rest/api/3/issue/{Uri.EscapeDataString(issueIdOrKey)}/comment", request, JsonOptions, cancellationToken);
         return await ReadAsync<JiraCommentResponse>(response, cancellationToken);
     }
 
     public async Task<JiraTransitionsResponse> GetTransitionsAsync(string issueIdOrKey, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.GetAsync($"{BasePath}/rest/api/3/issue/{Uri.EscapeDataString(issueIdOrKey)}/transitions", cancellationToken);
+        using var response = await httpClient.GetAsync($"{Root}/rest/api/3/issue/{Uri.EscapeDataString(issueIdOrKey)}/transitions", cancellationToken);
         return await ReadAsync<JiraTransitionsResponse>(response, cancellationToken);
     }
 
     public async Task TransitionIssueAsync(string issueIdOrKey, JiraTransitionRequest request, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsJsonAsync($"{BasePath}/rest/api/3/issue/{Uri.EscapeDataString(issueIdOrKey)}/transitions", request, JsonOptions, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync($"{Root}/rest/api/3/issue/{Uri.EscapeDataString(issueIdOrKey)}/transitions", request, JsonOptions, cancellationToken);
         EnsureSuccess(response);
     }
 

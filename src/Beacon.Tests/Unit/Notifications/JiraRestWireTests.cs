@@ -56,6 +56,23 @@ public class JiraRestWireTests
         tickets[1].Reporter.Should().BeNull();
     }
 
+    // A context path that starts with "//" must stay a path on the configured host, never become another host.
+    [Test]
+    public async Task AllRequests_WithADoubleSlashContextPath_StayOnTheConfiguredHost()
+    {
+        const string recipient = "https://acme.atlassian.net//attacker.example/jira;SEC;svc@acme.eu;token";
+        _handler.Answer(HttpStatusCode.OK, """{"startAt":0,"maxResults":5,"total":0,"issues":[]}""");
+        _handler.Answer(HttpStatusCode.OK, """{"startAt":0,"maxResults":10,"total":0,"issues":[]}""");
+        _handler.Answer(HttpStatusCode.Created, """{"id":"10","key":"SEC-10","self":"x"}""");
+
+        await Adapter().SearchTickets(new JiraCredentials(recipient), "project = SEC", 5, CancellationToken.None);
+        await Adapter().CreateWorkItem(new JiraCredentials(recipient), "session-1", "Title", new AdfBuilder().AddParagraph("x").Build(), "Task", CancellationToken.None);
+
+        _handler.Requests.Should().HaveCount(3);
+        _handler.Requests.Should().OnlyContain(x => new Uri(x.Url).Host == "acme.atlassian.net");
+        _handler.Requests.Should().OnlyContain(x => x.Url.StartsWith("https://acme.atlassian.net//attacker.example/jira/rest/api/3/"));
+    }
+
     [TestCase("https://jira.acme.eu/jira")]
     [TestCase("https://jira.acme.eu/jira/")]
     public async Task SearchTickets_UnderAContextPath_KeepsThePath(string domainUrl)
