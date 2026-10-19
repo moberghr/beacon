@@ -1,8 +1,8 @@
 using System.Data.Common;
 using System.Text;
 using System.Text.RegularExpressions;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Data;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Telemetry;
 
@@ -42,6 +42,9 @@ public static partial class DatabaseErrorRedactor
 
     /// <summary>What replaces an error that could not be screened in time.</summary>
     public const string UnscreenedMessage = "Database error: the message is withheld because it could not be screened.";
+
+    /// <summary>What <see cref="TextOf"/> passes on for a SQL Server error whose number and errors could not be read.</summary>
+    internal const string UnreadableSqlServerMessage = "Database error: the message is withheld because the SQL Server error could not be read.";
 
     private const int MaxLength = 2000;
 
@@ -183,6 +186,7 @@ public static partial class DatabaseErrorRedactor
     // Beacon's own fixed texts that reach the screens beside the database's errors: they hold no value, so they are kept.
     private static readonly HashSet<string> BeaconMessages = new(StringComparer.Ordinal)
     {
+        UnreadableSqlServerMessage,
         DatabaseProvider.HostQueryFailedMessage,
         DatabaseProvider.HostResultMismatchMessage,
         DatabaseProvider.MySqlReadOnlyNotClosedMessage,
@@ -297,16 +301,23 @@ public static partial class DatabaseErrorRedactor
     /// The text Beacon passes on for a statement that failed with <paramref name="exception"/>: its message, led by the
     /// error's code when the statement's own code raised the error and the message does not name it — SQL Server's errors
     /// 50000 and above as <c>Msg 50000, Level 16, State 1:</c>, a MySQL SQLSTATE of class 45 as <c>45000:</c> (PostgreSQL's
-    /// message already starts with its SQLSTATE) — so the error is withheld whatever its author wrote into it.
+    /// message already starts with its SQLSTATE) — so the error is withheld whatever its author wrote into it. A SQL Server
+    /// error whose number and errors Beacon cannot read gives <see cref="UnreadableSqlServerMessage"/>, never its message.
     /// </summary>
     public static string TextOf(Exception exception)
     {
         for (var current = exception; current != null; current = current.InnerException)
         {
-            if (current is SqlException sqlServer)
+            var sqlServer = SqlServerErrors.Read(current);
+            if (sqlServer.IsSqlException)
             {
+                // An error whose number cannot be read may be one the statement raised: its message is never passed on.
+                if (!sqlServer.IsReadable)
+                {
+                    return UnreadableSqlServerMessage;
+                }
+
                 var raised = sqlServer.Errors
-                    .Cast<SqlError>()
                     .Where(x => x.Number >= FirstSqlServerUserError)
                     .FirstOrDefault();
 

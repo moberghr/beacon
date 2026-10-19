@@ -3,8 +3,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Text.RegularExpressions;
-using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
+using Beacon.Core.Data;
 using Beacon.Core.Exceptions;
 
 namespace Beacon.Core.Helpers;
@@ -35,9 +35,15 @@ public static partial class FailureCodes
     {
         for (var current = exception; current != null; current = current.InnerException)
         {
+            // A SQL Server error that cannot be read gives no code.
+            var sqlServer = SqlServerErrors.Read(current);
+            if (sqlServer.IsSqlException)
+            {
+                return sqlServer.IsReadable ? sqlServer.Number.ToString(CultureInfo.InvariantCulture) : null;
+            }
+
             var code = current switch
             {
-                SqlException sqlServer => sqlServer.Number.ToString(CultureInfo.InvariantCulture),
                 SqliteException sqlite => sqlite.SqliteErrorCode.ToString(CultureInfo.InvariantCulture),
                 DbException { SqlState: { Length: > 0 } sqlState } => sqlState,
                 DataSourceServiceException { ErrorCode: { } serviceCode } => Token(serviceCode),

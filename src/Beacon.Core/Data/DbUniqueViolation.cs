@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 
 namespace Beacon.Core.Data;
@@ -21,9 +20,20 @@ public static class DbUniqueViolation
     {
         for (var current = exception; current != null; current = current.InnerException)
         {
+            // A SQL Server error that cannot be read is not classified.
+            var sqlServer = SqlServerErrors.Read(current);
+            if (sqlServer is { IsSqlException: true, IsReadable: false })
+            {
+                return false;
+            }
+
+            if (sqlServer is { IsReadable: true, Number: SqlServerUniqueIndexViolation or SqlServerUniqueConstraintViolation })
+            {
+                return true;
+            }
+
             switch (current)
             {
-                case SqlException sqlServer when sqlServer.Number is SqlServerUniqueIndexViolation or SqlServerUniqueConstraintViolation:
                 case SqliteException sqlite when sqlite.SqliteExtendedErrorCode is SqliteConstraintUnique or SqliteConstraintPrimaryKey:
                 case DbException db when db.SqlState == PostgresUniqueViolation:
                     return true;

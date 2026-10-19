@@ -1,6 +1,5 @@
 using System.Data.Common;
 using System.Net;
-using System.Reflection;
 using Amazon.CloudWatchLogs;
 using Beacon.Connector.CloudWatch;
 using Beacon.Core.Data.Entities;
@@ -15,7 +14,6 @@ using Beacon.Tests.Common;
 using FluentAssertions;
 using Google;
 using Google.Apis.Requests;
-using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -37,7 +35,7 @@ public class FailureCodesTests
 
     private static IEnumerable<TestCaseData> Codes()
     {
-        yield return new TestCaseData(SqlServerError(245), "245").SetName("SqlServer_Number");
+        yield return new TestCaseData(TestSqlServerExceptions.Real(245, Secret, 0, 0), "245").SetName("SqlServer_Number");
         yield return new TestCaseData(new FakeDbException(Secret, "22P02"), "22P02").SetName("DbException_SqlState");
         yield return new TestCaseData(new SqliteException(Secret, 1), "1").SetName("Sqlite_Code");
         yield return new TestCaseData(new HttpRequestException(Secret, null, HttpStatusCode.ServiceUnavailable), "503").SetName("Http_Status");
@@ -88,7 +86,7 @@ public class FailureCodesTests
     {
         var log = new LogRecorder();
 
-        await FailingProvider(SqlServerError(8114), log).ExecuteQueryAsync(Source(), "SELECT 1", [], CancellationToken.None);
+        await FailingProvider(TestSqlServerExceptions.Real(8114, Secret, 0, 0), log).ExecuteQueryAsync(Source(), "SELECT 1", [], CancellationToken.None);
 
         log.Entries.Should().ContainSingle()
             .Which.Message.Should().StartWith("Query execution failed for database data source 7 with SqlException (error code 8114, at ");
@@ -211,26 +209,6 @@ public class FailureCodesTests
             EncryptedConnectionData = "unused",
             DatabaseEngineType = DatabaseEngineType.MSSQL
         };
-    }
-
-    // SqlException has no public constructor: build one the way the driver does, through its internal factory.
-    private static SqlException SqlServerError(int number)
-    {
-        var errorConstructor = typeof(SqlError)
-            .GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
-            .First(x => x.GetParameters().Length == 8 && x.GetParameters()[0].ParameterType == typeof(int));
-        var error = (SqlError)errorConstructor.Invoke([number, (byte)0, (byte)0, "server", Secret, "procedure", 0, null]);
-        var errors = (SqlErrorCollection)Activator.CreateInstance(typeof(SqlErrorCollection), nonPublic: true)!;
-        typeof(SqlErrorCollection)
-            .GetMethod("Add", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(errors, [error]);
-        var create = typeof(SqlException)
-            .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
-            .First(x => x.Name == "CreateException"
-                && x.GetParameters().Length == 2
-                && x.GetParameters()[0].ParameterType == typeof(SqlErrorCollection));
-
-        return (SqlException)create.Invoke(null, [errors, "16.0"])!;
     }
 
     private sealed class FakeDbException(string message, string sqlState, Exception? inner = null) : DbException(message, inner)
