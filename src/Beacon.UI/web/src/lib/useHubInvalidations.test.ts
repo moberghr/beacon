@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { handleApprovalUpdated, SUPERSEDED_MESSAGE } from './useHubInvalidations';
+import { handleApprovalUpdated, handleHubReconnected, SUPERSEDED_MESSAGE } from './useHubInvalidations';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -36,5 +36,19 @@ describe('handleApprovalUpdated', () => {
     handleApprovalUpdated(qc, { approvalId: 7, status: 'approved' });
 
     expect(toast.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleHubReconnected', () => {
+  it('refetches every event-mapped key and the notifications list after a reconnect', () => {
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    handleHubReconnected(qc);
+
+    const keys = invalidate.mock.calls.map(x => x[0]?.queryKey);
+    expect(keys).toContainEqual(['notifications']);
+    expect(keys).toContainEqual(['approvals']);
+    expect(keys).toContainEqual(['control-tower']);
   });
 });
