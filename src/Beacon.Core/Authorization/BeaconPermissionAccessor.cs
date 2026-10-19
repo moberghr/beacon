@@ -21,12 +21,12 @@ namespace Beacon.Core.Authorization;
 /// </summary>
 internal sealed class BeaconPermissionAccessor(
     IBeaconActorAccessor actorAccessor,
-    IHttpContextAccessor httpContextAccessor,
     IDbContextFactory<BeaconContext> contextFactory,
     BeaconConfiguration configuration,
     IOptions<RoleMappingOptions> roleMapping,
     TimeProvider timeProvider,
-    BeaconPermissionLog log) : IBeaconPermissionAccessor
+    BeaconPermissionLog log,
+    IHttpContextAccessor? httpContextAccessor = null) : IBeaconPermissionAccessor
 {
     private BeaconPermissionSet? _current;
 
@@ -38,7 +38,7 @@ internal sealed class BeaconPermissionAccessor(
         }
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        _current = await ResolveAsync(actor, httpContextAccessor.HttpContext?.User, cancellationToken);
+        _current = await ResolveAsync(actor, httpContextAccessor?.HttpContext?.User, cancellationToken);
 
         return _current;
     }

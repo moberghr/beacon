@@ -181,11 +181,11 @@ internal static class TestProjectAccess
         IDbContextFactory<BeaconContext> factory)
     {
         return new BeaconActorAccessor(
-            httpContextAccessor,
             factory,
             new SystemWorkScope(),
             new RunAsScope(httpContextAccessor),
-            new UnmarkedSystemWorkLog(TimeProvider.System, NullLogger<UnmarkedSystemWorkLog>.Instance));
+            new UnmarkedSystemWorkLog(TimeProvider.System, NullLogger<UnmarkedSystemWorkLog>.Instance),
+            httpContextAccessor);
     }
 
     /// <summary>An execute-time check that allows every run: for tests of what a run does, not who may make it.</summary>

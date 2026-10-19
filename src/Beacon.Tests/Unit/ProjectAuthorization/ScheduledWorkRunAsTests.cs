@@ -121,6 +121,29 @@ public class ScheduledWorkRunAsTests
     }
 
     [Test]
+    public async Task OnAWorkerHostWithoutAnHttpContextAccessor_AnOwnerWhoLostTheirMembership_GetsTheRunSkipped()
+    {
+        Subscribe(Owner, RestrictedSource);
+
+        await RunSubscriptionAsync(withAccessor: false);
+
+        _connectionsOpened.Should().Be(0, "without an accessor the run is still a scheduled run, re-authorized as its owner");
+        ShouldBeSkipped([RestrictedSource]);
+    }
+
+    [Test]
+    public async Task OnAWorkerHostWithoutAnHttpContextAccessor_AnOwnerWhoMayRunTheQuery_RunsIt()
+    {
+        Subscribe(Owner, RestrictedSource);
+        _world.Member(RestrictedProject, OwnerId, ProjectRole.Viewer);
+
+        var act = () => RunSubscriptionAsync(withAccessor: false);
+
+        await act.Should().ThrowAsync<QueryExecutionFailedException>("the run reached the data source as its owner");
+        _connectionsOpened.Should().Be(1);
+    }
+
+    [Test]
     public async Task AnOwnerlessSubscription_RunsOnOpenlyReachableData()
     {
         Subscribe(null, OpenSource);
@@ -330,6 +353,25 @@ public class ScheduledWorkRunAsTests
     }
 
     [Test]
+    public async Task OnAWorkerHostWithoutAnHttpContextAccessor_AnUnmarkedScopeHoldsNoPermissions_AndAMarkedOneTheSystems()
+    {
+        await using var worker = JobServices(withAccessor: false);
+        await using var reference = JobServices();
+        await using var unmarked = worker.CreateAsyncScope();
+        await using var marked = worker.CreateAsyncScope();
+        await using var referenceMarked = reference.CreateAsyncScope();
+        marked.ServiceProvider.GetRequiredService<ISystemWorkScope>().MarkAsSystemWork();
+        referenceMarked.ServiceProvider.GetRequiredService<ISystemWorkScope>().MarkAsSystemWork();
+
+        var nobody = await unmarked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
+        var system = await marked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
+        var systemWithAccessor = await referenceMarked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
+
+        nobody.Should().Be(BeaconPermissionSet.None);
+        system.Should().Be(systemWithAccessor, "a missing accessor changes nothing for work marked as the system's");
+    }
+
+    [Test]
     public async Task MaintenanceInAScopeMarkedAsSystemWork_StillRunsAsTheSystem_AndAnUnmarkedScopeGetsNothing()
     {
         await using var provider = JobServices();
@@ -435,9 +477,9 @@ public class ScheduledWorkRunAsTests
     }
 
     // One job: the job host's scope, marked as system work as the sample's Warp pipeline marks it.
-    private async Task RunSubscriptionAsync(HttpContext? request = null)
+    private async Task RunSubscriptionAsync(HttpContext? request = null, bool withAccessor = true)
     {
-        await using var provider = JobServices(request);
+        await using var provider = JobServices(request, withAccessor: withAccessor);
         await using var scope = provider.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<ISystemWorkScope>().MarkAsSystemWork();
 
@@ -519,12 +561,16 @@ public class ScheduledWorkRunAsTests
         await service.ExecuteThinkCycleBackgroundAsync(actor.Id);
     }
 
-    private ServiceProvider JobServices(HttpContext? request = null, IDataSourceProviderFactory? providers = null)
+    private ServiceProvider JobServices(HttpContext? request = null, IDataSourceProviderFactory? providers = null, bool withAccessor = true)
     {
         var services = new ServiceCollection();
         _world.Register(services);
         services.AddSingleton<ILoggerProvider>(_logs);
-        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = request });
+        if (withAccessor)
+        {
+            services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = request });
+        }
+
         services.AddScoped<IExecutionAccessCheck, ExecutionAccessCheck>();
         services.AddScoped<IQueryService>(x => TestQueryServices.QueryService(
             x.GetRequiredService<IDbContextFactory<BeaconContext>>(),
@@ -554,8 +600,8 @@ public class ScheduledWorkRunAsTests
             x.GetRequiredService<IDataQualityEvaluationService>(),
             x.GetRequiredService<ILogger<JobService>>(),
             x.GetRequiredService<IRunAsScope>(),
-            x.GetRequiredService<IHttpContextAccessor>(),
-            TestChangeApprovals.Deliveries()));
+            TestChangeApprovals.Deliveries(),
+            httpContextAccessor: x.GetService<IHttpContextAccessor>()));
 
         return services.BuildServiceProvider();
     }

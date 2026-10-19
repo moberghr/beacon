@@ -58,8 +58,8 @@ public class LearningSignalRetentionJobTests
             Mock.Of<IDataQualityEvaluationService>(),
             NullLogger<JobService>.Instance,
             new RunAsScope(new HttpContextAccessor()),
-            new HttpContextAccessor(),
             TestChangeApprovals.Deliveries(),
-            mcpLearningService: learning);
+            mcpLearningService: learning,
+            httpContextAccessor: new HttpContextAccessor());
     }
 }

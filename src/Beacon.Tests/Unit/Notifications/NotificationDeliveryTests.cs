@@ -881,8 +881,8 @@ public class NotificationDeliveryTests
             evaluation ?? Mock.Of<IDataQualityEvaluationService>(),
             logger,
             new RunAsScope(new HttpContextAccessor()),
-            new HttpContextAccessor(),
-            deliveries ?? TestChangeApprovals.Deliveries());
+            deliveries ?? TestChangeApprovals.Deliveries(),
+            httpContextAccessor: new HttpContextAccessor());
     }
 
     private sealed class RecordingAdapter(NotificationType type) : IAdapter

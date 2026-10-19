@@ -20,11 +20,11 @@ namespace Beacon.Core.Authorization;
 /// reported as a warning.
 /// </summary>
 internal sealed class BeaconActorAccessor(
-    IHttpContextAccessor httpContextAccessor,
     IDbContextFactory<BeaconContext> contextFactory,
     ISystemWorkScope systemWork,
     IRunAsScope runAs,
-    ProjectAccess.UnmarkedSystemWorkLog unmarkedSystemWork) : IBeaconActorAccessor
+    ProjectAccess.UnmarkedSystemWorkLog unmarkedSystemWork,
+    IHttpContextAccessor? httpContextAccessor = null) : IBeaconActorAccessor
 {
     private BeaconActor? _current;
 
@@ -35,7 +35,7 @@ internal sealed class BeaconActorAccessor(
             return _current;
         }
 
-        var httpContext = httpContextAccessor.HttpContext;
+        var httpContext = httpContextAccessor?.HttpContext;
         if (httpContext == null)
         {
             // Who the scope acts as is decided now: from here on the owner it runs as can no longer be set.

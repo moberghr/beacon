@@ -248,7 +248,7 @@ public class ApiKeyIssuanceTests
             .Setup(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()))
             .ReturnsAsync(User(RoleService.RoleLevels.Editor));
         var principal = SessionPrincipal(new Claim(BeaconClaims.UserId, "ext-bob"));
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(principal), users.Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, users.Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(principal));
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
@@ -284,7 +284,7 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var owner = User(RoleService.RoleLevels.Editor);
         owner.ApiKeyGeneration = 4;
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(SessionPrincipal()), Users(owner).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Users(owner).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(SessionPrincipal()));
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
@@ -346,7 +346,7 @@ public class ApiKeyIssuanceTests
     {
         var apiKeys = ApiKeyServiceMock();
         var anonymous = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")]));
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Accessor(anonymous), Users(User(RoleService.RoleLevels.Editor)).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Users(User(RoleService.RoleLevels.Editor)).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(anonymous));
 
         var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
 
@@ -389,11 +389,11 @@ public class ApiKeyIssuanceTests
             .ReturnsAsync(TestProjectAccess.ReadableIn(1));
         var handler = new CreateApiKeyHandler(
             apiKeys.Object,
-            Accessor(SessionPrincipal()),
             Users(User(RoleService.RoleLevels.Admin)).Object,
             Authorization(canWrite: true),
             TestProjectAccess.Actors(),
-            evaluator.Object);
+            evaluator.Object,
+            httpContextAccessor: Accessor(SessionPrincipal()));
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1, 1], null), CancellationToken.None);
 
@@ -587,7 +587,7 @@ public class ApiKeyIssuanceTests
             : SessionPrincipal(new Claim(McpCallerClaimTypes.AuthMethod, authMethod));
         var user = found ? User(roleLevel, isSuperAdmin, enabled) : null;
 
-        return new CreateApiKeyHandler(apiKeys.Object, Accessor(principal), Users(user).Object, Authorization(providerCanWrite), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)));
+        return new CreateApiKeyHandler(apiKeys.Object, Users(user).Object, Authorization(providerCanWrite), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(principal));
     }
 
     // A signed-in browser session: NameIdentifier carries Users.ExternalId.

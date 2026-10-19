@@ -10,11 +10,11 @@ namespace Beacon.Core.Handlers.ApiKeys;
 
 internal sealed class CreateApiKeyHandler(
     IApiKeyService apiKeyService,
-    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userManagementService,
     IBeaconAuthorizationProvider authorizationProvider,
     IBeaconActorAccessor actorAccessor,
-    IProjectAccessEvaluator projectAccess)
+    IProjectAccessEvaluator projectAccess,
+    IHttpContextAccessor? httpContextAccessor = null)
     : IRequestHandler<CreateApiKeyCommand, CreateApiKeyResult>
 {
     public async Task<CreateApiKeyResult> Handle(

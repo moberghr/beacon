@@ -278,12 +278,12 @@ public class FunctionalPermissionTranslationTests
         var actor = new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true };
         var accessor = new BeaconPermissionAccessor(
             Mock.Of<IBeaconActorAccessor>(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()) == Task.FromResult(actor)),
-            new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity("Cookies")) } },
             capture.Factory(),
             new BeaconConfiguration(),
             Options.Create(new RoleMappingOptions()),
             TimeProvider.System,
-            new BeaconPermissionLog(TimeProvider.System, NullLogger<BeaconPermissionLog>.Instance));
+            new BeaconPermissionLog(TimeProvider.System, NullLogger<BeaconPermissionLog>.Instance),
+            new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity("Cookies")) } });
 
         var permissions = await accessor.GetCurrentAsync(CancellationToken.None);
 
