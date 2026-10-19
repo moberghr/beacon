@@ -11,7 +11,12 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('@/components/ui/monacoLocal', () => ({
+  loadLocalMonaco: async () => ({}),
+}));
+
 vi.mock('@monaco-editor/react', () => ({
+  loader: { config: vi.fn() },
   default: ({
     value,
     onChange,

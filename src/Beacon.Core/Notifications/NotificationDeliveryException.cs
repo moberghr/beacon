@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
-using Refit;
 using Beacon.Core.Models;
 
 namespace Beacon.Core.Notifications;
@@ -98,7 +97,6 @@ public static class NotificationFailureReasons
         return exception switch
         {
             NotificationDeliveryException x => x.Message,
-            ApiException x => ForStatus(x.StatusCode),
             HttpRequestException x when HasBlockedConnection(x) => ConnectionBlocked,
             HttpRequestException { StatusCode: { } statusCode } => ForStatus(statusCode),
             HttpRequestException => ConnectionFailed,
@@ -130,7 +128,6 @@ public static class NotificationFailureReasons
         return exception switch
         {
             NotificationDeliveryException x => x.StatusCode,
-            ApiException x => x.StatusCode,
             HttpRequestException x => x.StatusCode,
             _ => null,
         };

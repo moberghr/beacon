@@ -1,39 +1,17 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { loadLocalMonaco } from '@/components/ui/monacoLocal';
 import type { DatabaseMetadataSnapshot } from '@/routes/data-sources/queries';
 
 // Monaco is heavy — keep it out of the main bundle. The default `loading`
 // hook is enough; React.lazy ensures the chunk is only fetched when an
 // editor instance actually mounts (i.e. when a user opens the QueryEditor).
 //
-// Bundle monaco-editor locally instead of letting @monaco-editor/react fetch
-// it from cdn.jsdelivr.net. Edge's Tracking Prevention blocks storage access
-// for the CDN, which breaks codicon font loading and suggest widget styling.
-async function configureLocalMonaco(reactMod: typeof import('@monaco-editor/react')) {
-  // Tests mock @monaco-editor/react with a stub that has no `loader` export;
-  // vitest throws when we access undeclared members, so guard via try/catch.
-  let loader: typeof reactMod.loader | undefined;
-  try {
-    loader = reactMod.loader;
-  } catch {
-    return;
-  }
-  if (!loader) return;
-  const [monaco, editorWorkerMod] = await Promise.all([
-    import('monaco-editor'),
-    import('monaco-editor/esm/vs/editor/editor.worker?worker'),
-  ]);
-  const EditorWorker = (editorWorkerMod as { default: new () => Worker }).default;
-  (self as unknown as { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {
-    getWorker: () => new EditorWorker(),
-  };
-  loader.config({
-    monaco: monaco as unknown as Parameters<typeof loader.config>[0]['monaco'],
-  });
-}
+// Monaco is bundled locally (see monacoLocal.ts), never fetched from a CDN.
 
 const Monaco = lazy(async () => {
   const reactMod = await import('@monaco-editor/react');
-  await configureLocalMonaco(reactMod);
+  const monaco = await loadLocalMonaco();
+  reactMod.loader.config({ monaco });
   return { default: reactMod.default };
 });
 
