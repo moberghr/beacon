@@ -188,10 +188,6 @@ public static class ServiceConfiguration
         services.AddSingleton<IAdapter, WebhookAdapter>();
         services.TryAddSingleton<AdapterFactory>();
 
-        // Shared services (for use by Query and Migration features)
-        services.TryAddTransient<ParameterResolver>();
-        services.TryAddTransient<SchedulingService>();
-
         // Data source providers — DatabaseProvider is always registered (connector projects register connection factories and engine types)
         // Non-database providers (CloudWatch, Databricks, BigQuery) are registered by their connector projects
         services.AddTransient<Services.Providers.IDataSourceProvider, Services.Providers.DatabaseProvider>();
@@ -217,7 +213,6 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<ITaskService, TaskService>();
-        services.TryAddTransient<IStatisticsService, StatisticsService>();
         services.TryAddTransient<IControlTowerService, ControlTowerService>();
         services.TryAddTransient<IDashboardService, DashboardService>();
         services.TryAddTransient<IMigrationService, MigrationService>();

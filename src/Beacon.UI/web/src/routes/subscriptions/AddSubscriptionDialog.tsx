@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { ChevronRight, Info } from 'lucide-react';
 import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDialog';
 import { Field, Input, Pill, Select } from '@/components/beacon';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import {
   AnomalyDetectionMethod,

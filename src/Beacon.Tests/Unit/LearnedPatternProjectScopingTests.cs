@@ -83,7 +83,6 @@ public class LearnedPatternProjectScopingTests
 
         return new ProjectDocumentationService(
             capturing ?? factory.Object,
-            new Mock<IKnowledgeGraphService>().Object,
             new Mock<ILlmProvider>().Object,
             new Mock<IDataSourceProviderFactory>().Object,
             TestSqlGate.Create(),

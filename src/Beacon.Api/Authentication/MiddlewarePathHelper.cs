@@ -2,7 +2,7 @@ namespace Beacon.Api.Authentication;
 
 internal static class MiddlewarePathHelper
 {
-    private static readonly string[] StaticPrefixes = ["/_content/", "/_framework/", "/_blazor"];
+    private static readonly string[] StaticPrefixes = ["/_content/"];
 
     private static readonly string[] StaticExtensions =
         [".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".ico", ".woff", ".woff2", ".ttf"];

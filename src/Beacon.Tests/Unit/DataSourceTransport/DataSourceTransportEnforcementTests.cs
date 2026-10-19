@@ -480,11 +480,8 @@ public class DataSourceTransportEnforcementTests
             Factory(sources, saved),
             Encryption,
             Mock.Of<IDataSourceProviderFactory>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            Mock.Of<IBeaconUserContext>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
-            TestQueryServices.Runner(),
             new RecordingSecurityAudit(),
             policy,
             NullLogger<DataSourceService>.Instance);

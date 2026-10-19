@@ -107,27 +107,6 @@ internal partial class QueryService
         };
     }
 
-    public async Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken)
-    {
-        RefuseWhileApprovalWorkflowIsOn();
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var queryStep = await context.QuerySteps
-            .Where(s => s.QueryId == queryId && s.StepOrder == stepOrder)
-            .SingleAsync(cancellationToken);
-
-        // Cannot delete if it's the only step
-        var stepCount = await context.QuerySteps.CountAsync(s => s.QueryId == queryId, cancellationToken);
-        if (stepCount <= 1)
-        {
-            throw new BeaconException("Cannot delete the last remaining query step.");
-        }
-
-        context.QuerySteps.Remove(queryStep);
-        await context.SaveChangesAsync(cancellationToken);
-    }
-
     // ===== PRIVATE HELPER METHODS FOR CROSS-DATA-SOURCE EXECUTION =====
 
     // These write live steps without a version or a review: with the workflow on they would put unreviewed SQL live.

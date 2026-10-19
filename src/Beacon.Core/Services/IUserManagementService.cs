@@ -9,6 +9,9 @@ namespace Beacon.Core.Services;
 /// </summary>
 public interface IUserManagementService
 {
+    /// <summary>The message of the members Beacon itself never calls.</summary>
+    public const string UncalledMemberObsoleteMessage = "Not called by Beacon; removed in 5.0.";
+
     // Setup
     /// <summary>
     /// Checks if this is the first run: no super admin has ever existed (an archived super admin counts, so archiving
@@ -25,6 +28,7 @@ public interface IUserManagementService
     /// <summary>
     /// Gets all users, optionally filtered by search term.
     /// </summary>
+    [Obsolete(UncalledMemberObsoleteMessage)]
     Task<List<BeaconUserData>> GetUsersAsync(string? search = null, CancellationToken ct = default);
 
     /// <summary>
@@ -37,6 +41,7 @@ public interface IUserManagementService
     /// </summary>
     Task<BeaconUserData?> GetUserByExternalIdAsync(string externalId, CancellationToken ct = default);
 
+    [Obsolete(UncalledMemberObsoleteMessage)]
     Task<BeaconUserData?> GetUserByExternalIdAndProviderAsync(string externalId, string? identityProvider, CancellationToken ct = default);
 
     /// <summary>
@@ -90,6 +95,7 @@ public interface IUserManagementService
     /// <summary>
     /// Deletes (archives) a user.
     /// </summary>
+    [Obsolete(UncalledMemberObsoleteMessage)]
     Task<BaseResponse> DeleteUserAsync(int userId, CancellationToken ct = default);
 
     /// <summary>
@@ -101,11 +107,13 @@ public interface IUserManagementService
     /// <summary>
     /// Assigns a role to a user.
     /// </summary>
+    [Obsolete(UncalledMemberObsoleteMessage)]
     Task<BaseResponse> AssignRoleAsync(int userId, int roleId, string? assignedBy, CancellationToken ct = default);
 
     /// <summary>
     /// Removes a role from a user.
     /// </summary>
+    [Obsolete(UncalledMemberObsoleteMessage)]
     Task<BaseResponse> RemoveRoleAsync(int userId, int roleId, CancellationToken ct = default);
 
     // Password management

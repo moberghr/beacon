@@ -8,7 +8,7 @@ namespace Beacon.Core.Handlers.McpEval;
 /// <summary>
 /// Starts an eval run and enqueues its execution as fire-and-forget background work. Creates the run
 /// row synchronously (so the caller gets an id immediately) via <see cref="IMcpEvalService.StartRunAsync"/>,
-/// then hands the actual case-by-case execution to the host's job runner (Hangfire) through
+/// then hands the actual case-by-case execution to the host's job runner through
 /// <see cref="IBeaconScheduler.EnqueueMcpEval"/>, which enqueues <c>IJobService.RunMcpEval(runId)</c>.
 /// </summary>
 internal sealed class RunEvalHandler(IMcpEvalService evalService, IBeaconScheduler scheduler)

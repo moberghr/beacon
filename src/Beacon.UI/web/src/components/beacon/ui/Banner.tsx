@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 const banner = cva('flex items-start gap-3 p-3.5 rounded-md border', {
   variants: {

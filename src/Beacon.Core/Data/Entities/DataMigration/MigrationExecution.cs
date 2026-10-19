@@ -1,10 +1,9 @@
-using Beacon.Core.Abstractions;
 using Beacon.Core.Data.Entities.Base;
 using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities.DataMigration;
 
-public class MigrationExecutionHistory : BaseEntity, IExecutionHistory
+public class MigrationExecutionHistory : BaseEntity
 {
     public int MigrationJobId { get; set; }
     public MigrationJob MigrationJob { get; set; } = null!;
@@ -38,7 +37,4 @@ public class MigrationExecutionHistory : BaseEntity, IExecutionHistory
     public int? EstimatedTotalRows { get; set; }
     public int ProcessedRows { get; set; }
     public decimal ProgressPercentage => EstimatedTotalRows > 0 ? (decimal)ProcessedRows / EstimatedTotalRows.Value * 100 : 0;
-
-    // IExecutionHistory implementation (most properties already naturally match the interface)
-    bool IExecutionHistory.Success => Status == MigrationStatus.Completed || Status == MigrationStatus.PartialSuccess;
 }

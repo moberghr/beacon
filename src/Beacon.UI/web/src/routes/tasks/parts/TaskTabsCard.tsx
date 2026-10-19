@@ -15,7 +15,7 @@ import {
   Pill,
 } from '@/components/beacon';
 import { Tabs, type TabDef } from '@/components/Tabs';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { formatDateTime, formatRelativeTime } from '@/lib/format';
 import type {
   TaskCommentItem,

@@ -15,10 +15,8 @@ public sealed class BeaconHub : Hub
 public static class BeaconHubEventNames
 {
     public const string JobStatusChanged = "JobStatusChanged";
-    public const string NotificationCreated = "NotificationCreated";
     public const string ApprovalUpdated = "ApprovalUpdated";
 }
 
 public sealed record JobStatusChangedEvent(string JobId, string State, DateTimeOffset Timestamp);
-public sealed record NotificationCreatedEvent(int NotificationId, string Kind);
 public sealed record ApprovalUpdatedEvent(int ApprovalId, string Status);

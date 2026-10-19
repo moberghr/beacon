@@ -623,61 +623,6 @@ public class AiActorService : IAiActorServiceExtended
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<List<Beacon.Core.Data.Entities.AiActor>> GetActorsForDataSourceAsync(
-        int? dataSourceId,
-        bool includeArchived = false,
-        CancellationToken cancellationToken = default)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var query = context.AiActors
-            .AsNoTracking()
-            .AsQueryable();
-
-        if (dataSourceId.HasValue)
-        {
-            query = query.Where(x => x.DataSourceId == dataSourceId.Value);
-        }
-
-        // The global soft-delete filter excludes archived actors by default; opt back in explicitly.
-        if (includeArchived)
-        {
-            query = query.IgnoreQueryFilters();
-        }
-
-        return await query
-            .OrderByDescending(x => x.CreatedTime)
-            .Select(x =>
-                new Beacon.Core.Data.Entities.AiActor
-                {
-                    Id = x.Id,
-                    Name = x.Name,
-                    Instructions = x.Instructions,
-                    AdditionalContext = x.AdditionalContext,
-                    DataSourceId = x.DataSourceId,
-                    Status = x.Status,
-                    MaxQueries = x.MaxQueries,
-                    MaxSubscriptionsPerQuery = x.MaxSubscriptionsPerQuery,
-                    RequiresApproval = x.RequiresApproval,
-                    CreatedByUserId = x.CreatedByUserId,
-                    TotalTokensUsed = x.TotalTokensUsed,
-                    TotalCost = x.TotalCost,
-                    LastThinkTime = x.LastThinkTime,
-                    ThinkCount = x.ThinkCount,
-                    LastError = x.LastError,
-                    CreatedTime = x.CreatedTime,
-                    ArchivedTime = x.ArchivedTime,
-                    DataSource = new DataSource
-                    {
-                        Id = x.DataSource.Id,
-                        Name = x.DataSource.Name,
-                        DataSourceType = x.DataSource.DataSourceType,
-                        EncryptedConnectionData = string.Empty
-                    }
-                })
-            .ToListAsync(cancellationToken);
-    }
-
     public async Task<List<AiActorExecution>> GetExecutionHistoryAsync(
         int actorId,
         int? limit = null,

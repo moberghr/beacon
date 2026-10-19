@@ -16,29 +16,6 @@ public class SqlServerDataTransferManager : IDisposable
         _destinationConnection.Open();
     }
 
-    public void MergeData<T>(IEnumerable<T> data, Table table, Schema schema, bool overwriteDestination, bool updateOnlyChangedRows)
-    {
-        if (data == null)
-        {
-            return;
-        }
-
-        var reader = new ObjectDataReader<T>(data);
-        var fullDestTableName = GetFullName(schema, table);
-
-        // Copy data
-        var columns = GetColumnNames(reader);
-        var tempTableName = CreateTempTable(table.ToString(), columns, schema.ToString());
-        var copy = new SqlBulkCopy(_destinationConnection, SqlBulkCopyOptions.Default, null)
-        {
-            DestinationTableName = tempTableName
-        };
-
-        copy.WriteToServer(reader);
-        MergeData(tempTableName, columns, fullDestTableName, overwriteDestination, updateOnlyChangedRows);
-        DropTempTable(tempTableName);
-    }
-
     public void MergeData<T>(IEnumerable<T> data, string tableName, string? schemaName, bool overwriteDestination, bool updateOnlyChangedRows)
     {
         if (data == null)
@@ -60,23 +37,6 @@ public class SqlServerDataTransferManager : IDisposable
         copy.WriteToServer(reader);
         MergeData(tempTableName, columns, fullDestTableName, overwriteDestination, updateOnlyChangedRows);
         DropTempTable(tempTableName);
-    }
-
-    public void BulkInsert<T>(IEnumerable<T> data, Table table, Schema schema)
-    {
-        if (data == null)
-        {
-            return;
-        }
-
-        var reader = new ObjectDataReader<T>(data);
-
-        var bulkCopy = new SqlBulkCopy(_destinationConnection, SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.FireTriggers | SqlBulkCopyOptions.UseInternalTransaction, null)
-        {
-            DestinationTableName = GetFullName(schema, table)
-        };
-
-        bulkCopy.WriteToServer(reader);
     }
 
     public void BulkInsert<T>(IEnumerable<T> data, string tableName, string? schemaName = null)
@@ -260,28 +220,9 @@ public class SqlServerDataTransferManager : IDisposable
 
     private string GetFullName(string schemaName, string tableName) => $"[{schemaName}].{tableName}";
 
-    private string GetFullName(Schema schema, Table table) => GetFullName(schema.ToString(), table.ToString());
-
     public void Dispose()
     {
         _destinationConnection.Close();
         _destinationConnection.Dispose();
     }
-}
-
-public enum Table
-{
-    ClaimPayment = 0,
-    Claim = 1,
-    AccountTransaction = 2,
-    CommunicationLogEntity = 3,
-    CreditHistory = 4,
-    VerificationRequest = 5
-}
-
-public enum Schema
-{
-    dbo = 0,
-    banking = 1,
-    logging = 2
 }

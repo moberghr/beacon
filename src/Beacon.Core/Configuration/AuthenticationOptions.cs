@@ -38,12 +38,6 @@ public class AuthenticationOptions
     public int CookieExpirationHours { get; set; } = 24;
 
     /// <summary>
-    /// Enable "Remember Me" functionality on login form.
-    /// Default: true
-    /// </summary>
-    public bool EnableRememberMe { get; set; } = true;
-
-    /// <summary>
     /// Cookie expiration in days when "Remember Me" is checked.
     /// Default: 30 days
     /// </summary>

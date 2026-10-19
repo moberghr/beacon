@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Controller, useWatch, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue } from 'react-hook-form';
 import { Bot, CheckCircle2, Cloud, Loader2, Server, Sparkles, XCircle, type LucideIcon } from 'lucide-react';
 import { Banner, Button, Card, CardBody, Field, Input, Pill, Select, Seg } from '@/components/beacon';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { AiProvider, BedrockAuthMode } from '@/lib/enums';
 import {
   AI_PROVIDER_LABEL,

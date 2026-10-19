@@ -84,7 +84,7 @@ UI is refused; restart the host (or call the sync again) instead.
   knowledge graph work as for any other data source.
 - **Policy enforced at execution.** Every SQL statement against a host data source is checked against the
   exposed slice, in the execution gate (MCP `query`, `dry_run`, cross-source, eval; a violation blocks regardless
-  of `BlockOnSchemaFailure`) **and** again in the database provider (every path: `ask`, ad-hoc UI queries, value
+  of `BlockOnSchemaFailure`) **and** again in the database provider (every path: `ask`, query previews, value
   grounding, documentation sampling), in saved-query steps and in data-quality rules. The check parses the SQL in
   the data source's own dialect and resolves every name the way the database does:
   - only a single `SELECT`; every table must be allow-listed **and schema-qualified** (`dbo.Customer`,

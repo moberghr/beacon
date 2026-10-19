@@ -32,8 +32,6 @@ public interface ISubscriptionService
 
     Task RemoveRecipient(int subscriptionId, int recipientId, CancellationToken cancellationToken);
 
-    Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string keyword, CancellationToken cancellationToken);
-
     Task<SubscriptionDetailsData> GetSubscriptionDetails(int subscriptionId, CancellationToken cancellationToken);
 }
 
@@ -212,52 +210,6 @@ internal class SubscriptionService(
         // Warp definition remains. The reverse order could unschedule a still-active subscription when the
         // archive save fails.
         await beaconScheduler.Remove(subscription.Id, subscription.Query.Name);
-    }
-
-    public async Task<List<SubscriptionData>> GetSubscriptions(int? subscriptionId, int? queryId, NotificationType? notificationType, string? keyword, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        return await context.Subscriptions
-            .WhereIf(subscriptionId.HasValue, x => x.Id == subscriptionId)
-            .WhereIf(queryId.HasValue, x => x.QueryId == queryId)
-            .WhereIf(!string.IsNullOrWhiteSpace(keyword), x => x.Query.Name.Contains(keyword!))
-            .Select(x =>
-                new SubscriptionData
-                {
-                    SubscriptionId = x.Id,
-                    QueryId = x.QueryId,
-                    QueryName = x.Query.Name,
-                    AiActorId = x.AiActorId,
-                    AiActorName = x.AiActor != null ? x.AiActor.Name : null,
-                    // Destinations are secrets: never part of a subscription read (admins see them masked on recipients).
-                    Recipients = x.Recipients
-                        .Select(y =>
-                            new RecipientData
-                            {
-                                RecipientId = y.Id,
-                                Name = y.Name,
-                                Description = y.Description,
-                                Destination = string.Empty,
-                                NotificationType = y.NotificationType
-                            })
-                        .ToList(),
-                    CronExpression = x.CronExpression,
-                    MaxRows = x.MaxRows,
-                    MinimumRowCount = x.MinimumRowCount,
-                    IncludeAttachment = x.IncludeAttachment,
-                    ResultAttachmentType = x.ResultAttachmentType,
-                    ShowQuery = x.ShowQuery,
-                    TimeoutSeconds = x.TimeoutSeconds,
-                    StoreResults = x.StoreResults,
-                    CreateTasks = x.CreateTasks,
-                    Parameters = x.Parameters.Select(y => new SubscriptionParameterData
-                    {
-                        QueryPlaceholder = y.QueryPlaceholder,
-                        Value = y.Value
-                    }).ToList()
-                })
-            .ToListAsync(cancellationToken);
     }
 
     public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)

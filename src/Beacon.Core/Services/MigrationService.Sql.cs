@@ -732,17 +732,6 @@ DO UPDATE SET {updateSet}";
         };
     }
 
-    private static string ValidateAndQuoteTable(string tableName, DatabaseEngineType engineType)
-    {
-        var parts = tableName.Split('.', 2);
-        if (parts.Length == 2)
-        {
-            return $"{QuoteIdentifier(parts[0], engineType)}.{QuoteIdentifier(parts[1], engineType)}";
-        }
-
-        return QuoteIdentifier(tableName, engineType);
-    }
-
     private static string ValidateTable(string tableName)
     {
         var parts = tableName.Split('.', 2);

@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import type { SortState } from '@/lib/paging';
 import type { PreviewRow } from '../queries';
 

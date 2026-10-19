@@ -198,25 +198,6 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         return newConfig.Id;
     }
 
-    public async Task DeleteAnomalyConfigAsync(
-        int subscriptionId,
-        CancellationToken cancellationToken = default)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var config = await context.AnomalyConfigs
-            .Where(x => x.SubscriptionId == subscriptionId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (config != null)
-        {
-            context.AnomalyConfigs.Remove(config);
-            await context.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Deleted anomaly configuration for subscription {SubscriptionId}", subscriptionId);
-        }
-    }
-
     public async Task<AnomalyChartData> GetAnomalyChartDataAsync(
         int subscriptionId,
         int lookbackDays,

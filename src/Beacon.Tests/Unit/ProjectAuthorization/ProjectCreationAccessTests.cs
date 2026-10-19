@@ -271,11 +271,8 @@ public class ProjectCreationAccessTests
             factory.Object,
             encryption.Object,
             Mock.Of<IDataSourceProviderFactory>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            Mock.Of<IBeaconUserContext>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
-            TestQueryServices.Runner(),
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             NullLogger<DataSourceService>.Instance);

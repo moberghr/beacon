@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import type { ApprovalUpdatedEvent } from './hub';
 import { useHubEvent, useHubReconnected } from './useHubEvent';
 
-type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreated';
+type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged';
 
 /**
  * Central map of SignalR events to the query keys they should invalidate.
@@ -15,11 +15,22 @@ const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
   // A decision moves a query's live steps and versions; a newer submission supersedes a pending one.
   ApprovalUpdated: [['approvals'], ['query'], ['queries'], ['migration-jobs'], ['recipients'], ['data-quality'], ['subscriptions']],
   JobStatusChanged: [['control-tower'], ['migration-jobs'], ['migration-executions']],
-  NotificationCreated: [['control-tower'], ['notifications']],
 };
+
+/** Keys no hub event invalidates but a reconnect still refreshes, so data that changed while offline shows up. */
+const RECONNECT_ONLY: ReadonlyArray<QueryKey> = [['notifications']];
 
 /** What the requester of a pending change is told when a newer submission of the same query replaced it. */
 export const SUPERSEDED_MESSAGE = 'Your pending change was replaced by a newer submission';
+
+/** The connection came back: refetch every mapped key, since events fired while it was down are lost. */
+export function handleHubReconnected(qc: QueryClient): void {
+  for (const keys of [...Object.values(INVALIDATIONS), RECONNECT_ONLY]) {
+    for (const key of keys) {
+      qc.invalidateQueries({ queryKey: key });
+    }
+  }
+}
 
 /**
  * An approval request changed: refetch what shows it, and tell the requester when a newer submission superseded their
@@ -55,19 +66,9 @@ export function useHubInvalidations(): void {
     }
   });
 
-  useHubEvent('NotificationCreated', () => {
-    for (const key of INVALIDATIONS.NotificationCreated) {
-      qc.invalidateQueries({ queryKey: key });
-    }
-  });
-
   // Events fired during a transient disconnect are lost — reconcile every
   // mapped query key once the connection comes back.
   useHubReconnected(() => {
-    for (const keys of Object.values(INVALIDATIONS)) {
-      for (const key of keys) {
-        qc.invalidateQueries({ queryKey: key });
-      }
-    }
+    handleHubReconnected(qc);
   });
 }

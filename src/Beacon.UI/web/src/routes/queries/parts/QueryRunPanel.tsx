@@ -13,7 +13,7 @@ import {
   Seg,
 } from "@/components/beacon";
 import { Pager } from "@/components/data/Pager";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 import type { SortState } from "@/lib/paging";
 import type {
   PreviewRow,

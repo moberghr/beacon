@@ -8,7 +8,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Banner, Button, Field, Input } from '@/components/beacon';
 import { useAccess, useAuth } from '@/auth/useAuth';
 import { ApiError, describeError, httpErrorInfo } from '@/lib/api';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import {
   useCreateExternalUser,
   useCreateInternalUser,

@@ -67,9 +67,9 @@ These choices shape the wiring. An agent should ask, not guess.
 
 10. **Configure connectors** for the engines you monitor, each with a read-only database login. → [Data-source connectors](/integrate/connectors/)
 
-11. **Optional, AI:** set `UseAI = true`, call `AddBeaconAI`, configure the LLM provider and, optionally, local embeddings. → [AI providers](/integrate/ai/)
+11. **Optional, AI (required for MCP):** set `UseAI = true`, call `AddBeaconAI`, configure the LLM provider and, optionally, local embeddings. → [AI providers](/integrate/ai/)
 
-12. **Optional, MCP:** expose `/beacon/mcp`, set `Beacon:PublicBaseUrl`, issue API keys or map Entra callers, connect Claude, Cursor or VS Code. → [MCP & AI clients](/integrate/mcp/)
+12. **Optional, MCP (needs step 11):** expose `/beacon/mcp`, set `Beacon:PublicBaseUrl`, issue API keys or map Entra callers, connect Claude, Cursor or VS Code. → [MCP & AI clients](/integrate/mcp/)
 
 13. **Optional, extend:** expose your own EF Core `DbContext`, your Markdown docs, or your own HTTP endpoints as MCP tools. → [Extending Beacon](/integrate/extending/)
 

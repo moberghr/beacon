@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/beacon";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 
 export interface PagerProps {
   /** Zero-based, as the API expects; displayed one-based. */

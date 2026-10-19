@@ -23,11 +23,6 @@ public class BeaconConfiguration
     public bool UseAI { get; set; } = false;
 
     /// <summary>
-    /// Controls database metadata loading behavior. Useful for large databases with hundreds of tables.
-    /// </summary>
-    public MetadataLoadingOptions MetadataLoading { get; set; } = new();
-
-    /// <summary>
     /// Authorization configuration
     /// </summary>
     public AuthorizationOptions Authorization { get; set; } = new();

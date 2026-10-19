@@ -286,13 +286,5 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
 
             throw new InvalidOperationException($"Rule config missing required property '{property}'");
         }
-
-        public double? GetDoubleOrDefault(string property)
-        {
-            if (_root.TryGetProperty(property, out var element))
-                return element.GetDouble();
-
-            return null;
-        }
     }
 }

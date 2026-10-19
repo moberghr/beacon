@@ -24,23 +24,6 @@ public static class Helpers
         return value.ToString("dd.MM.yyyy");
     }
 
-    public static string ToShortDateWithoutYear(this DateTime value)
-    {
-        return value.ToString("dd.MM.");
-    }
-
-    public static string GetSubstring(this string value, int length)
-    {
-        if (string.IsNullOrEmpty(value) || value.Length <= length)
-        {
-            return value;
-        }
-        else
-        {
-            return value.Substring(0, length - 3) + "...";
-        }
-    }
-
     public static DateTime? GetCronNextAt(this string cron)
     {
         if (!Cronos.CronExpression.TryParse(cron, out var expression))

@@ -1,5 +1,3 @@
-using System.Data;
-using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
@@ -11,7 +9,6 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Models.Providers;
-using Beacon.Core.Models.Queries;
 using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
@@ -37,10 +34,6 @@ public interface IDataSourceService
 
     Task DeleteDataSource(int dataSourceId, CancellationToken cancellationToken);
 
-    Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken);
-
-    Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken);
-
     Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
 
     Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken);
@@ -50,15 +43,11 @@ internal class DataSourceService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     IDataSourceProviderFactory providerFactory,
-    IManualQueryExecutionLogger queryExecutionLogger,
-    IBeaconUserContext userContext,
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
-    GatedSqlRunner sqlRunner,
     ISecurityAuditRecorder securityAudit,
     IDataSourceTransportPolicy transportPolicy,
     ILogger<DataSourceService> logger,
-    ISharedSourceSettings? sharedSourceSettings = null,
     IBeaconScheduler? scheduler = null) : IDataSourceService
 {
     /// <summary>What a caller is told when a change of target is not confirmed (HTTP 409).</summary>
@@ -243,60 +232,6 @@ internal class DataSourceService(
         EvictMetadata(dataSourceId);
     }
 
-    public async Task<List<DataSourceListData>> GetDataSources(int? dataSourceId, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Note: do not add a redundant `.Where(x => x.ArchivedTime == null)` —
-        // the global soft-delete query filter already applies it, and combining the two on
-        // EF Core 9 / Npgsql collapses the outer predicate to WHERE FALSE (returns nothing).
-        return await context.DataSources
-            .WhereIf(dataSourceId.HasValue, x => x.Id == dataSourceId)
-            .Select(x => new DataSourceListData
-            {
-                Id = x.Id,
-                Name = x.Name,
-                DataSourceType = x.DataSourceType,
-                DatabaseEngineType = x.DatabaseEngineType,
-                MetadataLoadingEnabled = x.MetadataLoadingEnabled,
-                ArchivedTime = x.ArchivedTime,
-                MigrationJobsCount = context.MigrationJobs
-                    .Count(mj => (mj.DataSourceId == x.Id || mj.DestinationDataSourceId == x.Id)
-                                 && mj.ArchivedTime == null),
-                Queries = x.QuerySteps
-                    .Where(qs => qs.Query.ArchivedTime == null)
-                    .GroupBy(qs => qs.QueryId)
-                    .Select(g => new QueryData
-                    {
-                        QueryId = g.Key,
-                        Name = g.First().Query.Name,
-                        Description = g.First().Query.Description,
-                        CreatedTime = g.First().Query.CreatedTime,
-                        SubscriptionsCount = g.First().Query.Subscriptions.Count,
-                        Steps = g.OrderBy(qs => qs.StepOrder).Select(qs => new QueryStepData
-                        {
-                            StepId = qs.Id,
-                            StepOrder = qs.StepOrder,
-                            Name = qs.Name ?? $"Step {qs.StepOrder}",
-                            Description = qs.Description,
-                            SqlValue = qs.SqlValue,
-                            DataSourceId = qs.DataSourceId,
-                            DataSourceName = x.Name,
-                            DataSourceType = x.DataSourceType,
-                            DatabaseEngineType = x.DatabaseEngineType,
-                            Parameters = qs.Parameters.Select(p => new QueryStepParameterData
-                            {
-                                Name = p.Name,
-                                Type = p.Type,
-                                Description = p.Description,
-                                Placeholder = p.Placeholder
-                            }).ToList()
-                        }).ToList()
-                    }).ToList()
-            })
-            .ToListAsync(cancellationToken);
-    }
-
     public async Task UpdateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -463,141 +398,6 @@ internal class DataSourceService(
         }
     }
 
-    public async Task<AdHocQueryResult> ExecuteAdHocQuery(int dataSourceId, string query, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var dataSource = await context.DataSources
-            .Where(x => x.Id == dataSourceId)
-            .SingleOrDefaultAsync(cancellationToken)
-            ?? throw new BeaconException($"Data source with ID {dataSourceId} not found");
-
-        var startTime = DateTime.UtcNow;
-
-        try
-        {
-            logger.LogInformation("Executing ad-hoc query on data source {DataSourceId} ({DataSourceType})",
-                dataSourceId, dataSource.DataSourceType);
-
-            // SQL goes through the execution gate and the read-only provider path, capped one row past the display limit in
-            // the SQL itself (§1.5), so a result larger than the display is reported as cut short; a source without SQL (an
-            // API or log source) takes its own query language to its provider.
-            var limitedQuery = query;
-            ProviderQueryResult result;
-            if (DataSourceSqlDialect.Of(dataSource) != null)
-            {
-                var run = await sqlRunner.RunAsync(
-                    new GatedSqlRequest(dataSource, query, new Dictionary<string, object?>(), Constants.Query.MaxUiDisplayRows + 1),
-                    cancellationToken);
-                limitedQuery = run.Report.FinalSql;
-                result = run.TimedOut
-                    ? new ProviderQueryResult { Success = false, ErrorMessage = "The query timed out.", ExecutionTimeMs = run.ExecutionTimeMs }
-                    : new ProviderQueryResult { Success = true, Rows = run.Rows, TotalRows = run.Rows.Count, ExecutionTimeMs = run.ExecutionTimeMs };
-            }
-            else
-            {
-                var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-                result = await provider.ExecuteQueryAsync(
-                    dataSource,
-                    query,
-                    new Dictionary<string, object?>(),
-                    cancellationToken);
-
-                if (!result.Success && result.ErrorMessage != null)
-                {
-                    // The source's error can quote row values: redacted while its effective PII detection is on (a gated
-                    // SQL failure arrives redacted by the runner already).
-                    var detectPii = sharedSourceSettings == null
-                        || (await sharedSourceSettings.GetDataSourceSettingsAsync(dataSourceId, cancellationToken)).EnablePiiDetection;
-                    result.ErrorMessage = DatabaseErrorRedactor.ForCaller(result.ErrorMessage, query, detectPii, logger);
-                }
-            }
-
-            if (!result.Success)
-            {
-                // The class of the error only, never its text (§1.11).
-                logger.LogWarning(
-                    "Ad-hoc query failed for data source {DataSourceId} ({ErrorClass})",
-                    dataSourceId,
-                    DatabaseErrorRedactor.ClassOnly(result.ErrorMessage ?? "", logger));
-            }
-
-            // The display limit; a row past it says the result was larger than what is shown.
-            var displayRows = result.Rows.Take(Constants.Query.MaxUiDisplayRows).ToList();
-            var totalRows = result.TotalRows;
-
-            // Log manual query execution
-            await queryExecutionLogger.LogQueryExecutionAsync(
-                queryText: limitedQuery,
-                resultCount: totalRows,
-                executionTimeMs: result.ExecutionTimeMs,
-                success: result.Success,
-                dataSourceId: dataSourceId,
-                executionContext: "DataSourceEditor",
-                errorMessage: StoredError(result.ErrorMessage, limitedQuery),
-                userId: userContext.UserId,
-                cancellationToken: cancellationToken);
-
-            return new AdHocQueryResult
-            {
-                Success = result.Success,
-                Columns = result.Success ? ExtractColumns(displayRows) : new List<string>(),
-                Rows = displayRows,
-                RowCount = displayRows.Count,
-                Truncated = result.Rows.Count > displayRows.Count,
-                ExecutionTime = TimeSpan.FromMilliseconds(result.ExecutionTimeMs),
-                Error = result.ErrorMessage
-            };
-        }
-        catch (Exception ex)
-        {
-            // The failure's type, code, inner types and throwing method — never its message, which can quote row values
-            // (§1.11). A refusal Beacon raised itself (the execution gate) keeps its message.
-            logger.LogError(
-                "Exception executing ad-hoc query on data source {DataSourceId}: {Failure}",
-                dataSourceId,
-                FailureCodes.Describe(ex));
-
-            var executionTimeMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
-
-            // Log failed query execution: the stored history holds a database error redacted, a refusal Beacon raised as it is.
-            await queryExecutionLogger.LogQueryExecutionAsync(
-                queryText: query,
-                resultCount: 0,
-                executionTimeMs: executionTimeMs,
-                success: false,
-                dataSourceId: dataSourceId,
-                executionContext: "DataSourceEditor",
-                errorMessage: ex is InvalidOperationException or BeaconException ? ex.Message : StoredError(ex.Message, query),
-                userId: userContext.UserId,
-                cancellationToken: cancellationToken);
-
-            return new AdHocQueryResult
-            {
-                Success = false,
-                Error = ex.Message,
-                ExecutionTime = DateTime.UtcNow - startTime,
-                Columns = new List<string>(),
-                Rows = new List<Dictionary<string, object?>>(),
-                RowCount = 0
-            };
-        }
-    }
-
-    // The ad-hoc history keeps a database error redacted whatever the PII setting: it is stored and read back later.
-    private string? StoredError(string? error, string query)
-    {
-        return error == null ? null : DatabaseErrorRedactor.ForCaller(error, query, redact: true, logger);
-    }
-
-    private List<string> ExtractColumns(List<Dictionary<string, object?>> rows)
-    {
-        if (rows == null || rows.Count == 0)
-            return new List<string>();
-
-        return rows[0].Keys.ToList();
-    }
-
     public async Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken)
     {
         var refusal = TransportRefusal(DataSourceType.Database, databaseEngineType, connectionString);
@@ -671,20 +471,6 @@ internal class DataSourceService(
                 Message = $"Connection failed: {ConnectionFailureDescriber.Describe(ex)}"
             };
         }
-    }
-
-    private (List<string> columns, List<Dictionary<string, object?>> rows) ConvertQueryResults(IList<dynamic> resultList)
-    {
-        if (resultList.Count == 0)
-            return (new List<string>(), new List<Dictionary<string, object?>>());
-
-        var firstRow = (IDictionary<string, object?>)resultList[0];
-        var columns = firstRow.Keys.ToList();
-        var rows = resultList
-            .Select(item => ((IDictionary<string, object?>)item).ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
-            .ToList();
-
-        return (columns, rows);
     }
 
     // A connection test is refused, never opened, when the connection does not authenticate the server: its message names

@@ -63,42 +63,6 @@ public static class Helpers
         </html>";
     }
 
-    public static string GenerateJiraContent(QueryResult queryResult)
-    {
-        var querySection = queryResult.ShowQuery
-            ? $@"
-        h3. Sql Query:
-        {{code:sql}}
-            {queryResult.SqlQuery}
-        {{code}}
-
-        ----"
-            : "";
-
-        var firstRecord = queryResult.TopRecords.GetFirstRecordSafe();
-        if (firstRecord == null)
-        {
-            return $@"
-        {querySection}
-
-        Total records: *{queryResult.TotalRecords}*
-
-        No records to display.";
-        }
-
-        var headers = string.Join("|", firstRecord.Select(property => property.Key));
-        var rows = string.Join("\n", queryResult.TopRecords.Select(record =>
-            $"|{string.Join("|", record.Select(property => CellValueFormatter.FormatAndSanitize(property.Value)))}|"));
-
-        return $@"
-        {querySection}
-
-        Total records: *{queryResult.TotalRecords}*
-
-        |{headers}|
-        {rows}";
-    }
-
     /// <summary>
     /// Generates Atlassian Document Format (ADF) for Jira Cloud API v3.
     /// This produces properly formatted rich text with tables, code blocks, etc.
@@ -141,15 +105,4 @@ public static class Helpers
 
         return builder.Build();
     }
-
-    /// <summary>
-    /// Generates ADF for a simple text comment.
-    /// </summary>
-    public static AdfDocument GenerateJiraCommentAdf(string comment)
-    {
-        return new AdfBuilder()
-            .AddParagraph(comment)
-            .Build();
-    }
-
 }

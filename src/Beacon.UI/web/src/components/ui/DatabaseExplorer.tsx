@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Database, Box } from 'lucide-react';
 import { Input } from '@/components/beacon';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import {
   useDataSourceMetadataQuery,
   type TableMetadataDto,

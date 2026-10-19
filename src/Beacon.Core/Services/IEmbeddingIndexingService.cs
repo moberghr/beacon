@@ -5,7 +5,7 @@ namespace Beacon.Core.Services;
 /// exemplars so the hybrid-retrieval and semantic few-shot paths have vectors to search.
 /// The interface lives in Core (mirroring <see cref="IMcpLearningAggregationService"/>); the
 /// implementation lives in Beacon.AI and is wired at the composition root, so the Core-level
-/// Hangfire job scheduler can trigger a re-index without an AI reference.
+/// job scheduler can trigger a re-index without an AI reference.
 /// </summary>
 public interface IEmbeddingIndexingService
 {

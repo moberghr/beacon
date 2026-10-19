@@ -87,21 +87,6 @@ export function useQueryVersionDetailQuery(versionId: number | undefined) {
   });
 }
 
-export function useQueryVersionDiffQuery(
-  versionIdA: number | undefined,
-  versionIdB: number | undefined,
-) {
-  return useQuery({
-    queryKey: ['query-version-diff', versionIdA, versionIdB],
-    queryFn: () => beaconApi().diffQueryVersions(versionIdA as number, versionIdB as number),
-    enabled:
-      typeof versionIdA === 'number' &&
-      Number.isFinite(versionIdA) &&
-      typeof versionIdB === 'number' &&
-      Number.isFinite(versionIdB),
-  });
-}
-
 export const QUERY_VERSION_STATUS_LABEL: Record<QueryVersionStatus, string> = {
   [QueryVersionStatus.Active]: 'Active',
   [QueryVersionStatus.Archived]: 'Archived',

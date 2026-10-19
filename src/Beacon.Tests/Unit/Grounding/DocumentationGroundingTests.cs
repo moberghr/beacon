@@ -126,7 +126,6 @@ public class DocumentationGroundingTests
 
         return new ProjectDocumentationService(
             factory.Object,
-            new Mock<IKnowledgeGraphService>().Object,
             new Mock<ILlmProvider>().Object,
             new Mock<IDataSourceProviderFactory>().Object,
             TestSqlGate.Create(),

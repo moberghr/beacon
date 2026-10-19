@@ -1,6 +1,5 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
@@ -14,16 +13,13 @@ internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetai
 {
     private readonly IAiActorServiceExtended _aiActorService;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
-    private readonly ILogger<GetAiActorDetailsHandler> _logger;
 
     public GetAiActorDetailsHandler(
         IAiActorServiceExtended aiActorService,
-        IDbContextFactory<BeaconContext> contextFactory,
-        ILogger<GetAiActorDetailsHandler> logger)
+        IDbContextFactory<BeaconContext> contextFactory)
     {
         _aiActorService = aiActorService;
         _contextFactory = contextFactory;
-        _logger = logger;
     }
 
     public async Task<GetAiActorDetailsResult?> Handle(

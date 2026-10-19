@@ -47,7 +47,6 @@ public interface IQueryApprovalService
     /// pending proposal is marked Rejected, never a live version.
     /// </summary>
     Task<QueryApprovalDecision> RejectAsync(int requestId, string? comment, CancellationToken cancellationToken = default);
-    Task<int> GetPendingCountAsync(CancellationToken cancellationToken = default);
 }
 
 internal class QueryApprovalService(
@@ -451,14 +450,6 @@ internal class QueryApprovalService(
         });
 
         return new QueryApprovalDecision(requestId, ApprovalStatus.Rejected, request.RequestedByUserId, reviewer.UserId);
-    }
-
-    public async Task<int> GetPendingCountAsync(CancellationToken cancellationToken = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        return await context.QueryApprovalRequests
-            .CountAsync(r => r.Status == ApprovalStatus.Pending, cancellationToken);
     }
 
     // A decision as the security audit records it: the request, its query and version, the outcome, the requester by

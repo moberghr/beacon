@@ -90,26 +90,6 @@ public static partial class DocumentationContentParser
         return string.Join('\n', lines);
     }
 
-    /// <summary>
-    /// If the content contains JSON (raw or fenced), extracts readable markdown from it.
-    /// Returns the original content unchanged if it is not JSON.
-    /// </summary>
-    public static string ExtractMarkdownFromContent(string content)
-    {
-        var jsonContent = ExtractJsonContent(content);
-        if (jsonContent == null)
-            return content;
-
-        // First try proper JSON parsing (works if JSON is complete)
-        var parsed = TryParseCompleteJson(jsonContent);
-        if (parsed != null)
-            return parsed;
-
-        // Fallback: regex-based extraction for truncated JSON
-        var extracted = ExtractJsonStringValues(jsonContent);
-        return extracted ?? content;
-    }
-
     private static string? ExtractJsonContent(string content)
     {
         var trimmed = content.Trim();

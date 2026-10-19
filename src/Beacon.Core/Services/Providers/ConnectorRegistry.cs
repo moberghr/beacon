@@ -5,6 +5,8 @@ namespace Beacon.Core.Services.Providers;
 
 public static class ConnectorRegistry
 {
+    private const string UncalledMemberObsoleteMessage = "Not called by Beacon; removed in 5.0.";
+
     private static readonly ConcurrentDictionary<DatabaseEngineType, string> _registeredEngines = new();
     private static readonly ConcurrentDictionary<DataSourceType, string> _registeredDataSourceTypes = new();
 
@@ -18,15 +20,19 @@ public static class ConnectorRegistry
         _registeredDataSourceTypes[dataSourceType] = displayName;
     }
 
+    [Obsolete(UncalledMemberObsoleteMessage)]
     public static IReadOnlyDictionary<DatabaseEngineType, string> GetRegisteredDatabaseEngines() =>
         _registeredEngines;
 
+    [Obsolete(UncalledMemberObsoleteMessage)]
     public static IReadOnlyDictionary<DataSourceType, string> GetRegisteredDataSourceTypes() =>
         _registeredDataSourceTypes;
 
+    [Obsolete(UncalledMemberObsoleteMessage)]
     public static bool IsEngineRegistered(DatabaseEngineType engineType) =>
         _registeredEngines.ContainsKey(engineType);
 
+    [Obsolete(UncalledMemberObsoleteMessage)]
     public static bool IsDataSourceTypeRegistered(DataSourceType dataSourceType) =>
         _registeredDataSourceTypes.ContainsKey(dataSourceType);
 

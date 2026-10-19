@@ -181,7 +181,6 @@ Three entities in the `beacon` schema hold anomaly data (PostgreSQL uses snake_c
 | `RecordAnomalyEventAsync(subscriptionId, evaluation, notificationId)` | Records an anomaly event. |
 | `GetAnomalyConfigAsync(subscriptionId)` | The configuration as `AnomalyConfigData`, or `null`. |
 | `SaveAnomalyConfigAsync(AnomalyConfigData)` | Creates or updates the configuration of a subscription. |
-| `DeleteAnomalyConfigAsync(subscriptionId)` | Removes the configuration. |
 | `GetAnomalyChartDataAsync(subscriptionId, lookbackDays, runScope)` | Chart data, limited to the runs `runScope` may read. |
 
 `AnomalyEvaluationResult` has `IsAnomaly`, `CurrentValue`, `BaselineMean`, `BaselineStdDev`, `ZScore`, `Explanation`,

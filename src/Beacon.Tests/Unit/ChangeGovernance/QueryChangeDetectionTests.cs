@@ -316,12 +316,10 @@ public class QueryChangeDetectionTests
 
         var add = () => service.AddQueryStep(GovernanceStore.QueryId, step, CancellationToken.None);
         var update = () => service.UpdateQueryStep(GovernanceStore.QueryId, 1, step, CancellationToken.None);
-        var delete = () => service.DeleteQueryStep(GovernanceStore.QueryId, 1, CancellationToken.None);
 #pragma warning restore CS0618
 
         await add.Should().ThrowAsync<BeaconConflictException>().WithMessage(QueryService.StepMutatorRefusal);
         await update.Should().ThrowAsync<BeaconConflictException>().WithMessage(QueryService.StepMutatorRefusal);
-        await delete.Should().ThrowAsync<BeaconConflictException>().WithMessage(QueryService.StepMutatorRefusal);
         store.Query.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 1");
         store.Saved.Should().BeEmpty();
     }

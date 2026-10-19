@@ -52,17 +52,6 @@ internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory)
         return System.Text.Encoding.UTF8.GetString(bytes);
     }
 
-    public async Task<List<GitHubCommit>> GetCommitsSinceAsync(string owner, string repo, string branch, DateTime since, string? accessToken, CancellationToken ct)
-    {
-        var client = CreateClient(accessToken);
-        var sinceStr = since.ToString("o");
-        var response = await client.GetAsync($"{GitHubApiBase}/repos/{owner}/{repo}/commits?sha={branch}&since={sinceStr}", ct);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        return JsonSerializer.Deserialize<List<GitHubCommit>>(json, JsonOptions) ?? new();
-    }
-
     private HttpClient CreateClient(string? accessToken)
     {
         var client = httpClientFactory.CreateClient("GitHub");
@@ -83,6 +72,3 @@ public record GitHubRepoResponse(string? DefaultBranch);
 public record GitHubTreeResponse(List<GitHubTreeItem>? Tree, bool Truncated);
 public record GitHubTreeItem(string Path, string Type, string? Sha, int? Size);
 public record GitHubFileResponse(string? Content, string? Encoding, string? Sha);
-public record GitHubCommit(string Sha, GitHubCommitInfo? Commit);
-public record GitHubCommitInfo(string Message, GitHubCommitAuthor? Author);
-public record GitHubCommitAuthor(string Name, DateTime Date);

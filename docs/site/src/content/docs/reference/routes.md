@@ -143,7 +143,6 @@ Events are sent only to the user they concern:
 | Event | Payload | When |
 |---|---|---|
 | `JobStatusChanged` | `jobId`, `state`, `timestamp` | A background job the user started changed state. Published by the host's job runner (the sample's Warp pipeline does). |
-| `NotificationCreated` | `notificationId`, `kind` | A notification was created. |
 | `ApprovalUpdated` | `approvalId`, `status` | An approval request was approved or rejected. |
 
 A host turns the hub off with `AddBeaconApiServices(x => x.Realtime = false)`.

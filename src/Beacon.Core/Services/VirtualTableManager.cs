@@ -31,44 +31,6 @@ public class VirtualTableManager : IDisposable
             name, data.Count, projectInfo.Name, projectInfo.DatabaseEngine);
     }
 
-    public CrossDatabaseAnalysisResult AnalyzeCrossDatabase()
-    {
-        var analysis = new CrossDatabaseAnalysisResult();
-
-        foreach (var kvp in _tableProjectInfo)
-        {
-            var tableName = kvp.Key;
-            var projectInfo = kvp.Value;
-            var rowCount = _virtualTables[tableName].Count;
-
-            analysis.TableAnalysis[tableName] = new VirtualTableAnalysis
-            {
-                TableName = tableName,
-                SourceProject = projectInfo.Name,
-                SourceDatabaseEngine = projectInfo.DatabaseEngine,
-                RowCount = rowCount,
-                ColumnCount = _virtualTables[tableName].FirstOrDefault()?.Count ?? 0,
-                EstimatedMemoryUsageMB = EstimateMemoryUsage(_virtualTables[tableName])
-            };
-        }
-
-        analysis.TotalTables = _virtualTables.Count;
-        analysis.UniqueDatabaseEngines = _tableProjectInfo.Values.Select(p => p.DatabaseEngine).Distinct().ToList();
-        analysis.TotalRowsInMemory = _virtualTables.Values.Sum(v => v.Count);
-        analysis.EstimatedTotalMemoryUsageMB = analysis.TableAnalysis.Values.Sum(t => t.EstimatedMemoryUsageMB);
-
-        return analysis;
-    }
-
-    private double EstimateMemoryUsage(List<IDictionary<string, object?>> data)
-    {
-        if (!data.Any()) return 0;
-
-        // Rough estimation: average 50 bytes per value
-        var totalValues = data.Sum(row => row.Count);
-        return (totalValues * 50) / (1024.0 * 1024.0); // Convert to MB
-    }
-
     public void ClearVirtualTables()
     {
         _virtualTables.Clear();
@@ -196,23 +158,4 @@ public class ProjectInfo
     public required string Name { get; init; }
     public required string DatabaseEngine { get; init; }
     public required DatabaseEngineType DatabaseEngineType { get; init; }
-}
-
-public class CrossDatabaseAnalysisResult
-{
-    public Dictionary<string, VirtualTableAnalysis> TableAnalysis { get; set; } = new();
-    public int TotalTables { get; set; }
-    public List<string> UniqueDatabaseEngines { get; set; } = new();
-    public int TotalRowsInMemory { get; set; }
-    public double EstimatedTotalMemoryUsageMB { get; set; }
-}
-
-public class VirtualTableAnalysis
-{
-    public string TableName { get; set; } = null!;
-    public string SourceProject { get; set; } = null!;
-    public string SourceDatabaseEngine { get; set; } = null!;
-    public int RowCount { get; set; }
-    public int ColumnCount { get; set; }
-    public double EstimatedMemoryUsageMB { get; set; }
 }
