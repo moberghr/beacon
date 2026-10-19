@@ -13,7 +13,9 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit.Notifications;
 
 /// <summary>The exact card the Teams adapter posts for each variant of the default message.</summary>
+/// <remarks>Cells are formatted in the current culture, so the goldens pin the invariant one.</remarks>
 [TestFixture]
+[SetCulture("")]
 public class TeamsCardGoldenTests
 {
     [Test]
@@ -670,7 +672,7 @@ public class TeamsCardGoldenTests
               "items": [
                 {
                   "type": "TextBlock",
-                  "text": "1,5",
+                  "text": "1.5",
                   "wrap": true
                 }
               ]
