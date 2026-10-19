@@ -409,109 +409,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("ai_actor_plans", "beacon");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("archived_time");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int?>("DataSourceId")
-                        .HasColumnType("integer")
-                        .HasColumnName("data_source_id");
-
-                    b.Property<int?>("DocumentationId")
-                        .HasColumnType("integer")
-                        .HasColumnName("documentation_id");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasColumnType("text")
-                        .HasColumnName("error_message");
-
-                    b.Property<decimal>("EstimatedCost")
-                        .HasColumnType("numeric")
-                        .HasColumnName("estimated_cost");
-
-                    b.Property<int>("InputTokens")
-                        .HasColumnType("integer")
-                        .HasColumnName("input_tokens");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("model");
-
-                    b.Property<int>("OperationType")
-                        .HasColumnType("integer")
-                        .HasColumnName("operation_type");
-
-                    b.Property<int>("OutputTokens")
-                        .HasColumnType("integer")
-                        .HasColumnName("output_tokens");
-
-                    b.Property<bool>("PromptCacheHit")
-                        .HasColumnType("boolean")
-                        .HasColumnName("prompt_cache_hit");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("provider");
-
-                    b.Property<int?>("QueryId")
-                        .HasColumnType("integer")
-                        .HasColumnName("query_id");
-
-                    b.Property<bool>("Success")
-                        .HasColumnType("boolean")
-                        .HasColumnName("success");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("timestamp");
-
-                    b.Property<int>("TotalTokens")
-                        .HasColumnType("integer")
-                        .HasColumnName("total_tokens");
-
-                    b.Property<int?>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ai_usage_metrics");
-
-                    b.HasIndex("DataSourceId")
-                        .HasDatabaseName("ix_ai_usage_metrics_data_source_id");
-
-                    b.HasIndex("OperationType")
-                        .HasDatabaseName("ix_ai_usage_metrics_operation_type");
-
-                    b.HasIndex("Provider")
-                        .HasDatabaseName("ix_ai_usage_metrics_provider");
-
-                    b.HasIndex("QueryId")
-                        .HasDatabaseName("ix_ai_usage_metrics_query_id");
-
-                    b.HasIndex("Timestamp")
-                        .HasDatabaseName("ix_ai_usage_metrics_timestamp");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_ai_usage_metrics_user_id");
-
-                    b.ToTable("ai_usage_metrics", "beacon");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyBaseline", b =>
                 {
                     b.Property<int>("Id")
@@ -5298,23 +5195,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("AiActor");
 
                     b.Navigation("ParentPlan");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
-                        .WithMany()
-                        .HasForeignKey("DataSourceId")
-                        .HasConstraintName("fk_ai_usage_metrics_data_sources_data_source_id");
-
-                    b.HasOne("Beacon.Core.Data.Entities.Query", "Query")
-                        .WithMany()
-                        .HasForeignKey("QueryId")
-                        .HasConstraintName("fk_ai_usage_metrics_queries_query_id");
-
-                    b.Navigation("DataSource");
-
-                    b.Navigation("Query");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyBaseline", b =>

@@ -13,7 +13,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // Removes the tables of features that no code reads or writes any more (dashboards, MCP sessions, AI alert
-            // configurations and their conversation history) and the audit log's key to MCP sessions, which was never
+            // configurations and their conversation history, AI usage metrics) and the audit log's key to MCP sessions, which was never
             // set. The live Mcp-Session-Id header column (mcp_session_id) stays.
             migrationBuilder.DropForeignKey(
                 name: "fk_mcp_audit_logs_mcp_sessions_session_id",
@@ -53,11 +53,93 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
             migrationBuilder.DropTable(
                 name: "mcp_sessions",
                 schema: "beacon");
+
+            migrationBuilder.DropTable(
+                name: "ai_usage_metrics",
+                schema: "beacon");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.CreateTable(
+                name: "ai_usage_metrics",
+                schema: "beacon",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    user_id = table.Column<int>(type: "integer", nullable: true),
+                    data_source_id = table.Column<int>(type: "integer", nullable: true),
+                    query_id = table.Column<int>(type: "integer", nullable: true),
+                    documentation_id = table.Column<int>(type: "integer", nullable: true),
+                    provider = table.Column<string>(type: "text", nullable: false),
+                    model = table.Column<string>(type: "text", nullable: false),
+                    operation_type = table.Column<int>(type: "integer", nullable: false),
+                    input_tokens = table.Column<int>(type: "integer", nullable: false),
+                    output_tokens = table.Column<int>(type: "integer", nullable: false),
+                    total_tokens = table.Column<int>(type: "integer", nullable: false),
+                    estimated_cost = table.Column<decimal>(type: "numeric", nullable: false),
+                    prompt_cache_hit = table.Column<bool>(type: "boolean", nullable: false),
+                    success = table.Column<bool>(type: "boolean", nullable: false),
+                    error_message = table.Column<string>(type: "text", nullable: true),
+                    timestamp = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    created_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    archived_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_ai_usage_metrics", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_ai_usage_metrics_data_sources_data_source_id",
+                        column: x => x.data_source_id,
+                        principalSchema: "beacon",
+                        principalTable: "data_sources",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "fk_ai_usage_metrics_queries_query_id",
+                        column: x => x.query_id,
+                        principalSchema: "beacon",
+                        principalTable: "queries",
+                        principalColumn: "id");
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ai_usage_metrics_data_source_id",
+                schema: "beacon",
+                table: "ai_usage_metrics",
+                column: "data_source_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ai_usage_metrics_operation_type",
+                schema: "beacon",
+                table: "ai_usage_metrics",
+                column: "operation_type");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ai_usage_metrics_provider",
+                schema: "beacon",
+                table: "ai_usage_metrics",
+                column: "provider");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ai_usage_metrics_query_id",
+                schema: "beacon",
+                table: "ai_usage_metrics",
+                column: "query_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ai_usage_metrics_timestamp",
+                schema: "beacon",
+                table: "ai_usage_metrics",
+                column: "timestamp");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_ai_usage_metrics_user_id",
+                schema: "beacon",
+                table: "ai_usage_metrics",
+                column: "user_id");
+
             migrationBuilder.CreateTable(
                 name: "mcp_sessions",
                 schema: "beacon",

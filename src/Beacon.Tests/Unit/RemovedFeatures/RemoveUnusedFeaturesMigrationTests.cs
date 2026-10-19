@@ -17,7 +17,7 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit.RemovedFeatures;
 
 /// <summary>
-/// The migration that removes the dashboards, MCP session and AI alert tables and the audit log's session key, checked
+/// The migration that removes the dashboards, MCP session, AI alert and AI usage metrics tables and the audit log's session key, checked
 /// offline on both providers (nothing connects, nothing is migrated): it runs no SQL, Up is exactly the difference between
 /// the model before it and its target model, and Down is exactly the way back, so it can be reverted. Its target model is
 /// the snapshot, the model has no pending changes, and it sorts last.
@@ -27,8 +27,8 @@ public class RemoveUnusedFeaturesMigrationTests
 {
     private const string Suffix = "_RemoveUnusedFeatures";
 
-    [TestCase(false, "mcp_audit_logs.session_id", new[] { "ai_alert_configurations", "ai_conversation_histories", "dashboard_permissions", "dashboard_widgets", "dashboards", "mcp_sessions" })]
-    [TestCase(true, "McpAuditLogs.SessionId", new[] { "AiAlertConfigurations", "AiConversationHistories", "DashboardPermissions", "DashboardWidgets", "Dashboards", "McpSessions" })]
+    [TestCase(false, "mcp_audit_logs.session_id", new[] { "ai_alert_configurations", "ai_conversation_histories", "ai_usage_metrics", "dashboard_permissions", "dashboard_widgets", "dashboards", "mcp_sessions" })]
+    [TestCase(true, "McpAuditLogs.SessionId", new[] { "AiAlertConfigurations", "AiConversationHistories", "AiUsageMetrics", "DashboardPermissions", "DashboardWidgets", "Dashboards", "McpSessions" })]
     public void TheMigration_RemovesTheUnusedTables_AndTheSessionKey_AndDownRestoresThem(bool sqlServer, string sessionColumn, string[] tables)
     {
         using var provider = BuildProvider(sqlServer);

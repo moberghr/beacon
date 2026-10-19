@@ -67,8 +67,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<AnomalyEvent> AnomalyEvents => Set<AnomalyEvent>();
 
-    public DbSet<AiUsageMetrics> AiUsageMetrics => Set<AiUsageMetrics>();
-
     public DbSet<AiActor> AiActors => Set<AiActor>();
 
     public DbSet<AiActorExecution> AiActorExecutions => Set<AiActorExecution>();
@@ -175,7 +173,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureTaskWatcherEntities(modelBuilder);
         ConfigureCommentEntity(modelBuilder);
         ConfigureAnomalyEntities(modelBuilder);
-        ConfigureAiEntities(modelBuilder);
         ConfigureAiActorEntities(modelBuilder);
         ConfigureQueryFolderEntities(modelBuilder);
         ConfigureManualQueryExecutionLogEntity(modelBuilder);
@@ -563,23 +560,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.DetectedTime);
             entity.HasIndex(e => e.NotificationId);
         });
-    }
-
-    protected static void ConfigureAiEntities(ModelBuilder modelBuilder)
-    {
-        // AiUsageMetrics configuration
-        modelBuilder.Entity<AiUsageMetrics>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            // Indexes for querying and analytics
-            entity.HasIndex(e => e.UserId);
-            entity.HasIndex(e => e.Timestamp);
-            entity.HasIndex(e => e.Provider);
-            entity.HasIndex(e => e.OperationType);
-            entity.HasIndex(e => e.DataSourceId);
-        });
-
     }
 
     protected static void ConfigureAiActorEntities(ModelBuilder modelBuilder)

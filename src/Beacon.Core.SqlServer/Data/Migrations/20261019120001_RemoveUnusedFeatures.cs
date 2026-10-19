@@ -12,7 +12,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // Removes the tables of features that no code reads or writes any more (dashboards, MCP sessions, AI alert
-            // configurations and their conversation history) and the audit log's key to MCP sessions, which was never
+            // configurations and their conversation history, AI usage metrics) and the audit log's key to MCP sessions, which was never
             // set. The live Mcp-Session-Id header column (McpSessionId) stays.
             migrationBuilder.DropForeignKey(
                 name: "FK_McpAuditLogs_McpSessions_SessionId",
@@ -52,11 +52,93 @@ namespace Beacon.Core.SqlServer.Data.Migrations
             migrationBuilder.DropTable(
                 name: "McpSessions",
                 schema: "beacon");
+
+            migrationBuilder.DropTable(
+                name: "AiUsageMetrics",
+                schema: "beacon");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.CreateTable(
+                name: "AiUsageMetrics",
+                schema: "beacon",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    UserId = table.Column<int>(type: "int", nullable: true),
+                    DataSourceId = table.Column<int>(type: "int", nullable: true),
+                    QueryId = table.Column<int>(type: "int", nullable: true),
+                    DocumentationId = table.Column<int>(type: "int", nullable: true),
+                    Provider = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    Model = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    OperationType = table.Column<int>(type: "int", nullable: false),
+                    InputTokens = table.Column<int>(type: "int", nullable: false),
+                    OutputTokens = table.Column<int>(type: "int", nullable: false),
+                    TotalTokens = table.Column<int>(type: "int", nullable: false),
+                    EstimatedCost = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    PromptCacheHit = table.Column<bool>(type: "bit", nullable: false),
+                    Success = table.Column<bool>(type: "bit", nullable: false),
+                    ErrorMessage = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Timestamp = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ArchivedTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AiUsageMetrics", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AiUsageMetrics_DataSources_DataSourceId",
+                        column: x => x.DataSourceId,
+                        principalSchema: "beacon",
+                        principalTable: "DataSources",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_AiUsageMetrics_Queries_QueryId",
+                        column: x => x.QueryId,
+                        principalSchema: "beacon",
+                        principalTable: "Queries",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiUsageMetrics_DataSourceId",
+                schema: "beacon",
+                table: "AiUsageMetrics",
+                column: "DataSourceId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiUsageMetrics_OperationType",
+                schema: "beacon",
+                table: "AiUsageMetrics",
+                column: "OperationType");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiUsageMetrics_Provider",
+                schema: "beacon",
+                table: "AiUsageMetrics",
+                column: "Provider");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiUsageMetrics_QueryId",
+                schema: "beacon",
+                table: "AiUsageMetrics",
+                column: "QueryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiUsageMetrics_Timestamp",
+                schema: "beacon",
+                table: "AiUsageMetrics",
+                column: "Timestamp");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiUsageMetrics_UserId",
+                schema: "beacon",
+                table: "AiUsageMetrics",
+                column: "UserId");
+
             migrationBuilder.CreateTable(
                 name: "McpSessions",
                 schema: "beacon",
