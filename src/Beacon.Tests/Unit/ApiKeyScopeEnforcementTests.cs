@@ -693,6 +693,7 @@ public class ApiKeyScopeEnforcementTests
             x.HeaderName = "X-XSRF-TOKEN";
         });
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, StatusCodeResultHandler>();
 
         var app = builder.Build();

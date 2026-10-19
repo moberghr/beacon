@@ -605,6 +605,7 @@ public class BeaconPermissionEndpointFilterTests
             x.HeaderName = "X-XSRF-TOKEN";
         });
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         // Only to give an unauthenticated request a challenge to answer: the host's cookie scheme returns 401 for the API.
         builder.Services
             .AddAuthentication("Test")

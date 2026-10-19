@@ -20,6 +20,7 @@
 	<ItemGroup>
 		<InternalsVisibleTo Include="Beacon.SampleProject" />
 		<InternalsVisibleTo Include="Beacon.Api" />
+		<InternalsVisibleTo Include="Beacon.MCP" />
 		<InternalsVisibleTo Include="Beacon.Tests" />
 	</ItemGroup>
 
@@ -35,7 +36,6 @@
 		<PackageReference Include="EFCore.BulkExtensions" />
 		<PackageReference Include="MediatR" />
 		<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
-		<PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />

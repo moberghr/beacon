@@ -175,17 +175,17 @@ internal static class TestProjectAccess
             new OwnerRunsAsSystemLog(TimeProvider.System, NullLogger<OwnerRunsAsSystemLog>.Instance));
     }
 
-    /// <summary>The real actor accessor over <paramref name="httpContextAccessor"/>, in a scope nobody marked as system work.</summary>
+    /// <summary>The real actor accessor over <paramref name="requestPrincipal"/>, in a scope nobody marked as system work.</summary>
     public static BeaconActorAccessor ActorAccessor(
-        Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor,
+        IBeaconRequestPrincipal requestPrincipal,
         IDbContextFactory<BeaconContext> factory)
     {
         return new BeaconActorAccessor(
             factory,
             new SystemWorkScope(),
-            new RunAsScope(httpContextAccessor),
+            new RunAsScope(requestPrincipal),
             new UnmarkedSystemWorkLog(TimeProvider.System, NullLogger<UnmarkedSystemWorkLog>.Instance),
-            httpContextAccessor);
+            requestPrincipal);
     }
 
     /// <summary>An execute-time check that allows every run: for tests of what a run does, not who may make it.</summary>

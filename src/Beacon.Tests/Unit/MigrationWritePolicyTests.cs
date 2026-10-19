@@ -218,7 +218,7 @@ public class MigrationWritePolicyTests
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-root")], "Cookies"));
         var services = new ServiceCollection();
         _world.Register(services);
-        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = principal } });
+        services.AddSingleton<IBeaconRequestPrincipal>(TestRequestPrincipal.For(principal));
         services.AddScoped<IProjectResourceResolver, ProjectResourceResolver>();
         services.AddScoped<ProjectRequestAuthorizer>();
         services.AddScoped<MigrationJobAccess>();

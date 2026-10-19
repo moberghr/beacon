@@ -6,6 +6,7 @@ using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Authorization;
 using Beacon.Core.Services;
 using Beacon.Core.SavedQueries;
 using Beacon.MCP.Discovery;
@@ -27,6 +28,8 @@ public static class ServiceConfiguration
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(ProjectContextFactory.Create);
         services.AddHttpContextAccessor();
+        // Core reads the request's caller through it; replaces only Core's off-request default, so a host principal stays.
+        services.TryUseRequestPrincipal<Beacon.Shared.Http.HttpContextRequestPrincipal>();
 
         // Register tool classes directly for playground access
         services.AddScoped<GetContextTool>();

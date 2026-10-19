@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.AspNetCore.Http;
 using Beacon.Core.Authorization;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
@@ -14,7 +13,7 @@ internal sealed class CreateApiKeyHandler(
     IBeaconAuthorizationProvider authorizationProvider,
     IBeaconActorAccessor actorAccessor,
     IProjectAccessEvaluator projectAccess,
-    IHttpContextAccessor? httpContextAccessor = null)
+    IBeaconRequestPrincipal requestPrincipal)
     : IRequestHandler<CreateApiKeyCommand, CreateApiKeyResult>
 {
     public async Task<CreateApiKeyResult> Handle(
@@ -23,7 +22,7 @@ internal sealed class CreateApiKeyHandler(
     {
         // Keys are issued from a signed-in session only (a key issuing keys could outlive the key that created it), to
         // the user that session belongs to, so the audit trail and scope enforcement (§1.4) correlate keys to a user.
-        var user = await ApiKeyManagementCaller.ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
+        var user = await ApiKeyManagementCaller.ResolveAsync(requestPrincipal, userManagementService, cancellationToken);
         if (!user.IsEnabled)
         {
             throw new BeaconForbiddenException("A disabled user cannot create API keys.");

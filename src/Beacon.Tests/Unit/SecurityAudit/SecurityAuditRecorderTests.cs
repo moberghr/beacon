@@ -253,6 +253,6 @@ public class SecurityAuditRecorderTests
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
             LoggerFactory.Create(x => x.AddProvider(logs)),
-            new HttpContextAccessor());
+            TestRequestPrincipal.OffRequest());
     }
 }

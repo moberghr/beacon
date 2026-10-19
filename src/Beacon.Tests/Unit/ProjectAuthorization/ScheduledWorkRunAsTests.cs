@@ -121,23 +121,23 @@ public class ScheduledWorkRunAsTests
     }
 
     [Test]
-    public async Task OnAWorkerHostWithoutAnHttpContextAccessor_AnOwnerWhoLostTheirMembership_GetsTheRunSkipped()
+    public async Task OffRequestOnAWorkerHost_AnOwnerWhoLostTheirMembership_GetsTheRunSkipped()
     {
         Subscribe(Owner, RestrictedSource);
 
-        await RunSubscriptionAsync(withAccessor: false);
+        await RunSubscriptionAsync(onAWorkerHost: true);
 
-        _connectionsOpened.Should().Be(0, "without an accessor the run is still a scheduled run, re-authorized as its owner");
+        _connectionsOpened.Should().Be(0, "off-request on a worker host the run is still a scheduled run, re-authorized as its owner");
         ShouldBeSkipped([RestrictedSource]);
     }
 
     [Test]
-    public async Task OnAWorkerHostWithoutAnHttpContextAccessor_AnOwnerWhoMayRunTheQuery_RunsIt()
+    public async Task OffRequestOnAWorkerHost_AnOwnerWhoMayRunTheQuery_RunsIt()
     {
         Subscribe(Owner, RestrictedSource);
         _world.Member(RestrictedProject, OwnerId, ProjectRole.Viewer);
 
-        var act = () => RunSubscriptionAsync(withAccessor: false);
+        var act = () => RunSubscriptionAsync(onAWorkerHost: true);
 
         await act.Should().ThrowAsync<QueryExecutionFailedException>("the run reached the data source as its owner");
         _connectionsOpened.Should().Be(1);
@@ -300,7 +300,7 @@ public class ScheduledWorkRunAsTests
     [Test]
     public void TheOwnerARunActsAs_IsSetOnce()
     {
-        var runAs = new RunAsScope(new HttpContextAccessor());
+        var runAs = new RunAsScope(TestRequestPrincipal.OffRequest());
         runAs.RunAs(Owner);
 
         var act = () => runAs.RunAs("ext-other");
@@ -312,7 +312,7 @@ public class ScheduledWorkRunAsTests
     [Test]
     public void TheOwnerARunActsAs_IsNeverSetInARequest()
     {
-        var runAs = new RunAsScope(new HttpContextAccessor { HttpContext = new DefaultHttpContext() });
+        var runAs = new RunAsScope(TestRequestPrincipal.For());
 
         var act = () => runAs.RunAs(Owner);
 
@@ -353,9 +353,9 @@ public class ScheduledWorkRunAsTests
     }
 
     [Test]
-    public async Task OnAWorkerHostWithoutAnHttpContextAccessor_AnUnmarkedScopeHoldsNoPermissions_AndAMarkedOneTheSystems()
+    public async Task OffRequestOnAWorkerHost_AnUnmarkedScopeHoldsNoPermissions_AndAMarkedOneTheSystems()
     {
-        await using var worker = JobServices(withAccessor: false);
+        await using var worker = JobServices(onAWorkerHost: true);
         await using var reference = JobServices();
         await using var unmarked = worker.CreateAsyncScope();
         await using var marked = worker.CreateAsyncScope();
@@ -365,10 +365,10 @@ public class ScheduledWorkRunAsTests
 
         var nobody = await unmarked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
         var system = await marked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
-        var systemWithAccessor = await referenceMarked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
+        var systemOnAWebHost = await referenceMarked.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().GetCurrentAsync(CancellationToken.None);
 
         nobody.Should().Be(BeaconPermissionSet.None);
-        system.Should().Be(systemWithAccessor, "a missing accessor changes nothing for work marked as the system's");
+        system.Should().Be(systemOnAWebHost, "Core's off-request default changes nothing for work marked as the system's");
     }
 
     [Test]
@@ -477,9 +477,9 @@ public class ScheduledWorkRunAsTests
     }
 
     // One job: the job host's scope, marked as system work as the sample's Warp pipeline marks it.
-    private async Task RunSubscriptionAsync(HttpContext? request = null, bool withAccessor = true)
+    private async Task RunSubscriptionAsync(HttpContext? request = null, bool onAWorkerHost = false)
     {
-        await using var provider = JobServices(request, withAccessor: withAccessor);
+        await using var provider = JobServices(request, onAWorkerHost: onAWorkerHost);
         await using var scope = provider.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<ISystemWorkScope>().MarkAsSystemWork();
 
@@ -561,14 +561,16 @@ public class ScheduledWorkRunAsTests
         await service.ExecuteThinkCycleBackgroundAsync(actor.Id);
     }
 
-    private ServiceProvider JobServices(HttpContext? request = null, IDataSourceProviderFactory? providers = null, bool withAccessor = true)
+    private ServiceProvider JobServices(HttpContext? request = null, IDataSourceProviderFactory? providers = null, bool onAWorkerHost = false)
     {
         var services = new ServiceCollection();
         _world.Register(services);
         services.AddSingleton<ILoggerProvider>(_logs);
-        if (withAccessor)
+        if (!onAWorkerHost)
         {
-            services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = request });
+            // The web host's own principal, off-request unless a request is in progress; on a worker host the world's
+            // default is Core's, which never serves a request.
+            services.AddSingleton(TestRequestPrincipal.Web(new HttpContextAccessor { HttpContext = request }));
         }
 
         services.AddScoped<IExecutionAccessCheck, ExecutionAccessCheck>();
@@ -601,7 +603,7 @@ public class ScheduledWorkRunAsTests
             x.GetRequiredService<ILogger<JobService>>(),
             x.GetRequiredService<IRunAsScope>(),
             TestChangeApprovals.Deliveries(),
-            httpContextAccessor: x.GetService<IHttpContextAccessor>()));
+            requestPrincipal: x.GetRequiredService<IBeaconRequestPrincipal>()));
 
         return services.BuildServiceProvider();
     }

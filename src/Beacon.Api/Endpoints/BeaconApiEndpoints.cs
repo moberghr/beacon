@@ -95,6 +95,9 @@ public static class BeaconApiEndpoints
                 }
             });
 
+        // Fails startup when Core would read no request's caller (its off-request principal is still registered).
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
+
         // Notes the active permission mapping and separation of duties at startup.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconPermissionStartupNote>());
 

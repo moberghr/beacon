@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Beacon.Tests.Common;
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
@@ -53,7 +54,7 @@ public class ApiKeyPrincipalAuthorizationTests
             UserId = 42,
             User = new BeaconUser { UserName = UserName, ExternalId = "ext" }
         });
-        var provider = new DatabaseAuthorizationProvider(new HttpContextAccessor { HttpContext = context }, users.Object);
+        var provider = new DatabaseAuthorizationProvider(TestRequestPrincipal.Of(new HttpContextAccessor { HttpContext = context }), users.Object);
 
         var canRead = await provider.HasReadPermissionAsync();
         var canWrite = await provider.HasWritePermissionAsync();
@@ -161,7 +162,7 @@ public class ApiKeyPrincipalAuthorizationTests
                 Roles = [new BeaconRoleData { Name = "role", Level = storedRoleLevel }]
             });
         var context = KeyRequest();
-        UseProvider(context, new DatabaseAuthorizationProvider(new HttpContextAccessor { HttpContext = context }, users.Object));
+        UseProvider(context, new DatabaseAuthorizationProvider(TestRequestPrincipal.Of(new HttpContextAccessor { HttpContext = context }), users.Object));
 
         await InvokeMiddlewareAsync(context, EditorsExecuteKey());
 

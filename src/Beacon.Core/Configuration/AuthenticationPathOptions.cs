@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.Configuration;
@@ -41,29 +40,16 @@ public sealed class AuthenticationPathOptions
 /// <summary>
 /// The prefixes of <see cref="AuthenticationPathOptions.AdditionalPaths"/> as they are matched, normalized once when the
 /// singleton is created, so a request is matched without trimming or allocating. An entry that is not a path prefix is
-/// left out (startup validation refuses it), so it cannot widen the scope.
+/// left out (startup validation refuses it), so it cannot widen the scope. The web host matches a request path against
+/// them by whole segments, ignoring case.
 /// </summary>
 public sealed class AuthenticationPathPrefixes(IOptions<AuthenticationPathOptions> options)
 {
-    private readonly PathString[] _prefixes = options.Value.AdditionalPaths
+    /// <summary>The normalized prefixes, each starting with '/' and without a trailing '/'.</summary>
+    public IReadOnlyList<string> Prefixes { get; } = options.Value.AdditionalPaths
         .Select(AuthenticationPathOptions.Normalize)
         .Where(AuthenticationPathOptions.IsValidPrefix)
-        .Select(x => new PathString(x))
         .ToArray();
-
-    /// <summary>Whether <paramref name="path"/> lies under a listed prefix: whole segments, ignoring case.</summary>
-    public bool Matches(PathString path)
-    {
-        foreach (var prefix in _prefixes)
-        {
-            if (path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }
 
 internal sealed class AuthenticationPathOptionsValidator : IValidateOptions<AuthenticationPathOptions>

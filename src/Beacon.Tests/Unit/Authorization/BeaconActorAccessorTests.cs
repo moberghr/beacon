@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data;
@@ -251,7 +252,7 @@ public class BeaconActorAccessorTests
     public async Task TheAccessor_ResolvesTheCallerOncePerScope()
     {
         var capture = new SqlCapture().ThenNoRows();
-        var accessor = TestProjectAccess.ActorAccessor(Accessor(Interactive("ext-ana")), capture.Factory());
+        var accessor = TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(Interactive("ext-ana")), capture.Factory());
 
         var first = await accessor.GetCurrentAsync(CancellationToken.None);
         var second = await accessor.GetCurrentAsync(CancellationToken.None);
@@ -392,7 +393,7 @@ public class BeaconActorAccessorTests
     [Test]
     public async Task WorkWithoutARequest_InAnUnmarkedScope_IsNobody_AndOwnsNothing()
     {
-        var accessor = TestProjectAccess.ActorAccessor(new HttpContextAccessor(), Factory());
+        var accessor = TestProjectAccess.ActorAccessor(TestRequestPrincipal.OffRequest(), Factory());
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -405,7 +406,7 @@ public class BeaconActorAccessorTests
     [Test]
     public async Task AnOwner_IsResolvedByExternalId_WithItsActiveState()
     {
-        var accessor = TestProjectAccess.ActorAccessor(new HttpContextAccessor(), Factory());
+        var accessor = TestProjectAccess.ActorAccessor(TestRequestPrincipal.OffRequest(), Factory());
 
         var active = await accessor.ResolveOwnerAsync("ext-ana", CancellationToken.None);
         var disabled = await accessor.ResolveOwnerAsync("ext-cid", CancellationToken.None);
@@ -469,9 +470,9 @@ public class BeaconActorAccessorTests
         var accessor = new BeaconActorAccessor(
             Factory(),
             systemWork,
-            new RunAsScope(new HttpContextAccessor()),
+            new RunAsScope(TestRequestPrincipal.OffRequest()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()),
-            new HttpContextAccessor());
+            TestRequestPrincipal.OffRequest());
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -486,11 +487,11 @@ public class BeaconActorAccessorTests
         var time = new FakeTimeProvider();
         var unmarked = new UnmarkedSystemWorkLog(time, logs.For<UnmarkedSystemWorkLog>());
 
-        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked, new HttpContextAccessor()).GetCurrentAsync(CancellationToken.None);
-        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked, new HttpContextAccessor()).GetCurrentAsync(CancellationToken.None);
+        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
         var afterBurst = logs.Entries.Count;
         time.Advance(UnmarkedSystemWorkLog.Interval);
-        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked, new HttpContextAccessor()).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
 
         first.Kind.Should().Be(BeaconPrincipalKind.Anonymous, "an unmarked scope without a request is nobody");
         afterBurst.Should().Be(1, "a second unmarked scope within the interval is not reported again");
@@ -526,14 +527,63 @@ public class BeaconActorAccessorTests
         var accessor = new BeaconActorAccessor(
             Factory(),
             systemWork,
-            new RunAsScope(new HttpContextAccessor()),
+            new RunAsScope(TestRequestPrincipal.OffRequest()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            Accessor(Interactive("ext-ana")));
+            TestRequestPrincipal.For(Interactive("ext-ana")));
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
         actor.Kind.Should().Be(BeaconPrincipalKind.User);
         actor.UserId.Should().Be("ext-ana");
+    }
+
+    [Test]
+    public async Task WorkWithoutARequest_InAScopeRunningAsAnOwner_IsThatOwner()
+    {
+        var principal = TestRequestPrincipal.OffRequest();
+        var runAs = new RunAsScope(principal);
+        runAs.RunAs("ext-ana");
+        var accessor = new BeaconActorAccessor(
+            Factory(),
+            new SystemWorkScope(),
+            runAs,
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
+            principal);
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.Owner);
+        actor.UserId.Should().Be("ext-ana");
+        actor.BeaconUserId.Should().Be(1);
+    }
+
+    [Test]
+    public void ARequestsScope_NeverRunsAsAnOwner()
+    {
+        var runAs = new RunAsScope(TestRequestPrincipal.For(Interactive("ext-ana")));
+
+        var act = () => runAs.RunAs("ext-ben");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*never runs as the owner*");
+        runAs.IsSet.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task ARequestWithoutAnAuthenticatedCaller_IsNotTheSystem_EvenInAMarkedScope()
+    {
+        var systemWork = new SystemWorkScope();
+        systemWork.MarkAsSystemWork();
+        var accessor = new BeaconActorAccessor(
+            Factory(),
+            systemWork,
+            new RunAsScope(TestRequestPrincipal.For()),
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
+            TestRequestPrincipal.For());
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.Kind.Should().NotBe(BeaconPrincipalKind.System, "a request acts as its caller, never as the system");
+        actor.BeaconUserId.Should().BeNull();
     }
 
     private Task<BeaconActor> Resolve(ClaimsPrincipal principal)

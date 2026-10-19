@@ -248,7 +248,7 @@ public class ApiKeyIssuanceTests
             .Setup(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()))
             .ReturnsAsync(User(RoleService.RoleLevels.Editor));
         var principal = SessionPrincipal(new Claim(BeaconClaims.UserId, "ext-bob"));
-        var handler = new CreateApiKeyHandler(apiKeys.Object, users.Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(principal));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, users.Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), requestPrincipal: Principal(principal));
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
@@ -284,7 +284,7 @@ public class ApiKeyIssuanceTests
         var apiKeys = ApiKeyServiceMock();
         var owner = User(RoleService.RoleLevels.Editor);
         owner.ApiKeyGeneration = 4;
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Users(owner).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(SessionPrincipal()));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Users(owner).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), requestPrincipal: Principal(SessionPrincipal()));
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1], null), CancellationToken.None);
 
@@ -346,7 +346,7 @@ public class ApiKeyIssuanceTests
     {
         var apiKeys = ApiKeyServiceMock();
         var anonymous = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")]));
-        var handler = new CreateApiKeyHandler(apiKeys.Object, Users(User(RoleService.RoleLevels.Editor)).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(anonymous));
+        var handler = new CreateApiKeyHandler(apiKeys.Object, Users(User(RoleService.RoleLevels.Editor)).Object, Authorization(canWrite: true), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), requestPrincipal: Principal(anonymous));
 
         var act = () => handler.Handle(new CreateApiKeyCommand("ci", ["Read"], [1], null), CancellationToken.None);
 
@@ -393,7 +393,7 @@ public class ApiKeyIssuanceTests
             Authorization(canWrite: true),
             TestProjectAccess.Actors(),
             evaluator.Object,
-            httpContextAccessor: Accessor(SessionPrincipal()));
+            requestPrincipal: Principal(SessionPrincipal()));
 
         await handler.Handle(new CreateApiKeyCommand("ci", ["Execute"], [1, 1], null), CancellationToken.None);
 
@@ -587,15 +587,15 @@ public class ApiKeyIssuanceTests
             : SessionPrincipal(new Claim(McpCallerClaimTypes.AuthMethod, authMethod));
         var user = found ? User(roleLevel, isSuperAdmin, enabled) : null;
 
-        return new CreateApiKeyHandler(apiKeys.Object, Users(user).Object, Authorization(providerCanWrite), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), httpContextAccessor: Accessor(principal));
+        return new CreateApiKeyHandler(apiKeys.Object, Users(user).Object, Authorization(providerCanWrite), TestProjectAccess.Actors(), TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(1, 4, 5)), requestPrincipal: Principal(principal));
     }
 
     // A signed-in browser session: NameIdentifier carries Users.ExternalId.
     private static ClaimsPrincipal SessionPrincipal(params Claim[] extra) =>
         new(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada"), .. extra], "Beacon.Auth"));
 
-    private static IHttpContextAccessor Accessor(ClaimsPrincipal principal) =>
-        new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = principal } };
+    private static IBeaconRequestPrincipal Principal(ClaimsPrincipal principal) =>
+        TestRequestPrincipal.For(principal);
 
     private static BeaconUserData User(int? roleLevel, bool isSuperAdmin = false, bool enabled = true) =>
         new()

@@ -264,10 +264,7 @@ public class ScheduledWorkOwnerTransferTests
 
         var services = new ServiceCollection();
         _world.Register(services);
-        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor
-        {
-            HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Cookies")) }
-        });
+        services.AddSingleton<IBeaconRequestPrincipal>(TestRequestPrincipal.For(new ClaimsPrincipal(new ClaimsIdentity(claims, "Cookies"))));
         services.AddScoped<IProjectResourceResolver, ProjectResourceResolver>();
         services.AddScoped<ProjectRequestAuthorizer>();
         services.AddScoped<SetSubscriptionOwnerHandler>();

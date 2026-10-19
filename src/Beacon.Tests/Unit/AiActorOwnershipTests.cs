@@ -546,7 +546,7 @@ public class AiActorOwnershipTests
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)
     {
-        return TestProjectAccess.ActorAccessor(new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } }, Factory());
+        return TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(caller), Factory());
     }
 
     private static IBeaconActorAccessor FixedActor(BeaconActor actor)

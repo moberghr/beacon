@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.Core.Authorization;
 using Beacon.Core.HostEndpoints;
 using Beacon.Core.Mcp;
 
@@ -33,6 +34,8 @@ public static class HostEndpointToolsServiceCollectionExtensions
         services.AddSingleton(options);
         services.AddMemoryCache();
         services.AddHttpContextAccessor();
+        // Core reads the request's caller through it; replaces only Core's off-request default, so a host principal stays.
+        services.TryUseRequestPrincipal<Beacon.Shared.Http.HttpContextRequestPrincipal>();
         services.TryAddSingleton<IMcpHostPrincipalFactory, DefaultMcpHostPrincipalFactory>();
         services.TryAddSingleton<IHostEndpointProjectResolver, HostEndpointProjectResolver>();
         services.TryAddSingleton<HostEndpointToolRegistry>();

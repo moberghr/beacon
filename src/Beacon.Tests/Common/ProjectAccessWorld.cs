@@ -7,6 +7,8 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -149,7 +151,8 @@ internal sealed class ProjectAccessWorld
 
     /// <summary>
     /// Registers the access stack over this world: the real actor accessor (it reads the registered
-    /// <c>IHttpContextAccessor</c>), evaluator and default sources. The authorization provider lets every signed-in
+    /// <see cref="IBeaconRequestPrincipal"/>; without one, the request of a registered <c>IHttpContextAccessor</c> as a
+    /// web host reads it, and without that no request, as on a worker host), evaluator and default sources. The authorization provider lets every signed-in
     /// caller write, as an Editor's would.
     /// </summary>
     public void Register(IServiceCollection services)
@@ -171,6 +174,9 @@ internal sealed class ProjectAccessWorld
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<OwnerRunsAsSystemLog>();
         services.AddScoped<ISystemWorkScope, SystemWorkScope>();
+        services.TryAddSingleton<IBeaconRequestPrincipal>(x => x.GetService<IHttpContextAccessor>() is { } accessor
+            ? TestRequestPrincipal.Of(accessor)
+            : new NoRequestPrincipal());
         services.AddScoped<IRunAsScope, RunAsScope>();
         services.AddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
         Audit.ResolveUser = x => Users.FirstOrDefault(y => y.ExternalId == x)?.Id;

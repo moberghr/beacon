@@ -880,9 +880,9 @@ public class NotificationDeliveryTests
             anomaly ?? Mock.Of<IAnomalyDetectionService>(),
             evaluation ?? Mock.Of<IDataQualityEvaluationService>(),
             logger,
-            new RunAsScope(new HttpContextAccessor()),
+            new RunAsScope(TestRequestPrincipal.OffRequest()),
             deliveries ?? TestChangeApprovals.Deliveries(),
-            httpContextAccessor: new HttpContextAccessor());
+            requestPrincipal: TestRequestPrincipal.OffRequest());
     }
 
     private sealed class RecordingAdapter(NotificationType type) : IAdapter

@@ -57,9 +57,9 @@ public class LearningSignalRetentionJobTests
             Mock.Of<IAnomalyDetectionService>(),
             Mock.Of<IDataQualityEvaluationService>(),
             NullLogger<JobService>.Instance,
-            new RunAsScope(new HttpContextAccessor()),
+            new RunAsScope(TestRequestPrincipal.OffRequest()),
             TestChangeApprovals.Deliveries(),
             mcpLearningService: learning,
-            httpContextAccessor: new HttpContextAccessor());
+            requestPrincipal: TestRequestPrincipal.OffRequest());
     }
 }

@@ -136,7 +136,8 @@ public class SecurityAuditInterceptorTests
             SecurityAuditTestKit.Integrity,
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
-            LoggerFactory.Create(x => x.AddProvider(logs)));
+            LoggerFactory.Create(x => x.AddProvider(logs)),
+            TestRequestPrincipal.OffRequest());
         await using var context = await factory.CreateDbContextAsync();
 
         context.Projects.Add(new Project { Name = "Finance" });

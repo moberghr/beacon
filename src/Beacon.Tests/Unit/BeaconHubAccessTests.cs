@@ -178,6 +178,7 @@ public class BeaconHubAccessTests
         builder.Services.AddAntiforgery();
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         builder.Services
             .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(x =>

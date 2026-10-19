@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
@@ -410,6 +411,7 @@ public class ProjectAuthorizationBehaviorTests
         services.AddSingleton<IConfiguration>(configuration);
         services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
         services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = withRequest ? new DefaultHttpContext() : null });
+        services.AddSingleton<IBeaconRequestPrincipal>(withRequest ? TestRequestPrincipal.For() : TestRequestPrincipal.OffRequest());
         services.AddScoped<IBeaconUserContext, HttpContextUserContext>();
 
         return services;

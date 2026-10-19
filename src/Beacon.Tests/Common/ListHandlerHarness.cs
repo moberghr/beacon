@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using System.Security.Claims;
 using Beacon.AI;
 using Beacon.Core;
@@ -98,6 +99,7 @@ internal sealed class ListHandlerHarness
             }
         });
         services.AddScoped<IBeaconUserContext, HttpContextUserContext>();
+        services.AddSingleton<IBeaconRequestPrincipal>(x => TestRequestPrincipal.Of(x.GetRequiredService<IHttpContextAccessor>()));
         services.AddSingleton(factory);
         services.AddScoped(_ => TestProjectAccess.Evaluator(_scope));
         services.AddScoped(_ => TestPermissions.None);

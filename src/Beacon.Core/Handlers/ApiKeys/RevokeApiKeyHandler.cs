@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Services;
@@ -12,7 +11,7 @@ internal sealed class RevokeApiKeyHandler(
     IApiKeyService apiKeyService,
     IDbContextFactory<BeaconContext> contextFactory,
     IUserManagementService userManagementService,
-    IHttpContextAccessor? httpContextAccessor = null)
+    IBeaconRequestPrincipal requestPrincipal)
     : IRequestHandler<RevokeApiKeyCommand>
 {
     public async Task Handle(
@@ -21,7 +20,7 @@ internal sealed class RevokeApiKeyHandler(
     {
         // A user may only revoke their own keys (§1.4) — confirm ownership before revoking
         // so one user cannot revoke another user's key by guessing its id.
-        var user = await ApiKeyManagementCaller.ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
+        var user = await ApiKeyManagementCaller.ResolveAsync(requestPrincipal, userManagementService, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 

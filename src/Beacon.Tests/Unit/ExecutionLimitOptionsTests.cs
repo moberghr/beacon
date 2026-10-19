@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Beacon.Api.Authentication;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
@@ -121,6 +122,7 @@ public class ExecutionLimitOptionsTests
             HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Cookies")) }
         });
         services.AddScoped<IBeaconUserContext, HttpContextUserContext>();
+        services.AddSingleton<IBeaconRequestPrincipal>(x => TestRequestPrincipal.Of(x.GetRequiredService<IHttpContextAccessor>()));
         services.AddSingleton(Mock.Of<IDbContextFactory<BeaconContext>>());
         services.AddScoped(_ => TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted));
 

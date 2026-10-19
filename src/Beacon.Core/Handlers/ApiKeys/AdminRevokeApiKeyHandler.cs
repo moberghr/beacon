@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -27,7 +26,7 @@ internal sealed class AdminRevokeApiKeyHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IOptions<RoleMappingOptions> roleMapping,
     ILogger<AdminRevokeApiKeyHandler> logger,
-    IHttpContextAccessor? httpContextAccessor = null)
+    IBeaconRequestPrincipal requestPrincipal)
     : IRequestHandler<AdminRevokeApiKeyCommand>
 {
     public const string ProtectedOwnerMessage =
@@ -38,7 +37,7 @@ internal sealed class AdminRevokeApiKeyHandler(
         CancellationToken cancellationToken)
     {
         var admin = await ApiKeyManagementCaller.ResolveAdministratorAsync(
-            httpContextAccessor,
+            requestPrincipal,
             userManagementService,
             permissionAccessor,
             [BeaconPermissions.UserAdmin],

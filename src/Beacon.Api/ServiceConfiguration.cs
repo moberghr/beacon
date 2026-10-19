@@ -36,11 +36,16 @@ public static class ServiceConfiguration
         // second, independent guarantee, not a move: a host that authenticates with JWT or API keys
         // never calls that method and would otherwise fail DI validation on all 28. Both call sites
         // use TryAdd and name the same implementation, so whichever runs first wins with the same
-        // result. HttpContextUserContext is the real implementation (it lives in Beacon.Core), not
+        // result. HttpContextUserContext is the real implementation (it lives in Beacon.Api), not
         // a stand-in, so this cannot shadow anything better via TryAdd's first-wins rule.
         // If you swap the implementation, change BOTH call sites.
         services.AddHttpContextAccessor();
         services.TryAddScoped<IBeaconUserContext, HttpContextUserContext>();
+
+        // Core reads the request's caller through IBeaconRequestPrincipal; this replaces only Core's
+        // off-request default, so a principal the host registered itself stays.
+        services.TryUseRequestPrincipal<Beacon.Shared.Http.HttpContextRequestPrincipal>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
 
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();

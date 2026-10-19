@@ -115,6 +115,9 @@ public class ApiKeyProjectBoundaryTests
         builder.Services.AddBeaconServices(builder.Configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<IBeaconUserContext, HttpContextUserContext>();
+
+        // The request's caller as Core reads it, as AddBeaconApiServices registers it.
+        builder.Services.AddSingleton<IBeaconRequestPrincipal>(x => TestRequestPrincipal.Of(x.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>()));
         builder.Services.AddSingleton(Rows(owner));
         builder.Services.AddSingleton(apiKeys.Object);
 

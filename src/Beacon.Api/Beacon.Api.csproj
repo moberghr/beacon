@@ -42,6 +42,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\Shared\Http\HttpContextRequestPrincipal.cs" Link="Shared\HttpContextRequestPrincipal.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
     </ItemGroup>
 

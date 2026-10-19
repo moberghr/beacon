@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
@@ -29,7 +28,7 @@ internal sealed class SecurityAuditRecorder(
     McpCallerSubjectHasher callerHasher,
     TimeProvider timeProvider,
     ILoggerFactory loggerFactory,
-    IHttpContextAccessor? httpContextAccessor = null) : ISecurityAuditRecorder
+    IBeaconRequestPrincipal requestPrincipal) : ISecurityAuditRecorder
 {
     /// <summary>The tenant a host session's presented id is hashed under, apart from any identity provider's tenants.</summary>
     internal const string SessionTenant = "beacon-session";
@@ -257,13 +256,13 @@ internal sealed class SecurityAuditRecorder(
 
     private async Task<SecurityAuditActor> CallerAsync(CancellationToken cancellationToken)
     {
-        return ActorOf(await actorAccessor.GetCurrentAsync(cancellationToken), httpContextAccessor?.HttpContext?.User, callerHasher);
+        return ActorOf(await actorAccessor.GetCurrentAsync(cancellationToken), requestPrincipal.User, callerHasher);
     }
 
     // Whether the request's caller can no longer change: no request (the scope decides), or a request that has authenticated.
     private bool CallerIsSettled()
     {
-        return httpContextAccessor?.HttpContext is not { } httpContext || httpContext.User.Identity?.IsAuthenticated == true;
+        return !requestPrincipal.HasRequest || requestPrincipal.User?.Identity?.IsAuthenticated == true;
     }
 
     private SecurityAuditEvent Build(SecurityAuditEntry entry, SecurityAuditActor actor, IReadOnlyDictionary<string, int> named)

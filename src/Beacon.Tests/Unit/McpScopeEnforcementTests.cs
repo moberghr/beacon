@@ -631,6 +631,7 @@ public class McpScopeEnforcementTests
         builder.Logging.ClearProviders();
         builder.Services.AddMcpServer().WithHttpTransport();
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, StatusCodeResultHandler>();
 
         var app = builder.Build();

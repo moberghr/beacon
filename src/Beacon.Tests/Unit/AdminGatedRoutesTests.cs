@@ -379,12 +379,10 @@ public class AdminGatedRoutesTests
                 saved));
         var encryption = new Mock<IEncryptionService>();
         encryption.Setup(x => x.Encrypt(It.IsAny<string>())).Returns("enc");
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = caller } };
-
         return new CreateProjectHandler(
             factory.Object,
             encryption.Object,
-            TestProjectAccess.ActorAccessor(accessor, factory.Object),
+            TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(caller), factory.Object),
             TestPermissions.ForPrincipal(caller),
             TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
             Mock.Of<IProjectMembershipSource>(x => x.IsAvailable == false),

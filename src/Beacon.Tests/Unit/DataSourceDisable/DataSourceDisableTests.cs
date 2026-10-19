@@ -723,9 +723,9 @@ public class DataSourceDisableTests
             Mock.Of<IAnomalyDetectionService>(MockBehavior.Strict),
             Mock.Of<IDataQualityEvaluationService>(MockBehavior.Strict),
             NullLogger<JobService>.Instance,
-            new RunAsScope(http),
+            new RunAsScope(TestRequestPrincipal.Of(http)),
             TestChangeApprovals.Deliveries(),
-            httpContextAccessor: http);
+            requestPrincipal: TestRequestPrincipal.Of(http));
     }
 
     private static void ShouldBeFailed(GovernanceStore store)

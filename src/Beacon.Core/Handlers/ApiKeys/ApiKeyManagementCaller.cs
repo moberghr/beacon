@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
@@ -32,11 +31,11 @@ internal static class ApiKeyManagementCaller
     /// session, and <see cref="InvalidOperationException"/> when no user matches (an archived user is not found).
     /// </summary>
     public static async Task<BeaconUserData> ResolveAsync(
-        IHttpContextAccessor? httpContextAccessor,
+        IBeaconRequestPrincipal requestPrincipal,
         IUserManagementService userManagementService,
         CancellationToken cancellationToken)
     {
-        var principal = httpContextAccessor?.HttpContext?.User;
+        var principal = requestPrincipal.User;
         if (!IsInteractiveSession(principal))
         {
             throw new BeaconForbiddenException(InteractiveSessionRequired);
@@ -60,13 +59,13 @@ internal static class ApiKeyManagementCaller
     /// <see cref="BeaconForbiddenException"/> for a user who does not administer keys now.
     /// </summary>
     public static async Task<BeaconUserData> ResolveAdministratorAsync(
-        IHttpContextAccessor? httpContextAccessor,
+        IBeaconRequestPrincipal requestPrincipal,
         IUserManagementService userManagementService,
         IBeaconPermissionAccessor permissionAccessor,
         IReadOnlyCollection<string> grantingPermissions,
         CancellationToken cancellationToken)
     {
-        var user = await ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
+        var user = await ResolveAsync(requestPrincipal, userManagementService, cancellationToken);
         var isAdministrator = user.IsSuperAdmin
             || user.Roles.Any(x => x.Name == RoleService.RoleNames.Admin)
             || (await permissionAccessor.GetCurrentAsync(cancellationToken)).HoldsAny(grantingPermissions);
