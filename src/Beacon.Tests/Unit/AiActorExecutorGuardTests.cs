@@ -49,6 +49,18 @@ public class AiActorExecutorGuardTests
     }
 
     [Test]
+    public async Task NullPlan_IsRecordedAsAFailedAction_NotThrown()
+    {
+        var service = BuildService();
+
+        var action = await service.ExecuteOrProposeAsync(Actor(), null!, [], CancellationToken.None);
+
+        action.Success.Should().BeFalse();
+        action.Proposed.Should().BeFalse();
+        action.ErrorMessage.Should().NotBeNullOrEmpty();
+    }
+
+    [Test]
     public async Task ArchiveQuery_OwnedButLocked_IsDenied()
     {
         var service = BuildService(queries: [new Query { Id = 1, AiActorId = ActorId, IsLocked = true }]);

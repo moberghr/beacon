@@ -2220,6 +2220,7 @@ internal sealed class KnowledgeGraphService(
         // no vectors loaded). This keeps freshly-added, not-yet-indexed lessons visible.
         var embeddedIds = await context.McpEmbeddings
             .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.ProjectId == projectId)
             .Where(x => x.OwnerType == McpEmbeddingOwnerType.Exemplar)
             .Select(x => x.OwnerId)
             .ToListAsync(ct);

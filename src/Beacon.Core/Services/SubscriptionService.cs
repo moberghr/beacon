@@ -49,6 +49,7 @@ internal class SubscriptionService(
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
+        EnsureMaxRowsIsPositive(subscriptionData.MaxRows);
 
         // The owner its runs act as, and its creator: the caller, never a value from the request.
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
@@ -215,6 +216,7 @@ internal class SubscriptionService(
     public async Task UpdateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
     {
         EnsureTimeoutWithinTheStatementLimit(subscriptionData.TimeoutSeconds);
+        EnsureMaxRowsIsPositive(subscriptionData.MaxRows);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -483,6 +485,14 @@ internal class SubscriptionService(
             await context.SaveChangesAsync(CancellationToken.None);
 
             throw;
+        }
+    }
+
+    private static void EnsureMaxRowsIsPositive(int? maxRows)
+    {
+        if (maxRows < 1)
+        {
+            throw new InvalidOperationException("The maximum number of rows must be at least 1, or left empty for the default.");
         }
     }
 

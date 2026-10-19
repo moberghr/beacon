@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Beacon.Core.HostData;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services.Security;
@@ -17,9 +18,12 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
 
     // Common PII column name patterns, banking identifiers included (IBAN, account number, OIB, JMBG). The short banking
     // words match as a whole name segment only — snake_case, camelCase or an upper-case run (customer_iban, ClientOib,
-    // IBANNumber) — never inside a longer word (Libanon, Kibana, foible); the boundaries are case-sensitive.
+    // IBANNumber) — never inside a longer word (Libanon, Kibana, foible); the boundaries are case-sensitive. A contact
+    // word that names another table's row (address, phone, mobile, zip code, postal code) does not match when an id
+    // suffix ends the name right after it (address_id, zip_code_id, PhoneId, address_ids): that column holds a key, not
+    // the value. Every other word, email among them (an email_id is often the address itself), matches whatever follows.
     private static readonly Regex PiiColumnPattern = new(
-        @"(email|e_mail|phone|telephone|mobile|ssn|social_security|tax_id|passport|credit_card|card_number|cvv|password|pwd|secret|token|birth_?date|dob|address|zip_?code|postal|ip_address|national_id|(?-i:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z]))(iban|oib|jmbg)s?(?-i:(?![A-Za-z])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z]))|(account|acct)_?(no|nr|num|number)(?![a-z]))",
+        @"(email|e_mail|(?>telephone|phone|mobile|ip_address|address|zip_?code|postal(?:_?code)?)(?!_?ids?(?![a-z0-9_]))|ssn|social_security|tax_id|passport|credit_card|card_number|cvv|password|pwd|secret|token|birth_?date|dob|national_id|(?-i:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z]))(iban|oib|jmbg)s?(?-i:(?![A-Za-z])|(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z]))|(account|acct)_?(no|nr|num|number)(?![a-z]))",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         MatchTimeout);
 
@@ -169,8 +173,10 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         {
             if (piiSet.Contains(key) && masked[key] != null)
             {
+                // A value already masked in full (a host data source's masked column, as the provider returns it) stays
+                // exactly as it is: masking it again would only lengthen it.
                 var value = masked[key]?.ToString() ?? "";
-                masked[key] = value.Length <= 2 ? "***" : $"{value[..1]}***{value[^1..]}";
+                masked[key] = value.Length <= 2 || value == HostResultMasker.MaskedValue ? HostResultMasker.MaskedValue : $"{value[..1]}***{value[^1..]}";
             }
         }
 

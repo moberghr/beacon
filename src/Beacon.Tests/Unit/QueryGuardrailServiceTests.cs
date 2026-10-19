@@ -343,6 +343,57 @@ public class QueryGuardrailServiceTests
         _service.IsPiiColumn(column).Should().Be(expected);
     }
 
+    // A key column whose name only starts with a contact word holds the referenced row's id, not the value.
+    [TestCase("address_id")]
+    [TestCase("home_address_id")]
+    [TestCase("zip_code_id")]
+    [TestCase("postal_code_id")]
+    [TestCase("phone_id")]
+    [TestCase("AddressId")]
+    [TestCase("AddressID")]
+    [TestCase("address_ids")]
+    public void IsPiiColumn_KeyColumnNamedAfterAContactWord_IsNotPii(string column)
+    {
+        _service.IsPiiColumn(column).Should().BeFalse();
+    }
+
+    [TestCase("address")]
+    [TestCase("home_address")]
+    [TestCase("email_address")]
+    [TestCase("zip_code")]
+    [TestCase("zipcode")]
+    [TestCase("postal_code")]
+    [TestCase("ip_address")]
+    [TestCase("phone_number")]
+    [TestCase("address_identifier")]
+    [TestCase("address_idx")]
+    [TestCase("email_id")]
+    [TestCase("tax_id")]
+    [TestCase("national_id")]
+    [TestCase("email_address_id")]
+    public void IsPiiColumn_ContactValueColumn_IsStillPii(string column)
+    {
+        _service.IsPiiColumn(column).Should().BeTrue();
+    }
+
+    [TestCase("SELECT address_id, zip_code_id FROM orders", "MSSQL")]
+    [TestCase("SELECT o.address_id FROM orders o", "PostgreSQL")]
+    public void ValidateQuery_KeyColumnNamedAfterAContactWord_IsNotDetected(string sql, string dialect)
+    {
+        var result = _service.ValidateQuery(sql, new QueryGuardrailOptions { ReadOnly = true, DetectPii = true, Dialect = dialect });
+
+        result.PiiColumns.Should().BeNullOrEmpty();
+    }
+
+    [TestCase("SELECT address_id, home_address FROM orders", "MSSQL")]
+    [TestCase("SELECT o.address_id, o.zip_code FROM orders o", "PostgreSQL")]
+    public void ValidateQuery_ContactValueBesideAKeyColumn_IsDetected(string sql, string dialect)
+    {
+        var result = _service.ValidateQuery(sql, new QueryGuardrailOptions { ReadOnly = true, DetectPii = true, Dialect = dialect });
+
+        result.PiiColumns.Should().ContainSingle();
+    }
+
     [Test]
     public void IsPiiColumn_HonorsCustomPatterns()
     {
@@ -363,5 +414,16 @@ public class QueryGuardrailServiceTests
         masked["email"].Should().NotBe("alice@example.com");
         masked["email"]!.ToString().Should().Contain("***");
         masked["name"].Should().Be("Alice");
+    }
+
+    [Test]
+    public void MaskPiiValues_ValueAlreadyMaskedInFull_StaysAsItIs()
+    {
+        var row = new Dictionary<string, object?> { ["ref_code"] = "***", ["email"] = "alice@example.com" };
+
+        var masked = _service.MaskPiiValues(row, ["ref_code", "email"]);
+
+        masked["ref_code"].Should().Be("***");
+        masked["email"].Should().Be("a***m");
     }
 }

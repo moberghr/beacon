@@ -67,7 +67,7 @@ export function SubscriptionInfoCard({ subscription }: SubscriptionInfoCardProps
               label="Result limit"
               value={
                 <span className="mono">
-                  {subscription.maxRows != null ? `${subscription.maxRows} rows` : 'no limit'}
+                  {subscription.maxRows != null && subscription.maxRows > 0 ? `${subscription.maxRows} rows` : 'default (10,000 rows)'}
                 </span>
               }
             />

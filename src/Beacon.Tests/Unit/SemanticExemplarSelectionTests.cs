@@ -204,6 +204,34 @@ public class SemanticExemplarSelectionTests
     }
 
     [Test]
+    public async Task GetRelevantPatterns_AnotherProjectsEmbeddingOnTheSharedSource_DoesNotHideTheCallersUnindexedLesson()
+    {
+        // A lesson without an embedding of its own project is backfilled after the semantic picks. Another project's
+        // embedding row on the same data source must not count as "already embedded" for the caller's lesson.
+        const int otherProjectId = 99;
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
+
+        var embeddings = new List<McpEmbedding>
+        {
+            NewExemplarEmbedding(1, queryVector),
+            NewExemplarEmbedding(3, queryVector, otherProjectId)
+        };
+
+        var service = BuildService(
+            embedder,
+            [NewCommonQuery(1, ProjectId, "SELECT 1"), NewCommonQuery(3, ProjectId, "SELECT 3")],
+            embeddings,
+            semanticEnabled: true,
+            exemplarTopK: 5);
+
+        var result = await service.GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, TableNames, Question, ct: CancellationToken.None);
+
+        result.Select(SqlToId).Should().Equal([1, 3], "the semantic pick leads and the unindexed lesson follows");
+    }
+
+    [Test]
     public async Task GetRelevantPatterns_TwoProjectsSharingADataSource_OverlapFallbackReturnsOnlyTheCallersProjectsPatterns()
     {
         // Same isolation on the fallback path: with the embedder unavailable, the table-overlap

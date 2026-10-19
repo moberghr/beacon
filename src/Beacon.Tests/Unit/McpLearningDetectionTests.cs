@@ -264,6 +264,28 @@ public class McpLearningDetectionTests
         joinPattern.ExampleSql.Should().NotBeNull();
     }
 
+    [TestCase(0, 90)]
+    [TestCase(0, 0)]
+    public async Task AggregateLearnedPatternsAsync_StoredRetentionWindowBelowOneDay_StillMinesRecentSignals(int projectDays, int globalDays)
+    {
+        // A window stored before the settings handlers refused one below a day falls back like the cleanup does, instead
+        // of leaving an empty mining window.
+        var signals = new List<McpQuerySignal> { CorrectionSignal(), CorrectionSignal(), CorrectionSignal() };
+        var captured = new List<McpLearnedPattern>();
+        var service = BuildAggregationService(
+            signals,
+            captured,
+            perProject: new Dictionary<int, McpSettingsData>
+            {
+                [ProjectId] = new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = projectDays, EnableReplayVerification = false }
+            },
+            globalSettings: new McpSettingsData { EnableLearning = true, LearningSignalRetentionDays = globalDays, EnableReplayVerification = false });
+
+        await service.AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        captured.Should().Contain(x => x.PatternType == McpPatternType.SchemaCorrection && x.ColumnName == "created_at");
+    }
+
     [Test]
     public async Task CleanupOldSignalsAsync_UsesEachProjectsRetentionWindow_AndTheGlobalWindowForProjectlessSignals()
     {

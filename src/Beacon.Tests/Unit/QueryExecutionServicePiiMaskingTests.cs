@@ -5,6 +5,7 @@ using NUnit.Framework;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -12,6 +13,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.MCP.Services;
 using Beacon.Tests.Common;
+using Beacon.Tests.Unit.HostData;
 using Beacon.Core.Mcp;
 
 namespace Beacon.Tests.Unit;
@@ -26,6 +28,8 @@ namespace Beacon.Tests.Unit;
 public class QueryExecutionServicePiiMaskingTests
 {
     private const string RawEmail = "alice@example.com";
+    private const string HostKey = "efcore:Netgiro";
+    private const string Ssn = "0101302989";
 
     [Test]
     public async Task ExecuteAsync_PiiDetectionOn_MasksPiiColumnValues()
@@ -349,6 +353,107 @@ public class QueryExecutionServicePiiMaskingTests
         result.FormattedResult.Should().Contain(RawEmail);
     }
 
+    // The host policy's masked output columns are masked in full on this path too, whatever the detection setting, even
+    // when the provider returns the value as it is (this provider double does not mask).
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ExecuteAsync_HostMaskedColumn_IsMaskedInFull(bool piiDetectionOn)
+    {
+        var hostGuard = new Mock<IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check(It.IsAny<DataSource>(), It.IsAny<string>()))
+            .Returns(new HostPolicyResult(true, null, ["ref_code"]));
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["ref_code"] = "123456789", ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn, rows: rows, hostGuard: hostGuard.Object);
+
+        var result = await service.ExecuteAsync(1, "SELECT ref_code, name FROM customers", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        StructuredRowValues(result).Should().Equal(HostResultMasker.MaskedValue, "Alice");
+        result.FormattedResult.Should().NotContain("123456789").And.NotContain("1***9");
+    }
+
+    // A value the provider already masked in full comes out exactly as the provider masked it, not masked a second time.
+    [Test]
+    public async Task ExecuteAsync_ValueTheProviderAlreadyMasked_IsReturnedAsMasked()
+    {
+        var hostGuard = new Mock<IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check(It.IsAny<DataSource>(), It.IsAny<string>()))
+            .Returns(new HostPolicyResult(true, null, ["customer_email"]));
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["customer_email"] = HostResultMasker.MaskedValue, ["name"] = "Alice" }
+        };
+        var service = BuildService(piiDetectionOn: true, rows: rows, hostGuard: hostGuard.Object);
+
+        var result = await service.ExecuteAsync(1, "SELECT customer_email, name FROM customers", 100, CancellationToken.None);
+
+        StructuredRowValues(result).Should().Equal(HostResultMasker.MaskedValue, "Alice");
+    }
+
+    // An ordinary source has no host-masked columns: detector-found PII keeps its partial mask.
+    [Test]
+    public async Task ExecuteAsync_OrdinarySource_KeepsThePartialMask()
+    {
+        var service = BuildService(piiDetectionOn: true);
+
+        var result = await service.ExecuteAsync(1, "SELECT email, name FROM users", 100, CancellationToken.None);
+
+        StructuredRowValues(result).Should().Equal("a***m", "Alice");
+    }
+
+    // The real host check derives the masked output columns: an aliased column and one named in another case are both
+    // masked in full, the result key matched without regard to case.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ExecuteAsync_HostCheckedSource_MasksTheAliasedAndDifferentlyCasedColumnsInFull(bool piiDetectionOn)
+    {
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"));
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["Id"] = "1", ["ssn"] = Ssn, ["KT"] = Ssn }
+        };
+        var service = BuildService(
+            piiDetectionOn,
+            rows: rows,
+            engine: DatabaseEngineType.MSSQL,
+            hostGuard: new HostDataSourceGuard(new SingleHostRegistry(snapshot)),
+            hostManagedKey: HostKey);
+
+        var result = await service.ExecuteAsync(1, "SELECT c.Id, c.ssn, c.SSN AS kt FROM dbo.Customer c", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        StructuredRowValues(result).Should().Equal("1", HostResultMasker.MaskedValue, HostResultMasker.MaskedValue);
+        result.FormattedResult.Should().NotContain(Ssn);
+    }
+
+    // A host check that refuses names no masked column: every result column is masked in full rather than none.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ExecuteAsync_RefusedHostCheck_MasksEveryResultColumnInFull(bool piiDetectionOn)
+    {
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["Id"] = "1", ["kt"] = Ssn }
+        };
+        var service = BuildService(
+            piiDetectionOn,
+            rows: rows,
+            engine: DatabaseEngineType.MSSQL,
+            hostGuard: new HostDataSourceGuard(new TestHostDataSources()),
+            hostManagedKey: HostKey);
+
+        var result = await service.ExecuteAsync(1, "SELECT c.Id, c.SSN AS kt FROM dbo.Customer c", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        StructuredRowValues(result).Should().Equal(HostResultMasker.MaskedValue, HostResultMasker.MaskedValue);
+        result.FormattedResult.Should().NotContain(Ssn);
+    }
+
     private static QueryExecutionService BuildService(
         bool piiDetectionOn,
         int activeProjectId = 1,
@@ -362,12 +467,14 @@ public class QueryExecutionServicePiiMaskingTests
         ProviderQueryResult? result = null,
         Beacon.Core.Models.Providers.QueryValidationResult? validation = null,
         Func<CancellationToken, Task<ProviderQueryResult>>? execute = null,
-        IQueryCostLimit? costLimit = null)
+        IQueryCostLimit? costLimit = null,
+        IHostDataSourceGuard? hostGuard = null,
+        string? hostManagedKey = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SeededDataSourceContext(dataSourceType, engine));
+            .ReturnsAsync(() => new SeededDataSourceContext(dataSourceType, engine, hostManagedKey));
 
         var providerResult = result ?? new ProviderQueryResult
         {
@@ -406,7 +513,8 @@ public class QueryExecutionServicePiiMaskingTests
             providerFactory.Object,
             new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
-            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog(), costLimit ?? TestQueryCostLimit.Passing);
+            new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog(), costLimit ?? TestQueryCostLimit.Passing,
+            hostGuard ?? new HostDataSourceGuard(new TestHostDataSources()));
     }
 
     private sealed class SeededDataSourceContext : BeaconContext
@@ -419,24 +527,26 @@ public class QueryExecutionServicePiiMaskingTests
 
         private readonly DataSourceType _dataSourceType;
         private readonly DatabaseEngineType? _engine;
+        private readonly string? _hostManagedKey;
 
-        public SeededDataSourceContext(DataSourceType dataSourceType, DatabaseEngineType? engine) : base(_options, "beacon")
+        public SeededDataSourceContext(DataSourceType dataSourceType, DatabaseEngineType? engine, string? hostManagedKey) : base(_options, "beacon")
         {
             _dataSourceType = dataSourceType;
             _engine = engine;
+            _hostManagedKey = hostManagedKey;
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
         {
             if (typeof(TEntity) == typeof(DataSource))
             {
-                return (DbSet<TEntity>)(object)BuildDataSourceSet(_dataSourceType, _engine);
+                return (DbSet<TEntity>)(object)BuildDataSourceSet(_dataSourceType, _engine, _hostManagedKey);
             }
 
             return base.Set<TEntity>();
         }
 
-        private static DbSet<DataSource> BuildDataSourceSet(DataSourceType dataSourceType, DatabaseEngineType? engine)
+        private static DbSet<DataSource> BuildDataSourceSet(DataSourceType dataSourceType, DatabaseEngineType? engine, string? hostManagedKey)
         {
             var data = new List<DataSource>
             {
@@ -446,7 +556,8 @@ public class QueryExecutionServicePiiMaskingTests
                     Name = "ds",
                     DataSourceType = dataSourceType,
                     EncryptedConnectionData = "x",
-                    DatabaseEngineType = engine
+                    DatabaseEngineType = engine,
+                    HostManagedKey = hostManagedKey
                 }
             }.AsQueryable();
 
@@ -462,5 +573,12 @@ public class QueryExecutionServicePiiMaskingTests
             set.As<IQueryable<DataSource>>().Setup(x => x.GetEnumerator()).Returns(data.GetEnumerator());
             return set.Object;
         }
+    }
+
+    private sealed class SingleHostRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry
+    {
+        public IReadOnlyList<HostDataSourceRegistration> Registrations => [];
+
+        public HostExposureSnapshot? GetSnapshot(string hostManagedKey) => hostManagedKey == HostKey ? snapshot : null;
     }
 }

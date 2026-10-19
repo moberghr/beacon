@@ -116,7 +116,9 @@ internal sealed class McpLearningAggregationService(
         BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats extraction, CancellationToken ct)
     {
         var retainContent = ContentRetentionDecision.From(settings).RetainQueryContent;
-        var cutoff = DateTime.UtcNow.AddDays(-settings.LearningSignalRetentionDays);
+        var globalSettings = await settingsProvider.GetSettingsAsync(ct);
+        var globalDays = RetentionDays(globalSettings.LearningSignalRetentionDays, McpSettingsData.DefaultLearningSignalRetentionDays);
+        var cutoff = DateTime.UtcNow.AddDays(-RetentionDays(settings.LearningSignalRetentionDays, globalDays));
 
         // Mine ONLY the taxonomy the detectors expect: ask (NL question → generated SQL) and query
         // (caller SQL executed for real). dry_run signals stay in the table for other analytics, but
@@ -860,6 +862,13 @@ internal sealed class McpLearningAggregationService(
         }
     }
 
+    // A stored window below one day never means "keep nothing": a window falls back to the next one up (project, then
+    // global, then the default).
+    internal static int RetentionDays(int days, int fallbackDays)
+    {
+        return days > 0 ? days : fallbackDays;
+    }
+
     public async Task CleanupOldSignalsAsync(int retentionDays = 0, CancellationToken ct = default)
     {
         // Retention runs whether learning is on or off: signals are still recorded for projects whose own
@@ -868,9 +877,7 @@ internal sealed class McpLearningAggregationService(
 
         // A stored window below one day (a row written before the settings handlers refused it) never means "delete
         // every signal": the global window falls back to the default, a project's window to the global one.
-        var globalDays = settings.LearningSignalRetentionDays > 0
-            ? settings.LearningSignalRetentionDays
-            : McpSettingsData.DefaultLearningSignalRetentionDays;
+        var globalDays = RetentionDays(settings.LearningSignalRetentionDays, McpSettingsData.DefaultLearningSignalRetentionDays);
 
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -890,7 +897,7 @@ internal sealed class McpLearningAggregationService(
             try
             {
                 var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
-                var projectWindow = projectSettings.LearningSignalRetentionDays > 0 ? projectSettings.LearningSignalRetentionDays : globalDays;
+                var projectWindow = RetentionDays(projectSettings.LearningSignalRetentionDays, globalDays);
                 var projectDays = retentionDays > 0 ? retentionDays : projectWindow;
                 var projectCutoff = DateTime.UtcNow.AddDays(-projectDays);
                 deleted += await context.McpQuerySignals

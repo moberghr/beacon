@@ -204,9 +204,9 @@ internal sealed class ProjectQueryTool(
             if (result.Rows != null && result.Rows.Count > 0)
             {
                 // Mask PII column values before returning to the MCP client (§1.6/§1.11): the SQL-text
-                // matches (incl. host-masked columns), every result column whose name is PII, and the names
-                // the executed SQL aliases PII columns to — so SELECT *, customer_email and email AS contact
-                // are covered. API sources have no SQL to resolve aliases from.
+                // matches, every result column whose name is PII, and the names the executed SQL aliases PII
+                // columns to — so SELECT *, customer_email and email AS contact are covered. API sources have no
+                // SQL to resolve aliases from. Host-masked columns are masked in full, as the provider masks them.
                 var rows = PiiRowMasker.Mask(
                     guardrailService,
                     result.Rows,
@@ -214,7 +214,8 @@ internal sealed class ProjectQueryTool(
                     settings.EnablePiiDetection,
                     settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null,
                     isApi ? null : queryText,
-                    DataSourceSqlDialect.Of(dataSource));
+                    DataSourceSqlDialect.Of(dataSource),
+                    report?.HostMaskedColumns);
 
                 // The text and the structured payload together stay within the resolved MaxResultBytes.
                 (text, structured) = ToolHelper.FormatResultWithinBudget(text, rows, maxRows, settings.MaxResultBytes);

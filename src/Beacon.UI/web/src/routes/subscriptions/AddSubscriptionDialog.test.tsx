@@ -146,6 +146,33 @@ describe('AddSubscriptionDialog (multi-step)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/refused unless this deployment raised its limit to at least 600 seconds/);
   });
 
+  it('refuses a Max rows below 1 and shows the default cap for an empty one', async () => {
+    stubQueryEndpoints(12);
+    stubRecipients([OPS_RECIPIENT]);
+
+    renderWithProviders(<AddSubscriptionDialog open onClose={vi.fn()} initialQueryId={12} />);
+
+    await waitForQuery(12);
+    next();
+    await screen.findByText(/Ops/);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Ops/i }));
+    next();
+
+    const maxRows = await screen.findByLabelText(/max rows/i);
+    expect(maxRows).toHaveAttribute('placeholder', 'Default (10,000 rows)');
+
+    fireEvent.change(maxRows, { target: { value: '0' } });
+    next();
+
+    expect(await screen.findByText(/Max rows must be at least 1/i)).toBeInTheDocument();
+
+    fireEvent.change(maxRows, { target: { value: '' } });
+    next();
+    await waitFor(() => {
+      expect(screen.queryByText(/Max rows must be at least 1/i)).not.toBeInTheDocument();
+    });
+  });
+
   it('sends the notification trigger, row threshold, attachment format and anomaly settings', async () => {
     stubQueryEndpoints(12);
     stubRecipients([OPS_RECIPIENT]);
