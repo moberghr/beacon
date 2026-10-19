@@ -22,12 +22,12 @@ namespace Beacon.Core.Handlers.ApiKeys;
 /// </summary>
 internal sealed class AdminRevokeApiKeyHandler(
     IApiKeyService apiKeyService,
-    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userManagementService,
     IBeaconPermissionAccessor permissionAccessor,
     IDbContextFactory<BeaconContext> contextFactory,
     IOptions<RoleMappingOptions> roleMapping,
-    ILogger<AdminRevokeApiKeyHandler> logger)
+    ILogger<AdminRevokeApiKeyHandler> logger,
+    IHttpContextAccessor? httpContextAccessor = null)
     : IRequestHandler<AdminRevokeApiKeyCommand>
 {
     public const string ProtectedOwnerMessage =

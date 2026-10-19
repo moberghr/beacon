@@ -18,12 +18,12 @@ namespace Beacon.Core.Handlers.ApiKeys;
 /// </summary>
 internal sealed class GetAllApiKeysHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IHttpContextAccessor httpContextAccessor,
     IUserManagementService userManagementService,
     IBeaconPermissionAccessor permissionAccessor,
     IOptions<ApiKeyOptions> options,
     IOptions<RoleMappingOptions> roleMapping,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IHttpContextAccessor? httpContextAccessor = null)
     : IRequestHandler<GetAllApiKeysQuery, PagedList<AdminApiKeyEntry>>
 {
     public async Task<PagedList<AdminApiKeyEntry>> Handle(

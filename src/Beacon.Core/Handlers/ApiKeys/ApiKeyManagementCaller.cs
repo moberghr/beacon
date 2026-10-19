@@ -32,11 +32,11 @@ internal static class ApiKeyManagementCaller
     /// session, and <see cref="InvalidOperationException"/> when no user matches (an archived user is not found).
     /// </summary>
     public static async Task<BeaconUserData> ResolveAsync(
-        IHttpContextAccessor httpContextAccessor,
+        IHttpContextAccessor? httpContextAccessor,
         IUserManagementService userManagementService,
         CancellationToken cancellationToken)
     {
-        var principal = httpContextAccessor.HttpContext?.User;
+        var principal = httpContextAccessor?.HttpContext?.User;
         if (!IsInteractiveSession(principal))
         {
             throw new BeaconForbiddenException(InteractiveSessionRequired);
@@ -60,7 +60,7 @@ internal static class ApiKeyManagementCaller
     /// <see cref="BeaconForbiddenException"/> for a user who does not administer keys now.
     /// </summary>
     public static async Task<BeaconUserData> ResolveAdministratorAsync(
-        IHttpContextAccessor httpContextAccessor,
+        IHttpContextAccessor? httpContextAccessor,
         IUserManagementService userManagementService,
         IBeaconPermissionAccessor permissionAccessor,
         IReadOnlyCollection<string> grantingPermissions,

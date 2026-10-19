@@ -11,8 +11,8 @@ namespace Beacon.Core.Handlers.ApiKeys;
 internal sealed class RevokeApiKeyHandler(
     IApiKeyService apiKeyService,
     IDbContextFactory<BeaconContext> contextFactory,
-    IHttpContextAccessor httpContextAccessor,
-    IUserManagementService userManagementService)
+    IUserManagementService userManagementService,
+    IHttpContextAccessor? httpContextAccessor = null)
     : IRequestHandler<RevokeApiKeyCommand>
 {
     public async Task Handle(

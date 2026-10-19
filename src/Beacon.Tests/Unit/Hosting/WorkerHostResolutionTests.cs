@@ -9,6 +9,8 @@ using Beacon.Connector.SqlServer;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
+using Beacon.Core.Handlers.ApiKeys;
+using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Core.SqlServer;
@@ -36,6 +38,27 @@ public class WorkerHostResolutionTests
         scope.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().Should().NotBeNull();
         scope.ServiceProvider.GetRequiredService<IRunAsScope>().Should().NotBeNull();
         scope.ServiceProvider.GetRequiredService<IBeaconAuthorizationProvider>().Should().NotBeNull();
+    }
+
+    [Test]
+    public void AWorkerHostWithUserManagement_PassesContainerValidation()
+    {
+        // The generic host validates the container on build in Development: every registered service, Core's MediatR
+        // handlers too, must be constructible without an HTTP context accessor.
+        var act = () => WorkerHost(new Mock<IUserManagementService>().Object, validate: true).Dispose();
+
+        act.Should().NotThrow();
+    }
+
+    [Test]
+    public async Task WithoutAnAccessor_ApiKeyManagementIsRefused()
+    {
+        var users = new Mock<IUserManagementService>(MockBehavior.Strict);
+
+        var act = () => ApiKeyManagementCaller.ResolveAsync(null, users.Object, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ApiKeyManagementCaller.InteractiveSessionRequired);
+        users.VerifyNoOtherCalls();
     }
 
     [Test]
@@ -119,7 +142,7 @@ public class WorkerHostResolutionTests
         users.Verify(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private static ServiceProvider WorkerHost(IUserManagementService? users = null, IHttpContextAccessor? http = null)
+    private static ServiceProvider WorkerHost(IUserManagementService? users = null, IHttpContextAccessor? http = null, bool validate = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -155,8 +178,9 @@ public class WorkerHostResolutionTests
             services.AddSingleton(users);
         }
 
-        // ValidateOnBuild is not set: Core alone is an incomplete container by design (Api-only services are absent).
-        return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        // ValidateOnBuild only where asked: without user management Core registers handlers whose user and role services
+        // only the user-management registration adds, on every host.
+        return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = validate });
     }
 
     private sealed class NoOpScheduler : IBeaconScheduler
