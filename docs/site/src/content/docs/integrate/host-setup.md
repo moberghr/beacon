@@ -188,8 +188,12 @@ All options are on [Sign-in & identity](/integrate/authentication/).
 | Call | What it does |
 |---|---|
 | `AddBeaconApiAuthorization()` | Registers the `BeaconApi`, `BeaconApiAdmin` and Execute-scope policies plus one policy per functional permission. Required by `MapBeaconApi` and `MapBeaconMcp`. |
-| `AddBeaconApiServices()` | SignalR, the login rate limiter, notifiers. Options: `Realtime` (default `true`), `ConfigureSignalR` (e.g. a Redis backplane), `ExternalLogin` (when your app owns sign-in). |
+| `AddBeaconApiServices()` | SignalR, the login rate limiter, notifiers, and the request principal Beacon's core reads the caller from (`IBeaconRequestPrincipal`; `AddBeaconCookieAuthentication` and `AddBeaconMcp` register it too, and startup fails when Beacon's endpoints are mapped without it). Options: `Realtime` (default `true`), `ConfigureSignalR` (e.g. a Redis backplane), `ExternalLogin` (when your app owns sign-in). |
 | `AddAntiforgery(...)` | The UI sends the antiforgery token in `X-XSRF-TOKEN`; it gets it from `GET /beacon/api/csrf`. API-key and bearer callers are exempt. |
+
+:::caution[Upgrading to 5.0: the request principal]
+In 5.0 an `IHttpContextAccessor` alone no longer tells Beacon's core who the request's caller is. A web host calls `AddBeaconApiServices`, `AddBeaconCookieAuthentication` or `AddBeaconMcp` (each registers the request principal), or registers its own with `UseRequestPrincipal<T>()`. A host that registers only Beacon's core and an accessor serves every request as if no request were in progress.
+:::
 
 ```csharp
 // Realtime off: no SignalR, no hub route; the UI simply does not connect.

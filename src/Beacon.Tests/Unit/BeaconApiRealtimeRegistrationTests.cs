@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Hubs;

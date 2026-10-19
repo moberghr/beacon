@@ -225,10 +225,10 @@ public class FunctionalRoleReachTests
     private static async Task<ProjectAccessScope> ScopeAsync(ProjectAccessWorld world, string externalId)
     {
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, externalId)], "Cookies"));
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = principal } };
+        var requestPrincipal = TestRequestPrincipal.For(principal);
         var services = new ServiceCollection();
         world.Register(services);
-        services.AddSingleton<IHttpContextAccessor>(accessor);
+        services.AddSingleton<IBeaconRequestPrincipal>(requestPrincipal);
 
         // The read and write permission a stored user's role levels give, as Beacon user management's provider decides.
         var users = new Mock<IUserManagementService>();
@@ -248,7 +248,7 @@ public class FunctionalRoleReachTests
                             .ToList()
                     })
                 .FirstOrDefault());
-        services.AddScoped<IBeaconAuthorizationProvider>(x => new DatabaseAuthorizationProvider(accessor, users.Object));
+        services.AddScoped<IBeaconAuthorizationProvider>(x => new DatabaseAuthorizationProvider(requestPrincipal, users.Object));
         await using var provider = services.BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
 
@@ -285,6 +285,7 @@ public class FunctionalRoleReachTests
             x.HeaderName = "X-XSRF-TOKEN";
         });
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         builder.Services
             .AddAuthentication("Test")
             .AddCookie("Test", x => x.Events.OnRedirectToAccessDenied = y =>

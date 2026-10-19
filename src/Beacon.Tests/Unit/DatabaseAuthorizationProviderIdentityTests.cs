@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Beacon.Tests.Common;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Models.UserManagement;
@@ -217,9 +218,9 @@ public class DatabaseAuthorizationProviderIdentityTests
     }
 
     [Test]
-    public async Task NoHttpContext_IsDenied()
+    public async Task OffRequest_IsDenied()
     {
-        var provider = new DatabaseAuthorizationProvider(new HttpContextAccessor(), _users.Object);
+        var provider = new DatabaseAuthorizationProvider(TestRequestPrincipal.OffRequest(), _users.Object);
 
         var canRead = await provider.HasReadPermissionAsync();
 
@@ -251,9 +252,7 @@ public class DatabaseAuthorizationProviderIdentityTests
 
     private DatabaseAuthorizationProvider BuildProvider(ClaimsPrincipal principal)
     {
-        var accessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = principal } };
-
-        return new DatabaseAuthorizationProvider(accessor, _users.Object);
+        return new DatabaseAuthorizationProvider(TestRequestPrincipal.For(principal), _users.Object);
     }
 
     private static ClaimsPrincipal Principal(string authenticationType, params Claim[] claims) =>

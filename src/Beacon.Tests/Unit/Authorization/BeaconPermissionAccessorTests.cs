@@ -220,7 +220,7 @@ public class BeaconPermissionAccessorTests
     {
         var services = new ServiceCollection();
         world.Register(services);
-        services.AddSingleton<IHttpContextAccessor>(new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = principal } });
+        services.AddSingleton<IBeaconRequestPrincipal>(TestRequestPrincipal.For(principal));
         services.AddSingleton(Options.Create(mapping ?? new RoleMappingOptions()));
         services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         services.AddSingleton(SharedLog(logs ?? new LogRecorder()));

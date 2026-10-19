@@ -58,7 +58,9 @@ environment variable (`Beacon__EncryptionKey`) or a secret store, never in a com
 | `Beacon:Schema` | `beacon` | Leave unset or set to `beacon`. Any other value fails startup. |
 
 The web app is served under `/beacon`, the REST API under `/beacon/api` and the MCP server at `/beacon/mcp`. Those
-come from the Api, UI and MCP packages, not from Core.
+come from the Api, UI and MCP packages, not from Core. Core does not reference ASP.NET Core's HTTP abstractions: it reads
+the request's caller through `IBeaconRequestPrincipal`, which the Api and MCP packages register; without them every
+scope is off-request.
 
 ## Documentation
 

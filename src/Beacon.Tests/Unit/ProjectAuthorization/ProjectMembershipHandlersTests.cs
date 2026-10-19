@@ -311,7 +311,8 @@ public class ProjectMembershipHandlersTests
             SecurityAuditTestKit.Integrity,
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
-            NullLoggerFactory.Instance);
+            NullLoggerFactory.Instance,
+            TestRequestPrincipal.OffRequest());
 
         // The event save after the update is captured and stopped there (the capture cannot answer a successful insert).
         var act = () => new SetProjectMemberHandler(

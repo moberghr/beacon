@@ -179,7 +179,8 @@ public class SignInEventTests
             SecurityAuditTestKit.Integrity,
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
-            LoggerFactory.Create(x => x.AddProvider(logs)));
+            LoggerFactory.Create(x => x.AddProvider(logs)),
+            TestRequestPrincipal.OffRequest());
         await using var app = await StartAsync(SignedIn(7, "ext-ana"), recorder);
 
         var response = await LoginAsync(app);

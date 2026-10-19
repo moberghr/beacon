@@ -1,7 +1,7 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
+using Beacon.Core.Authorization;
 
-namespace Beacon.Core.Authorization;
+namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Default implementation that reads from HttpContext.User claims.

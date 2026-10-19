@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
@@ -40,12 +39,12 @@ internal class JobService(
     ILogger<JobService> logger,
     IRunAsScope runAs,
     RecipientDeliveryApproval deliveryApproval,
+    IBeaconRequestPrincipal requestPrincipal,
     IAiActorService? aiActorService = null,
     IMcpLearningAggregationService? mcpLearningService = null,
     IEmbeddingIndexingService? embeddingIndexingService = null,
     IDocChunkIndexingService? docChunkIndexingService = null,
-    IMcpEvalService? mcpEvalService = null,
-    IHttpContextAccessor? httpContextAccessor = null)
+    IMcpEvalService? mcpEvalService = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -64,7 +63,7 @@ internal class JobService(
         }
 
         // A scheduled run acts as the subscription's owner as they are now; a run a request asks for acts as its caller.
-        var isScheduledRun = httpContextAccessor?.HttpContext == null;
+        var isScheduledRun = !requestPrincipal.HasRequest;
         if (isScheduledRun)
         {
             runAs.RunAs(subscription.OwnerUserId);
@@ -339,7 +338,7 @@ internal class JobService(
     public async Task EvaluateDataContract(int contractId, CancellationToken cancellationToken)
     {
         // A scheduled evaluation acts as the contract's owner as they are now.
-        var isScheduledRun = httpContextAccessor?.HttpContext == null;
+        var isScheduledRun = !requestPrincipal.HasRequest;
         if (isScheduledRun)
         {
             await RunAsContractOwnerAsync(contractId, cancellationToken);

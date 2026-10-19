@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using System.Security.Claims;
 using System.Text.Json;
 using FluentAssertions;
@@ -67,7 +68,7 @@ public class DataContractCustomSqlSaveTests
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         var editor = Interactive(RoleService.RoleNames.Editor);
-        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(Accessor(editor), factory.Object), new BeaconConfiguration(), TestChangeApprovals.CustomSql(), new RecordingSecurityAudit());
+        var handler = new CreateDataContractHandler(factory.Object, _scheduler.Object, UserContext(editor), TestSqlGate.Create(), TestConfiguredDatabases.None, TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(editor), factory.Object), new BeaconConfiguration(), TestChangeApprovals.CustomSql(), new RecordingSecurityAudit());
 
         var act = () => handler.Handle(CreateCommand(CustomSqlRule(ReadOnlySql)), CancellationToken.None);
 
@@ -1045,7 +1046,7 @@ public class DataContractCustomSqlSaveTests
 
     private BeaconActorAccessor Actor(ClaimsPrincipal user)
     {
-        return TestProjectAccess.ActorAccessor(Accessor(user), ContextFactory(dataSource: null));
+        return TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(user), ContextFactory(dataSource: null));
     }
 
     private static IBeaconUserContext UserContext(ClaimsPrincipal user)

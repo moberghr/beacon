@@ -273,7 +273,8 @@ context, so the MCP request's context (and the audit identity) is untouched.
 ### Host middleware and ambient state: dispatch middleware
 
 Host **middleware does not run** on dispatch: only the endpoint's own pipeline. When the endpoint depends on state a
-middleware sets, register an `IHostEndpointDispatchMiddleware`:
+middleware sets, register an `IHostEndpointDispatchMiddleware` (namespace `Beacon.Core.HostEndpoints`, shipped in
+`Moberg.Beacon.MCP`):
 
 ```csharp
 Task InvokeAsync(HttpContext syntheticContext, McpCaller caller, Func<Task> next, CancellationToken cancellationToken);

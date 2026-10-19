@@ -24,6 +24,20 @@ public static class BeaconRequestPaths
         // The listed prefixes, normalized once (AuthenticationPathPrefixes); without them only /beacon is Beacon's.
         var prefixes = context.RequestServices?.GetService<AuthenticationPathPrefixes>();
 
-        return prefixes != null && prefixes.Matches(path);
+        return prefixes != null && Matches(path, prefixes);
+    }
+
+    /// <summary>Whether <paramref name="path"/> lies under one of <paramref name="prefixes"/>: whole segments, ignoring case.</summary>
+    public static bool Matches(PathString path, AuthenticationPathPrefixes prefixes)
+    {
+        foreach (var prefix in prefixes.Prefixes)
+        {
+            if (path.StartsWithSegments(new PathString(prefix), StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

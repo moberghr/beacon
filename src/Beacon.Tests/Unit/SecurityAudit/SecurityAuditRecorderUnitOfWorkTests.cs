@@ -146,7 +146,7 @@ public class SecurityAuditRecorderUnitOfWorkTests
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
             LoggerFactory.Create(_ => { }),
-            authenticatedRequest ? Request(authenticated: true) : new HttpContextAccessor());
+            authenticatedRequest ? Request(authenticated: true) : TestRequestPrincipal.OffRequest());
 
         await recorder.SaveWithEventsAsync(
             context,
@@ -300,7 +300,7 @@ public class SecurityAuditRecorderUnitOfWorkTests
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
             LoggerFactory.Create(x => x.AddProvider(logs)),
-            new HttpContextAccessor());
+            TestRequestPrincipal.OffRequest());
 
         await recorder.RecordAsync(new SecurityAuditEntry(SecurityAuditActions.SignedOut).On(SecurityAuditResources.User, 7), CancellationToken.None);
 
@@ -329,7 +329,7 @@ public class SecurityAuditRecorderUnitOfWorkTests
             SecurityAuditTestKit.CallerHasher,
             time,
             LoggerFactory.Create(x => x.AddProvider(logs)),
-            new HttpContextAccessor());
+            TestRequestPrincipal.OffRequest());
 
         var write = recorder.RecordAsync(new SecurityAuditEntry(SecurityAuditActions.SetupTokenRefused).By(SecurityAuditActor.Anonymous), CancellationToken.None);
         write.IsCompleted.Should().BeFalse();
@@ -361,15 +361,11 @@ public class SecurityAuditRecorderUnitOfWorkTests
     }
 
     // A request in progress: signed in (a principal authentication set), or not authenticated yet.
-    private static IHttpContextAccessor Request(bool authenticated)
+    private static IBeaconRequestPrincipal Request(bool authenticated)
     {
-        var httpContext = new DefaultHttpContext();
-        if (authenticated)
-        {
-            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Test"));
-        }
-
-        return new HttpContextAccessor { HttpContext = httpContext };
+        return authenticated
+            ? TestRequestPrincipal.For(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Test")))
+            : TestRequestPrincipal.For();
     }
 
     private static Recorder RecorderOver(IDbContextFactory<BeaconContext> factory, LogRecorder? logs = null)
@@ -381,7 +377,7 @@ public class SecurityAuditRecorderUnitOfWorkTests
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
             LoggerFactory.Create(x => x.AddProvider(logs ?? new LogRecorder())),
-            new HttpContextAccessor());
+            TestRequestPrincipal.OffRequest());
     }
 
     /// <summary>A failure the retrying strategy below treats as transient, as a provider's strategy treats a dropped connection.</summary>

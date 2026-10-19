@@ -1,9 +1,9 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 
-namespace Beacon.Core.Authorization;
+namespace Beacon.Api.Authentication;
 
 internal sealed class ActorUserResolver(
     IHttpContextAccessor httpContextAccessor,

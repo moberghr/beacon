@@ -463,8 +463,14 @@ public static class ServiceConfiguration
         services.AddSingleton<IValidateOptions<Configuration.McpCallerOptions>, Configuration.McpCallerOptionsValidator>();
         services.TryAddScoped<Mcp.IMcpCallerMapper, Mcp.ConfiguredMcpCallerMapper>();
 
+        // The request's principal as Core reads it. A singleton (implementations read per call; the web one through the
+        // async-local IHttpContextAccessor), so every lifetime can take it. Core's default serves no request; Beacon.Api
+        // and Beacon.MCP replace only this default (TryUseRequestPrincipal), so a host's own principal stays, and a host's
+        // UseRequestPrincipal replaces it whenever it runs.
+        services.TryAddSingleton<IBeaconRequestPrincipal, NoRequestPrincipal>();
+
         // The request's caller as the owner/creator/assignee of resources and as an Admin (scoped: resolved once per
-        // request; reads IHttpContextAccessor when the API registration adds it — without one every scope is off-request).
+        // request through IBeaconRequestPrincipal — in a scope without a request, the run-as owner, the system or nobody).
         // TryAdd so a host can supply its own.
         services.TryAddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
         services.TryAddScoped<ISystemWorkScope, Authorization.ProjectAccess.SystemWorkScope>();

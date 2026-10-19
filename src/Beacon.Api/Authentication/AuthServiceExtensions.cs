@@ -42,6 +42,10 @@ public static class AuthServiceExtensions
         // Resolves the current principal's internal BeaconUser.Id for audit columns (§1.7 / §9.5).
         services.TryAddScoped<IActorUserResolver, ActorUserResolver>();
 
+        // The request's caller as Core reads it (see AddBeaconApiServices); replaces only Core's off-request default.
+        services.TryUseRequestPrincipal<Beacon.Shared.Http.HttpContextRequestPrincipal>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
+
         // Register authentication service
         services.TryAddScoped<IBeaconAuthenticationService, BeaconAuthenticationService>();
 

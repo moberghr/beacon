@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using MediatR;
@@ -113,6 +114,7 @@ internal static class NotificationTestKit
             .AddAuthentication(TestAuthenticationHandler.SchemeName)
             .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, null);
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         var app = builder.Build();
         app.UseRouting();
         app.Use(async (context, next) =>

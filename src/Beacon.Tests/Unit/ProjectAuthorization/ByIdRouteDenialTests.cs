@@ -245,6 +245,7 @@ public class ByIdRouteDenialTests
         builder.Logging.ClearProviders();
         builder.Services.AddRouting();
         builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddWebRequestPrincipal();
         builder.Services.AddMediatR(x =>
         {
             x.RegisterServicesFromAssemblies(

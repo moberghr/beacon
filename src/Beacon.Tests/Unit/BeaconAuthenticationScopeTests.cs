@@ -240,7 +240,7 @@ public class BeaconAuthenticationScopeTests
 
         options.Should().NotBeNull();
         options!.AdditionalPaths.Should().Contain("/warp", "the sample serves the Warp dashboard with Beacon's admin check");
-        new AuthenticationPathPrefixes(Options.Create(options)).Matches("/warp/jobs").Should().BeTrue();
+        BeaconRequestPaths.Matches("/warp/jobs", new AuthenticationPathPrefixes(Options.Create(options))).Should().BeTrue();
     }
 
     private static string AuthenticationTypeOf(Credential credential)

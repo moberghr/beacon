@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
@@ -26,7 +25,7 @@ internal sealed class BeaconPermissionAccessor(
     IOptions<RoleMappingOptions> roleMapping,
     TimeProvider timeProvider,
     BeaconPermissionLog log,
-    IHttpContextAccessor? httpContextAccessor = null) : IBeaconPermissionAccessor
+    IBeaconRequestPrincipal requestPrincipal) : IBeaconPermissionAccessor
 {
     private BeaconPermissionSet? _current;
 
@@ -38,7 +37,7 @@ internal sealed class BeaconPermissionAccessor(
         }
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        _current = await ResolveAsync(actor, httpContextAccessor?.HttpContext?.User, cancellationToken);
+        _current = await ResolveAsync(actor, requestPrincipal.User, cancellationToken);
 
         return _current;
     }

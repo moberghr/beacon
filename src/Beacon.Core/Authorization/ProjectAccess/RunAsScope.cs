@@ -1,14 +1,12 @@
-using Microsoft.AspNetCore.Http;
-
 namespace Beacon.Core.Authorization.ProjectAccess;
 
 /// <summary>
 /// The default <see cref="IRunAsScope"/>: the owner per DI scope, set once. The actor accessor reports when it resolves
 /// the scope's caller (<see cref="MarkCallerResolved"/>), and the evaluator memoizes its decision per scope, so setting
 /// the owner after that would leave the scope deciding for whoever was resolved first: it throws instead.
-/// The accessor is optional: a host without Beacon.Api registers none, and every scope there is off-request.
+/// A scope that serves a request (<see cref="IBeaconRequestPrincipal.HasRequest"/>) never runs as an owner.
 /// </summary>
-internal sealed class RunAsScope(IHttpContextAccessor? httpContextAccessor = null) : IRunAsScope
+internal sealed class RunAsScope(IBeaconRequestPrincipal requestPrincipal) : IRunAsScope
 {
     private bool _callerResolved;
 
@@ -23,7 +21,7 @@ internal sealed class RunAsScope(IHttpContextAccessor? httpContextAccessor = nul
             throw new InvalidOperationException("This scope already runs as the owner of scheduled work; the owner is set once.");
         }
 
-        if (httpContextAccessor?.HttpContext != null)
+        if (requestPrincipal.HasRequest)
         {
             throw new InvalidOperationException("A request's scope acts as the request's caller; it never runs as the owner of scheduled work.");
         }

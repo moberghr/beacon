@@ -33,6 +33,7 @@ public class WorkerHostResolutionTests
         using var scope = provider.CreateScope();
 
         provider.GetService<IHttpContextAccessor>().Should().BeNull("the worker host registers no HTTP context accessor");
+        provider.GetRequiredService<IBeaconRequestPrincipal>().Should().BeOfType<NoRequestPrincipal>("Core's default serves no request");
         scope.ServiceProvider.GetRequiredService<IJobService>().Should().NotBeNull();
         scope.ServiceProvider.GetRequiredService<IBeaconActorAccessor>().Should().NotBeNull();
         scope.ServiceProvider.GetRequiredService<IBeaconPermissionAccessor>().Should().NotBeNull();
@@ -55,7 +56,7 @@ public class WorkerHostResolutionTests
     {
         var users = new Mock<IUserManagementService>(MockBehavior.Strict);
 
-        var act = () => ApiKeyManagementCaller.ResolveAsync(null, users.Object, CancellationToken.None);
+        var act = () => ApiKeyManagementCaller.ResolveAsync(new NoRequestPrincipal(), users.Object, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ApiKeyManagementCaller.InteractiveSessionRequired);
         users.VerifyNoOtherCalls();
@@ -113,7 +114,7 @@ public class WorkerHostResolutionTests
     }
 
     [Test]
-    public async Task UserManagementOn_WithAnAccessor_TheAuthorizationProviderReadsTheRequestsCaller()
+    public async Task UserManagementOn_WithARequestPrincipal_TheAuthorizationProviderReadsTheRequestsCaller()
     {
         var users = new Mock<IUserManagementService>();
         users
@@ -126,29 +127,23 @@ public class WorkerHostResolutionTests
                 IsEnabled = true,
                 Roles = [new BeaconRoleData { Name = "Viewer", Level = 1 }]
             });
-        var http = new HttpContextAccessor
-        {
-            HttpContext = new DefaultHttpContext
-            {
-                User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Cookies"))
-            }
-        };
-        using var provider = WorkerHost(users.Object, http);
+        var request = TestRequestPrincipal.For(new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Cookies")));
+        using var provider = WorkerHost(users.Object, request);
         using var scope = provider.CreateScope();
 
         var canRead = await scope.ServiceProvider.GetRequiredService<IBeaconAuthorizationProvider>().HasReadPermissionAsync();
 
-        canRead.Should().BeTrue("with an accessor registered DI picks the constructor that reads the request");
+        canRead.Should().BeTrue("a principal the host registers is the one Core reads the request's caller from");
         users.Verify(x => x.GetUserByExternalIdAsync("ext-ada", It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private static ServiceProvider WorkerHost(IUserManagementService? users = null, IHttpContextAccessor? http = null, bool validate = false)
+    private static ServiceProvider WorkerHost(IUserManagementService? users = null, IBeaconRequestPrincipal? requestPrincipal = null, bool validate = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        if (http != null)
+        if (requestPrincipal != null)
         {
-            services.AddSingleton(http);
+            services.AddSingleton(requestPrincipal);
         }
 
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).

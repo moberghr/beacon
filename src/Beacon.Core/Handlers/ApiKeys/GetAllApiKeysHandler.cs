@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
@@ -23,7 +22,7 @@ internal sealed class GetAllApiKeysHandler(
     IOptions<ApiKeyOptions> options,
     IOptions<RoleMappingOptions> roleMapping,
     TimeProvider timeProvider,
-    IHttpContextAccessor? httpContextAccessor = null)
+    IBeaconRequestPrincipal requestPrincipal)
     : IRequestHandler<GetAllApiKeysQuery, PagedList<AdminApiKeyEntry>>
 {
     public async Task<PagedList<AdminApiKeyEntry>> Handle(
@@ -31,7 +30,7 @@ internal sealed class GetAllApiKeysHandler(
         CancellationToken cancellationToken)
     {
         var administrator = await ApiKeyManagementCaller.ResolveAdministratorAsync(
-            httpContextAccessor,
+            requestPrincipal,
             userManagementService,
             permissionAccessor,
             [BeaconPermissions.Auditor, BeaconPermissions.UserAdmin],

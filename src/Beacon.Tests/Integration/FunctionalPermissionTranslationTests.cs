@@ -283,7 +283,7 @@ public class FunctionalPermissionTranslationTests
             Options.Create(new RoleMappingOptions()),
             TimeProvider.System,
             new BeaconPermissionLog(TimeProvider.System, NullLogger<BeaconPermissionLog>.Instance),
-            new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity("Cookies")) } });
+            TestRequestPrincipal.For(new ClaimsPrincipal(new ClaimsIdentity("Cookies"))));
 
         var permissions = await accessor.GetCurrentAsync(CancellationToken.None);
 

@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
@@ -24,7 +23,7 @@ internal sealed class BeaconActorAccessor(
     ISystemWorkScope systemWork,
     IRunAsScope runAs,
     ProjectAccess.UnmarkedSystemWorkLog unmarkedSystemWork,
-    IHttpContextAccessor? httpContextAccessor = null) : IBeaconActorAccessor
+    IBeaconRequestPrincipal requestPrincipal) : IBeaconActorAccessor
 {
     private BeaconActor? _current;
 
@@ -35,8 +34,7 @@ internal sealed class BeaconActorAccessor(
             return _current;
         }
 
-        var httpContext = httpContextAccessor?.HttpContext;
-        if (httpContext == null)
+        if (!requestPrincipal.HasRequest)
         {
             // Who the scope acts as is decided now: from here on the owner it runs as can no longer be set.
             (runAs as ProjectAccess.RunAsScope)?.MarkCallerResolved();
@@ -60,7 +58,7 @@ internal sealed class BeaconActorAccessor(
             return _current;
         }
 
-        _current = await ResolveAsync(httpContext.User, contextFactory, cancellationToken);
+        _current = await ResolveAsync(requestPrincipal.User, contextFactory, cancellationToken);
 
         return _current;
     }

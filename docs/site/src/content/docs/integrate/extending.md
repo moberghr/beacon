@@ -101,8 +101,9 @@ Beacon registers most services with `TryAdd`, so **your registration wins if you
 | `IProjectMembershipSource` | Beacon's membership table | Take project membership from your application. Beacon's membership endpoints then answer 409. |
 | `IMcpCallerMapper` | `Beacon:Mcp:Callers` | Map JWT callers to projects and scopes your own way. |
 | `IMcpHostPrincipalFactory` | copies name/email/oid; system callers get `HostClaims` | Build the principal your endpoints expect for MCP calls. |
-| `IHostEndpointDispatchMiddleware` | none | Run your own middleware logic (tenant, culture, audit) around dispatched tool calls. |
+| `IHostEndpointDispatchMiddleware` | none | Run your own middleware logic (tenant, culture, audit) around dispatched tool calls. Ships in `Moberg.Beacon.MCP` (namespace `Beacon.Core.HostEndpoints`). |
 | `IApprovalNotifier` | SignalR | Notify approvers elsewhere. |
-| `IBeaconUserContext` | `HttpContextUserContext` | Resolve the current user differently. Replace it in both places it is registered. |
+| `IBeaconUserContext` | `HttpContextUserContext` (Beacon.Api) | Resolve the current user differently. Replace it in both places it is registered. |
+| `IBeaconRequestPrincipal` | Core: no request; Beacon.Api and Beacon.MCP: the current `HttpContext` | Tell Beacon's core who the request's caller is from your own request model. Call `UseRequestPrincipal<T>()` before or after Beacon's registrations: it replaces Beacon's own principals (Core's default and the `HttpContext` one) in any order, and Beacon's web registrations after it keep yours. A principal registered with `AddSingleton` before Beacon's registrations stays, and after them wins as the last registration. A `TryAdd*` after `AddBeaconServices` is a no-op, because Core has already registered its default. A host that maps Beacon's endpoints over Core's default fails to start. |
 
 `IProjectAccessEvaluator` is replaceable in principle but it is the single decider for project access; replace it only with great care, and keep the project-authorization tests green if you fork it.

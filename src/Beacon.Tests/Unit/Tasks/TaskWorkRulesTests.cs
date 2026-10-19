@@ -1,3 +1,4 @@
+using Beacon.Api.Authentication;
 using System.Security.Claims;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
@@ -842,7 +843,7 @@ public class TaskWorkRulesTests
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)
     {
-        return TestProjectAccess.ActorAccessor(Accessor(caller), Factory());
+        return TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(caller), Factory());
     }
 
     private static IBeaconActorAccessor FixedActor(BeaconActor actor)

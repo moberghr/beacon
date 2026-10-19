@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
@@ -16,7 +15,7 @@ internal sealed class GetApiKeysHandler(
     IUserManagementService userManagementService,
     IOptions<ApiKeyOptions> options,
     TimeProvider timeProvider,
-    IHttpContextAccessor? httpContextAccessor = null)
+    IBeaconRequestPrincipal requestPrincipal)
     : IRequestHandler<GetApiKeysQuery, PagedList<ApiKeyEntry>>
 {
     public async Task<PagedList<ApiKeyEntry>> Handle(
@@ -25,7 +24,7 @@ internal sealed class GetApiKeysHandler(
     {
         // API keys are scoped to the user who minted them (§1.4) — only ever return the
         // current user's own keys, never the whole table.
-        var user = await ApiKeyManagementCaller.ResolveAsync(httpContextAccessor, userManagementService, cancellationToken);
+        var user = await ApiKeyManagementCaller.ResolveAsync(requestPrincipal, userManagementService, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
