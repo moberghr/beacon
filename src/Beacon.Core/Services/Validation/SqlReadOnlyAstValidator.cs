@@ -8,7 +8,7 @@ using SqlParser.Dialects;
 namespace Beacon.Core.Services.Validation;
 
 /// <summary>
-/// AST-based read-only enforcement. At the MCP / semantic-search call sites the regex
+/// AST-based read-only enforcement. At the MCP call sites the regex
 /// <c>QueryGuardrailService</c> runs first as a backstop (§1.5), but at the query-builder and
 /// SQL-connector call sites this validator is the SOLE read-only gate — so it fails CLOSED:
 /// multi-statement SQL, any non-SELECT/EXPLAIN statement, data-modifying CTEs, SELECT ... INTO,

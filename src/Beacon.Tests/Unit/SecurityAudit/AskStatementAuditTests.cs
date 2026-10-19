@@ -108,8 +108,8 @@ public class AskStatementAuditTests
         var logs = new List<McpAuditLog>();
         var service = AuditService(logs, log, retainContent: true);
 
-        await service.LogToolCallAsync(null, 1, "query", Sql, DataSourceId, ProjectId, 5, 1, null, ct: CancellationToken.None);
-        await service.LogToolCallAsync(null, 1, "query", Sql, DataSourceId, ProjectId, 5, 1, null, ct: CancellationToken.None);
+        await service.LogToolCallAsync(1, "query", Sql, DataSourceId, ProjectId, 5, 1, null, ct: CancellationToken.None);
+        await service.LogToolCallAsync(1, "query", Sql, DataSourceId, ProjectId, 5, 1, null, ct: CancellationToken.None);
 
         logs.Select(x => x.Statements.Count).Should().Equal(1, 0);
     }
@@ -242,7 +242,7 @@ public class AskStatementAuditTests
         var logs = new List<McpAuditLog>();
         var recorder = new LogRecorder();
         await AuditService(logs, log, retainContent: false, logger: recorder.For<McpAuditService>())
-            .LogToolCallAsync(null, 1, "ask", Question, null, ProjectId, 20, null, null, ct: CancellationToken.None);
+            .LogToolCallAsync(1, "ask", Question, null, ProjectId, 20, null, null, ct: CancellationToken.None);
 
         var statements = logs.Should().ContainSingle().Subject.Statements;
         statements.Should().HaveCount(McpStatementLog.MaxStatements + 1);
@@ -307,7 +307,7 @@ public class AskStatementAuditTests
                 logger: recorder.For<McpAuditService>(),
                 settings: settings.Object,
                 deployment: new McpDeploymentOptions { Audit = new McpAuditOptions { RequireContent = true } })
-            .LogToolCallAsync(null, 1, "ask", Question, null, ProjectId, 20, null, null, ct: CancellationToken.None);
+            .LogToolCallAsync(1, "ask", Question, null, ProjectId, 20, null, null, ct: CancellationToken.None);
 
         var row = logs.Should().ContainSingle().Subject;
         row.Parameters.Should().Be(Question, "the deployment pins content retention on");
@@ -331,7 +331,7 @@ public class AskStatementAuditTests
         var logs = new List<McpAuditLog>();
         var service = AuditService(logs, log, retainContent, learning);
 
-        await service.LogToolCallAsync(null, 1, "ask", parameters, null, ProjectId, 20, null, errorMessage, ct: CancellationToken.None);
+        await service.LogToolCallAsync(1, "ask", parameters, null, ProjectId, 20, null, errorMessage, ct: CancellationToken.None);
 
         return logs.Should().ContainSingle().Subject;
     }

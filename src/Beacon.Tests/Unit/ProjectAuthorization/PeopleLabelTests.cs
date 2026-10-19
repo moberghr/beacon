@@ -8,7 +8,6 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Tasks;
-using Beacon.Core.Models.Dashboards;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
@@ -16,7 +15,7 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit.ProjectAuthorization;
 
 /// <summary>
-/// Query versions, dashboards and tasks name the people behind them by display name, or "User {id}" without one — never
+/// Query versions and tasks name the people behind them by display name, or "User {id}" without one — never
 /// by user name or external id — and do not return the external id. Over in-memory sets (no database, §4.7).
 /// </summary>
 [TestFixture]
@@ -26,7 +25,6 @@ public class PeopleLabelTests
 
     [TestCase(typeof(QueryVersionSummary), "CreatedByUserId")]
     [TestCase(typeof(QueryVersionDetail), "CreatedByUserId")]
-    [TestCase(typeof(DashboardDetailsData), "CreatedByUserId")]
     [TestCase(typeof(TaskDetailResult), "AssigneeUserId")]
     public void RestShapes_DoNotReturnAnExternalId(Type shape, string property)
     {
@@ -52,18 +50,6 @@ public class PeopleLabelTests
         var detail = await service.GetVersionDetailAsync(5);
 
         detail!.CreatedByUserName.Should().BeNull("the user name stored with the version is not shown to other users");
-    }
-
-    [TestCase("Ada Lovelace", "Ada Lovelace")]
-    [TestCase(null, "User 3")]
-    public async Task DashboardDetail_NamesItsOwnerByDisplayNameOrUserId(string? displayName, string expected)
-    {
-        var dashboard = new Dashboard { Id = 4, Name = "ops", CreatedByUserId = AuthorExternalId, CreatedByUserName = "ada@corp.example", IsShared = true };
-        var service = new DashboardService(Factory([dashboard], [Author(displayName)]), Mock.Of<IBeaconUserContext>());
-
-        var detail = await service.GetDashboardWithPermissionCheckAsync(4, "ext-viewer", CancellationToken.None);
-
-        detail!.CreatedByUserName.Should().Be(expected);
     }
 
     private static QueryVersionService VersionService(List<BeaconUser> users)

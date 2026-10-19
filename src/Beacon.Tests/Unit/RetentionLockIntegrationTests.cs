@@ -136,7 +136,6 @@ public class RetentionLockIntegrationTests
         var service = new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         await service.LogToolCallAsync(
-            sessionId: null,
             userId: 1,
             tool: "query",
             parameters: GeneratedSql,

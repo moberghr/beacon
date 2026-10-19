@@ -10,9 +10,7 @@ using Beacon.Core.Handlers.DataQuality.GetDataContractDetail;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
-using Beacon.Core.Handlers.Dashboards.GetDashboards;
 using Beacon.Core.Handlers.QueryVersions;
-using Beacon.Core.Models.Dashboards;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Beacon.Tests.Common;
@@ -156,20 +154,6 @@ public class ScopedLookupTranslationTests
 
         capture.Commands.Should().Contain(x => x.Contains("'User ' || u.id::text") && x.Contains("FROM beacon.query_versions"));
         capture.Commands.Should().NotContain(x => x.Contains("user_name"), "an author is never named by user name");
-    }
-
-    [Test]
-    public async Task DashboardOwnerLabel_Translates()
-    {
-        var capture = new SqlCapture().AnsweringCountsWithOne();
-        var userContext = new Mock<IBeaconUserContext>();
-        userContext.SetupGet(x => x.UserId).Returns("ext-ada");
-        var handler = new GetDashboardsHandler(capture.Factory(), userContext.Object);
-
-        await handler.Handle(new GetDashboardsQuery(new GetDashboardsRequest()), CancellationToken.None);
-
-        capture.Commands.Should().Contain(x => x.Contains("'User '") && x.Contains("FROM beacon.dashboards"));
-        capture.Commands.Should().NotContain(x => x.Contains("created_by_user_name"), "the stored user name of the owner is not returned");
     }
 
     private static IDbContextFactory<BeaconContext> SqlServerFactory(CommandCapture database)

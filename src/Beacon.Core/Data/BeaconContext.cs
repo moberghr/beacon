@@ -67,12 +67,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     public DbSet<AnomalyEvent> AnomalyEvents => Set<AnomalyEvent>();
 
-    public DbSet<AiUsageMetrics> AiUsageMetrics => Set<AiUsageMetrics>();
-
-    public DbSet<AiAlertConfiguration> AiAlertConfigurations => Set<AiAlertConfiguration>();
-
-    public DbSet<AiConversationHistory> AiConversationHistories => Set<AiConversationHistory>();
-
     public DbSet<AiActor> AiActors => Set<AiActor>();
 
     public DbSet<AiActorExecution> AiActorExecutions => Set<AiActorExecution>();
@@ -104,13 +98,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
 
     public DbSet<AppSettingHistory> AppSettingHistory => Set<AppSettingHistory>();
-
-    // Custom Dashboards
-    public DbSet<Dashboard> Dashboards => Set<Dashboard>();
-
-    public DbSet<DashboardWidget> DashboardWidgets => Set<DashboardWidget>();
-
-    public DbSet<DashboardPermission> DashboardPermissions => Set<DashboardPermission>();
 
     // Data Quality
     public DbSet<DataContract> DataContracts => Set<DataContract>();
@@ -145,8 +132,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     // API Keys & MCP
     public DbSet<ApiKeyCredential> ApiKeyCredentials => Set<ApiKeyCredential>();
-
-    public DbSet<McpSession> McpSessions => Set<McpSession>();
 
     public DbSet<McpAuditLog> McpAuditLogs => Set<McpAuditLog>();
 
@@ -188,7 +173,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureTaskWatcherEntities(modelBuilder);
         ConfigureCommentEntity(modelBuilder);
         ConfigureAnomalyEntities(modelBuilder);
-        ConfigureAiEntities(modelBuilder);
         ConfigureAiActorEntities(modelBuilder);
         ConfigureQueryFolderEntities(modelBuilder);
         ConfigureManualQueryExecutionLogEntity(modelBuilder);
@@ -197,7 +181,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureQueryVersionEntities(modelBuilder);
         ConfigureApprovalEntities(modelBuilder);
         ConfigureQueryMcpToolEntities(modelBuilder);
-        ConfigureDashboardEntities(modelBuilder);
         ConfigureDataQualityEntities(modelBuilder);
         ConfigureProjectEntities(modelBuilder);
         ConfigureApiKeyEntities(modelBuilder);
@@ -577,55 +560,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.DetectedTime);
             entity.HasIndex(e => e.NotificationId);
         });
-    }
-
-    protected static void ConfigureAiEntities(ModelBuilder modelBuilder)
-    {
-        // AiUsageMetrics configuration
-        modelBuilder.Entity<AiUsageMetrics>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            // Indexes for querying and analytics
-            entity.HasIndex(e => e.UserId);
-            entity.HasIndex(e => e.Timestamp);
-            entity.HasIndex(e => e.Provider);
-            entity.HasIndex(e => e.OperationType);
-            entity.HasIndex(e => e.DataSourceId);
-        });
-
-        // AiAlertConfiguration configuration
-        modelBuilder.Entity<AiAlertConfiguration>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            // Note: Don't add explicit HasIndex for DataSourceId/SubscriptionId - EF Core creates indexes automatically for FKs
-            entity.HasIndex(e => e.Status);
-
-            entity.HasOne(e => e.DataSource)
-                .WithMany()
-                .HasForeignKey(e => e.DataSourceId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.Subscription)
-                .WithMany()
-                .HasForeignKey(e => e.SubscriptionId)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
-
-        // AiConversationHistory configuration
-        modelBuilder.Entity<AiConversationHistory>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            // Note: Don't add explicit HasIndex for AiAlertConfigurationId - EF Core creates one automatically for the FK
-            entity.HasIndex(e => e.TurnNumber);
-            entity.HasIndex(e => e.Timestamp);
-
-            entity.HasOne(e => e.AiAlertConfiguration)
-                .WithMany(a => a.ConversationHistory)
-                .HasForeignKey(e => e.AiAlertConfigurationId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
     }
 
     protected static void ConfigureAiActorEntities(ModelBuilder modelBuilder)
@@ -1122,61 +1056,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         });
     }
 
-    protected static void ConfigureDashboardEntities(ModelBuilder modelBuilder)
-    {
-        // Dashboard configuration
-        modelBuilder.Entity<Dashboard>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.Description).HasMaxLength(1000);
-            entity.Property(e => e.CreatedByUserId).HasMaxLength(100);
-            entity.Property(e => e.CreatedByUserName).HasMaxLength(200);
-
-            entity.HasIndex(e => e.CreatedByUserId);
-            entity.HasIndex(e => e.IsShared);
-            entity.HasIndex(e => e.IsDefault);
-            entity.HasIndex(e => e.ArchivedTime);
-
-            entity.HasMany(e => e.Widgets)
-                .WithOne(w => w.Dashboard)
-                .HasForeignKey(w => w.DashboardId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasMany(e => e.Permissions)
-                .WithOne(p => p.Dashboard)
-                .HasForeignKey(p => p.DashboardId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // DashboardWidget configuration
-        modelBuilder.Entity<DashboardWidget>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.Title).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.ConfigurationJson).IsRequired();
-
-            entity.HasIndex(e => e.DashboardId);
-            entity.HasIndex(e => e.WidgetType);
-            entity.HasIndex(e => new { e.DashboardId, e.SortOrder });
-        });
-
-        // DashboardPermission configuration
-        modelBuilder.Entity<DashboardPermission>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.UserId).HasMaxLength(100).IsRequired();
-            entity.Property(e => e.GrantedByUserId).HasMaxLength(100);
-
-            entity.HasIndex(e => e.DashboardId);
-            entity.HasIndex(e => e.UserId);
-            entity.HasIndex(e => new { e.DashboardId, e.UserId }).IsUnique();
-        });
-    }
-
     protected static void ConfigureDataQualityEntities(ModelBuilder modelBuilder)
     {
         // DataContract configuration
@@ -1459,25 +1338,6 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     protected static void ConfigureMcpEntities(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<McpSession>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.SessionId).HasMaxLength(100).IsRequired();
-
-            entity.HasOne(e => e.ApiKey)
-                .WithMany()
-                .HasForeignKey(e => e.ApiKeyId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.User)
-                .WithMany()
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasIndex(e => e.SessionId).IsUnique();
-            entity.HasIndex(e => e.LastActivityAt);
-        });
-
         modelBuilder.Entity<McpAuditLog>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -1492,17 +1352,11 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.UpstreamRequestId).HasMaxLength(128);
             entity.Property(e => e.ContentHash).HasMaxLength(64);
 
-            entity.HasOne(e => e.Session)
-                .WithMany()
-                .HasForeignKey(e => e.SessionId)
-                .OnDelete(DeleteBehavior.SetNull);
-
             entity.HasOne(e => e.User)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            entity.HasIndex(e => e.SessionId);
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.CreatedTime);
             entity.HasIndex(e => e.Tool);

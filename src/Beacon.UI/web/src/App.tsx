@@ -132,15 +132,6 @@ export default function App() {
                   <Route path="/mcp-playground" element={lazyRoute(McpPlaygroundPage)} />
                   <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
                   <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
-                  {/*
-                    Dashboards are intentionally hidden pending a redesign (see internal/UNFINISHED.md).
-                    The route components still live under ./routes/dashboards/* for that future
-                    work, but every dashboards path redirects to /home so direct-URL navigation
-                    doesn't expose the unfinished feature.
-                  */}
-                  <Route path="/dashboards" element={<Navigate to="/home" replace />} />
-                  <Route path="/dashboards/:id" element={<Navigate to="/home" replace />} />
-                  <Route path="/dashboards/:id/edit" element={<Navigate to="/home" replace />} />
                   <Route path="/ai-actors" element={lazyRoute(AiActorsListPage)} />
                   <Route path="/ai-actors/:id" element={lazyRoute(AiActorDetailPage)} />
                   <Route path="/ai-actors/:id/edit" element={lazyRoute(AiActorEditPage)} />

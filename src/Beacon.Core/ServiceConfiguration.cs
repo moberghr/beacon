@@ -214,7 +214,6 @@ public static class ServiceConfiguration
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<ITaskService, TaskService>();
         services.TryAddTransient<IControlTowerService, ControlTowerService>();
-        services.TryAddTransient<IDashboardService, DashboardService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddSingleton<MigrationBulkContextFactory>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();

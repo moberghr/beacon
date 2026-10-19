@@ -19,8 +19,8 @@ namespace Beacon.Tests.Unit.DataSourceDisable;
 /// <summary>
 /// The data-source disable migration, checked offline on both providers (nothing connects, nothing is migrated): it adds
 /// the nullable disabled time and disabled-by user id to the data sources, with no default, so every existing source stays
-/// enabled, and runs no SQL. Down removes exactly what Up adds. Its target model is the snapshot, the model has no pending
-/// changes, and it sorts last.
+/// enabled, and runs no SQL. Down removes exactly what Up adds. The next migration builds on its target model, the model has
+/// no pending changes, and it sorts after the security-audit migration.
 /// </summary>
 [TestFixture]
 public class DataSourceDisableMigrationTests
@@ -60,13 +60,20 @@ public class DataSourceDisableMigrationTests
             .Should().BeEquivalentTo(
                 added.Select(x => $"{x.Table}.{x.Name} {x.ColumnType} {x.IsNullable}"),
                 "the target model differs from the one before only by the columns this migration adds");
+        // Only operation type names are compared here: the next migration's content is pinned by RemoveUnusedFeaturesMigrationTests.
+        var next = MigrationNamed(context, migrations, "_RemoveUnusedFeatures");
         context.GetService<IMigrationsModelDiffer>()
-            .GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+            .GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Select(x => x.GetType().Name)
+            .Should().BeEquivalentTo(
+                next.UpOperations.Select(x => x.GetType().Name),
+                "the next migration's target model differs from its target model only by that migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_AddSecurityAuditTrail", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 

@@ -426,7 +426,6 @@ public class McpAuditTelemetryTests
             loggerFactory, TestMcpAudit.ContentHasher, new McpStatementLog());
 
         await service.LogToolCallAsync(
-            sessionId: null,
             userId: 1,
             tool: tool ?? _tool,
             parameters: parameters,

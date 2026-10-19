@@ -15,7 +15,6 @@ export {
   BedrockAuthMode,
   ChangeApprovalKind,
   ChangeSource,
-  DashboardPermissionLevel,
   DataContractRuleType,
   DataContractSeverity,
   DatabaseEngineType,
@@ -38,5 +37,4 @@ export {
   ProjectRole,
   QueryVersionStatus,
   TaskPriority,
-  WidgetType,
 } from '@/api/generated/beacon-api';

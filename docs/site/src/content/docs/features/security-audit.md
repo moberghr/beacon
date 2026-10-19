@@ -33,7 +33,7 @@ column has a foreign key: an event outlives the user, key or project it names.
 | `ApiKeyId` | The API key the actor used. |
 | `CallerHash` | For a caller without a Beacon user (a single sign-on subject, a host session, an MCP caller, the name typed at a failed password sign-in): a keyed hash, never the subject or the name itself. For an MCP caller it is the same hash the MCP audit records. |
 | `ProjectId` | The project the action concerns, when it concerns one. |
-| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `dashboard`, `glossary_term`, `documentation_section`, `mcp_audit` or `security_audit`. |
+| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit` or `security_audit`. |
 | `DetailsJson` | What else the event needs, as a small JSON object of identifiers, counts, flags, codes and keyed digests (below). |
 | `TraceId` | The W3C trace id of the request or job that recorded the event. |
 | `KeyId`, `Hmac` | The integrity key the event was signed with, and the signature; see [Integrity](#integrity-signatures-and-verification). |
@@ -110,8 +110,9 @@ Every action belongs to one category, the part of its name before the dot.
 **Project access** (`access`): `access.project_created`, `access.member_added`, `access.member_role_changed`,
 `access.member_removed`, `access.access_mode_changed` (a project opened or restricted), `access.data_sources_linked`,
 `access.data_source_unlinked`, `access.repository_token_changed` (whether a token is now set, never the token),
-`access.repository_scan_requested`, `access.dashboard_shared` (the grantee as `Users.Id` and the permission level) and
-`access.dashboard_share_revoked`. The project-access log events (`ProjectAccessEvents`, 7101 onwards) are still written
+`access.repository_scan_requested`. Events recorded before dashboards were removed keep their
+`access.dashboard_shared` and `access.dashboard_share_revoked` actions and the `dashboard` resource type, and the page
+still filters by them. The project-access log events (`ProjectAccessEvents`, 7101 onwards) are still written
 as before; refused and hidden reads of a project (7108, 7109) and skipped scheduled work (7111) stay on the log only, for
 their volume.
 
@@ -496,7 +497,7 @@ lets a deployment pin the MCP audit's content on. See
   only because local login is off.
 - **More actions are recorded**: data source edits (`data_sources.data_source_updated`) and connection changes
   (`data_sources.credentials_rotated`, recorded from this version on), saved-query locks and MCP tool exposure
-  (`queries.*`), dashboard shares, relationships created, glossary terms, documentation sections, migration job runs
+  (`queries.*`), relationships created, glossary terms, documentation sections, migration job runs
   (`migrations.job_started`, `migrations.job_run_ended`) and reads of the MCP audit and of owned resources; settings
   changes carry keyed digests of each value before and after. See the [catalogue](#event-catalogue).
 
@@ -518,7 +519,7 @@ purge, or add triggers.
     `RecordAsync`, `CallerHashOf`; registered with `TryAdd`, so a host may replace it), `SecurityAuditEntry` (`On`,
     `InProject`, `With`, `Ending`, `By`, `Naming`), `SecurityAuditDetails`, `SecurityAuditActor` (`Anonymous`, `System`,
     `OfUser`, `OfCaller`), `SecurityAuditActions`, `SecurityAuditCategories` (with `Queries`), `SecurityAuditOutcomes`
-    (with `Empty`), `SecurityAuditResources` (with `Dashboard`, `GlossaryTerm`, `DocumentationSection`, `McpAudit`),
+    (with `Empty`), `SecurityAuditResources` (with `GlossaryTerm`, `DocumentationSection`, `McpAudit`; stored events from earlier versions that name the `dashboard` resource type remain listed),
     `SecurityAuditActorKinds`, `SecurityAuditIntegrity` (`CurrentKeyId`, `KeySource`, `Seal`, `Verify`, `Digest`,
     `StoredTime`), `SecurityAuditKeySources`, `SecurityAuditVerdict`, `SecurityAuditVerdicts` (`intact`, `modified`,
     `unknown_key`, `not_found`), `SecurityAuditLogEvents` (9104–9110: `Recorded`, `Read`, `Purged`, `WriteFailed`,

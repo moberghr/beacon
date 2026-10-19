@@ -219,7 +219,6 @@ internal sealed class EmbedTokenService(
         return type switch
         {
             EmbedResourceType.Query => "query",
-            EmbedResourceType.Dashboard => "dashboard",
             _ => throw new InvalidOperationException($"Unknown EmbedResourceType: {type}")
         };
     }
@@ -230,9 +229,6 @@ internal sealed class EmbedTokenService(
         {
             case "query":
                 type = EmbedResourceType.Query;
-                return true;
-            case "dashboard":
-                type = EmbedResourceType.Dashboard;
                 return true;
             default:
                 type = default;

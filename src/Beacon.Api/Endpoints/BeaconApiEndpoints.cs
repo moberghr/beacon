@@ -165,7 +165,6 @@ public static class BeaconApiEndpoints
         group.MapQueryVersionsEndpoints();
         group.MapApprovalsEndpoints();
         group.MapApiKeysEndpoints();
-        group.MapDashboardsEndpoints();
         group.MapDataQualityEndpoints();
         group.MapMcpManagementEndpoints();
         group.MapEvalEndpoints();

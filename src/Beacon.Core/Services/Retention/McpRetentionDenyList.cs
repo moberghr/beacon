@@ -126,8 +126,6 @@ public static class McpRetentionDenyList
 
         Rule<McpEmbedding>(nameof(McpEmbedding.Model), RetentionKind.Structural),
 
-        Rule<McpSession>(nameof(McpSession.SessionId), RetentionKind.Structural),
-
         // Admin configuration: prompts, tool descriptions, PII patterns.
         Rule<McpSettings>(nameof(McpSettings.AskSystemPrompt), RetentionKind.Structural),
         Rule<McpSettings>(nameof(McpSettings.GlobalInstruction), RetentionKind.Structural),

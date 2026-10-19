@@ -377,7 +377,6 @@ internal sealed class SavedQueryToolService(
         }
 
         return auditService.LogToolCallAsync(
-            null,
             projectContext.UserId,
             toolName,
             parameters,

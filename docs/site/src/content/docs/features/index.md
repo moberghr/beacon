@@ -31,7 +31,7 @@ then the [Quick start](/getting-started/quick-start/).
 | [Host DbContext](/features/host-dbcontext/) | The host's own EF Core model as a read-only data source with an allow-list and masking. |
 | [Host docs](/features/host-docs/) | The host's markdown documentation imported into a project and searchable over MCP. |
 | [Knowledge base & grounding](/features/knowledge-base/) | What Beacon gives the model before it writes SQL: schema, relationships, glossary, golden examples, learned patterns. |
-| [AI integration](/features/ai-integration/) | Experimental: generated data source documentation and natural-language alerts through a swappable LLM provider. |
+| [AI integration](/features/ai-integration/) | Experimental: generated data source documentation through a swappable LLM provider. |
 | [AI actors](/features/ai-actors/) | Experimental: LLM-driven monitoring agents whose plans a person approves before anything runs. |
 | [MCP observability & audit](/features/mcp-observability-and-audit/) | The audit row behind every MCP tool call, trace correlation and OpenTelemetry export. |
 

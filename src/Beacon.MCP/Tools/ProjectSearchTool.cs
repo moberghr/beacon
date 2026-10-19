@@ -36,7 +36,7 @@ internal sealed class ProjectSearchTool(
         {
             const string offsetError = "offset must be between 0 and 200.";
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+            await auditService.LogToolCallAsync(projectContext.UserId, "search",
                 query, null, null, (int)sw.ElapsedMilliseconds, null, offsetError, ct: cancellationToken);
             return ToolHelper.Error(offsetError);
         }
@@ -45,7 +45,7 @@ internal sealed class ProjectSearchTool(
         {
             const string queryError = "Missing required parameter: query";
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+            await auditService.LogToolCallAsync(projectContext.UserId, "search",
                 query, null, null, (int)sw.ElapsedMilliseconds, null, queryError, ct: cancellationToken);
             return ToolHelper.Error(queryError);
         }
@@ -54,7 +54,7 @@ internal sealed class ProjectSearchTool(
         if (resolveError != null)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+            await auditService.LogToolCallAsync(projectContext.UserId, "search",
                 query, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
             return ToolHelper.Error(resolveError);
         }
@@ -69,7 +69,7 @@ internal sealed class ProjectSearchTool(
             if (results.Count == 0)
             {
                 sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                await auditService.LogToolCallAsync(projectContext.UserId, "search",
                     query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null, ct: cancellationToken);
                 return ToolHelper.Success($"No results found for '{query}'.");
             }
@@ -84,7 +84,7 @@ internal sealed class ProjectSearchTool(
                 // Offset points past the end — the fetch came back short of the over-fetch
                 // budget, so results.Count is the true total.
                 sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+                await auditService.LogToolCallAsync(projectContext.UserId, "search",
                     query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null, ct: cancellationToken);
                 return ToolHelper.Success($"No results at offset {offsetValue} for '{query}' — only {results.Count} results exist.");
             }
@@ -131,14 +131,14 @@ internal sealed class ProjectSearchTool(
             }
 
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+            await auditService.LogToolCallAsync(projectContext.UserId, "search",
                 query, null, projectId, (int)sw.ElapsedMilliseconds, window.Count, null, ct: cancellationToken);
             return ToolHelper.Success(text);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "search",
+            await auditService.LogToolCallAsync(projectContext.UserId, "search",
                 query, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "search", ex.GetType().Name);

@@ -84,7 +84,6 @@ public class McpRetentionDenyListTests
 
         McpRetentionDenyList.ProjectIdSelector(typeof(McpQuerySignal))!(signal).Should().Be(42);
         McpRetentionDenyList.ProjectIdSelector(typeof(McpEvalResult)).Should().BeNull();
-        McpRetentionDenyList.ProjectIdSelector(typeof(McpSession)).Should().BeNull();
     }
 
     private static RetentionKind KindOf<TEntity>(string property) =>

@@ -1,7 +1,7 @@
 # Moberg.Beacon.AI
 
 Beacon's AI layer: the LLM providers and request queue, natural-language questions to SQL, AI-generated
-documentation, AI actors, semantic search and MCP evaluations. It is optional, except that `Moberg.Beacon.MCP`
+documentation, AI actors and MCP evaluations. It is optional, except that `Moberg.Beacon.MCP`
 depends on it.
 
 ## Install

@@ -97,7 +97,7 @@ internal sealed class ProjectAskTool(
                 var knowledgeResult = await knowledgeAnswerService.AnswerAsync(llmProvider, projectId, question, settings, cancellationToken);
                 sw.Stop();
                 signal.SetResult(null, (int)sw.ElapsedMilliseconds, true);
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+                await auditService.LogToolCallAsync(projectContext.UserId, "ask",
                     question, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
                 await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
                 return ToolHelper.Success(knowledgeResult);
@@ -179,7 +179,7 @@ internal sealed class ProjectAskTool(
 
             sw.Stop();
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, askSucceeded);
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+            await auditService.LogToolCallAsync(projectContext.UserId, "ask",
                 question, auditedDataSourceId, projectId, (int)sw.ElapsedMilliseconds, auditedRowCount, null, auditedTables, ct: cancellationToken);
             var signalId = await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
             if (signalId is { } id)
@@ -194,7 +194,7 @@ internal sealed class ProjectAskTool(
             // The stored signal never holds an error's raw text, which can quote row values.
             signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, signal.GeneratedSql, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+            await auditService.LogToolCallAsync(projectContext.UserId, "ask",
                 question, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
@@ -295,7 +295,7 @@ internal sealed class ProjectAskTool(
         sw.Stop();
         signal.SetExecutionFailed(error);
         signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-        await auditService.LogToolCallAsync(null, projectContext.UserId, "ask",
+        await auditService.LogToolCallAsync(projectContext.UserId, "ask",
             question, null, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
         await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
         return ToolHelper.Error(error);

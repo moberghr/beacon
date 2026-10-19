@@ -6,7 +6,6 @@ using Beacon.AI.Services.Eval;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
-using Beacon.AI.Services.SemanticSearch;
 using Beacon.Connector.BigQuery;
 using Beacon.Connector.Databricks;
 using Beacon.Core;
@@ -51,7 +50,7 @@ namespace Beacon.Tests.Unit;
 /// Every path that runs or checks SQL against a data source hands the gate the database the source's connection is
 /// configured for: a name qualified with that database reaches execution (the provider, the connection, the executor),
 /// a name qualified with another one is refused before it. The paths: the paged step preview, the provider dry-runs of
-/// databases, Databricks and BigQuery, semantic search, dry_run, saved-query tools, eval runs, the ask pipeline and the
+/// databases, Databricks and BigQuery, dry_run, saved-query tools, eval runs, the ask pipeline and the
 /// cross-source ask (its schema, read-only and repair gates), and the grounding context that carries the configured
 /// database to the ask paths. Nothing reaches a database: providers are mocked and a connection stops at its factory.
 /// </summary>
@@ -172,71 +171,6 @@ public class CrossDatabaseCallSiteTests
         matching.IsValid.Should().BeTrue(string.Join("; ", matching.Errors));
         foreign.IsValid.Should().BeFalse();
         foreign.Errors.Should().ContainSingle().Which.Should().Contain("another project");
-    }
-
-    [Test]
-    public async Task SemanticSearch_RunsTheConfiguredDatabase_AndRefusesAnother()
-    {
-        var provider = ExecutingProvider();
-        var llm = new Mock<ILlmProvider>();
-        var knowledge = new Mock<IKnowledgeGraphService>();
-        knowledge
-            .Setup(x => x.GetContextForLlmAsync(DataSourceId, ProjectId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("schema");
-        var service = new SemanticSearchService(
-            Store().Factory(),
-            knowledge.Object,
-            llm.Object,
-            new QueryGuardrailService(),
-            TestSqlGate.Create(),
-            TestConfiguredDatabases.Of(Configured),
-            Providers(provider.Object),
-            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
-            TestProjectAccess.Actors(),
-            NullLogger<SemanticSearchService>.Instance);
-
-        GeneratesSql(llm, Foreign);
-        var foreign = await service.AskAsync(DataSourceId, ProjectId, "orders?");
-        ProviderRan(provider).Should().BeFalse();
-        GeneratesSql(llm, Matching);
-        var matching = await service.AskAsync(DataSourceId, ProjectId, "orders?");
-
-        foreign.Error.Should().Contain("another database");
-        matching.Error.Should().BeNull();
-        provider.Verify(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("sales.public.orders")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Once);
-        provider.Verify(x => x.ExecuteQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Never, "semantic search runs on the read-only path");
-    }
-
-    // Semantic search runs the shared gate in the source's dialect: a leading comment is prose, not a refusal, and the
-    // statement's own LIMIT above the cap is lowered in the SQL that runs.
-    [Test]
-    public async Task SemanticSearch_JudgesTheSqlInItsDialect_AndRunsTheGatesCappedSql()
-    {
-        var provider = ExecutingProvider();
-        var llm = new Mock<ILlmProvider>();
-        var knowledge = new Mock<IKnowledgeGraphService>();
-        knowledge
-            .Setup(x => x.GetContextForLlmAsync(DataSourceId, ProjectId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("schema");
-        var service = new SemanticSearchService(
-            Store().Factory(),
-            knowledge.Object,
-            llm.Object,
-            new QueryGuardrailService(),
-            TestSqlGate.Create(),
-            TestConfiguredDatabases.Of(Configured),
-            Providers(provider.Object),
-            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
-            TestProjectAccess.Actors(),
-            NullLogger<SemanticSearchService>.Instance);
-
-        GeneratesSql(llm, $"-- largest orders\n{Matching} LIMIT 5000");
-        var result = await service.AskAsync(DataSourceId, ProjectId, "orders?");
-
-        result.Error.Should().BeNull();
-        provider.Verify(
-            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), $"-- largest orders\n{Matching} LIMIT 100", It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
-            Times.Once);
     }
 
     [Test]
@@ -468,13 +402,6 @@ public class CrossDatabaseCallSiteTests
     private static IDataSourceProviderFactory Providers(IDataSourceProvider provider)
     {
         return Mock.Of<IDataSourceProviderFactory>(x => x.GetProvider(It.IsAny<DataSourceType>()) == provider);
-    }
-
-    private static void GeneratesSql(Mock<ILlmProvider> llm, string sql)
-    {
-        llm
-            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmResponse { Content = $"```sql\n{sql}\n```\nExplanation: orders." });
     }
 
     private static void Generates(Mock<ISqlGenerationService> generation, string sql)

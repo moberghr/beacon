@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
-using Beacon.AI.Services.DbtIntegration;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
@@ -24,7 +23,7 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 
 /// <summary>
 /// Grounding reads project material only through the caller's project (§1.12). Two projects link a shared data source and
-/// each has its own documentation, documentation chunks, glossary terms and dbt repository; the other project also links
+/// each has its own documentation, documentation chunks, glossary terms; the other project also links
 /// a data source of its own. The caller's project search, data-source list, catalog search, documentation chunks and
 /// glossary see only the caller's material — also when a vector stamped with the caller's project points at another
 /// project's row (a stale or mis-stamped index entry). On PostgreSQL the nearest-neighbour queries carry the project
@@ -41,7 +40,6 @@ public class GroundingProjectFilterTests
     private const int OtherChunkId = 2;
     private const int CallerTermId = 1;
     private const int OtherTermId = 2;
-    private const int OtherDbtRepositoryId = 20;
     private const string ChunkQuestion = "quarterly close";
     private const string GlossaryQuestion = "What was the salary mass?";
 
@@ -161,43 +159,6 @@ public class GroundingProjectFilterTests
 
         capture.Commands.Should().ContainSingle();
         AssertProjectScopedVectorQuery(capture, 0);
-    }
-
-    [Test]
-    public async Task DbtImport_UsesTheCallersOwnDbtRepository_NeverAnotherProjects()
-    {
-        var saved = new List<object>();
-        var otherRepository = new GitHubRepository
-        {
-            Id = OtherDbtRepositoryId,
-            ProjectId = OtherProjectId,
-            RepositoryUrl = "dbt://imported",
-            TotalReferencesFound = 5
-        };
-        var sets = new Dictionary<Type, object>
-        {
-            [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(
-                [
-                    new ProjectDataSource { ProjectId = CallerProjectId, DataSourceId = SharedDataSourceId },
-                    new ProjectDataSource { ProjectId = OtherProjectId, DataSourceId = SharedDataSourceId }
-                ],
-                saved),
-            [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet([otherRepository], saved),
-            [typeof(CodeReference)] = RecordingBeaconContext.MemorySet(new List<CodeReference>(), saved),
-            [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), saved)
-        };
-        var factory = new Mock<IDbContextFactory<BeaconContext>>();
-        factory
-            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
-        var service = new DbtIntegrationService(factory.Object, NullLogger<DbtIntegrationService>.Instance);
-        var manifest = new DbtManifest { Models = [new DbtModel("orders", "sales", "Orders", "table", [], [])] };
-
-        await service.ImportModelsAsync(CallerProjectId, SharedDataSourceId, manifest);
-
-        saved.OfType<GitHubRepository>().Should().ContainSingle().Which.ProjectId.Should().Be(CallerProjectId);
-        saved.OfType<CodeReference>().Should().ContainSingle().Which.GitHubRepositoryId.Should().NotBe(OtherDbtRepositoryId);
-        otherRepository.TotalReferencesFound.Should().Be(5, "the other project's dbt repository is not touched");
     }
 
     // The vector query keeps the project predicate, and binds the caller's project.

@@ -73,7 +73,7 @@ internal sealed class QueryExecutionService(
         if (result.Success && result.Rows?.Count > 0)
         {
             // Mask PII column values before returning to the MCP client (§1.6/§1.11). Read-only was
-            // already enforced upstream, so here we only need PII detection. Mirrors SemanticSearchService.
+            // already enforced upstream, so here we only need PII detection.
             var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
             var sqlPiiColumns = settings.EnablePiiDetection
                 ? guardrailService.ValidateQuery(sql, new QueryGuardrailOptions

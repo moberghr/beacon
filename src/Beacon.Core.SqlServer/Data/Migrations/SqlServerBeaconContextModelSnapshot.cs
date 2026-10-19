@@ -320,214 +320,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("AiActorPlans", "beacon");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal?>("ConfidenceScore")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<int>("ConversationTurns")
-                        .HasColumnType("int");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DataSourceId")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("EstimatedCost")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("FinalSql")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("GeneratedByModel")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("GeneratedSql")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("GenerationReasoning")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("ModifiedBy")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("NaturalLanguageDescription")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("SubscriptionId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("TokensUsed")
-                        .HasColumnType("int");
-
-                    b.Property<string>("UserFeedback")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("ValidationErrors")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DataSourceId");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("SubscriptionId");
-
-                    b.ToTable("AiAlertConfigurations", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiConversationHistory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AiAlertConfigurationId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("MessageContent")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Metadata")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("Role")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("TokensUsed")
-                        .HasColumnType("int");
-
-                    b.Property<int>("TurnNumber")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AiAlertConfigurationId");
-
-                    b.HasIndex("Timestamp");
-
-                    b.HasIndex("TurnNumber");
-
-                    b.ToTable("AiConversationHistories", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("DataSourceId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("DocumentationId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("EstimatedCost")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<int>("InputTokens")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("OperationType")
-                        .HasColumnType("int");
-
-                    b.Property<int>("OutputTokens")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("PromptCacheHit")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<int?>("QueryId")
-                        .HasColumnType("int");
-
-                    b.Property<bool>("Success")
-                        .HasColumnType("bit");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("TotalTokens")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DataSourceId");
-
-                    b.HasIndex("OperationType");
-
-                    b.HasIndex("Provider");
-
-                    b.HasIndex("QueryId");
-
-                    b.HasIndex("Timestamp");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("AiUsageMetrics", "beacon");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyBaseline", b =>
                 {
                     b.Property<int>("Id")
@@ -1084,161 +876,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("EntityType", "EntityId");
 
                     b.ToTable("Comments", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.Dashboard", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("CreatedByUserName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsShared")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("LayoutConfiguration")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int?>("RefreshIntervalSeconds")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ArchivedTime");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("IsDefault");
-
-                    b.HasIndex("IsShared");
-
-                    b.ToTable("Dashboards", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardPermission", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DashboardId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("GrantedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("GrantedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<int>("PermissionLevel")
-                        .HasColumnType("int");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DashboardId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("DashboardId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("DashboardPermissions", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardWidget", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ConfigurationJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("DashboardId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Height")
-                        .HasColumnType("int");
-
-                    b.Property<int>("PositionX")
-                        .HasColumnType("int");
-
-                    b.Property<int>("PositionY")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("RefreshIntervalSeconds")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("WidgetType")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Width")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DashboardId");
-
-                    b.HasIndex("WidgetType");
-
-                    b.HasIndex("DashboardId", "SortOrder");
-
-                    b.ToTable("DashboardWidgets", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
@@ -1864,9 +1501,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int?>("ResultRowCount")
                         .HasColumnType("int");
 
-                    b.Property<int?>("SessionId")
-                        .HasColumnType("int");
-
                     b.Property<string>("SpanId")
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
@@ -1890,8 +1524,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedTime");
-
-                    b.HasIndex("SessionId");
 
                     b.HasIndex("Tool");
 
@@ -2667,54 +2299,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("ProjectId");
 
                     b.ToTable("McpQuerySignals", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("ApiKeyId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("LastActivityAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("QueriesExecuted")
-                        .HasColumnType("int");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime>("StartedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("TokensUsed")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApiKeyId");
-
-                    b.HasIndex("LastActivityAt");
-
-                    b.HasIndex("SessionId")
-                        .IsUnique();
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("McpSessions", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpSettings", b =>
@@ -4511,50 +4095,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("ParentPlan");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
-                        .WithMany()
-                        .HasForeignKey("DataSourceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Beacon.Core.Data.Entities.Subscription", "Subscription")
-                        .WithMany()
-                        .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("DataSource");
-
-                    b.Navigation("Subscription");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiConversationHistory", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.AiAlertConfiguration", "AiAlertConfiguration")
-                        .WithMany("ConversationHistory")
-                        .HasForeignKey("AiAlertConfigurationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AiAlertConfiguration");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
-                        .WithMany()
-                        .HasForeignKey("DataSourceId");
-
-                    b.HasOne("Beacon.Core.Data.Entities.Query", "Query")
-                        .WithMany()
-                        .HasForeignKey("QueryId");
-
-                    b.Navigation("DataSource");
-
-                    b.Navigation("Query");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.AnomalyBaseline", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.Subscription", "Subscription")
@@ -4622,28 +4162,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Role");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardPermission", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.Dashboard", "Dashboard")
-                        .WithMany("Permissions")
-                        .HasForeignKey("DashboardId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Dashboard");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardWidget", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.Dashboard", "Dashboard")
-                        .WithMany("Widgets")
-                        .HasForeignKey("DashboardId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Dashboard");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
@@ -4758,17 +4276,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
                 {
-                    b.HasOne("Beacon.Core.Data.Entities.McpSession", "Session")
-                        .WithMany()
-                        .HasForeignKey("SessionId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Session");
 
                     b.Navigation("User");
                 });
@@ -4803,23 +4314,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.ApiKeyCredential", "ApiKey")
-                        .WithMany()
-                        .HasForeignKey("ApiKeyId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("ApiKey");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
@@ -5238,11 +4732,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Revisions");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
-                {
-                    b.Navigation("ConversationHistory");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
                 {
                     b.Navigation("UserRoles");
@@ -5251,13 +4740,6 @@ namespace Beacon.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconUser", b =>
                 {
                     b.Navigation("UserRoles");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.Dashboard", b =>
-                {
-                    b.Navigation("Permissions");
-
-                    b.Navigation("Widgets");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationJob", b =>

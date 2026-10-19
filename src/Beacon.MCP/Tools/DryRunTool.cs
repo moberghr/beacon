@@ -204,7 +204,7 @@ internal sealed class DryRunTool(
             RecordGateFailuresOnSignal(signal, issues, providerGateSkipped, sql);
             sw.Stop();
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, valid);
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
+            await auditService.LogToolCallAsync(projectContext.UserId, "dry_run",
                 sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, null,
                 tables: report.TablesUsed.ToList(), ct: cancellationToken);
             await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
@@ -215,7 +215,7 @@ internal sealed class DryRunTool(
             sw.Stop();
             signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, sql, redact: true, logger));
             signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
+            await auditService.LogToolCallAsync(projectContext.UserId, "dry_run",
                 sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
             // §1.11 — ex.Message can quote the user's SQL; type only here, full detail is in the audit log.
@@ -238,7 +238,7 @@ internal sealed class DryRunTool(
         sw.Stop();
         signal.SetExecutionFailed(error);
         signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-        await auditService.LogToolCallAsync(null, projectContext.UserId, "dry_run",
+        await auditService.LogToolCallAsync(projectContext.UserId, "dry_run",
             sql, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
         await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
         return ToolHelper.Error(error);

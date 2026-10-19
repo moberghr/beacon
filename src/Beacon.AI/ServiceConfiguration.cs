@@ -3,9 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Models.Configuration;
-using Beacon.AI.Services.Ai;
 using Beacon.AI.Services.Ai.AiActor;
-using Beacon.AI.Services.DbtIntegration;
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.GitHub;
@@ -13,7 +11,6 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 
 using Beacon.AI.Services.Mcp;
-using Beacon.AI.Services.SemanticSearch;
 
 namespace Beacon.AI;
 
@@ -76,9 +73,6 @@ public static class ServiceConfiguration
         // The log of row-derived data sent to the LLM provider (ids and categories only).
         services.TryAddTransient<ILlmRowDataEgress, LlmRowDataEgress>();
 
-        // AI services
-        services.TryAddScoped<IAiAlertGenerationService, AiAlertGenerationService>();
-
         // AI Actor services (autonomous monitoring)
         services.TryAddScoped<AiActorService>();
         services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
@@ -102,12 +96,6 @@ public static class ServiceConfiguration
 
         // Project Documentation (living knowledge base)
         services.TryAddTransient<IProjectDocumentationService, ProjectDocumentationService>();
-
-        // Semantic Search
-        services.TryAddTransient<ISemanticSearchService, SemanticSearchService>();
-
-        // dbt Integration
-        services.TryAddTransient<IDbtIntegrationService, DbtIntegrationService>();
 
         // MCP LLM lesson extractor (LLM-primary schema-correction detection; regex fallback lives in the
         // aggregation service). Queue-backed via DelegatingLlmProvider (§6.1); provider-agnostic (§9.4).

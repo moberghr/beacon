@@ -66,7 +66,6 @@ internal static class McpProjectContextFilter
             if (audit != null)
             {
                 await audit.LogToolCallAsync(
-                    sessionId: null,
                     userId: context.UserId,
                     tool: request.Params?.Name ?? McpAuditService.InvalidToolName,
                     parameters: null,

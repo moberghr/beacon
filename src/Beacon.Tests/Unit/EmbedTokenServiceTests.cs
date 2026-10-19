@@ -156,11 +156,11 @@ public class EmbedTokenServiceTests
     }
 
     [Test]
-    public void Mint_Dashboard_Resource_Serializes_With_Type_Dashboard()
+    public void Mint_Query_Resource_Serializes_With_Type_Query()
     {
-        var result = _service.Mint(ValidRequest(resource: new EmbedResource(EmbedResourceType.Dashboard, "ops-overview")));
+        var result = _service.Mint(ValidRequest(resource: new EmbedResource(EmbedResourceType.Query, "ops-overview")));
         var payload = DecodePayload(result.Token);
-        payload.Should().Contain("\"t\":\"dashboard\"");
+        payload.Should().Contain("\"t\":\"query\"");
         payload.Should().Contain("\"id\":\"ops-overview\"");
     }
 
@@ -175,7 +175,7 @@ public class EmbedTokenServiceTests
         var origins = new[] { "https://app.acme.com", "https://staging.acme.com" };
         var request = new EmbedTokenMintRequest(
             ApiKeyId: 42,
-            Resource: new EmbedResource(EmbedResourceType.Dashboard, "ops-overview"),
+            Resource: new EmbedResource(EmbedResourceType.Query, "ops-overview"),
             Ttl: TimeSpan.FromMinutes(5),
             RowFilters: filters,
             AllowedOrigins: origins);
@@ -186,7 +186,7 @@ public class EmbedTokenServiceTests
         validation.Result.Should().Be(EmbedTokenValidationResult.Valid);
         validation.Claims.Should().NotBeNull();
         validation.Claims!.ApiKeyId.Should().Be(42);
-        validation.Claims.Resource.Should().Be(new EmbedResource(EmbedResourceType.Dashboard, "ops-overview"));
+        validation.Claims.Resource.Should().Be(new EmbedResource(EmbedResourceType.Query, "ops-overview"));
         validation.Claims.Jti.Should().Be(minted.Jti);
         validation.Claims.Scope.Should().Be("read");
         validation.Claims.AllowedOrigins.Should().BeEquivalentTo(origins);
@@ -265,11 +265,25 @@ public class EmbedTokenServiceTests
         validation.Result.Should().Be(EmbedTokenValidationResult.NoAllowedOrigins);
     }
 
+    [TestCase("dashboard")]
+    [TestCase("widget")]
+    [TestCase("")]
+    public void Validate_Signed_Token_With_Other_Resource_Type_Is_Not_Valid_And_Never_A_Query(string resourceType)
+    {
+        var token = MintForeignToken(resourceType: resourceType);
+
+        var validation = _service.Validate(token);
+
+        validation.Result.Should().Be(EmbedTokenValidationResult.MissingClaims);
+        validation.Claims.Should().BeNull("a type other than query never parses to a resource");
+    }
+
     private string MintForeignToken(
         string? audience = null,
         bool includeRes = true,
         bool includeOrg = true,
-        bool emptyOrg = false)
+        bool emptyOrg = false,
+        string resourceType = "query")
     {
         var now = _clock.GetUtcNow();
         var claims = new Dictionary<string, object>
@@ -281,7 +295,7 @@ public class EmbedTokenServiceTests
 
         if (includeRes)
         {
-            claims["res"] = new Dictionary<string, string> { ["t"] = "query", ["id"] = "x" };
+            claims["res"] = new Dictionary<string, string> { ["t"] = resourceType, ["id"] = "x" };
         }
 
         if (includeOrg)

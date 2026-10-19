@@ -53,7 +53,7 @@ internal sealed class ProjectGetDocumentationTool(
             {
                 sw.Stop();
                 var validationError = "response_format must be 'concise' or 'detailed'.";
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                     datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, validationError, ct: cancellationToken);
                 return ToolHelper.Error(validationError);
             }
@@ -63,7 +63,7 @@ internal sealed class ProjectGetDocumentationTool(
         if (resolveError != null)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                 datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
             return ToolHelper.Error(resolveError);
         }
@@ -77,14 +77,14 @@ internal sealed class ProjectGetDocumentationTool(
                 {
                     const string conflict = "Pass either document or datasource_name/table_name, not both.";
                     sw.Stop();
-                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                         document, null, projectId, (int)sw.ElapsedMilliseconds, null, conflict, ct: cancellationToken);
                     return ToolHelper.Error(conflict);
                 }
 
                 var (documentText, documentError) = await GetImportedDocumentAsync(projectId, document, (format ?? "detailed") == "concise", cancellationToken);
                 sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                     document, null, projectId, (int)sw.ElapsedMilliseconds, null, documentError, ct: cancellationToken);
                 return documentError != null ? ToolHelper.Error(documentError) : ToolHelper.Success(documentText!);
             }
@@ -96,7 +96,7 @@ internal sealed class ProjectGetDocumentationTool(
                 var concise = (format ?? "concise") == "concise";
                 var docResult = await GetProjectDocumentationAsync(projectId, concise, cancellationToken);
                 sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                     null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
                 return ToolHelper.Success(docResult);
             }
@@ -109,7 +109,7 @@ internal sealed class ProjectGetDocumentationTool(
                 if (nameError != null)
                 {
                     sw.Stop();
-                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                         datasource_name, null, projectId, (int)sw.ElapsedMilliseconds, null, nameError, ct: cancellationToken);
                     return ToolHelper.Error(nameError);
                 }
@@ -125,7 +125,7 @@ internal sealed class ProjectGetDocumentationTool(
                 {
                     var tableError = $"Could not find table '{table_name}' in any data source of this project.";
                     sw.Stop();
-                    await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                    await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                         table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, tableError, ct: cancellationToken);
                     return ToolHelper.Error(tableError);
                 }
@@ -135,7 +135,7 @@ internal sealed class ProjectGetDocumentationTool(
             {
                 const string unresolvedError = "Could not resolve data source.";
                 sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                     datasource_name ?? table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, unresolvedError, ct: cancellationToken);
                 return ToolHelper.Error(unresolvedError);
             }
@@ -157,14 +157,14 @@ internal sealed class ProjectGetDocumentationTool(
             }
 
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                 datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success(result);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_documentation",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                 datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_documentation", ex.GetType().Name);
