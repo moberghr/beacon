@@ -1,5 +1,4 @@
 using System.Data.Common;
-using System.Reflection;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
@@ -9,7 +8,6 @@ using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
 using FluentAssertions;
-using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Npgsql;
@@ -55,7 +53,7 @@ public class RaisedDatabaseErrorTests
             {
                 yield return new TestCaseData(new PostgresException(wording, "ERROR", "ERROR", "P0001"), "P0001", value).SetName($"PostgreSql_{kind}_{shape}");
                 yield return new TestCaseData(new FakeDbException(wording, "45000"), "45000", value).SetName($"MySql_{kind}_{shape}");
-                yield return new TestCaseData(SqlServerError(50000, wording), "50000", value).SetName($"SqlServer_{kind}_{shape}");
+                yield return new TestCaseData(TestSqlServerExceptions.Real(50000, wording), "50000", value).SetName($"SqlServer_{kind}_{shape}");
             }
         }
     }
@@ -67,13 +65,13 @@ public class RaisedDatabaseErrorTests
 
         (await ProviderText(new PostgresException(wording, "ERROR", "ERROR", "P0001"))).Should().Be($"P0001: {wording}");
         (await ProviderText(new FakeDbException(wording, "45000"))).Should().Be($"45000: {wording}");
-        (await ProviderText(SqlServerError(50001, wording))).Should().Be($"Msg 50001, Level 16, State 1: {wording}");
+        (await ProviderText(TestSqlServerExceptions.Real(50001, wording))).Should().Be($"Msg 50001, Level 16, State 1: {wording}");
     }
 
     [Test]
     public async Task TheProvider_PassesAnErrorTheDatabaseWroteOnAsItIs()
     {
-        (await ProviderText(SqlServerError(207, "Invalid column name 'nme'."))).Should().Be("Invalid column name 'nme'.");
+        (await ProviderText(TestSqlServerExceptions.Real(207, "Invalid column name 'nme'."))).Should().Be("Invalid column name 'nme'.");
         (await ProviderText(new FakeDbException("Unknown column 'nme' in 'field list'", "42S22"))).Should().Be("Unknown column 'nme' in 'field list'");
         (await ProviderText(new PostgresException("column \"nme\" does not exist", "ERROR", "ERROR", "42703"))).Should().Be("42703: column \"nme\" does not exist");
     }
@@ -92,6 +90,24 @@ public class RaisedDatabaseErrorTests
 
         // A prompt under the row-data lock.
         DatabaseErrorRedactor.ClassOnly(text).Should().Be($"Database error {code} (unrecognised).").And.NotContain(value);
+    }
+
+    // A SQL Server error Beacon cannot read may be one the statement raised: the provider passes on the generic text, never
+    // the message, and every screen keeps that text as it is.
+    [TestCase(50000)]
+    [TestCase(207)]
+    public async Task AnUnreadableSqlServerError_IsWithheldEverywhere_AsTheGenericText(int number)
+    {
+        const string value = "alice.horvat@bank.example";
+        var unreadable = TestSqlServerExceptions.ErrorsThrow($"Customer {value} is blocked", number);
+
+        var text = await ProviderText(unreadable);
+
+        text.Should().Be(DatabaseErrorRedactor.UnreadableSqlServerMessage).And.NotContain(value);
+        DatabaseErrorRedactor.ForCaller(text, Sql, redact: true).Should().Be(DatabaseErrorRedactor.UnreadableSqlServerMessage);
+        DatabaseErrorRedactor.Redact(text, DatabaseErrorRedactor.KnownNames(Sql, Catalog)).Should().Be(DatabaseErrorRedactor.UnreadableSqlServerMessage);
+        DatabaseErrorRedactor.ClassOnly(text).Should().Be("Database error (unrecognised).");
+        (await ProviderText(TestSqlServerExceptions.Unbindable($"Customer {value} is blocked"))).Should().Be(DatabaseErrorRedactor.UnreadableSqlServerMessage);
     }
 
     // The application-defined classes are told by their code wherever the engine reports it.
@@ -148,26 +164,6 @@ public class RaisedDatabaseErrorTests
 
         result.Success.Should().BeFalse();
         return result.ErrorMessage!;
-    }
-
-    // SqlException has no public constructor: build one the way the driver does, through its internal factory.
-    private static SqlException SqlServerError(int number, string message)
-    {
-        var errorConstructor = typeof(SqlError)
-            .GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
-            .First(x => x.GetParameters().Length == 8 && x.GetParameters()[0].ParameterType == typeof(int));
-        var error = (SqlError)errorConstructor.Invoke([number, (byte)1, (byte)16, "server", message, "procedure", 0, null]);
-        var errors = (SqlErrorCollection)Activator.CreateInstance(typeof(SqlErrorCollection), nonPublic: true)!;
-        typeof(SqlErrorCollection)
-            .GetMethod("Add", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(errors, [error]);
-        var create = typeof(SqlException)
-            .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
-            .First(x => x.Name == "CreateException"
-                && x.GetParameters().Length == 2
-                && x.GetParameters()[0].ParameterType == typeof(SqlErrorCollection));
-
-        return (SqlException)create.Invoke(null, [errors, "16.0"])!;
     }
 
     // A driver exception carrying a SQLSTATE and only the server's message, as MySQL's driver reports one.

@@ -13,4 +13,7 @@
     <PackageReference Include="Microsoft.Data.SqlClient" />
     <PackageReference Include="Dapper" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\SqlClient\SqlClientConnectionStringReader.cs" Link="Shared\SqlClientConnectionStringReader.cs" />
+  </ItemGroup>
 </Project>

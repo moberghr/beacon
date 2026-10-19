@@ -1,3 +1,6 @@
+using System.Reflection;
+using Beacon.Connector.AzureSynapse;
+using Beacon.Connector.SqlServer;
 using FluentAssertions;
 using NUnit.Framework;
 using Beacon.Core.Data.Enums;
@@ -137,6 +140,9 @@ public class DataSourceTransportInspectorTests
 
     [TestCase(DatabaseEngineType.PostgreSQL, "Host=" + Host + ";NoSuchOption={0};SSL Mode=VerifyFull")]
     [TestCase(DatabaseEngineType.MSSQL, "Server=" + Host + ";NoSuchOption={0}")]
+    [TestCase(DatabaseEngineType.AzureSynapse, "Server=" + Host + ";NoSuchOption={0}")]
+    [TestCase(DatabaseEngineType.MSSQL, "Server=" + Host + ";Encrypt={0}")]
+    [TestCase(DatabaseEngineType.AzureSynapse, "Server=" + Host + ";Encrypt={0}")]
     [TestCase(DatabaseEngineType.MySQL, "Server=" + Host + ";SslMode={0}")]
     [TestCase(DatabaseEngineType.PostgreSQL, "{0}")]
     public void AConnectionStringTheDriverCannotRead_IsRefused_WithoutTheParsersMessage(DatabaseEngineType engine, string template)
@@ -149,6 +155,50 @@ public class DataSourceTransportInspectorTests
         verdict.Verified.Should().BeFalse();
         verdict.Option.Should().Be("connection string");
         act.Should().Throw<DataSourceTransportException>().Which.Message.Should().NotContainAny(Host, Password, "NoSuchOption");
+    }
+
+    // The SqlClient verdict is decided in Core on the settings the connector reads; a mode Core does not know fails.
+    [TestCase(SqlClientEncrypt.Mandatory, false, null)]
+    [TestCase(SqlClientEncrypt.Strict, false, null)]
+    [TestCase(SqlClientEncrypt.Optional, false, "Encrypt")]
+    [TestCase(SqlClientEncrypt.Optional, true, "Encrypt")]
+    [TestCase(SqlClientEncrypt.Strict, true, "TrustServerCertificate")]
+    [TestCase((SqlClientEncrypt)7, false, "Encrypt")]
+    public void TheSqlClientVerdict_IsDecidedOnTheSettingsTheConnectorReads(SqlClientEncrypt encrypt, bool trustServerCertificate, string? failingOption)
+    {
+        var verdict = new FixedSqlClientInspector(new SqlClientTransportSettings(encrypt, trustServerCertificate, $"tcp:{Host},1433", Database))
+            .Inspect("read by the stand-in");
+
+        verdict.Verified.Should().Be(failingOption == null);
+        verdict.Option.Should().Be(failingOption);
+        verdict.Target.Should().Be(new DataSourceTransportTarget(Host, 1433, Database));
+    }
+
+    // The connectors' own reader (SqlClient's builder) feeds the verdict: pin what it maps, through each connector's inspector.
+    [TestCase(typeof(SqlServerTransportInspector), "Encrypt=Strict", SqlClientEncrypt.Strict, false)]
+    [TestCase(typeof(SqlServerTransportInspector), "Encrypt=Mandatory", SqlClientEncrypt.Mandatory, false)]
+    [TestCase(typeof(SqlServerTransportInspector), "Encrypt=True", SqlClientEncrypt.Mandatory, false)]
+    [TestCase(typeof(SqlServerTransportInspector), "", SqlClientEncrypt.Mandatory, false)]
+    [TestCase(typeof(SqlServerTransportInspector), "Encrypt=Optional", SqlClientEncrypt.Optional, false)]
+    [TestCase(typeof(SqlServerTransportInspector), "Encrypt=False;TrustServerCertificate=True", SqlClientEncrypt.Optional, true)]
+    [TestCase(typeof(SqlServerTransportInspector), "Encrypt=Strict;TrustServerCertificate=True", SqlClientEncrypt.Strict, true)]
+    [TestCase(typeof(AzureSynapseTransportInspector), "Encrypt=Strict", SqlClientEncrypt.Strict, false)]
+    [TestCase(typeof(AzureSynapseTransportInspector), "Encrypt=Mandatory", SqlClientEncrypt.Mandatory, false)]
+    [TestCase(typeof(AzureSynapseTransportInspector), "Encrypt=True", SqlClientEncrypt.Mandatory, false)]
+    [TestCase(typeof(AzureSynapseTransportInspector), "", SqlClientEncrypt.Mandatory, false)]
+    [TestCase(typeof(AzureSynapseTransportInspector), "Encrypt=Optional", SqlClientEncrypt.Optional, false)]
+    [TestCase(typeof(AzureSynapseTransportInspector), "Encrypt=False;TrustServerCertificate=True", SqlClientEncrypt.Optional, true)]
+    public void TheConnectorsReader_MapsSqlClientsOptions_ToTheSettingsTheVerdictUses(Type inspectorType, string options, SqlClientEncrypt encrypt, bool trustServerCertificate)
+    {
+        var inspector = Activator.CreateInstance(inspectorType)!;
+        var read = inspectorType.GetMethod("Read", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        var settings = (SqlClientTransportSettings)read.Invoke(inspector, [$"Server=tcp:{Host},1433;Database={Database};{options}"])!;
+
+        settings.Encrypt.Should().Be(encrypt);
+        settings.TrustServerCertificate.Should().Be(trustServerCertificate);
+        settings.DataSource.Should().Be($"tcp:{Host},1433");
+        settings.InitialCatalog.Should().Be(Database);
     }
 
     [Test]
@@ -201,5 +251,13 @@ public class DataSourceTransportInspectorTests
     private static string Api(string baseUrl, string specUrl)
     {
         return $"{{\"baseUrl\":\"{baseUrl}\",\"openApiSpecUrl\":\"{specUrl}\",\"auth\":{{\"type\":\"Bearer\",\"token\":\"{Password}\"}}}}";
+    }
+
+    private sealed class FixedSqlClientInspector(SqlClientTransportSettings settings) : SqlClientTransportInspector(Core.Data.Enums.DatabaseEngineType.MSSQL)
+    {
+        protected override SqlClientTransportSettings Read(string connectionData)
+        {
+            return settings;
+        }
     }
 }

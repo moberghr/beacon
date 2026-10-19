@@ -1,4 +1,5 @@
 using Beacon.Core.Services.Providers;
+using Beacon.Shared.SqlClient;
 
 namespace Beacon.Connector.SqlServer;
 
@@ -6,4 +7,10 @@ namespace Beacon.Connector.SqlServer;
 /// The SQL Server connection check: <c>Encrypt</c> Mandatory or Strict and <c>TrustServerCertificate=false</c>, read with
 /// SqlClient's own builder (<see cref="SqlClientTransportInspector"/>).
 /// </summary>
-public sealed class SqlServerTransportInspector() : SqlClientTransportInspector(Core.Data.Enums.DatabaseEngineType.MSSQL);
+public sealed class SqlServerTransportInspector() : SqlClientTransportInspector(Core.Data.Enums.DatabaseEngineType.MSSQL)
+{
+    protected override SqlClientTransportSettings Read(string connectionData)
+    {
+        return SqlClientConnectionStringReader.Read(connectionData);
+    }
+}

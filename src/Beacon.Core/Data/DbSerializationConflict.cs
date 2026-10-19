@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Microsoft.Data.SqlClient;
 
 namespace Beacon.Core.Data;
 
@@ -20,11 +19,21 @@ public static class DbSerializationConflict
     {
         for (var current = exception; current != null; current = current.InnerException)
         {
-            switch (current)
+            // A SQL Server error that cannot be read is not classified.
+            var sqlServer = SqlServerErrors.Read(current);
+            if (sqlServer is { IsSqlException: true, IsReadable: false })
             {
-                case SqlException sqlServer when sqlServer.Number is SqlServerDeadlockVictim or SqlServerSnapshotUpdateConflict:
-                case DbException db when db.SqlState is PostgresSerializationFailure or PostgresDeadlockDetected:
-                    return true;
+                return false;
+            }
+
+            if (sqlServer is { IsReadable: true, Number: SqlServerDeadlockVictim or SqlServerSnapshotUpdateConflict })
+            {
+                return true;
+            }
+
+            if (current is DbException { SqlState: PostgresSerializationFailure or PostgresDeadlockDetected })
+            {
+                return true;
             }
         }
 
