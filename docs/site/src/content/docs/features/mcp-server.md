@@ -430,7 +430,7 @@ Two things are worth knowing about how patterns get promoted:
 - A candidate pattern is not trusted on a confidence score alone. Before promotion, Beacon **replays the project's golden cases** with and without the candidate injected, and keeps it only if it flips at least one case from failing to passing.
 - `dry_run` signals are recorded for analytics but **excluded from mining**: their "question" is SQL, not natural language, and gate rejections would skew the failure statistics.
 
-Review the queue on the **MCP Learning** page (`/beacon/mcp-learning`), where pending patterns and proposed documentation patches can be approved or rejected. The full mechanics (lesson extraction, decay, retention, and every setting) are in the [Knowledge Base guide](/features/knowledge-base/#the-learning-loop).
+Review the queue on the **MCP Learning** page (`/beacon/mcp-learning`), where pending patterns can be approved or rejected, and any stored documentation patch applied or rejected. The full mechanics (lesson extraction, decay, retention, and every setting) are in the [Knowledge Base guide](/features/knowledge-base/#the-learning-loop).
 
 ## Configuration
 
@@ -612,7 +612,7 @@ You do not need to wire up an external MCP client to try the server. The UI ship
 
 The playground runs as the signed-in user and checks their [project access](/features/authorization/#project-access) on every call: the catalog tools (`get_context`, `get_documentation`, `search`, `get_query_context`) need Read in the selected project, and `ask`, `query`, `dry_run` and `feedback` need Query. A restricted project the user is not a member of, or a project outside an API key's list, is refused before any tool runs; a call without a signed-in request is refused outright. Tool calls over `/beacon/mcp` decide the caller's projects by the same rules (see [Overview](#overview)).
 
-The companion **MCP Learning** page (`/beacon/mcp-learning`) shows the learning loop at work: usage signals, success rate, learned schema patterns awaiting approval, and proposed documentation patches you can apply or reject.
+The companion **MCP Learning** page (`/beacon/mcp-learning`) shows the learning loop at work: usage signals, success rate, and learned schema patterns awaiting approval. Any stored documentation patch can also be applied or rejected there.
 
 ## Calling the endpoint directly
 

@@ -12,6 +12,7 @@ public enum ResourceType
     ProjectDocumentation = 8,
     AiActor = 9,
     AiActorPlan = 10,
+    [Obsolete("The AI alert configuration feature was removed and nothing uses this value. It will be removed in 5.0.")]
     AiAlertConfiguration = 11,
     QueryApprovalRequest = 12
 }

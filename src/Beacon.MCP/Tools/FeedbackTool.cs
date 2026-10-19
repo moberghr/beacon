@@ -53,7 +53,7 @@ internal sealed class FeedbackTool(
         {
             sw.Stop();
             var notFound = $"Query signal {signal_id} not found.";
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
+            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
                 auditParameters, null, projectContext.ActiveProjectId, (int)sw.ElapsedMilliseconds, null, notFound, ct: cancellationToken);
             return ToolHelper.Error(notFound);
         }
@@ -62,7 +62,7 @@ internal sealed class FeedbackTool(
         {
             sw.Stop();
             var validationError = "verdict must be 'correct' or 'incorrect'.";
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
+            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
                 auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, validationError, ct: cancellationToken);
             return ToolHelper.Error(validationError);
         }
@@ -71,7 +71,7 @@ internal sealed class FeedbackTool(
         {
             var result = await mediator.Send(new RecordQueryFeedbackCommand(signal_id, parsedVerdict, corrected_sql, note), cancellationToken);
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
+            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
                 auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success(Answer(signal_id, parsedVerdict, result));
         }
@@ -82,7 +82,7 @@ internal sealed class FeedbackTool(
             // handler's "signal not found" or refusal text, or the SQL check's reason (audited as the query tool audits a
             // gate refusal), passed to the audit error slot only.
             logger.LogWarning("Feedback recording failed for signal {SignalId}", signal_id);
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "feedback",
+            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
                 auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             return ToolHelper.Error(ex.Message);
         }

@@ -7,7 +7,6 @@ using NUnit.Framework;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
-using Beacon.AI.Services.SemanticSearch;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -107,7 +106,6 @@ public class KnowledgeGraphProjectScopeTests
 
     [TestCase(typeof(IKnowledgeGraphService))]
     [TestCase(typeof(IValueGroundingService))]
-    [TestCase(typeof(ISemanticSearchService))]
     public void EveryKnowledgeGraphMember_TakesProjectIdOrIsAdminOnly(Type grounding)
     {
         var withoutProject = grounding
@@ -196,76 +194,6 @@ public class KnowledgeGraphProjectScopeTests
 
         linked.Should().Contain(Table);
         await notLinked.Should().ThrowAsync<InvalidOperationException>();
-    }
-
-    [Test]
-    public async Task SemanticSearch_ACallerWhoMayNotQueryInTheProject_IsRefusedBeforeAnyLlmCall()
-    {
-        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
-        var knowledge = new Mock<IKnowledgeGraphService>(MockBehavior.Strict);
-        var viewer = SemanticSearch(TestProjectAccess.ReadableIn(CallerProjectId), knowledge, llm);
-        var stranger = SemanticSearch(TestProjectAccess.ReadableIn(OtherProjectId), knowledge, llm);
-
-        var asViewer = () => viewer.AskAsync(SharedDataSourceId, CallerProjectId, "how many orders?");
-        var asStranger = () => stranger.AskAsync(SharedDataSourceId, CallerProjectId, "how many orders?");
-
-        await asViewer.Should().ThrowAsync<BeaconForbiddenException>();
-        await asStranger.Should().ThrowAsync<BeaconNotFoundException>();
-        knowledge.VerifyNoOtherCalls();
-        llm.VerifyNoOtherCalls();
-    }
-
-    [Test]
-    public async Task SemanticSearch_GroundsTheQuestionInTheCallersProject()
-    {
-        var llm = new Mock<ILlmProvider>();
-        llm
-            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new LlmResponse { Content = "no sql" });
-        var knowledge = new Mock<IKnowledgeGraphService>();
-        knowledge
-            .Setup(x => x.GetContextForLlmAsync(SharedDataSourceId, CallerProjectId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("schema");
-        var service = SemanticSearch(TestProjectAccess.Unrestricted, knowledge, llm);
-
-        await service.AskAsync(SharedDataSourceId, CallerProjectId, "how many orders?", execute: false);
-
-        knowledge.Verify(x => x.GetContextForLlmAsync(SharedDataSourceId, CallerProjectId, null, null, It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Test]
-    public async Task SemanticSearch_OfADataSourceTheProjectDoesNotLink_IsRefused_NotAnsweredWithTheRefusalsText()
-    {
-        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
-        var knowledge = new Mock<IKnowledgeGraphService>();
-        knowledge
-            .Setup(x => x.GetContextForLlmAsync(OtherProjectsDataSourceId, CallerProjectId, null, null, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException($"Data source {OtherProjectsDataSourceId} not found."));
-        var service = SemanticSearch(TestProjectAccess.Unrestricted, knowledge, llm);
-
-        var act = () => service.AskAsync(OtherProjectsDataSourceId, CallerProjectId, "how many orders?");
-
-        await act.Should().ThrowAsync<InvalidOperationException>();
-        llm.VerifyNoOtherCalls();
-    }
-
-    [Test]
-    public async Task SemanticSearch_ThatFails_AnswersAGenericMessage_NeverTheExceptionsText()
-    {
-        var llm = new Mock<ILlmProvider>();
-        llm
-            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new HttpRequestException("upstream echoed: SELECT iban FROM accounts WHERE owner = 'Ada'"));
-        var knowledge = new Mock<IKnowledgeGraphService>();
-        knowledge
-            .Setup(x => x.GetContextForLlmAsync(SharedDataSourceId, CallerProjectId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync("schema");
-        var service = SemanticSearch(TestProjectAccess.Unrestricted, knowledge, llm);
-
-        var result = await service.AskAsync(SharedDataSourceId, CallerProjectId, "how many orders?");
-
-        result.Error.Should().Be(SemanticSearchService.FailedMessage);
-        result.Error.Should().NotContain("Ada");
     }
 
     [Test]
@@ -402,24 +330,6 @@ public class KnowledgeGraphProjectScopeTests
             .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
 
         return Service(factory.Object);
-    }
-
-    private static SemanticSearchService SemanticSearch(
-        ProjectAccessScope scope,
-        Mock<IKnowledgeGraphService> knowledge,
-        Mock<ILlmProvider> llm)
-    {
-        return new SemanticSearchService(
-            Mock.Of<IDbContextFactory<BeaconContext>>(),
-            knowledge.Object,
-            llm.Object,
-            Mock.Of<IQueryGuardrailService>(),
-            TestSqlGate.Create(),
-            TestConfiguredDatabases.None,
-            Mock.Of<IDataSourceProviderFactory>(),
-            TestProjectAccess.Evaluator(scope),
-            TestProjectAccess.Actors(),
-            NullLogger<SemanticSearchService>.Instance);
     }
 
     private static KnowledgeGraphService Service(IDbContextFactory<BeaconContext> factory)

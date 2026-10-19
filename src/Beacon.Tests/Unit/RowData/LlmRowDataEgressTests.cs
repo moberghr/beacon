@@ -26,9 +26,7 @@ public class LlmRowDataEgressTests
         ["src/Beacon.AI/Services/Mcp/SqlGenerationService.cs"] = "sends through the provider its caller hands in, which the ask pipeline and cross-source query track",
         ["src/Beacon.AI/Services/Mcp/IntentClassifier.cs"] = "the question only",
         ["src/Beacon.AI/Services/Mcp/DataSourceRouter.cs"] = "the question and the data sources' names and descriptions",
-        ["src/Beacon.AI/Services/SemanticSearch/SemanticSearchService.cs"] = "the question and the schema context, which lists no values",
-        ["src/Beacon.AI/Services/Ai/AiActor/AiActorService.cs"] = "schema, saved queries and execution counts, never rows",
-        ["src/Beacon.AI/Services/Ai/AiAlertGenerationService.cs"] = "alert definitions and counts, never rows"
+        ["src/Beacon.AI/Services/Ai/AiActor/AiActorService.cs"] = "schema, saved queries and execution counts, never rows"
     };
 
     private static readonly Regex CompletesAPrompt = new(@"\.CompleteAsync\(", RegexOptions.CultureInvariant);

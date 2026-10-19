@@ -6,7 +6,7 @@ namespace Beacon.Core.Helpers;
 
 /// <summary>
 /// How a user is named to other users (project members, member candidates, the projects sharing a data source, the owner
-/// or author of a subscription, contract, AI actor, version, dashboard or task): their display name, or a neutral label
+/// or author of a subscription, contract, AI actor, version or task): their display name, or a neutral label
 /// by their <c>Users.Id</c> when it is missing or blank. Never the user name, e-mail or external id, which can identify a
 /// person outside Beacon.
 /// </summary>

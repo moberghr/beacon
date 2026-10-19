@@ -4,7 +4,6 @@ namespace Beacon.Core.Data.Entities;
 
 public class McpAuditLog : BaseEntity
 {
-    public int? SessionId { get; set; }
     public int? UserId { get; set; }
     public required string Tool { get; set; }
     public string? Parameters { get; set; }
@@ -42,7 +41,6 @@ public class McpAuditLog : BaseEntity
     /// </summary>
     public string? ContentHash { get; set; }
 
-    public McpSession? Session { get; set; }
     public BeaconUser? User { get; set; }
 
     /// <summary>The statements the call ran on data sources; deleted with the row.</summary>

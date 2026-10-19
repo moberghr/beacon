@@ -151,7 +151,6 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         }
 
         await audit.LogToolCallAsync(
-            sessionId: null,
             userId: userId,
             tool: toolName,
             parameters: null,

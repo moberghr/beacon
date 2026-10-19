@@ -61,7 +61,6 @@ const SECTIONS: NavSection[] = [
       // Shown to everyone: for a user with functional roles only it explains what they need to see project data.
       { name: 'Home', Icon: IconHome, slug: 'home', visible: () => true },
       { name: 'Control Tower', Icon: IconTower, slug: 'control-tower' },
-      // Dashboards hidden — feature unfinished, will be redesigned (see internal/UNFINISHED.md).
     ],
   },
   {

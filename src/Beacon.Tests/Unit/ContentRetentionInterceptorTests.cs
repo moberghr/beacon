@@ -190,7 +190,7 @@ public class ContentRetentionInterceptorTests
     [Test]
     public async Task EntitiesWithoutAProject_UseTheGlobalDecision()
     {
-        // Review F2 (test lane): McpEvalResult and McpSession carry no ProjectId, so they take the interceptor's
+        // Review F2 (test lane): McpEvalResult carries no ProjectId, so it takes the interceptor's
         // globalDecision branch — the one the belt's "a future write site cannot leak by omission" promise rests on
         // for eval results. It had no coverage.
         using var context = NpgsqlTestContext.Create();

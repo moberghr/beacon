@@ -427,7 +427,6 @@ internal sealed class HostEndpointToolService(
         var parameters = arguments == null || arguments.Count == 0 ? null : JsonSerializer.Serialize(arguments);
 
         return auditService.LogToolCallAsync(
-            null,
             projectContext.UserId,
             toolName,
             parameters,

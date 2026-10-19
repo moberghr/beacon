@@ -9,16 +9,12 @@ using NUnit.Framework;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
-using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.AiActors;
-using Beacon.Core.Handlers.Dashboards.RevokeDashboardPermission;
-using Beacon.Core.Handlers.Dashboards.ShareDashboard;
 using Beacon.Core.Handlers.McpAudit;
 using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Handlers.QueryFolders;
 using Beacon.Core.Models;
 using Beacon.Core.SecurityAudit;
-using Beacon.Core.Services;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit.SecurityAudit;
@@ -26,7 +22,7 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// <summary>
 /// Every action of the catalogue has a place in Beacon that records it, and the security-relevant changes that record
 /// one do: a query's lock and its tool exposure (both also attributed to the caller), a query moved between folders
-/// (attributed), a dashboard shared and revoked (the grantee by <c>Users.Id</c>), a read of the MCP audit; and an owner
+/// (attributed), a read of the MCP audit; and an owner
 /// change is made only from the owner it read, so the event never names a stale previous owner.
 /// </summary>
 [TestFixture]
@@ -115,41 +111,6 @@ public class SecurityAuditCoverageTests
 
         moved.Should().BeEquivalentTo(new { FolderId = (int?)1, ModifiedByUserId = "ext-ada", ModifiedTime = (DateTime?)Now.UtcDateTime }, x => x.ExcludingMissingMembers());
         folder.ArchivedTime.Should().NotBeNull();
-    }
-
-    [Test]
-    public async Task SharingADashboard_AndRevokingTheShare_AreRecorded_TheGranteeByUsersId()
-    {
-        var permissions = new List<DashboardPermission>();
-        var saved = new List<object>();
-        var sets = new Dictionary<Type, object>
-        {
-            [typeof(Dashboard)] = RecordingBeaconContext.MemorySet(new List<Dashboard> { new() { Id = 4, Name = "ops" } }, saved),
-            [typeof(DashboardPermission)] = RecordingBeaconContext.MemorySet(permissions, saved)
-        };
-        var dashboards = new Mock<IDashboardService>();
-        dashboards
-            .Setup(x => x.UserHasPermissionAsync(4, "ext-ada", DashboardPermissionLevel.Admin, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-        var caller = Mock.Of<IBeaconUserContext>(x => x.UserId == "ext-ada");
-        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
-        audit.UserIds["ext-ben"] = 8;
-        var factory = Factory(sets);
-
-        await new ShareDashboardHandler(factory, dashboards.Object, caller, audit).Handle(new ShareDashboardCommand(4, "ext-ben", DashboardPermissionLevel.Edit), CancellationToken.None);
-        var granted = saved.OfType<DashboardPermission>().Single();
-        granted.Id = 11;
-        permissions.Add(granted);
-        await new RevokeDashboardPermissionHandler(factory, dashboards.Object, caller, audit).Handle(new RevokeDashboardPermissionCommand(11), CancellationToken.None);
-
-        audit.Events.Select(x => x.Action).Should().Equal(SecurityAuditActions.DashboardShared, SecurityAuditActions.DashboardShareRevoked);
-        audit.Events.Should().OnlyContain(x => x.ResourceType == SecurityAuditResources.Dashboard && x.ResourceId == "4");
-        audit.Of(SecurityAuditActions.DashboardShared).Single().DetailsJson.Should().Be("{\"level\":\"Edit\",\"previousLevel\":null,\"granteeUserId\":8}");
-        audit.Of(SecurityAuditActions.DashboardShareRevoked).Single().DetailsJson.Should().Be("{\"permissionId\":11,\"level\":\"Edit\",\"granteeUserId\":8}");
-        foreach (var auditEvent in audit.Events)
-        {
-            SecurityAuditTestKit.AssertNoPii(auditEvent, "ext-ben", "ext-ada");
-        }
     }
 
     // The owner changed (or the actor was archived) between the read of the owner and the change: the change touches

@@ -59,7 +59,6 @@ public static class SecurityAuditResources
     public const string EvalCase = "eval_case";
     public const string SchemaRelationship = "schema_relationship";
     public const string SecurityAudit = "security_audit";
-    public const string Dashboard = "dashboard";
     public const string GlossaryTerm = "glossary_term";
     public const string DocumentationSection = "documentation_section";
     public const string McpAudit = "mcp_audit";
@@ -132,8 +131,6 @@ public static class SecurityAuditActions
     public const string DataSourceUnlinked = "access.data_source_unlinked";
     public const string RepositoryTokenChanged = "access.repository_token_changed";
     public const string RepositoryScanRequested = "access.repository_scan_requested";
-    public const string DashboardShared = "access.dashboard_shared";
-    public const string DashboardShareRevoked = "access.dashboard_share_revoked";
 
     // Data sources
     public const string DataSourceCreated = "data_sources.data_source_created";

@@ -108,7 +108,6 @@ internal sealed class GetMcpAuditLogsHandler(
             new McpAuditLogItem(
                 x.Id,
                 x.CreatedTime,
-                x.SessionId,
                 x.UserId,
                 x.Tool,
                 x.Parameters,
@@ -218,7 +217,6 @@ public record GetMcpAuditLogsResult(IReadOnlyList<McpAuditLogItem> Items, int To
 public record McpAuditLogItem(
     int Id,
     DateTime CreatedTime,
-    int? SessionId,
     int? UserId,
     string Tool,
     string? Parameters,

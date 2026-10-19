@@ -38,7 +38,7 @@ internal sealed class GetContextTool(
         if (resolveError != null)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                 project_id?.ToString(), null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
             return ToolHelper.Error(resolveError);
         }
@@ -48,7 +48,7 @@ internal sealed class GetContextTool(
         {
             sw.Stop();
             var formatError = $"format must be '{OverviewFormat}' or '{AgentsMdFormat}'.";
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                 format, null, projectId, (int)sw.ElapsedMilliseconds, null, formatError, ct: cancellationToken);
             return ToolHelper.Error(formatError);
         }
@@ -74,7 +74,7 @@ internal sealed class GetContextTool(
             if (project == null)
             {
                 sw.Stop();
-                await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+                await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                     project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, $"Project {projectId} not found.", ct: cancellationToken);
                 return ToolHelper.Error($"Project {projectId} not found.");
             }
@@ -118,14 +118,14 @@ internal sealed class GetContextTool(
             }
 
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                 project_id?.ToString(), null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
             return ToolHelper.Success(text);
         }
         catch (Exception ex)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                 project_id?.ToString(), null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);
@@ -142,7 +142,7 @@ internal sealed class GetContextTool(
             sw.Stop();
 
             var error = brief == null ? $"Project {projectId} not found." : null;
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                 AgentsMdFormat, null, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
 
             return brief == null ? ToolHelper.Error(error!) : ToolHelper.Success(brief);
@@ -150,7 +150,7 @@ internal sealed class GetContextTool(
         catch (Exception ex)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
                 AgentsMdFormat, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);

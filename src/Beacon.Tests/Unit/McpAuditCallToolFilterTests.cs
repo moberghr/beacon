@@ -170,7 +170,7 @@ public class McpAuditCallToolFilterTests
                 }
 
                 var audit = request.Services!.GetRequiredService<McpAuditService>();
-                await audit.LogToolCallAsync(null, 1, ToolName, null, null, 42, 5, 3, null, ct: cancellationToken);
+                await audit.LogToolCallAsync(1, ToolName, null, null, 42, 5, 3, null, ct: cancellationToken);
 
                 return ToolResult;
             };

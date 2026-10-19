@@ -138,7 +138,7 @@ internal sealed class GetQueryContextTool(
             };
 
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_query_context",
                 question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
 
             // Sample values and value matches go to the MCP client's own model: recorded like a prompt Beacon sends.
@@ -150,7 +150,7 @@ internal sealed class GetQueryContextTool(
         catch (Exception ex)
         {
             sw.Stop();
-            await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
+            await auditService.LogToolCallAsync(projectContext.UserId, "get_query_context",
                 question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_query_context", ex.GetType().Name);
@@ -170,7 +170,7 @@ internal sealed class GetQueryContextTool(
         CancellationToken cancellationToken)
     {
         sw.Stop();
-        await auditService.LogToolCallAsync(null, projectContext.UserId, "get_query_context",
+        await auditService.LogToolCallAsync(projectContext.UserId, "get_query_context",
             question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
         return ToolHelper.Error(error);
     }

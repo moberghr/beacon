@@ -43,7 +43,7 @@ internal sealed partial class McpAuditService(
 
     private readonly ILogger _auditLogger = loggerFactory.CreateLogger(BeaconTelemetry.AuditLogCategory);
 
-    public async Task LogToolCallAsync(int? sessionId, int? userId, string tool, string? parameters,
+    public async Task LogToolCallAsync(int? userId, string tool, string? parameters,
         int? dataSourceId, int? projectId, int executionTimeMs, int? resultRowCount, string? errorMessage,
         IReadOnlyList<string>? tables = null, CancellationToken ct = default)
     {
@@ -112,7 +112,6 @@ internal sealed partial class McpAuditService(
 
             entry = new McpAuditLog
             {
-                SessionId = sessionId,
                 UserId = userId,
                 Tool = tool,
                 Parameters = loggedParameters,

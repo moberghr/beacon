@@ -118,13 +118,6 @@ the project and every project sharing the data source (off by default), never fr
 never under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`. Each prompt that carries such values is logged as
 event `7123`.
 
-## Natural-language alerts (host API)
-
-`IAiAlertGenerationService` turns a plain-English description into SQL for a data source. It is a service a host can
-call; Beacon exposes no REST endpoint or UI page for it. Its methods are `GenerateAlertAsync(dataSourceId,
-naturalLanguageDescription, createdBy, options, cancellationToken)`, `RefineAlertAsync`, `ValidateQuerySyntaxAsync`
-and `ApproveAndActivateAlertAsync`; each generation records its token usage in `AiUsageMetrics`.
-
 ## What reaches the provider
 
 A prompt carries the question, schema (table and column names, types, descriptions, join paths) and your curated
@@ -136,17 +129,14 @@ provider, are in [What reaches the LLM provider](/features/mcp-server/#what-reac
 
 Everything Beacon sends about a data source is read through the caller's authorized project: schema context,
 documentation, code references, glossary, golden examples, learned patterns and value matches. The AI services take
-that project as a parameter (`projectId` on `IKnowledgeGraphService`, `IValueGroundingService` and
-`ISemanticSearchService.AskAsync`), read a data source only through a project that links it, and never mix in another
-project's material from a shared data source. `ISemanticSearchService.AskAsync` also checks that the caller may query
-in the project (`404` for a project it may not read, `403` without the Query action) before any LLM call. See
+that project as a parameter (`projectId` on `IKnowledgeGraphService` and `IValueGroundingService`), read a data source
+only through a project that links it, and never mix in another project's material from a shared data source. See
 [Project isolation](/features/knowledge-base/#project-isolation).
 
 ## Usage and cost records
 
 Beacon records token counts and estimated cost where a feature stores them: AI actor think cycles and plans (and the
-actor's totals), and `AiUsageMetrics` rows for natural-language alert generation. Documentation generation records no
-cost. Use your provider's own usage reporting for billing.
+actor's totals). Documentation generation records no cost. Use your provider's own usage reporting for billing.
 
 ## Troubleshooting
 

@@ -409,174 +409,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("ai_actor_plans", "beacon");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("archived_time");
-
-                    b.Property<decimal?>("ConfidenceScore")
-                        .HasColumnType("numeric")
-                        .HasColumnName("confidence_score");
-
-                    b.Property<int>("ConversationTurns")
-                        .HasColumnType("integer")
-                        .HasColumnName("conversation_turns");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int>("DataSourceId")
-                        .HasColumnType("integer")
-                        .HasColumnName("data_source_id");
-
-                    b.Property<decimal>("EstimatedCost")
-                        .HasColumnType("numeric")
-                        .HasColumnName("estimated_cost");
-
-                    b.Property<string>("FinalSql")
-                        .HasColumnType("text")
-                        .HasColumnName("final_sql");
-
-                    b.Property<string>("GeneratedByModel")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("generated_by_model");
-
-                    b.Property<string>("GeneratedSql")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("generated_sql");
-
-                    b.Property<string>("GenerationReasoning")
-                        .HasColumnType("text")
-                        .HasColumnName("generation_reasoning");
-
-                    b.Property<string>("ModifiedBy")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("modified_by");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
-                    b.Property<string>("NaturalLanguageDescription")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("natural_language_description");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer")
-                        .HasColumnName("status");
-
-                    b.Property<int?>("SubscriptionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("subscription_id");
-
-                    b.Property<int>("TokensUsed")
-                        .HasColumnType("integer")
-                        .HasColumnName("tokens_used");
-
-                    b.Property<string>("UserFeedback")
-                        .HasColumnType("text")
-                        .HasColumnName("user_feedback");
-
-                    b.Property<string>("ValidationErrors")
-                        .HasColumnType("text")
-                        .HasColumnName("validation_errors");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ai_alert_configurations");
-
-                    b.HasIndex("DataSourceId")
-                        .HasDatabaseName("ix_ai_alert_configurations_data_source_id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_ai_alert_configurations_status");
-
-                    b.HasIndex("SubscriptionId")
-                        .HasDatabaseName("ix_ai_alert_configurations_subscription_id");
-
-                    b.ToTable("ai_alert_configurations", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiConversationHistory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AiAlertConfigurationId")
-                        .HasColumnType("integer")
-                        .HasColumnName("ai_alert_configuration_id");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<string>("MessageContent")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("message_content");
-
-                    b.Property<string>("Metadata")
-                        .HasColumnType("text")
-                        .HasColumnName("metadata");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("model");
-
-                    b.Property<int>("Role")
-                        .HasColumnType("integer")
-                        .HasColumnName("role");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("timestamp");
-
-                    b.Property<int>("TokensUsed")
-                        .HasColumnType("integer")
-                        .HasColumnName("tokens_used");
-
-                    b.Property<int>("TurnNumber")
-                        .HasColumnType("integer")
-                        .HasColumnName("turn_number");
-
-                    b.HasKey("Id")
-                        .HasName("pk_ai_conversation_histories");
-
-                    b.HasIndex("AiAlertConfigurationId")
-                        .HasDatabaseName("ix_ai_conversation_histories_ai_alert_configuration_id");
-
-                    b.HasIndex("Timestamp")
-                        .HasDatabaseName("ix_ai_conversation_histories_timestamp");
-
-                    b.HasIndex("TurnNumber")
-                        .HasDatabaseName("ix_ai_conversation_histories_turn_number");
-
-                    b.ToTable("ai_conversation_histories", "beacon");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
                 {
                     b.Property<int>("Id")
@@ -1389,205 +1221,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("comments", "beacon");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.Dashboard", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("ArchivedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("archived_time");
-
-                    b.Property<string>("CreatedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<string>("CreatedByUserName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("created_by_user_name");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("description");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_default");
-
-                    b.Property<bool>("IsShared")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_shared");
-
-                    b.Property<string>("LayoutConfiguration")
-                        .HasColumnType("text")
-                        .HasColumnName("layout_configuration");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<int?>("RefreshIntervalSeconds")
-                        .HasColumnType("integer")
-                        .HasColumnName("refresh_interval_seconds");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
-
-                    b.HasKey("Id")
-                        .HasName("pk_dashboards");
-
-                    b.HasIndex("ArchivedTime")
-                        .HasDatabaseName("ix_dashboards_archived_time");
-
-                    b.HasIndex("CreatedByUserId")
-                        .HasDatabaseName("ix_dashboards_created_by_user_id");
-
-                    b.HasIndex("IsDefault")
-                        .HasDatabaseName("ix_dashboards_is_default");
-
-                    b.HasIndex("IsShared")
-                        .HasDatabaseName("ix_dashboards_is_shared");
-
-                    b.ToTable("dashboards", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardPermission", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int>("DashboardId")
-                        .HasColumnType("integer")
-                        .HasColumnName("dashboard_id");
-
-                    b.Property<DateTime>("GrantedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("granted_at");
-
-                    b.Property<string>("GrantedByUserId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("granted_by_user_id");
-
-                    b.Property<int>("PermissionLevel")
-                        .HasColumnType("integer")
-                        .HasColumnName("permission_level");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_dashboard_permissions");
-
-                    b.HasIndex("DashboardId")
-                        .HasDatabaseName("ix_dashboard_permissions_dashboard_id");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_dashboard_permissions_user_id");
-
-                    b.HasIndex("DashboardId", "UserId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_dashboard_permissions_dashboard_id_user_id");
-
-                    b.ToTable("dashboard_permissions", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardWidget", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ConfigurationJson")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("configuration_json");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<int>("DashboardId")
-                        .HasColumnType("integer")
-                        .HasColumnName("dashboard_id");
-
-                    b.Property<int>("Height")
-                        .HasColumnType("integer")
-                        .HasColumnName("height");
-
-                    b.Property<int>("PositionX")
-                        .HasColumnType("integer")
-                        .HasColumnName("position_x");
-
-                    b.Property<int>("PositionY")
-                        .HasColumnType("integer")
-                        .HasColumnName("position_y");
-
-                    b.Property<int?>("RefreshIntervalSeconds")
-                        .HasColumnType("integer")
-                        .HasColumnName("refresh_interval_seconds");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("title");
-
-                    b.Property<int>("WidgetType")
-                        .HasColumnType("integer")
-                        .HasColumnName("widget_type");
-
-                    b.Property<int>("Width")
-                        .HasColumnType("integer")
-                        .HasColumnName("width");
-
-                    b.HasKey("Id")
-                        .HasName("pk_dashboard_widgets");
-
-                    b.HasIndex("DashboardId")
-                        .HasDatabaseName("ix_dashboard_widgets_dashboard_id");
-
-                    b.HasIndex("WidgetType")
-                        .HasDatabaseName("ix_dashboard_widgets_widget_type");
-
-                    b.HasIndex("DashboardId", "SortOrder")
-                        .HasDatabaseName("ix_dashboard_widgets_dashboard_id_sort_order");
-
-                    b.ToTable("dashboard_widgets", "beacon");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -2385,10 +2018,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("result_row_count");
 
-                    b.Property<int?>("SessionId")
-                        .HasColumnType("integer")
-                        .HasColumnName("session_id");
-
                     b.Property<string>("SpanId")
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)")
@@ -2419,9 +2048,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("CreatedTime")
                         .HasDatabaseName("ix_mcp_audit_logs_created_time");
-
-                    b.HasIndex("SessionId")
-                        .HasDatabaseName("ix_mcp_audit_logs_session_id");
 
                     b.HasIndex("Tool")
                         .HasDatabaseName("ix_mcp_audit_logs_tool");
@@ -3412,68 +3038,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_mcp_query_signals_project_id");
 
                     b.ToTable("mcp_query_signals", "beacon");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("ApiKeyId")
-                        .HasColumnType("integer")
-                        .HasColumnName("api_key_id");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<DateTime>("LastActivityAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_activity_at");
-
-                    b.Property<int>("QueriesExecuted")
-                        .HasColumnType("integer")
-                        .HasColumnName("queries_executed");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("session_id");
-
-                    b.Property<DateTime>("StartedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("started_at");
-
-                    b.Property<int>("TokensUsed")
-                        .HasColumnType("integer")
-                        .HasColumnName("tokens_used");
-
-                    b.Property<int?>("UserId")
-                        .HasColumnType("integer")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id")
-                        .HasName("pk_mcp_sessions");
-
-                    b.HasIndex("ApiKeyId")
-                        .HasDatabaseName("ix_mcp_sessions_api_key_id");
-
-                    b.HasIndex("LastActivityAt")
-                        .HasDatabaseName("ix_mcp_sessions_last_activity_at");
-
-                    b.HasIndex("SessionId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_mcp_sessions_session_id");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_mcp_sessions_user_id");
-
-                    b.ToTable("mcp_sessions", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpSettings", b =>
@@ -5736,38 +5300,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("ParentPlan");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
-                        .WithMany()
-                        .HasForeignKey("DataSourceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_alert_configurations_data_sources_data_source_id");
-
-                    b.HasOne("Beacon.Core.Data.Entities.Subscription", "Subscription")
-                        .WithMany()
-                        .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_ai_alert_configurations_subscriptions_subscription_id");
-
-                    b.Navigation("DataSource");
-
-                    b.Navigation("Subscription");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiConversationHistory", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.AiAlertConfiguration", "AiAlertConfiguration")
-                        .WithMany("ConversationHistory")
-                        .HasForeignKey("AiAlertConfigurationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_conversation_histories_ai_alert_configurations_ai_alert_");
-
-                    b.Navigation("AiAlertConfiguration");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.AiUsageMetrics", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
@@ -5859,30 +5391,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Role");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardPermission", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.Dashboard", "Dashboard")
-                        .WithMany("Permissions")
-                        .HasForeignKey("DashboardId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_dashboard_permissions_dashboards_dashboard_id");
-
-                    b.Navigation("Dashboard");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.DashboardWidget", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.Dashboard", "Dashboard")
-                        .WithMany("Widgets")
-                        .HasForeignKey("DashboardId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_dashboard_widgets_dashboards_dashboard_id");
-
-                    b.Navigation("Dashboard");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory", b =>
@@ -6008,19 +5516,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
                 {
-                    b.HasOne("Beacon.Core.Data.Entities.McpSession", "Session")
-                        .WithMany()
-                        .HasForeignKey("SessionId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_mcp_audit_logs_mcp_sessions_session_id");
-
                     b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_mcp_audit_logs_users_user_id");
-
-                    b.Navigation("Session");
 
                     b.Navigation("User");
                 });
@@ -6058,25 +5558,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_mcp_project_settings_projects_project_id");
 
                     b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSession", b =>
-                {
-                    b.HasOne("Beacon.Core.Data.Entities.ApiKeyCredential", "ApiKey")
-                        .WithMany()
-                        .HasForeignKey("ApiKeyId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_mcp_sessions_api_key_credentials_api_key_id");
-
-                    b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("fk_mcp_sessions_users_user_id");
-
-                    b.Navigation("ApiKey");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
@@ -6534,11 +6015,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Revisions");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.AiAlertConfiguration", b =>
-                {
-                    b.Navigation("ConversationHistory");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
                 {
                     b.Navigation("UserRoles");
@@ -6547,13 +6023,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconUser", b =>
                 {
                     b.Navigation("UserRoles");
-                });
-
-            modelBuilder.Entity("Beacon.Core.Data.Entities.Dashboard", b =>
-                {
-                    b.Navigation("Permissions");
-
-                    b.Navigation("Widgets");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.DataMigration.MigrationJob", b =>

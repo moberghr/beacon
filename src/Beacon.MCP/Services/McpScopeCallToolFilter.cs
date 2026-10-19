@@ -96,7 +96,6 @@ internal static class McpScopeCallToolFilter
         // The caller's identifiers (user, API key, MCP caller) as every tool's audit row records them.
         var userId = services!.GetService<IProjectContext>()?.UserId;
         await audit.LogToolCallAsync(
-            sessionId: null,
             userId: userId,
             tool: tool ?? McpAuditService.InvalidToolName,
             parameters: null,

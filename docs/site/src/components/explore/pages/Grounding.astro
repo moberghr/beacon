@@ -219,7 +219,7 @@ SELECT c.country_code, count(DISTINCT c.customer_id) …</pre>
 			</div>
 		</div>
 		<div style="margin-top: 36px">
-			<Shot name="mcp-learning-dark" alt="The MCP Learning page in the dark theme" caption="MCP Learning: usage signals, success rate, learned patterns awaiting review and proposed documentation patches." />
+			<Shot name="mcp-learning-dark" alt="The MCP Learning page in the dark theme" caption="MCP Learning: usage signals, success rate, learned patterns awaiting review and stored documentation patches." />
 		</div>
 	</Section>
 
@@ -305,7 +305,7 @@ SELECT c.country_code, count(DISTINCT c.customer_id) …</pre>
 			<span class="chip">An open project</span>
 			<span class="chip">Beacon's background jobs</span>
 		</div>
-		<p class="note">The learning job stores new patterns as NeedsEvidence, auto-approves only through replay and proposes documentation patches without applying them. Over MCP, the <code>feedback</code> tool records a verdict and nothing else.</p>
+		<p class="note">The learning job stores new patterns as NeedsEvidence, and auto-approves only through replay. No scheduled job generates documentation patches. Over MCP, the <code>feedback</code> tool records a verdict and nothing else.</p>
 	</Section>
 
 	<Section num="05" label="Project scoping" title="Retrieval is not authorization, so it is scoped like it." lede="Two projects can share a data source. What describes the data source is shared; what a project teaches Beacon stays in that project. Every grounding path filters on the caller's authorized project, not on the data source.">

@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
-using Beacon.AI.Services.DbtIntegration;
 using Beacon.AI.Services.GitHub;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
@@ -14,8 +13,7 @@ namespace Beacon.Tests.Unit.ProjectAuthorization;
 
 /// <summary>
 /// Code references belong to one project: a repository scan names its project and never reaches another project's
-/// repository, and a dbt manifest is imported only into a project that links the data source it describes. Over
-/// in-memory sets (no database, §4.7).
+/// repository. Over in-memory sets (no database, §4.7).
 /// </summary>
 [TestFixture]
 public class CodeReferenceProjectScopeTests
@@ -42,19 +40,6 @@ public class CodeReferenceProjectScopeTests
         await scan.Should().ThrowAsync<InvalidOperationException>().WithMessage($"Repository {OtherProjectsRepositoryId} not found");
         await progress.Should().ThrowAsync<InvalidOperationException>();
         httpClients.VerifyNoOtherCalls();
-    }
-
-    [Test]
-    public async Task DbtImport_IntoAProjectThatDoesNotLinkTheDataSource_IsRefused_AndImportsNothing()
-    {
-        var (factory, saved) = Factory();
-        var service = new DbtIntegrationService(factory, NullLogger<DbtIntegrationService>.Instance);
-        var manifest = new DbtManifest { Models = [new DbtModel("orders", "sales", "Orders", "table", [], [])] };
-
-        var act = () => service.ImportModelsAsync(ProjectId, 8, manifest);
-
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage($"Project {ProjectId} does not link data source 8.");
-        saved.Should().BeEmpty();
     }
 
     private static (IDbContextFactory<BeaconContext> Factory, List<object> Saved) Factory()
