@@ -39,13 +39,13 @@ internal class JobService(
     IDataQualityEvaluationService dataQualityEvaluationService,
     ILogger<JobService> logger,
     IRunAsScope runAs,
-    IHttpContextAccessor httpContextAccessor,
     RecipientDeliveryApproval deliveryApproval,
     IAiActorService? aiActorService = null,
     IMcpLearningAggregationService? mcpLearningService = null,
     IEmbeddingIndexingService? embeddingIndexingService = null,
     IDocChunkIndexingService? docChunkIndexingService = null,
-    IMcpEvalService? mcpEvalService = null)
+    IMcpEvalService? mcpEvalService = null,
+    IHttpContextAccessor? httpContextAccessor = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -64,7 +64,7 @@ internal class JobService(
         }
 
         // A scheduled run acts as the subscription's owner as they are now; a run a request asks for acts as its caller.
-        var isScheduledRun = httpContextAccessor.HttpContext == null;
+        var isScheduledRun = httpContextAccessor?.HttpContext == null;
         if (isScheduledRun)
         {
             runAs.RunAs(subscription.OwnerUserId);
@@ -339,7 +339,7 @@ internal class JobService(
     public async Task EvaluateDataContract(int contractId, CancellationToken cancellationToken)
     {
         // A scheduled evaluation acts as the contract's owner as they are now.
-        var isScheduledRun = httpContextAccessor.HttpContext == null;
+        var isScheduledRun = httpContextAccessor?.HttpContext == null;
         if (isScheduledRun)
         {
             await RunAsContractOwnerAsync(contractId, cancellationToken);

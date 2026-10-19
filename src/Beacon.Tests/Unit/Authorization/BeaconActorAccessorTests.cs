@@ -467,11 +467,11 @@ public class BeaconActorAccessorTests
         var systemWork = new SystemWorkScope();
         systemWork.MarkAsSystemWork();
         var accessor = new BeaconActorAccessor(
-            new HttpContextAccessor(),
             Factory(),
             systemWork,
             new RunAsScope(new HttpContextAccessor()),
-            new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()));
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()),
+            new HttpContextAccessor());
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -486,11 +486,11 @@ public class BeaconActorAccessorTests
         var time = new FakeTimeProvider();
         var unmarked = new UnmarkedSystemWorkLog(time, logs.For<UnmarkedSystemWorkLog>());
 
-        var first = await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked).GetCurrentAsync(CancellationToken.None);
-        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked).GetCurrentAsync(CancellationToken.None);
+        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked, new HttpContextAccessor()).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked, new HttpContextAccessor()).GetCurrentAsync(CancellationToken.None);
         var afterBurst = logs.Entries.Count;
         time.Advance(UnmarkedSystemWorkLog.Interval);
-        await new BeaconActorAccessor(new HttpContextAccessor(), Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(new HttpContextAccessor()), unmarked, new HttpContextAccessor()).GetCurrentAsync(CancellationToken.None);
 
         first.Kind.Should().Be(BeaconPrincipalKind.Anonymous, "an unmarked scope without a request is nobody");
         afterBurst.Should().Be(1, "a second unmarked scope within the interval is not reported again");
@@ -524,11 +524,11 @@ public class BeaconActorAccessorTests
         var systemWork = new SystemWorkScope();
         systemWork.MarkAsSystemWork();
         var accessor = new BeaconActorAccessor(
-            Accessor(Interactive("ext-ana")),
             Factory(),
             systemWork,
             new RunAsScope(new HttpContextAccessor()),
-            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()));
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
+            Accessor(Interactive("ext-ana")));
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 

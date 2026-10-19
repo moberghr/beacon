@@ -9,11 +9,17 @@ namespace Beacon.Core.Authorization.Providers;
 /// Provides role-based authorization: Admin (level 3), Editor (level 2), Viewer (level 1).
 /// </summary>
 public class DatabaseAuthorizationProvider(
-    IHttpContextAccessor httpContextAccessor,
+    IHttpContextAccessor? httpContextAccessor,
     IUserManagementService userService) : IBeaconAuthorizationProvider
 {
     private BeaconUserData? _cachedUser;
     private bool _userFetched;
+
+    /// <summary>For a host without Beacon.Api (a worker): no HTTP context accessor, so there is never a request's caller.</summary>
+    public DatabaseAuthorizationProvider(IUserManagementService userService)
+        : this(null, userService)
+    {
+    }
 
     /// <summary>
     /// Viewers and above can read.
@@ -65,7 +71,7 @@ public class DatabaseAuthorizationProvider(
     // nobody), every other principal by NameIdentifier to Users.ExternalId.
     private Task<BeaconUserData?> FindCurrentUserAsync(CancellationToken cancellationToken)
     {
-        var lookup = BeaconUserLookup.Of(httpContextAccessor.HttpContext?.User);
+        var lookup = BeaconUserLookup.Of(httpContextAccessor?.HttpContext?.User);
         if (lookup.UserName != null)
         {
             return userService.GetUserByUserNameAsync(lookup.UserName, cancellationToken);

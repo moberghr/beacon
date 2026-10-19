@@ -556,8 +556,8 @@ public class DataQualityCustomSqlReadOnlyTests
             evaluation,
             NullLogger<JobService>.Instance,
             Mock.Of<IRunAsScope>(),
-            new HttpContextAccessor(),
-            TestChangeApprovals.Deliveries());
+            TestChangeApprovals.Deliveries(),
+            httpContextAccessor: new HttpContextAccessor());
 
         var act = () => jobService.EvaluateDataContract(42, CancellationToken.None);
 

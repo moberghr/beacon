@@ -465,7 +465,8 @@ public static class ServiceConfiguration
         services.TryAddScoped<Mcp.IMcpCallerMapper, Mcp.ConfiguredMcpCallerMapper>();
 
         // The request's caller as the owner/creator/assignee of resources and as an Admin (scoped: resolved once per
-        // request; reads IHttpContextAccessor, which the API registration adds). TryAdd so a host can supply its own.
+        // request; reads IHttpContextAccessor when the API registration adds it — without one every scope is off-request).
+        // TryAdd so a host can supply its own.
         services.TryAddScoped<IBeaconActorAccessor, BeaconActorAccessor>();
         services.TryAddScoped<ISystemWorkScope, Authorization.ProjectAccess.SystemWorkScope>();
         services.TryAddScoped<IRunAsScope, Authorization.ProjectAccess.RunAsScope>();
