@@ -728,11 +728,8 @@ public class MetadataRefreshTests
                 Factory(),
                 Encryption(),
                 Mock.Of<IDataSourceProviderFactory>(),
-                Mock.Of<IManualQueryExecutionLogger>(),
-                Mock.Of<IBeaconUserContext>(),
                 Cache,
                 Graph.Object,
-                TestQueryServices.Runner(),
                 new RecordingSecurityAudit(),
                 TestTransport.Policy(),
                 NullLogger<DataSourceService>.Instance);

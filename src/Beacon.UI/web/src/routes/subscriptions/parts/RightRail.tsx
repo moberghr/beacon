@@ -15,7 +15,7 @@ import {
   CardSub,
   CardTitle,
 } from '@/components/beacon';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import type {
   SubscriptionDetail,
   SubscriptionExecutionEntry,

@@ -35,9 +35,9 @@
 
 ## Hot paths
 
-§5.11 **Dapper is in use alongside EF Core** for metadata extraction (`*MetadataExtractor.cs`), bulk operations, and performance-critical raw SQL — see `src/Beacon.Core/Helpers/BulkHelpers.cs`, `src/Beacon.Core/Services/MigrationService.cs`, and the connector `JobRepository.cs` files. Do NOT migrate these to EF Core unless explicitly asked.
+§5.11 **Dapper is in use alongside EF Core** for metadata extraction (`*MetadataExtractor.cs`), bulk operations, and performance-critical raw SQL — see `src/Beacon.Core/Services/MigrationService.cs`, `src/Beacon.Core/Services/SqlPageExecutor.cs` and `src/Beacon.Core/Services/InMemoryDatabaseManager.cs`. Do NOT migrate these to EF Core unless explicitly asked.
 
-§5.12 **Bulk inserts/updates use `EFCore.BulkExtensions`.** Go through `BulkHelpers.cs`, not `context.AddRange` for >1k rows.
+§5.12 **Bulk inserts/updates use `EFCore.BulkExtensions`.** Follow `src/Beacon.Core/Services/MigrationService.Sql.cs` (`BulkInsertAsync`), not `context.AddRange`, for >1k rows.
 
 ## Pitfalls
 

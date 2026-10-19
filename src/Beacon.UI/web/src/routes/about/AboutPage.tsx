@@ -85,7 +85,7 @@ const STACK = [
   { label: 'UI', items: ['React 18', 'Vite', 'TypeScript', 'Beacon design system'] },
   { label: 'Data access', items: ['EF Core 9', 'Dapper', 'EFCore.BulkExtensions'] },
   { label: 'Databases', items: ['Npgsql', 'Microsoft.Data.SqlClient', 'MySql.Data'] },
-  { label: 'Background jobs', items: ['Hangfire', 'Cronos'] },
+  { label: 'Background jobs', items: ['Moberg.Warp', 'Cronos'] },
   { label: 'Integrations', items: ['Atlassian.SDK', 'AdaptiveCards', 'ClosedXML', 'CsvHelper'] },
 ];
 

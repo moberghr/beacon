@@ -34,7 +34,7 @@ public class ManualQueryExecutionLog : BaseEntity
     public int? DataSourceId { get; set; }
 
     /// <summary>
-    /// Optional context: "DataSourceEditor", "QueryStepPreview", "FullQueryPreview"
+    /// Optional context: "QueryStepPreview", "FullQueryPreview"
     /// </summary>
     public string? ExecutionContext { get; set; }
 

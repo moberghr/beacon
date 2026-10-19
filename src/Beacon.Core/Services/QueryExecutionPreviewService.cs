@@ -24,7 +24,6 @@ public interface IQueryExecutionPreviewService
     /// <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
     /// </summary>
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken);
-    Task<QueryStepResult?> ExecuteTemporaryStepPreview(QueryData queryData, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken);
 }
 
 internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewService
@@ -122,69 +121,6 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
     public Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken)
     {
         return ExecuteTemporaryQueryPreviewCore(queryData, parameters, maxRows, cancellationToken);
-    }
-
-    public async Task<QueryStepResult?> ExecuteTemporaryStepPreview(QueryData queryData, int stepOrder, List<ParameterValue>? parameters, CancellationToken cancellationToken)
-    {
-        await DemandMayQueryEachStepAsync(
-            queryData.Steps
-                .Where(x => x.StepOrder <= stepOrder)
-                .ToList(),
-            null,
-            cancellationToken);
-
-        int? tempQueryId = null;
-        try
-        {
-            // Create temporary query with steps up to the target step
-            var tempQueryName = $"TEMP_STEP_PREVIEW_{Guid.NewGuid():N}";
-            var tempQuery = new QueryData
-            {
-                Name = tempQueryName,
-                Description = "Temporary query for step preview",
-                Steps = queryData.Steps.Where(s => s.StepOrder <= stepOrder).ToList()
-            };
-
-            // Stored live whatever the approval workflow: it runs once, here, and is deleted below.
-            var createResponse = await _storedPreview.CreateTemporaryQuery(tempQuery, cancellationToken);
-            if (!createResponse.Success)
-            {
-                return null;
-            }
-
-            // Find the created query: a lookup of the row this method just created, not a listing for the caller.
-            var queries = await _queryService.GetQueries(new GetQueriesRequest
-            {
-                Readable = ProjectSet.All,
-                QueryName = tempQueryName
-            }, cancellationToken);
-
-            var createdQuery = queries.Items?.OrderByDescending(q => q.CreatedTime).FirstOrDefault();
-            if (createdQuery?.QueryId == null)
-            {
-                return null;
-            }
-
-            tempQueryId = createdQuery.QueryId;
-
-            // Execute the step with parameters
-            return await _queryService.PreviewQueryStep(createdQuery.QueryId.Value, stepOrder, parameters, cancellationToken);
-        }
-        finally
-        {
-            // Clean up: delete the temporary query
-            if (tempQueryId.HasValue)
-            {
-                try
-                {
-                    await _queryService.DeleteQuery(tempQueryId.Value, cancellationToken);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-            }
-        }
     }
 
     private async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreviewCore(QueryData queryData, List<ParameterValue>? parameters, int? maxRows, CancellationToken cancellationToken)

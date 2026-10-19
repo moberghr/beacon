@@ -15,8 +15,6 @@ public interface INotificationService
 
     Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
 
-    Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken);
-
     /// <summary>
     /// One run with its stored result rows, or null when it does not exist or is not readable within
     /// <paramref name="scope"/>.

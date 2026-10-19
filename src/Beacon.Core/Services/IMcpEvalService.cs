@@ -4,7 +4,7 @@ namespace Beacon.Core.Services;
 /// Runs the MCP text-to-SQL eval harness over the active golden cases. The interface lives in Core
 /// (mirroring <see cref="IMcpLearningAggregationService"/> / <see cref="IEmbeddingIndexingService"/>);
 /// the implementation lives in Beacon.AI and is wired at the composition root, so Core handlers and the
-/// Core-level Hangfire job scheduler can start/run an eval without an AI reference (avoids the
+/// Core-level job scheduler can start/run an eval without an AI reference (avoids the
 /// AI → MCP cycle, §2.4). The AI implementation generates SQL and executes it strictly read-only,
 /// applying <c>SqlReadOnlyAstValidator</c> + the query guardrail itself before every execution (§1.5).
 /// </summary>

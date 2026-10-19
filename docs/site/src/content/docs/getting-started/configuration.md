@@ -129,7 +129,6 @@ Set in the `AddBeaconServices` lambda. None of these are read from configuration
 | `Authentication.LoginRedirectPath` | `/beacon/home` | Where a sign-in lands (a full browser path) |
 | `Authentication.LoginPath` | `/login` | The login page, under the base path |
 | `Authentication.CookieExpirationHours` | `24` | Requested session-cookie lifetime; capped by `Beacon:Authentication:Session:AbsoluteLifetimeHours` (default 12) |
-| `Authentication.EnableRememberMe` | `true` | Offer "remember me" on the login form |
 | `Authentication.RememberMeExpirationDays` | `30` | Requested "remember me" lifetime; capped the same way |
 | `UserManagement.Enabled` (`EnableUserManagement()`) | `false` | Beacon's user store, Users page and first-run setup |
 | `UserManagement.AllowInternalUsers` | `true` | Allow password users |
@@ -576,7 +575,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `Region` | string | None | Required for `Bedrock` |
 | `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
-| `FastModel` | string | None | Used for short, high-volume calls. Unset: OpenAI and Claude use a built-in fast model; Azure and Bedrock use `Model` |
+| `FastModel` | string | None | Stored with the configuration, but no feature calls the fast provider yet, so setting it changes nothing today. Every call uses `Model` |
 | `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts |
 | `Limits:TokensPerMinute`, `RequestsPerMinute`, `MonthlyBudget` | int, int, decimal | `80000`, `1000`, `100.00` | Recorded and shown in settings |
 

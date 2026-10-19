@@ -6,11 +6,6 @@ export interface JobStatusChangedEvent {
   timestamp: string;
 }
 
-export interface NotificationCreatedEvent {
-  notificationId: number;
-  kind: string;
-}
-
 export interface ApprovalUpdatedEvent {
   approvalId: number;
   status: string;
@@ -18,7 +13,6 @@ export interface ApprovalUpdatedEvent {
 
 export interface BeaconHub {
   onJobStatusChanged(handler: (event: JobStatusChangedEvent) => void): () => void;
-  onNotificationCreated(handler: (event: NotificationCreatedEvent) => void): () => void;
   onApprovalUpdated(handler: (event: ApprovalUpdatedEvent) => void): () => void;
   /** Fires after SignalR's automatic reconnect succeeds. Returns unsubscribe. */
   onReconnected(handler: () => void): () => void;
@@ -52,7 +46,6 @@ export async function connectBeaconHub(): Promise<BeaconHub> {
 
   return {
     onJobStatusChanged: handler => subscribe('JobStatusChanged', handler),
-    onNotificationCreated: handler => subscribe('NotificationCreated', handler),
     onApprovalUpdated: handler => subscribe('ApprovalUpdated', handler),
     onReconnected: handler => {
       reconnectedHandlers.add(handler);

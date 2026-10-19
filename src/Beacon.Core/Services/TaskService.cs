@@ -25,36 +25,6 @@ public class TaskService(
     /// </summary>
     internal const string AutoResolveMessage = "Auto-resolved: Query returned 0 results";
 
-    public async Task<int> CreateTask(int notificationId, int subscriptionId, int resultCount, CancellationToken cancellationToken)
-    {
-        logger.LogDebug("CreateTask called - NotificationId: {NotificationId}, SubscriptionId: {SubscriptionId}, ResultCount: {ResultCount}",
-            notificationId, subscriptionId, resultCount);
-
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var existingTask = await FindUnresolvedTaskAsync(context, subscriptionId, cancellationToken);
-
-        if (existingTask != null)
-        {
-            logger.LogDebug("Updating existing task {TaskId} for subscription {SubscriptionId}", existingTask.Id, subscriptionId);
-            await UpdateTaskWithResultCountAsync(context, existingTask, resultCount, cancellationToken);
-            await LinkNotificationToTaskAsync(context, notificationId, existingTask.Id, cancellationToken);
-            await context.SaveChangesAsync(cancellationToken);
-            return existingTask.Id;
-        }
-
-        // Create new task (resolved at once by a run that returned no rows)
-        var task = CreateNewTask(subscriptionId, resultCount, autoResolveIfZero: true);
-        context.QueryTasks.Add(task);
-        await securityAudit.SaveWithEventsAsync(context, () => task.Resolved ? [AutoResolved(task)] : [], cancellationToken);
-        logger.LogDebug("Created new task {TaskId} for subscription {SubscriptionId}", task.Id, subscriptionId);
-
-        await LinkNotificationToTaskAsync(context, notificationId, task.Id, cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return task.Id;
-    }
-
     public async Task<int> CreateOrUpdateTask(int subscriptionId, int resultCount, CancellationToken cancellationToken)
     {
         logger.LogDebug("CreateOrUpdateTask called - SubscriptionId: {SubscriptionId}, ResultCount: {ResultCount}",
@@ -206,30 +176,6 @@ public class TaskService(
             : new BeaconException($"Task {taskId} not found");
     }
 
-    public async Task ReopenTask(int taskId, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var task = await context.QueryTasks
-            .Where(t => t.Id == taskId)
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new BeaconException($"Task {taskId} not found");
-
-        if (!task.Resolved)
-        {
-            // Idempotent: already unresolved, no action needed
-            return;
-        }
-
-        // Reopen task
-        task.Resolved = false;
-        task.ResolvedAt = null;
-        task.ResolutionNotes = null;
-        task.ResolvedByUserId = null;
-
-        await context.SaveChangesAsync(cancellationToken);
-    }
-
     public async Task<PagedList<TaskData>> GetTasks(GetTasksRequest request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -353,55 +299,6 @@ public class TaskService(
             .FirstOrDefaultAsync(cancellationToken);
 
         return details;
-    }
-
-    public async Task<TaskStatisticsData> GetTaskStatistics(CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Single grouped query instead of three separate COUNTs
-        var taskCounts = await context.QueryTasks
-            .GroupBy(x => x.Resolved)
-            .Select(x =>
-                new
-                {
-                    Resolved = x.Key,
-                    Count = x.Count()
-                })
-            .ToListAsync(cancellationToken);
-
-        var resolvedCount = taskCounts
-            .Where(x => x.Resolved)
-            .Sum(x => x.Count);
-        var unresolvedCount = taskCounts
-            .Where(x => !x.Resolved)
-            .Sum(x => x.Count);
-        var totalTasks = resolvedCount + unresolvedCount;
-
-        // DateTime subtraction does not translate on both providers (SQL Server has no
-        // TimeSpan mapping), so project only the two timestamps and average in memory.
-        var resolvedTasks = await context.QueryTasks
-            .Where(x => x.Resolved)
-            .Where(x => x.ResolvedAt.HasValue)
-            .Select(x =>
-                new
-                {
-                    x.CreatedTime,
-                    x.ResolvedAt
-                })
-            .ToListAsync(cancellationToken);
-
-        double? averageResolutionTimeHours = resolvedTasks.Count > 0
-            ? resolvedTasks.Average(x => (x.ResolvedAt!.Value - x.CreatedTime).TotalHours)
-            : null;
-
-        return new TaskStatisticsData
-        {
-            TotalTasks = totalTasks,
-            UnresolvedCount = unresolvedCount,
-            ResolvedCount = resolvedCount,
-            AverageResolutionTimeHours = averageResolutionTimeHours
-        };
     }
 
     public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)

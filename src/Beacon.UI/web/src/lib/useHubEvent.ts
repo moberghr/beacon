@@ -6,7 +6,6 @@ import {
   type BeaconHub,
   type ApprovalUpdatedEvent,
   type JobStatusChangedEvent,
-  type NotificationCreatedEvent,
 } from './hub';
 
 /**
@@ -110,19 +109,15 @@ function addSubscriber(attach: (hub: BeaconHub) => () => void): () => void {
 type EventMap = {
   ApprovalUpdated: ApprovalUpdatedEvent;
   JobStatusChanged: JobStatusChangedEvent;
-  NotificationCreated: NotificationCreatedEvent;
 };
 
 type HubMethod<E extends keyof EventMap> = E extends 'ApprovalUpdated'
   ? 'onApprovalUpdated'
-  : E extends 'JobStatusChanged'
-    ? 'onJobStatusChanged'
-    : 'onNotificationCreated';
+  : 'onJobStatusChanged';
 
 const METHOD_BY_EVENT: { [K in keyof EventMap]: HubMethod<K> } = {
   ApprovalUpdated: 'onApprovalUpdated',
   JobStatusChanged: 'onJobStatusChanged',
-  NotificationCreated: 'onNotificationCreated',
 };
 
 /**

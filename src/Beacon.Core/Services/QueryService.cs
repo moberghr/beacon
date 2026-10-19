@@ -70,9 +70,6 @@ public interface IQueryService
     [Obsolete(StepMutatorObsoleteMessage)]
     Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken);
 
-    [Obsolete(StepMutatorObsoleteMessage)]
-    Task DeleteQueryStep(int queryId, int stepOrder, CancellationToken cancellationToken);
-
     private const string StepMutatorObsoleteMessage =
         "Save the query with UpdateQuery, which versions the change and routes it through the approval workflow. Refused while the workflow is on; will be removed.";
 }

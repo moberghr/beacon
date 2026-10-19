@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { Input } from "@/components/beacon";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 import {
   DEFAULT_PAGE_SIZE,
   fetchPagedList,

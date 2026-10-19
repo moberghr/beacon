@@ -292,31 +292,6 @@ public class DatabaseMetadataService(
         return await RefreshMetadataAsync(dataSourceId, forceRefresh: false, cancellationToken);
     }
 
-    public async Task<IEnumerable<string>> GetTableNamesAsync(int dataSourceId, string? schemaName = null, CancellationToken cancellationToken = default)
-    {
-        var metadata = await GetMetadataAsync(dataSourceId, cancellationToken);
-
-        var tables = metadata.Tables.AsEnumerable();
-        if (!string.IsNullOrEmpty(schemaName))
-        {
-            tables = tables.Where(t => t.SchemaName.Equals(schemaName, StringComparison.OrdinalIgnoreCase));
-        }
-
-        return tables.Select(t => t.TableName).OrderBy(t => t);
-    }
-
-    public async Task<IEnumerable<ColumnMetadataDto>> GetColumnsAsync(int dataSourceId, string tableName, string? schemaName = null, CancellationToken cancellationToken = default)
-    {
-        var metadata = await GetMetadataAsync(dataSourceId, cancellationToken);
-
-        var table = metadata.Tables.FirstOrDefault(t =>
-            t.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase) &&
-            (schemaName == null || t.SchemaName.Equals(schemaName, StringComparison.OrdinalIgnoreCase))
-        );
-
-        return table?.Columns ?? Enumerable.Empty<ColumnMetadataDto>();
-    }
-
     // Replaces the data source's stored metadata with the extracted tables, keeping the curated descriptions (those a person
     // set by applying a documentation patch) over the extracted ones. Returns the tables as stored.
     private async Task<IReadOnlyList<TableMetadataDto>> StoreMetadataAsync(int dataSourceId, IReadOnlyList<TableMetadataDto> tables, CancellationToken cancellationToken)

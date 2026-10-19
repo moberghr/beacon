@@ -58,40 +58,6 @@ internal class RoleService(
             .ToListAsync(ct);
     }
 
-    public async Task<BeaconRoleData?> GetRoleByNameAsync(string name, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        return await context.Roles
-            .Where(r => r.Name == name)
-            .Select(r => new BeaconRoleData
-            {
-                Id = r.Id,
-                Name = r.Name,
-                Description = r.Description,
-                IsSystemRole = r.IsSystemRole,
-                Level = r.Level
-            })
-            .FirstOrDefaultAsync(ct);
-    }
-
-    public async Task<BeaconRoleData?> GetRoleByIdAsync(int roleId, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        return await context.Roles
-            .Where(r => r.Id == roleId)
-            .Select(r => new BeaconRoleData
-            {
-                Id = r.Id,
-                Name = r.Name,
-                Description = r.Description,
-                IsSystemRole = r.IsSystemRole,
-                Level = r.Level
-            })
-            .FirstOrDefaultAsync(ct);
-    }
-
     /// <summary>
     /// Adds the built-in roles and the functional roles (under the names the permissions are mapped to,
     /// <c>Beacon:Authorization:Roles</c>) that are missing. Names are compared ignoring case. A role that already has a

@@ -2,16 +2,6 @@ namespace Beacon.MCP.Services;
 
 internal static class SqlParsingHelper
 {
-    internal static bool IsSchemaError(string errorMessage)
-    {
-        var msg = errorMessage;
-        if (msg.Contains("42703") || msg.Contains("42P01")) return true;
-        if (msg.Contains("Invalid column name") || msg.Contains("Invalid object name")) return true;
-        if (msg.Contains("does not exist") || msg.Contains("column") && msg.Contains("not found"))
-            return true;
-        return false;
-    }
-
     internal static string CleanSqlResponse(string content)
     {
         var sql = content.Trim();

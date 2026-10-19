@@ -1,10 +1,9 @@
-﻿using Beacon.Core.Abstractions;
-using Beacon.Core.Data.Entities.Base;
+﻿using Beacon.Core.Data.Entities.Base;
 using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
-public class Query : ArchivableBaseEntity, IMultiStepWorkflow, IAttributedEntity
+public class Query : ArchivableBaseEntity, IAttributedEntity
 {
     public string Name { get; set; } = null!;
 

@@ -17,7 +17,6 @@ namespace Beacon.AI.Services.Documentation;
 
 internal sealed class ProjectDocumentationService(
     IDbContextFactory<BeaconContext> contextFactory,
-    IKnowledgeGraphService knowledgeGraphService,
     ILlmProvider llmProvider,
     IDataSourceProviderFactory dataSourceProviderFactory,
     ISqlExecutionGate gate,

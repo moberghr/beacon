@@ -50,16 +50,4 @@ internal class QueryHelper
 
         return (querySql, parameters);
     }
-
-    /// <summary>
-    /// Legacy method for backward compatibility.
-    /// DEPRECATED: This method uses string replacement and should be replaced with PrepareParameterizedQuery.
-    /// </summary>
-    [Obsolete("Use PrepareParameterizedQuery instead for better SQL injection protection")]
-    public static string CompileSql(string querySql, List<SubscriptionParameterData>? parameterValues)
-    {
-        // For backward compatibility, just return the SQL part of the new method
-        var (sql, _) = PrepareParameterizedQuery(querySql, parameterValues);
-        return sql;
-    }
 }

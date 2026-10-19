@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { useAccess, useAuth, type Access, type BeaconPermission } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
 import { BuildBadge } from '@/components/beacon';

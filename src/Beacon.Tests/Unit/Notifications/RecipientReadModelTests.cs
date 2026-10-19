@@ -16,8 +16,8 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit.Notifications;
 
 /// <summary>
-/// Subscription and data-contract reads never carry a recipient's destination: the SQL they run does not even select
-/// the column, the mapped results leave it empty, and archived recipients are not projected under
+/// Subscription (detail and list) and data-contract reads never carry a recipient's destination: the SQL they run does
+/// not even select the column, the mapped results leave it empty, and archived recipients are not projected under
 /// <c>IgnoreQueryFilters</c>.
 /// </summary>
 [TestFixture]
@@ -37,15 +37,17 @@ public class RecipientReadModelTests
         sql.Should().MatchRegex(@"r\d*\.archived_time IS NULL", "IgnoreQueryFilters drops the recipients' filter, so it is re-applied");
     }
 
-    [Test]
-    public async Task SubscriptionList_NeverSelectsDestinations()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task SubscriptionList_NeverSelectsDestinationsOrHeaders(bool archived)
     {
-        var database = new CommandCapture();
-        var service = new SubscriptionService(database.NpgsqlFactory(), Mock.Of<IBeaconScheduler>(), Mock.Of<IAnomalyDetectionService>(), TestProjectAccess.Actors(), new BeaconConfiguration(), TestQueryServices.QueryOptions, new RecordingSecurityAudit(), TimeProvider.System);
+        var commands = await new ListHandlerHarness(TestProjectAccess.FastPath).SendAsync(new GetSubscriptionsQuery { Archived = archived });
 
-        await service.GetSubscriptions(null, null, null, null!, CancellationToken.None);
-
-        NotSelectingSecretColumns(database.Commands.Should().ContainSingle().Subject.Text);
+        commands.Should().NotBeEmpty("the list reads the database");
+        foreach (var sql in commands)
+        {
+            NotSelectingSecretColumns(sql);
+        }
     }
 
     [Test]

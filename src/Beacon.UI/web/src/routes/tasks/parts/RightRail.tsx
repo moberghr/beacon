@@ -17,7 +17,7 @@ import {
   CardTitle,
   Kbd,
 } from '@/components/beacon';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import { useUnwatchTask, useWatchTask, type TaskDetail } from '../queries';
 
 interface RightRailProps {

@@ -17,15 +17,7 @@ public record JiraIssueFields(
     [property: JsonPropertyName("created")] string? Created,
     [property: JsonPropertyName("updated")] string? Updated,
     [property: JsonPropertyName("priority")] JiraPriority? Priority,
-    [property: JsonPropertyName("issuetype")] JiraIssueType? IssueType,
-    [property: JsonPropertyName("project")] JiraProjectInfo? Project,
-    [property: JsonPropertyName("watches")] JiraWatcher? Watches,
-    [property: JsonPropertyName("attachment")] JiraAttachment[]? Attachment,
-    [property: JsonPropertyName("subtasks")] JiraSubTask[]? SubTasks,
-    [property: JsonPropertyName("comment")] JiraCommentWrapper? Comment,
-    [property: JsonPropertyName("issuelinks")] JiraIssueLink[]? IssueLinks,
-    [property: JsonPropertyName("worklog")] JiraWorklogWrapper? Worklog,
-    [property: JsonPropertyName("timetracking")] JiraTimeTracking? TimeTracking);
+    [property: JsonPropertyName("issuetype")] JiraIssueType? IssueType);
 
 public record JiraStatus(
     [property: JsonPropertyName("id")] string? Id,
@@ -105,90 +97,6 @@ public record JiraAvatarUrls(
     [property: JsonPropertyName("24x24")] string? Size24,
     [property: JsonPropertyName("32x32")] string? Size32,
     [property: JsonPropertyName("48x48")] string? Size48);
-
-public record JiraProjectInfo(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("key")] string Key,
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("avatarUrls")] JiraAvatarUrls? AvatarUrls,
-    [property: JsonPropertyName("self")] string? Self,
-    [property: JsonPropertyName("simplified")] bool? Simplified,
-    [property: JsonPropertyName("style")] string? Style);
-
-public record JiraWatcher(
-    [property: JsonPropertyName("isWatching")] bool IsWatching,
-    [property: JsonPropertyName("self")] string? Self,
-    [property: JsonPropertyName("watchCount")] int WatchCount);
-
-public record JiraAttachment(
-    [property: JsonPropertyName("id")] int Id,
-    [property: JsonPropertyName("filename")] string Filename,
-    [property: JsonPropertyName("author")] JiraUser? Author,
-    [property: JsonPropertyName("created")] string Created,
-    [property: JsonPropertyName("size")] long Size,
-    [property: JsonPropertyName("mimeType")] string? MimeType,
-    [property: JsonPropertyName("content")] string? Content,
-    [property: JsonPropertyName("thumbnail")] string? Thumbnail,
-    [property: JsonPropertyName("self")] string? Self);
-
-public record JiraSubTask(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("type")] JiraIssueLinkType? Type,
-    [property: JsonPropertyName("outwardIssue")] JiraLinkedIssue? OutwardIssue);
-
-public record JiraIssueLink(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("type")] JiraIssueLinkType? Type,
-    [property: JsonPropertyName("outwardIssue")] JiraLinkedIssue? OutwardIssue,
-    [property: JsonPropertyName("inwardIssue")] JiraLinkedIssue? InwardIssue);
-
-public record JiraIssueLinkType(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("inward")] string? Inward,
-    [property: JsonPropertyName("outward")] string? Outward);
-
-public record JiraLinkedIssue(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("key")] string Key,
-    [property: JsonPropertyName("self")] string? Self,
-    [property: JsonPropertyName("fields")] JiraLinkedIssueFields? Fields);
-
-public record JiraLinkedIssueFields(
-    [property: JsonPropertyName("status")] JiraStatus? Status);
-
-public record JiraWorklog(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("author")] JiraUser? Author,
-    [property: JsonPropertyName("updateAuthor")] JiraUser? UpdateAuthor,
-    [property: JsonPropertyName("comment")] object? Comment,
-    [property: JsonPropertyName("started")] string? Started,
-    [property: JsonPropertyName("timeSpent")] string? TimeSpent,
-    [property: JsonPropertyName("timeSpentSeconds")] int? TimeSpentSeconds,
-    [property: JsonPropertyName("created")] string? Created,
-    [property: JsonPropertyName("updated")] string? Updated,
-    [property: JsonPropertyName("issueId")] string? IssueId,
-    [property: JsonPropertyName("self")] string? Self);
-
-public record JiraTimeTracking(
-    [property: JsonPropertyName("originalEstimate")] string? OriginalEstimate,
-    [property: JsonPropertyName("originalEstimateSeconds")] int? OriginalEstimateSeconds,
-    [property: JsonPropertyName("remainingEstimate")] string? RemainingEstimate,
-    [property: JsonPropertyName("remainingEstimateSeconds")] int? RemainingEstimateSeconds,
-    [property: JsonPropertyName("timeSpent")] string? TimeSpent,
-    [property: JsonPropertyName("timeSpentSeconds")] int? TimeSpentSeconds);
-
-public record JiraCommentWrapper(
-    [property: JsonPropertyName("comments")] JiraCommentResponse[]? Comments,
-    [property: JsonPropertyName("startAt")] int StartAt,
-    [property: JsonPropertyName("maxResults")] int MaxResults,
-    [property: JsonPropertyName("total")] int Total);
-
-public record JiraWorklogWrapper(
-    [property: JsonPropertyName("worklogs")] JiraWorklog[]? Worklogs,
-    [property: JsonPropertyName("startAt")] int StartAt,
-    [property: JsonPropertyName("maxResults")] int MaxResults,
-    [property: JsonPropertyName("total")] int Total);
 
 public record JiraTransitionsResponse(
     [property: JsonPropertyName("transitions")] JiraTransition[] Transitions);

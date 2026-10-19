@@ -22,7 +22,6 @@ namespace Beacon.Core.Services;
 public interface IDataQualityEvaluationService
 {
     Task<DataQualityEvaluationData> EvaluateContractAsync(int dataContractId, CancellationToken cancellationToken = default);
-    Task<List<DataQualityScoreData>> GetLatestScoresAsync(int? dataSourceId, CancellationToken cancellationToken = default);
     Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20, CancellationToken cancellationToken = default);
 }
 
@@ -176,31 +175,6 @@ internal class DataQualityEvaluationService(
         }
 
         return MapEvaluation(evaluation, enabledRules);
-    }
-
-    public async Task<List<DataQualityScoreData>> GetLatestScoresAsync(int? dataSourceId, CancellationToken cancellationToken = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var query = context.DataQualityScores.AsQueryable();
-
-        if (dataSourceId.HasValue)
-            query = query.Where(s => s.DataSourceId == dataSourceId.Value);
-
-        return await query
-            .OrderByDescending(s => s.EvaluatedAt)
-            .Select(s => new DataQualityScoreData
-            {
-                Id = s.Id,
-                DataSourceId = s.DataSourceId,
-                SchemaName = s.SchemaName,
-                TableName = s.TableName,
-                Score = s.Score,
-                EvaluatedAt = s.EvaluatedAt,
-                TrendDirection = s.TrendDirection,
-                PreviousScore = s.PreviousScore
-            })
-            .ToListAsync(cancellationToken);
     }
 
     public async Task<List<DataQualityEvaluationData>> GetEvaluationHistoryAsync(int dataContractId, int take = 20, CancellationToken cancellationToken = default)

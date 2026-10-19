@@ -6,7 +6,7 @@ namespace Beacon.AI.Services.Embeddings;
 
 /// <summary>
 /// Embeds table/column metadata and validated exemplars into <c>McpEmbedding</c> (§ Architecture ②).
-/// Runs as a Hangfire recurring job (idempotent per §6.4). Skips entirely when the local embedder is
+/// Runs as a Warp recurring job (idempotent per §6.4). Skips entirely when the local embedder is
 /// unavailable or when semantic retrieval is disabled, so installs without a model file keep working
 /// on the lexical fallback. Mirrors the <c>McpLearningAggregationService</c> split: interface in Core,
 /// implementation here, gated by settings, one context per unit of work via <c>IDbContextFactory</c>.
@@ -69,8 +69,8 @@ internal sealed class EmbeddingIndexingService(
         }
 
         // A per-source failure must not leave the vector store silently half-populated behind a green job.
-        // If EVERY source failed (e.g. an unloadable model that slipped past IsAvailable), throw so Hangfire
-        // marks the job Failed and it gets investigated (§6.4 — retries are off precisely for this reason).
+        // If EVERY source failed (e.g. an unloadable model that slipped past IsAvailable), throw so Warp
+        // marks the job failed and it gets investigated (§6.4 — retries are off precisely for this reason).
         if (failed > 0 && failed == dataSourceIds.Count)
         {
             throw new InvalidOperationException(

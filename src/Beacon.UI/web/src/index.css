@@ -4,7 +4,7 @@
  * tokens (--brand-*, --surface, --text, --ok, --warn, etc.) live in :root
  * below and are mapped by name in tailwind.config.ts via var(). The
  * `@layer components` block defines a handful of bespoke helper classes
- * (.eyebrow, .beacon-beam, .kbd, .mono, .tok-*) that don't fit cleanly
+ * (.eyebrow, .beacon-beam, .kbd, .mono, .tok-prm, .tok-ref) that don't fit cleanly
  * into Tailwind utilities.
  *
  * Switch themes with: document.documentElement.dataset.theme = 'dark'.
@@ -37,12 +37,7 @@
     box-shadow: 0 0 0 3px oklch(43.5% 0.261 278 / 0.18);
   }
 
-  /* SQL token colors used by the QueryExecution sample and the SQL editor. */
-  .tok-kw { color: oklch(50% 0.18 280); font-weight: 500; }
-  .tok-fn { color: oklch(55% 0.16 30); }
-  .tok-str { color: oklch(55% 0.14 155); }
-  .tok-num { color: oklch(55% 0.16 30); }
-  .tok-com { color: var(--text-subtle); font-style: italic; }
+  /* Inline token highlights used by the query editor hints. */
   .tok-prm {
     background: var(--brand-50);
     color: var(--brand-700);
@@ -55,32 +50,8 @@
     padding: 0 4px;
     border-radius: 3px;
   }
-  [data-theme="dark"] .tok-kw { color: oklch(72% 0.16 280); }
-  [data-theme="dark"] .tok-fn { color: oklch(72% 0.14 30); }
-  [data-theme="dark"] .tok-str { color: oklch(72% 0.13 155); }
   [data-theme="dark"] .tok-prm { background: oklch(28% 0.10 278); color: oklch(80% 0.13 278); }
   [data-theme="dark"] .tok-ref { background: oklch(24% 0.04 240); color: oklch(78% 0.13 240); }
-
-  /* Beacon logo dot — soft heartbeat. Used by the sidebar brand. */
-  .beacon-logo-dot {
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: var(--brand-500);
-    position: relative;
-    display: grid;
-    place-items: center;
-    box-shadow: 0 0 0 3px oklch(43.5% 0.261 278 / 0.15);
-  }
-  .beacon-logo-dot::after {
-    content: '';
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: white;
-    box-shadow: 0 0 0 2px oklch(43.5% 0.261 278 / 0.4);
-    animation: beacon-pulse 2.4s ease-in-out infinite;
-  }
 
   /* Radar sweep beam — used by PageHeader signal variant and BeaconHero. */
   .beacon-beam {

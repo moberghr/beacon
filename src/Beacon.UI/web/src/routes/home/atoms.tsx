@@ -5,7 +5,7 @@ import {
   Info,
   type LucideIcon,
 } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 export type DotTone = 'brand' | 'ok' | 'warn' | 'crit' | 'info';
 

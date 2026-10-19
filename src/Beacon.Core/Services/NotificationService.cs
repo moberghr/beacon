@@ -116,58 +116,6 @@ internal class NotificationService(
         return page;
     }
 
-    public async Task<NotificationStatisticsData> GetNotificationStatistics(CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var cutoffDate = DateTime.UtcNow.AddDays(-30);
-
-        // Get query execution statistics
-        var queryStats = await context.QueryExecutionHistory
-            .Where(x => x.CreatedTime >= cutoffDate)
-            .GroupBy(x => x.CreatedTime.Date)
-            .Select(x => new
-            {
-                Date = x.Key,
-                TotalQueries = x.Count(),
-                NotificationsSent = x.Count(y => y.NotificationStatus == NotificationStatus.NotificationSent)
-            })
-            .ToListAsync(cancellationToken);
-
-        // Get migration execution statistics
-        var migrationStats = await context.MigrationExecutions
-            .Where(x => x.StartedAt >= cutoffDate)
-            .GroupBy(x => x.StartedAt.Date)
-            .Select(x => new
-            {
-                Date = x.Key,
-                MigrationExecutions = x.Count(),
-                SuccessfulMigrationExecutions = x.Count(m => m.Status == MigrationStatus.Completed)
-            })
-            .ToListAsync(cancellationToken);
-
-        // Merge the data by date
-        var allDates = queryStats.Select(x => x.Date)
-            .Union(migrationStats.Select(x => x.Date))
-            .Distinct()
-            .OrderBy(x => x)
-            .ToList();
-
-        var dates = allDates.Select(date => new NotificationDateStatisticsData
-        {
-            Date = date,
-            TotalQueries = queryStats.FirstOrDefault(x => x.Date == date)?.TotalQueries ?? 0,
-            NotificationsSent = queryStats.FirstOrDefault(x => x.Date == date)?.NotificationsSent ?? 0,
-            MigrationExecutions = migrationStats.FirstOrDefault(x => x.Date == date)?.MigrationExecutions ?? 0,
-            SuccessfulMigrationExecutions = migrationStats.FirstOrDefault(x => x.Date == date)?.SuccessfulMigrationExecutions ?? 0
-        }).ToList();
-
-        return new NotificationStatisticsData
-        {
-            NotificationDateStatistics = dates
-        };
-    }
-
     public async Task<NotificationDetailsData?> GetNotificationDetails(
         int queryExecutionHistoryId,
         StoredRunScope scope,

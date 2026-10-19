@@ -7,13 +7,11 @@ public class LlmRequestQueue
 {
     private readonly SemaphoreSlim _rateLimiter;
     private readonly int _maxRetries;
-    private readonly TimeSpan _baseDelay;
 
     public LlmRequestQueue(int maxConcurrent = 50, int maxRetries = 3)
     {
         _rateLimiter = new SemaphoreSlim(maxConcurrent, maxConcurrent);
         _maxRetries = maxRetries;
-        _baseDelay = TimeSpan.FromSeconds(1);
     }
 
     public async Task<LlmResponse> EnqueueRequestAsync(

@@ -16,12 +16,6 @@ public static class Constants
         public const int DefaultMaxRows = 10_000;
 
         /// <summary>
-        /// Hard limit for UI display to prevent OutOfMemoryException in Blazor Server.
-        /// Results shown in data source details, query editors, and notification pages.
-        /// </summary>
-        public const int MaxUiDisplayRows = 100;
-
-        /// <summary>
         /// The default of <c>Beacon:Query:MaxExecutionRows</c> (<see cref="Configuration.QueryExecutionOptions"/>): the most
         /// rows one statement may return when Beacon runs a query for one of its own features (a subscription, a preview, an
         /// AI actor's check; a migration read has its own <c>Beacon:Migrations:MaxRows</c>). The cap is placed in the SQL itself and the read stops one row past it, and

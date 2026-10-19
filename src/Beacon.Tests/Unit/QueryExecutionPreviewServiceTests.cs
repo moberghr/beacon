@@ -31,9 +31,8 @@ public class QueryExecutionPreviewServiceTests
         var draft = new QueryData { Name = "draft", Steps = [new QueryStepData { StepOrder = 1, DataSourceId = 3, SqlValue = "SELECT 1" }] };
 
         await CreateService(queryService, stored).ExecuteTemporaryQueryPreview(draft, CancellationToken.None);
-        await CreateService(queryService, stored).ExecuteTemporaryStepPreview(draft, 1, null, CancellationToken.None);
 
-        stored.TemporaryQueries.Should().HaveCount(2).And.OnlyContain(x => x.Steps.Single().SqlValue == "SELECT 1");
+        stored.TemporaryQueries.Should().ContainSingle().Which.Steps.Single().SqlValue.Should().Be("SELECT 1");
         queryService.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

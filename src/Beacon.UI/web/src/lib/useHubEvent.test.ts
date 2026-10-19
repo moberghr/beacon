@@ -15,7 +15,6 @@ vi.mock('@/auth/useAuth', () => ({
 function stubHub() {
   return Promise.resolve({
     onJobStatusChanged: () => () => undefined,
-    onNotificationCreated: () => () => undefined,
     onApprovalUpdated: () => () => undefined,
     onReconnected: () => () => undefined,
     onClosed: () => undefined,

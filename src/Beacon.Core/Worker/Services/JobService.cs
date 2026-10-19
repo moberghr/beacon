@@ -563,17 +563,6 @@ internal class JobService(
         await mcpLearningService.AggregateLearnedPatternsAsync(cancellationToken);
     }
 
-    public async Task GenerateDocumentationPatches(CancellationToken cancellationToken)
-    {
-        if (mcpLearningService == null)
-        {
-            logger.LogDebug("MCP Learning service not available, skipping patch generation");
-            return;
-        }
-
-        await mcpLearningService.GenerateDocumentationPatchesAsync(cancellationToken);
-    }
-
     public async Task CleanupOldSignals(CancellationToken cancellationToken)
     {
         if (mcpLearningService == null)

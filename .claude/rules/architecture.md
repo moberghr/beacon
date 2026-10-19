@@ -46,7 +46,7 @@ Core.PostgreSql/Sql  → Core
 
 §2.8 **No AutoMapper / Mapster.** All mapping is manual via `.Select()` or inline property assignment.
 
-§2.9 **No Result pattern in new code.** Throw `InvalidOperationException` for business-rule violations; throw `BeaconException` (or a derivative) for domain-specific errors. ⚠️ **Inconsistency:** `src/Beacon.Core/Adapters/Shared/TemplateValidator.cs` and the auth providers (`src/Beacon.Core/Authorization/Providers/*`, `src/Beacon.Core/Authentication/Providers/Hybrid*`, `Jwt*`) still use a `Result<>` shape — leave existing code alone, but do NOT propagate the pattern to new handlers.
+§2.9 **No Result pattern in new code.** Throw `InvalidOperationException` for business-rule violations; throw `BeaconException` (or a derivative) for domain-specific errors. ⚠️ **Inconsistency:** older code still returns result objects instead of throwing: `BaseResponse` (`Success` / `Message`, `src/Beacon.Core/Helpers/Helpers.cs`, returned by `QueryService` and `MigrationService`), `ValidationResult` in `src/Beacon.Core/Adapters/Shared/TemplateValidator.cs`, and `AuthenticationResult` / `AuthorizationResult` in the auth providers (`src/Beacon.Core/Authorization/Providers/*`, `src/Beacon.Core/Authentication/Providers/*`) — leave existing code alone, but do NOT propagate the pattern to new handlers.
 
 ## DI conventions
 

@@ -370,11 +370,8 @@ public class DataResourceEventTests
             factory.Object,
             encryption.Object,
             Mock.Of<IDataSourceProviderFactory>(),
-            Mock.Of<IManualQueryExecutionLogger>(),
-            Mock.Of<IBeaconUserContext>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
-            TestQueryServices.Runner(),
             _audit,
             TestTransport.Policy(),
             NullLogger<DataSourceService>.Instance);

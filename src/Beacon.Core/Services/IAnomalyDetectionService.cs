@@ -54,13 +54,6 @@ public interface IAnomalyDetectionService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes anomaly configuration for a subscription
-    /// </summary>
-    Task DeleteAnomalyConfigAsync(
-        int subscriptionId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Gets chart data for visualizing anomaly thresholds and detection results. The data points are the subscription's
     /// runs readable within <paramref name="runScope"/>.
     /// </summary>

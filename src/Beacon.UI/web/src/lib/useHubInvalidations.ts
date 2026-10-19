@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import type { ApprovalUpdatedEvent } from './hub';
 import { useHubEvent, useHubReconnected } from './useHubEvent';
 
-type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged' | 'NotificationCreated';
+type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged';
 
 /**
  * Central map of SignalR events to the query keys they should invalidate.
@@ -15,7 +15,6 @@ const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
   // A decision moves a query's live steps and versions; a newer submission supersedes a pending one.
   ApprovalUpdated: [['approvals'], ['query'], ['queries'], ['migration-jobs'], ['recipients'], ['data-quality'], ['subscriptions']],
   JobStatusChanged: [['control-tower'], ['migration-jobs'], ['migration-executions']],
-  NotificationCreated: [['control-tower'], ['notifications']],
 };
 
 /** What the requester of a pending change is told when a newer submission of the same query replaced it. */
@@ -51,12 +50,6 @@ export function useHubInvalidations(): void {
 
   useHubEvent('JobStatusChanged', () => {
     for (const key of INVALIDATIONS.JobStatusChanged) {
-      qc.invalidateQueries({ queryKey: key });
-    }
-  });
-
-  useHubEvent('NotificationCreated', () => {
-    for (const key of INVALIDATIONS.NotificationCreated) {
       qc.invalidateQueries({ queryKey: key });
     }
   });

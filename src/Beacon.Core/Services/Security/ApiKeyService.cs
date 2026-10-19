@@ -155,15 +155,6 @@ internal sealed class ApiKeyService(
         return credential;
     }
 
-    public async Task<List<ApiKeyCredential>> GetApiKeysAsync(int? userId = null, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var query = context.ApiKeyCredentials.Include(k => k.User).AsQueryable();
-        if (userId.HasValue)
-            query = query.Where(k => k.UserId == userId);
-        return await query.OrderByDescending(k => k.CreatedTime).ToListAsync(ct);
-    }
-
     public async Task RevokeApiKeyAsync(int keyId, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);

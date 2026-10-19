@@ -35,11 +35,6 @@ public interface IAiActorServiceExtended : Core.Services.IAiActorService
 
     Task<Core.Data.Entities.AiActor?> GetActorAsync(int actorId, CancellationToken cancellationToken = default);
 
-    Task<List<Core.Data.Entities.AiActor>> GetActorsForDataSourceAsync(
-        int? dataSourceId,
-        bool includeArchived = false,
-        CancellationToken cancellationToken = default);
-
     Task<List<AiActorExecution>> GetExecutionHistoryAsync(
         int actorId,
         int? limit = null,

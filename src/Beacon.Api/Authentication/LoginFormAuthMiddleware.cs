@@ -24,7 +24,7 @@ public sealed class LoginFormAuthMiddleware(
             return;
         }
 
-        // Allow access to login page, static files, and Blazor endpoints
+        // Allow access to login page, and static files
         if (IsAllowedPath(context.Request.Path))
         {
             await next(context);

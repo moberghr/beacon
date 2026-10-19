@@ -27,8 +27,6 @@ public interface IMigrationService
 {
     Task<CreateMigrationJobResponse> CreateMigrationJob(CreateMigrationJobRequest request, CancellationToken cancellationToken);
     Task<ExecuteMigrationJobResponse> ExecuteMigrationJob(ExecuteMigrationJobRequest request, CancellationToken cancellationToken);
-    Task<PagedList<MigrationJobDto>> GetMigrationJobs(GetMigrationJobsRequest request, CancellationToken cancellationToken);
-    Task<MigrationJobDetailsDto?> GetMigrationJob(int id, CancellationToken cancellationToken);
     Task<PagedList<MigrationExecutionDto>> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken);
     Task<BaseResponse> DeleteMigrationJob(int id, CancellationToken cancellationToken, bool forceDelete = false);
 }
@@ -236,90 +234,6 @@ internal partial class MigrationService(
             logger.LogError("Error executing migration job {MigrationJobId} ({Failure})", request.MigrationJobId, FailureCodes.Describe(ex));
             return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
         }
-    }
-
-    public async Task<PagedList<MigrationJobDto>> GetMigrationJobs(GetMigrationJobsRequest request, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var query = context.MigrationJobs
-            .AsQueryable();
-
-        // Apply filters
-        if (request.DataSourceId.HasValue)
-        {
-            query = query.Where(m => m.DataSourceId == request.DataSourceId.Value || m.DestinationDataSourceId == request.DataSourceId.Value);
-        }
-
-        if (request.IsEnabled.HasValue)
-        {
-            query = query.Where(m => m.IsEnabled == request.IsEnabled.Value);
-        }
-
-        // Note: Global query filter already handles archived records
-        if (request.IncludeArchived)
-        {
-            query = query.IgnoreQueryFilters();
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.SearchTerm))
-        {
-            var searchTerm = request.SearchTerm.ToLower();
-            query = query.Where(m => m.Name.ToLower().Contains(searchTerm) ||
-                                   m.Description.ToLower().Contains(searchTerm));
-        }
-
-        var results = await query
-            .Select(m => new MigrationJobDto(
-                m.Id,
-                m.Name,
-                m.Description,
-                m.DataSourceId,
-                m.DataSource != null ? m.DataSource.Name : "Unknown",
-                m.DestinationDataSourceId,
-                m.DestinationDataSource != null ? m.DestinationDataSource.Name : "Unknown",
-                m.DestinationTable,
-                m.Mode,
-                m.IsEnabled,
-                m.Schedule,
-                m.CreatedTime,
-                m.Executions.OrderByDescending(e => e.StartedAt).FirstOrDefault() != null ?
-                    m.Executions.OrderByDescending(e => e.StartedAt).First().StartedAt : null,
-                m.Executions.OrderByDescending(e => e.StartedAt).FirstOrDefault() != null ?
-                    m.Executions.OrderByDescending(e => e.StartedAt).First().Status : null,
-                m.Executions.Count,
-                m.Executions.Count(e => e.Status == MigrationStatus.Completed)
-            ))
-            .ToPagedListAsync(request, cancellationToken);
-
-        return results;
-    }
-
-    public async Task<MigrationJobDetailsDto?> GetMigrationJob(int id, CancellationToken cancellationToken)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var job = await context.MigrationJobs
-            .Where(m => m.Id == id)
-            .Select(m => new MigrationJobDetailsDto(
-                m.Id,
-                m.Name,
-                m.Description,
-                m.DataSourceId,
-                m.QueryText,
-                m.DestinationDataSourceId,
-                m.DestinationTable,
-                m.Mode,
-                m.IsEnabled,
-                m.Schedule,
-                m.MaxRetries,
-                m.TimeoutMinutes,
-                m.ValidateBeforeExecution,
-                m.TransformationScript
-            ))
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return job;
     }
 
     public async Task<PagedList<MigrationExecutionDto>> GetMigrationExecutions(GetMigrationExecutionsRequest request, CancellationToken cancellationToken)

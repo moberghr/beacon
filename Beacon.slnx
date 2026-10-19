@@ -9,16 +9,6 @@
     <File Path="MIGRATIONS.md" />
     <File Path="README.md" />
   </Folder>
-  <Folder Name="/SolutionFiles/ClaudePlans/">
-    <File Path="ClaudePlans/QueryChainingFeature.md" />
-  </Folder>
-  <Folder Name="/SolutionFiles/Specify/">
-    <File Path="Specify/memory/constitution.md" />
-    <File Path="Specify/memory/constitution_update_checklist.md" />
-  </Folder>
-  <Folder Name="/SolutionFiles/Specs/">
-    <File Path="specs/001-data-migrator/spec.md" />
-  </Folder>
   <Folder Name="/Test/">
     <Project Path="src/Beacon.SampleProject/Beacon.SampleProject.csproj" />
   </Folder>

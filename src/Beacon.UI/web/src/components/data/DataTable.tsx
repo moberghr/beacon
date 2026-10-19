@@ -1,6 +1,6 @@
 import type { Key, ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, Inbox } from 'lucide-react';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import type { SortState } from '@/lib/paging';
 import { EmptyState } from './EmptyState';
 import { Pager, type PagerProps } from './Pager';

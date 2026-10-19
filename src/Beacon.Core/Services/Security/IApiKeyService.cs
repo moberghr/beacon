@@ -31,7 +31,6 @@ public interface IApiKeyService
     /// <c>Beacon:ApiKeys:MaxOwnerInactivityDays</c> days (when that is set), so the caller can be told why.
     /// </summary>
     Task<ApiKeyCredential?> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default);
-    Task<List<ApiKeyCredential>> GetApiKeysAsync(int? userId = null, CancellationToken ct = default);
     Task RevokeApiKeyAsync(int keyId, CancellationToken ct = default);
     Task UpdateLastUsedAsync(int keyId, CancellationToken ct = default);
 }

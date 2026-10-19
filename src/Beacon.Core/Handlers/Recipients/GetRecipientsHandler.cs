@@ -201,17 +201,3 @@ public record RecipientEntry
     /// </summary>
     public ChangeApprovalOutcome? LastApprovalDecision { get; init; }
 }
-
-// Keep the enum value list close to the API so the React side can render
-// labels without re-deriving them — the enum int is the wire format.
-public static class RecipientNotificationTypes
-{
-    public static readonly Dictionary<NotificationType, string> Names = new()
-    {
-        [NotificationType.Teams] = "Teams",
-        [NotificationType.Email] = "Email",
-        [NotificationType.Jira] = "Jira",
-        [NotificationType.Slack] = "Slack",
-        [NotificationType.Webhook] = "Webhook",
-    };
-}

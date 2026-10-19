@@ -183,7 +183,7 @@ In **strict mode** (`RequireApprovedVersionToRun`, recommended for regulated dep
 version to carry an approved request for exactly its content, so a version that went live while the workflow was off
 does not run until it is approved (restore it to submit it).
 
-`IQueryService.AddQueryStep`, `UpdateQueryStep` and `DeleteQueryStep` change one live step without a version or a review:
+`IQueryService.AddQueryStep` and `UpdateQueryStep` change one live step without a version or a review:
 they are refused (`409`) while the workflow is on, and are obsolete; save the query instead.
 
 ## Database names

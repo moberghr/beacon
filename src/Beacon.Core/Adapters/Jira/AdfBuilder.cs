@@ -82,74 +82,6 @@ public class AdfBuilder
     }
 
     /// <summary>
-    /// Adds a bullet list.
-    /// </summary>
-    public AdfBuilder AddBulletList(IEnumerable<string> items)
-    {
-        _content.Add(new AdfNode
-        {
-            Type = "bulletList",
-            Content = items.Select(item => new AdfNode
-            {
-                Type = "listItem",
-                Content =
-                [
-                    new AdfNode
-                    {
-                        Type = "paragraph",
-                        Content = [new AdfNode { Type = "text", Text = item }]
-                    }
-                ]
-            }).ToList()
-        });
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a numbered list.
-    /// </summary>
-    public AdfBuilder AddNumberedList(IEnumerable<string> items)
-    {
-        _content.Add(new AdfNode
-        {
-            Type = "orderedList",
-            Content = items.Select(item => new AdfNode
-            {
-                Type = "listItem",
-                Content =
-                [
-                    new AdfNode
-                    {
-                        Type = "paragraph",
-                        Content = [new AdfNode { Type = "text", Text = item }]
-                    }
-                ]
-            }).ToList()
-        });
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a blockquote.
-    /// </summary>
-    public AdfBuilder AddBlockquote(string text)
-    {
-        _content.Add(new AdfNode
-        {
-            Type = "blockquote",
-            Content =
-            [
-                new AdfNode
-                {
-                    Type = "paragraph",
-                    Content = [new AdfNode { Type = "text", Text = text }]
-                }
-            ]
-        });
-        return this;
-    }
-
-    /// <summary>
     /// Adds a table with headers and rows.
     /// </summary>
     public AdfBuilder AddTable(IEnumerable<string> headers, IEnumerable<IEnumerable<string>> rows)
@@ -211,27 +143,6 @@ public class AdfBuilder
     }
 
     /// <summary>
-    /// Adds an info/note/warning panel.
-    /// </summary>
-    public AdfBuilder AddPanel(string text, PanelType panelType = PanelType.Info)
-    {
-        _content.Add(new AdfNode
-        {
-            Type = "panel",
-            Attrs = new Dictionary<string, object> { ["panelType"] = panelType.ToString().ToLower() },
-            Content =
-            [
-                new AdfNode
-                {
-                    Type = "paragraph",
-                    Content = [new AdfNode { Type = "text", Text = text }]
-                }
-            ]
-        });
-        return this;
-    }
-
-    /// <summary>
     /// Builds the final ADF document.
     /// </summary>
     public AdfDocument Build()
@@ -276,20 +187,6 @@ public class ParagraphBuilder
     }
 
     /// <summary>
-    /// Adds italic text.
-    /// </summary>
-    public ParagraphBuilder Italic(string text)
-    {
-        _content.Add(new AdfNode
-        {
-            Type = "text",
-            Text = text,
-            Marks = [new AdfMark { Type = "em" }]
-        });
-        return this;
-    }
-
-    /// <summary>
     /// Adds inline code.
     /// </summary>
     public ParagraphBuilder Code(string text)
@@ -299,20 +196,6 @@ public class ParagraphBuilder
             Type = "text",
             Text = text,
             Marks = [new AdfMark { Type = "code" }]
-        });
-        return this;
-    }
-
-    /// <summary>
-    /// Adds strikethrough text.
-    /// </summary>
-    public ParagraphBuilder Strike(string text)
-    {
-        _content.Add(new AdfNode
-        {
-            Type = "text",
-            Text = text,
-            Marks = [new AdfMark { Type = "strike" }]
         });
         return this;
     }
@@ -331,25 +214,7 @@ public class ParagraphBuilder
         return this;
     }
 
-    /// <summary>
-    /// Adds a line break (hard break).
-    /// </summary>
-    public ParagraphBuilder LineBreak()
-    {
-        _content.Add(new AdfNode { Type = "hardBreak" });
-        return this;
-    }
-
     internal List<AdfNode> Build() => _content;
-}
-
-public enum PanelType
-{
-    Info,
-    Note,
-    Warning,
-    Success,
-    Error
 }
 
 /// <summary>

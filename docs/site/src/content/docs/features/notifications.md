@@ -372,8 +372,8 @@ recipient, then use **Test now** on the subscription or wait for the next run.
 
 ### Real-time updates
 
-The React app receives updates over a SignalR hub at `/beacon/api/hub`: `NotificationCreated` (scoped to the current
-user) alongside `JobStatusChanged` and `ApprovalUpdated`. A host that does not want them sets
+The React app receives updates over a SignalR hub at `/beacon/api/hub`: `JobStatusChanged` and `ApprovalUpdated`, each
+scoped to the current user. A host that does not want them sets
 `AddBeaconApiServices(x => x.Realtime = false)`, and the app falls back to manual refresh.
 
 ## Troubleshooting

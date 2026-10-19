@@ -68,5 +68,6 @@ public interface IDataSourceProvider
     /// <summary>
     /// Gets the query language name for UI display
     /// </summary>
+    [Obsolete("Not called by Beacon; removed in 5.0.")]
     string GetQueryLanguageName();
 }

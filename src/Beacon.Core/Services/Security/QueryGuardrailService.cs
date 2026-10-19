@@ -128,13 +128,6 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
             : result.Sql;
     }
 
-    public List<string> DetectPiiColumns(string sql, IEnumerable<string> columnNames)
-    {
-        return columnNames
-            .Where(x => IsMatchFailClosed(PiiColumnPattern, x))
-            .ToList();
-    }
-
     public bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null)
     {
         if (IsMatchFailClosed(PiiColumnPattern, columnName))

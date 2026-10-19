@@ -10,8 +10,6 @@ public interface IJobService
 
     Task AggregateLearnedPatterns(CancellationToken cancellationToken);
 
-    Task GenerateDocumentationPatches(CancellationToken cancellationToken);
-
     Task CleanupOldSignals(CancellationToken cancellationToken);
 
     Task ReindexEmbeddings(CancellationToken cancellationToken);

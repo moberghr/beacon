@@ -432,7 +432,6 @@ public class DocumentationEnumDiscoveryTests
 
         return new ProjectDocumentationService(
             factory.Object,
-            Mock.Of<IKnowledgeGraphService>(),
             llm.Object,
             providers.Object,
             TestSqlGate.Create(),

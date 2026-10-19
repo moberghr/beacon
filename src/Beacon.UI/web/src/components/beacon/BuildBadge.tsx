@@ -1,4 +1,4 @@
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 
 const COMMIT_SHA = import.meta.env.BEACON_COMMIT_SHA;
 const BUILD_DATE = import.meta.env.BEACON_BUILD_DATE;

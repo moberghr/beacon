@@ -223,6 +223,6 @@ public class ScheduledWorkVisibilityTests
                 new Dictionary<Type, object> { [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet([user], saved) },
                 saved));
 
-        return new GetAiActorDetailsHandler(actors.Object, factory.Object, NullLogger<GetAiActorDetailsHandler>.Instance);
+        return new GetAiActorDetailsHandler(actors.Object, factory.Object);
     }
 }

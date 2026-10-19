@@ -1,10 +1,9 @@
-﻿using Beacon.Core.Abstractions;
-using Beacon.Core.Data.Entities.Base;
+﻿using Beacon.Core.Data.Entities.Base;
 using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
-public class QueryExecutionHistory : BaseEntity, IExecutionHistory
+public class QueryExecutionHistory : BaseEntity
 {
     public required int SubscriptionId { get; set; }
 
@@ -35,15 +34,4 @@ public class QueryExecutionHistory : BaseEntity, IExecutionHistory
     public List<Notification> Notifications { get; set; } = new();
 
     public Subscription Subscription { get; set; } = null!;
-
-    // IExecutionHistory implementation
-    DateTime IExecutionHistory.StartedAt => CreatedTime;
-    DateTime? IExecutionHistory.CompletedAt => CreatedTime.AddMilliseconds(ExecutionTimeMs);
-    TimeSpan IExecutionHistory.ExecutionDuration => TimeSpan.FromMilliseconds(ExecutionTimeMs);
-    bool IExecutionHistory.Success => NotificationStatus == NotificationStatus.NotificationSent;
-    string? IExecutionHistory.ErrorMessage => Comment ?? (NotificationStatus == NotificationStatus.Timeout
-        ? "Query execution timed out"
-        : NotificationStatus != NotificationStatus.NotificationSent
-            ? $"Notification status: {NotificationStatus}"
-            : null);
 }

@@ -19,7 +19,7 @@ import {
   CardBody,
   Kbd,
 } from '@/components/beacon';
-import { cn } from '@/lib/cn';
+import { cn } from '@/lib/utils';
 import type { QueryDetail } from '../queries';
 
 interface RightRailProps {
