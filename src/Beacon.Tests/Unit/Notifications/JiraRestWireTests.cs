@@ -189,7 +189,7 @@ public class JiraRestWireTests
     public async Task SearchTickets_NumberAsAString_IsRejectedAsUnreadable()
     {
         // Numbers are read strictly, as the client has always read them: a quoted number is an unreadable answer.
-        _handler.Answer(HttpStatusCode.OK, """{"startAt":0,"maxResults":5,"total":1,"issues":[{"id":"1","key":"A-1","self":"s","fields":{"summary":"x","status":{"name":"T"},"attachment":[{"id":"10001","filename":"f","created":"c","size":12}]}}]}""");
+        _handler.Answer(HttpStatusCode.OK, """{"startAt":0,"maxResults":5,"total":"1","issues":[{"id":"1","key":"A-1","self":"s","fields":{"summary":"x","status":{"name":"T"}}}]}""");
 
         var act = () => Adapter().SearchTickets(new JiraCredentials(Recipient), "jql", 5, CancellationToken.None);
 
