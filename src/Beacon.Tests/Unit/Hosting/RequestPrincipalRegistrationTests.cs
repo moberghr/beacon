@@ -139,6 +139,19 @@ public class RequestPrincipalRegistrationTests
     }
 
     [Test]
+    public void TheLastUseRequestPrincipal_Wins_AlsoOverAnEarlierCallForTheSameType()
+    {
+        var services = Core(new ServiceCollection());
+        services.UseRequestPrincipal<HostPrincipal>();
+        services.UseRequestPrincipal<OtherHostPrincipal>();
+        services.UseRequestPrincipal<HostPrincipal>();
+
+        services.Where(x => x.ServiceType == typeof(IBeaconRequestPrincipal)).Should().HaveCount(2);
+        using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IBeaconRequestPrincipal>().Should().BeOfType<HostPrincipal>();
+    }
+
+    [Test]
     public void AHostsUseRequestPrincipal_BeforeApiAndMcp_Survives()
     {
         var services = Core(new ServiceCollection());
@@ -288,6 +301,13 @@ public class RequestPrincipalRegistrationTests
     private sealed class HostPrincipal : IBeaconRequestPrincipal
     {
         public bool HasRequest => true;
+
+        public ClaimsPrincipal? User => null;
+    }
+
+    private sealed class OtherHostPrincipal : IBeaconRequestPrincipal
+    {
+        public bool HasRequest => false;
 
         public ClaimsPrincipal? User => null;
     }

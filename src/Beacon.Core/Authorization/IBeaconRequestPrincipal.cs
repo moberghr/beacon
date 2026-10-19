@@ -42,28 +42,24 @@ public static class BeaconRequestPrincipalRegistration
     /// principal Beacon registered itself (Core's off-request default, the <c>HttpContext</c> principal of Beacon.Api and
     /// Beacon.MCP) is removed and <typeparamref name="T"/> is added. Core's default registration after it is a no-op, and
     /// Beacon.Api's and Beacon.MCP's registrations after it keep it. A principal the host registered some other way (its
-    /// own type with <c>AddSingleton</c>) is not removed; the last registration wins.
+    /// own type with <c>AddSingleton</c>) is not removed; the last registration wins, also over an earlier
+    /// <see cref="UseRequestPrincipal{T}"/> call.
     /// </summary>
     public static IServiceCollection UseRequestPrincipal<T>(this IServiceCollection services)
         where T : class, IBeaconRequestPrincipal
     {
-        var beaconsOwn = services
+        // Beacon's own principals and an earlier registration of T go; T is added last, so the latest call wins.
+        var replaced = services
             .Where(x => x.ServiceType == typeof(IBeaconRequestPrincipal))
             .Where(x => x.ImplementationType != null)
-            .Where(x => typeof(IBeaconOwnRequestPrincipal).IsAssignableFrom(x.ImplementationType))
+            .Where(x => x.ImplementationType == typeof(T) || typeof(IBeaconOwnRequestPrincipal).IsAssignableFrom(x.ImplementationType))
             .ToList();
-        foreach (var descriptor in beaconsOwn)
+        foreach (var descriptor in replaced)
         {
             services.Remove(descriptor);
         }
 
-        var alreadyRegistered = services
-            .Where(x => x.ServiceType == typeof(IBeaconRequestPrincipal))
-            .Any(x => x.ImplementationType == typeof(T));
-        if (!alreadyRegistered)
-        {
-            services.AddSingleton<IBeaconRequestPrincipal, T>();
-        }
+        services.AddSingleton<IBeaconRequestPrincipal, T>();
 
         return services;
     }
