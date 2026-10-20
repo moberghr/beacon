@@ -12,8 +12,9 @@ namespace Beacon.Core.Services.Validation;
 /// over-long input), the refusal of control characters and Unicode noncharacters second (the parser reads U+FFFF as the end
 /// of its input), the regex guardrail third, the AST validator fourth, and a read-only failure
 /// short-circuits every later stage so no schema, lint or row-limit work is ever done on a statement that
-/// may not run. A name in another database than the target's configured one, and a host policy violation, then block
-/// whatever the read-only and schema settings. Stateless — the validators keep their own identifier-only logging.
+/// may not run. A name in another database than the target's configured one, a read of the engine's catalog, statistics or
+/// query history, and a host policy violation, then block whatever the read-only and schema settings. Stateless — the
+/// validators keep their own identifier-only logging.
 /// </summary>
 public sealed class SqlExecutionGate(
     IQueryGuardrailService guardrail,
@@ -86,17 +87,15 @@ public sealed class SqlExecutionGate(
         var schemaResult = schemaValidator.Validate(request.Sql, ToCatalog(request.Catalog), request.Dialect);
 
         // A name in another database, or a function or path that reaches another server, file or storage, leaves the data
-        // source's boundary: authorization, not advice — it always blocks, also with read-only enforcement off (SQL that
-        // cannot be parsed cannot be checked, so it blocks too). Only the in-memory join, which reaches nothing else, is
-        // not checked.
-        var crossDatabaseError = request.InMemoryJoin
-            ? null
-            : SqlCrossDatabaseRule.Validate(request.Sql, request.Dialect, request.ConfiguredDatabase);
-        if (crossDatabaseError != null)
+        // source's boundary, and so does a read of the engine's catalog, statistics or query history: authorization, not
+        // advice — it always blocks, also with read-only enforcement off (SQL that cannot be parsed cannot be checked, so it
+        // blocks too). Only the in-memory join, which reaches nothing else, is not checked.
+        var boundary = request.InMemoryJoin ? null : EvaluateBoundary(request);
+        if (boundary != null)
         {
             return new SqlGateReport(
                 true,
-                crossDatabaseError,
+                boundary.Message,
                 request.Sql,
                 schemaResult.TablesUsed,
                 schemaResult.ColumnsUsed,
@@ -104,7 +103,7 @@ public sealed class SqlExecutionGate(
                 [],
                 new SqlGateVerdicts(
                     readOnly,
-                    SqlGateVerdict.Fail(SqlGateCodes.CrossDatabase, crossDatabaseError),
+                    boundary,
                     SqlGateVerdict.Skipped(NotEvaluated),
                     SqlGateVerdict.Skipped(NotEvaluated)));
         }
@@ -190,6 +189,23 @@ public sealed class SqlExecutionGate(
                 SqlGateVerdict.Skipped(NotEvaluated),
                 SqlGateVerdict.Skipped(NotEvaluated),
                 SqlGateVerdict.Skipped(NotEvaluated)));
+    }
+
+    // The cross-database verdict first: GatedSqlRunner judges a statement again against the configured database only when
+    // that is what refused it.
+    private static SqlGateVerdict? EvaluateBoundary(SqlGateRequest request)
+    {
+        var crossDatabaseError = SqlCrossDatabaseRule.Validate(request.Sql, request.Dialect, request.ConfiguredDatabase);
+        if (crossDatabaseError != null)
+        {
+            return SqlGateVerdict.Fail(SqlGateCodes.CrossDatabase, crossDatabaseError);
+        }
+
+        var systemCatalogError = SqlSystemCatalogRule.Validate(request.Sql, request.Dialect);
+
+        return systemCatalogError == null
+            ? null
+            : SqlGateVerdict.Fail(SqlGateCodes.SystemCatalog, systemCatalogError);
     }
 
     private HostPolicyResult? EvaluateHostPolicy(SqlGateRequest request)

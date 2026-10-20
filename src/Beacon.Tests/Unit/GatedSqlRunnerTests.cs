@@ -46,6 +46,20 @@ public class GatedSqlRunnerTests
         provider.Invocations.Should().BeEmpty();
     }
 
+    // Judged first as if no database were configured, then again against the configured one: a catalog read in the configured
+    // database is still refused, as a catalog read.
+    [TestCase("SELECT * FROM sales.pg_catalog.pg_stats", "system_catalog")]
+    [TestCase("SELECT * FROM hr.pg_catalog.pg_stats", "cross_database")]
+    public void ACatalogReadQualifiedWithADatabase_IsRefused(string sql, string code)
+    {
+        var runner = Runner(new Mock<IDataSourceProvider>(MockBehavior.Strict).Object, TestConfiguredDatabases.Of("sales"));
+
+        var report = runner.Evaluate(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10));
+
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.Schema.Code.Should().Be(code);
+    }
+
     [Test]
     public async Task TheStatementRuns_OnTheReadOnlyPath_CappedInTheSql_WithItsParameters()
     {

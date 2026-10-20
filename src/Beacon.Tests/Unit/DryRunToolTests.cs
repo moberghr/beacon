@@ -277,6 +277,21 @@ public class DryRunToolTests
     }
 
     [Test]
+    public async Task CatalogRelation_ReportsTheSystemCatalogCode_AndRunsNoProviderDryRun()
+    {
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT most_common_vals FROM pg_stats", cancellationToken: CancellationToken.None);
+
+        var structured = result.StructuredContent!.Value;
+        structured.GetProperty("valid").GetBoolean().Should().BeFalse();
+        var issues = structured.GetProperty("issues").EnumerateArray().ToList();
+        issues.Should().ContainSingle(x => x.GetProperty("gate").GetString() == "schema");
+        issues[0].GetProperty("code").GetString().Should().Be("system_catalog");
+        _queryExecution.Verify(
+            x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
     public async Task EmptyCatalog_AddsSchemaSkipAdvisory_InvalidatesVerdict_ButProviderDryRunStillRuns()
     {
         _knowledgeGraph

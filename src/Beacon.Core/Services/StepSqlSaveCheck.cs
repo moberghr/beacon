@@ -9,10 +9,11 @@ namespace Beacon.Core.Services;
 /// <summary>
 /// What a query step's SQL must pass before it is stored — by a save from the query editor or by an AI actor creating or
 /// refining a query: the shared execution gate in the data source's dialect, as the SQL will run (placeholders bound) —
-/// regex guardrail, a single read-only statement, names in the source's own configured database only, the host policy for
-/// a host data source — and, when Beacon holds metadata for the source, every column the SQL reads from a table in that
-/// metadata must exist there (a blocking catalog check; a table the metadata does not list is left to the database). Every execution re-checks the read-only stages; this keeps SQL that could never run, or
-/// that names objects the source does not have, from being stored at all. Registered with <c>TryAdd</c>.
+/// regex guardrail, a single read-only statement, names in the source's own configured database only, no catalog, statistics
+/// or query-history relation, the host policy for a host data source — and, when Beacon holds metadata for the source,
+/// every column the SQL reads from a table in that metadata must exist there (a blocking catalog check; a table the
+/// metadata does not list is left to the database). Every execution re-checks the read-only stages; this keeps SQL that
+/// could never run, or that names objects the source does not have, from being stored at all. Registered with <c>TryAdd</c>.
 /// </summary>
 public interface IStepSqlSaveCheck
 {

@@ -71,8 +71,9 @@ Every SQL statement Beacon runs (MCP tools, previews, scheduled checks, saved-qu
 | 4 | Guardrail | Write and DDL patterns are refused, judged after the dialect's own tokenizer strips comments. |
 | 5 | AST validator | The SQL is parsed in the data source's dialect; anything but a read is refused. An unknown dialect is refused. |
 | 6 | Cross-database rule | Names qualified with another database, catalog or project; remote servers, files and storage; `USE`, `SET ROLE`, `EXECUTE AS`; SQL built from strings or variables are all refused. Always on, even with read-only off. |
-| 7 | Host policy | For a host-exposed DbContext: only allow-listed tables and columns. |
-| 8 | Row cap | The cap is written into the SQL, overriding any bound the statement sets itself. Scheduled runs, previews and Beacon's own reads **fail** above the cap; MCP `query` and `ask` return the capped rows and say the result was truncated. Nothing is cut silently. |
+| 7 | System catalog rule | The engine's catalog, statistics and query-history relations (`pg_catalog` and `pg_…`, `information_schema`, `sys`, Snowflake `QUERY_HISTORY` and `RESULT_SCAN`, …) are refused; a source's tables and columns come from Beacon's metadata. Always on, even with read-only off. |
+| 8 | Host policy | For a host-exposed DbContext: only allow-listed tables and columns. |
+| 9 | Row cap | The cap is written into the SQL, overriding any bound the statement sets itself. Scheduled runs, previews and Beacon's own reads **fail** above the cap; MCP `query` and `ask` return the capped rows and say the result was truncated. Nothing is cut silently. |
 
 Then the statement runs on the data source's provider:
 

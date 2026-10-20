@@ -176,7 +176,7 @@ When the approved SQL changes, the routine picks up the new version on its next 
 - **Execute scope.** `/beacon/mcp` requires the Execute scope, so a Read-scoped API key cannot call saved-query
   tools; project-restricted API keys work and are held to their project list.
 - **Read-only execution.** Every step's SQL, with its arguments bound, goes through the shared execution gate
-  (regex guardrail, AST read-only validator, cross-database rule, row limit) and runs through the provider's read-only
+  (regex guardrail, AST read-only validator, cross-database rule, system catalog rule, row limit) and runs through the provider's read-only
   path: a `READ ONLY` transaction on PostgreSQL and MySQL; on the other engines the parser gates and the read-only
   login you connect with (see [How a query runs](/features/queries/#how-a-query-runs)). A final query joins the steps
   in in-memory SQLite behind the same gate.
