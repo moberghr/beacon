@@ -20,7 +20,9 @@ internal sealed class QueryExecutionService(
     IProjectContext projectContext,
     IMcpStatementLog statementLog,
     IQueryCostLimit costLimit,
-    IHostDataSourceGuard hostGuard) : IQueryExecutionService
+    IHostDataSourceGuard hostGuard,
+    ISqlExecutionGate gate,
+    IConfiguredDatabaseResolver configuredDatabases) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -35,7 +37,22 @@ internal sealed class QueryExecutionService(
         // Resolved before execution: the statement timeout and the result size budget come from them.
         var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectContext.ActiveProjectId ?? 0, [dataSourceId], ct);
 
-        var limitedSql = guardrailService.ApplyRowLimit(sql, maxRows, DataSourceSqlDialect.Of(dataSource));
+        // The statement runs as the gate writes it (§1.5): the row cap is the gate's own row-limit stage, so what reaches
+        // the source is the gate's FinalSql, never SQL changed after the gate. The pipeline judged the same SQL while it
+        // generated and repaired it; this evaluation, under the source's effective settings, decides what runs, and a
+        // refusal reaches no source.
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings) with
+        {
+            MaxRows = maxRows,
+            HostManagedKey = dataSource.HostManagedKey,
+            ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
+        });
+        if (report.Blocked)
+        {
+            return new QueryExecutionResult(null, report.BlockReason ?? "The SQL was rejected.", 0, false, Refused: true);
+        }
+
+        var limitedSql = report.FinalSql;
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));

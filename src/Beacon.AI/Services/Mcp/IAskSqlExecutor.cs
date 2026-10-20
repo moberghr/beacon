@@ -23,8 +23,8 @@ public interface IAskSqlExecutor
 /// One execution of a candidate query. <paramref name="FormattedResult"/> is the rendered markdown the
 /// <c>ask</c> transcript embeds (null when the executor does not format); <paramref name="Rows"/> is the
 /// raw result set, populated only by executors that expose it (the eval harness fingerprints it, R10).
-/// <paramref name="Refused"/> marks a statement Beacon refused before it ran (a limit such as MaxExplainCost, not a database
-/// error): <paramref name="ErrorMessage"/> is Beacon's own message and no repair is attempted.
+/// <paramref name="Refused"/> marks a statement Beacon refused before it ran (the execution gate or a limit such as
+/// MaxExplainCost, not a database error): <paramref name="ErrorMessage"/> is Beacon's own message and no repair is attempted.
 /// </summary>
 public sealed record AskExecutionResult(
     string? FormattedResult,

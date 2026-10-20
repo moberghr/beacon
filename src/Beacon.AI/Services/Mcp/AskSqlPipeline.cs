@@ -358,8 +358,8 @@ internal sealed class AskSqlPipeline(
 
         var execResult = await ExecuteForAsync(McpStatementPurposes.Initial, executor, dataSourceId, generatedSql, settings, ct);
 
-        // A statement Beacon refused before it ran (a cost limit) is not repaired: the limit, not the SQL's correctness,
-        // stopped it, so the call ends with the refusal.
+        // A statement Beacon refused before it ran (the execution gate or a cost limit) is not repaired: Beacon's own check,
+        // not a database error, stopped it, so the call ends with the refusal.
         if (!execResult.IsSuccess && !execResult.Refused && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
         {
             repairAttempts++;

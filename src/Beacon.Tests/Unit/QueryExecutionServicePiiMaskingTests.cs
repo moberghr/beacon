@@ -11,6 +11,7 @@ using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
+using Beacon.Core.Services.Validation;
 using Beacon.MCP.Services;
 using Beacon.Tests.Common;
 using Beacon.Tests.Unit.HostData;
@@ -96,7 +97,8 @@ public class QueryExecutionServicePiiMaskingTests
             rows: [new Dictionary<string, object?> { ["contact"] = RawEmail, ["name"] = "Alice" }],
             dataSourceType: DataSourceType.Databricks,
             engine: null,
-            executed: executed);
+            executed: executed,
+            configuredDatabase: "main");
 
         var result = await service.ExecuteAsync(1, "SELECT email AS contact, name FROM main.crm.users", 100, CancellationToken.None);
 
@@ -431,11 +433,40 @@ public class QueryExecutionServicePiiMaskingTests
         result.FormattedResult.Should().NotContain(Ssn);
     }
 
-    // A host check that refuses names no masked column: every result column is masked in full rather than none.
+    // The host policy refuses the statement: the executor's own gate refuses it before it reaches the source.
+    [Test]
+    public async Task ExecuteAsync_RefusedHostCheck_IsRefusedBeforeTheStatementRuns()
+    {
+        const string sql = "SELECT c.Id, c.SSN AS kt FROM dbo.Customer c";
+        var executed = new List<string>();
+        var hostGuard = new HostDataSourceGuard(new TestHostDataSources());
+        var service = BuildService(
+            piiDetectionOn: true,
+            engine: DatabaseEngineType.MSSQL,
+            executed: executed,
+            hostGuard: hostGuard,
+            hostManagedKey: HostKey);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.Should().BeEquivalentTo(new { IsSuccess = false, Refused = true, RowCount = 0 }, x => x.ExcludingMissingMembers());
+        result.ErrorMessage.Should().Be(GateRefusal(sql, DatabaseEngineType.MSSQL, hostGuard, HostKey));
+        executed.Should().BeEmpty();
+    }
+
+    // A host check of the statement as it ran that refuses names no masked column: every result column is masked in full
+    // rather than none (the gate's check of the same statement let it run).
     [TestCase(true)]
     [TestCase(false)]
-    public async Task ExecuteAsync_RefusedHostCheck_MasksEveryResultColumnInFull(bool piiDetectionOn)
+    public async Task ExecuteAsync_HostCheckRefusingTheStatementAsItRan_MasksEveryResultColumnInFull(bool piiDetectionOn)
     {
+        var hostGuard = new Mock<IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check(HostKey, It.IsAny<string>()))
+            .Returns(new HostPolicyResult(true, null, []));
+        hostGuard
+            .Setup(x => x.Check(It.IsAny<DataSource>(), It.IsAny<string>()))
+            .Returns(HostPolicyResult.Reject("refused"));
         var rows = new List<Dictionary<string, object?>>
         {
             new() { ["Id"] = "1", ["kt"] = Ssn }
@@ -444,7 +475,7 @@ public class QueryExecutionServicePiiMaskingTests
             piiDetectionOn,
             rows: rows,
             engine: DatabaseEngineType.MSSQL,
-            hostGuard: new HostDataSourceGuard(new TestHostDataSources()),
+            hostGuard: hostGuard.Object,
             hostManagedKey: HostKey);
 
         var result = await service.ExecuteAsync(1, "SELECT c.Id, c.SSN AS kt FROM dbo.Customer c", 100, CancellationToken.None);
@@ -452,6 +483,53 @@ public class QueryExecutionServicePiiMaskingTests
         result.IsSuccess.Should().BeTrue();
         StructuredRowValues(result).Should().Equal(HostResultMasker.MaskedValue, HostResultMasker.MaskedValue);
         result.FormattedResult.Should().NotContain(Ssn);
+    }
+
+    // The statement that reaches the source is the gate's own output: the ask's row cap is the gate's row-limit stage,
+    // also lowering a larger bound the statement sets itself.
+    [TestCase("SELECT name FROM users", 7, "SELECT name FROM users LIMIT 7")]
+    [TestCase("SELECT name FROM users LIMIT 500", 100, "SELECT name FROM users LIMIT 100")]
+    public async Task ExecuteAsync_RunsTheGatesFinalSql_CappedAtTheRequestedRows(string sql, int maxRows, string expected)
+    {
+        var executed = new List<string>();
+        var service = BuildService(piiDetectionOn: false, executed: executed);
+
+        var result = await service.ExecuteAsync(1, sql, maxRows, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        executed.Should().Equal(expected);
+    }
+
+    // The executor's gate refuses what the gate refuses anywhere: a write, a system catalog read, a name in another
+    // database. Nothing reaches the source, and the refusal is Beacon's own message, not a database error.
+    [TestCase("DELETE FROM users")]
+    [TestCase("SELECT * FROM pg_catalog.pg_stats")]
+    [TestCase("SELECT * FROM other_db.public.users")]
+    public async Task ExecuteAsync_SqlTheGateRefuses_NeverReachesTheSource(string sql)
+    {
+        var executed = new List<string>();
+        var service = BuildService(piiDetectionOn: true, executed: executed);
+
+        var result = await service.ExecuteAsync(1, sql, 100, CancellationToken.None);
+
+        result.Should().BeEquivalentTo(new { IsSuccess = false, Refused = true, RowCount = 0 }, x => x.ExcludingMissingMembers());
+        result.ErrorMessage.Should().Be(GateRefusal(sql, DatabaseEngineType.PostgreSQL));
+        executed.Should().BeEmpty();
+    }
+
+    // The gate's own refusal of the statement as the executor asks for it (no database qualifier configured).
+    private static string? GateRefusal(string sql, DatabaseEngineType engine, IHostDataSourceGuard? hostGuard = null, string? hostManagedKey = null)
+    {
+        var dataSource = new DataSource { Name = "source", DataSourceType = DataSourceType.Database, DatabaseEngineType = engine, EncryptedConnectionData = "" };
+        var report = TestSqlGate.Create(hostGuard: hostGuard).Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), new McpSettingsData { EnablePiiDetection = true }) with
+        {
+            MaxRows = 100,
+            HostManagedKey = hostManagedKey
+        });
+
+        report.Blocked.Should().BeTrue();
+
+        return report.BlockReason;
     }
 
     private static QueryExecutionService BuildService(
@@ -469,7 +547,8 @@ public class QueryExecutionServicePiiMaskingTests
         Func<CancellationToken, Task<ProviderQueryResult>>? execute = null,
         IQueryCostLimit? costLimit = null,
         IHostDataSourceGuard? hostGuard = null,
-        string? hostManagedKey = null)
+        string? hostManagedKey = null,
+        string? configuredDatabase = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -508,13 +587,17 @@ public class QueryExecutionServicePiiMaskingTests
             projectSettings: perProject);
         captureProvider?.Invoke(settingsProvider);
 
+        var guard = hostGuard ?? new HostDataSourceGuard(new TestHostDataSources());
+
         return new QueryExecutionService(
             factory.Object,
             providerFactory.Object,
             new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog(), costLimit ?? TestQueryCostLimit.Passing,
-            hostGuard ?? new HostDataSourceGuard(new TestHostDataSources()));
+            guard,
+            TestSqlGate.Create(hostGuard: guard),
+            TestConfiguredDatabases.Of(configuredDatabase));
     }
 
     private sealed class SeededDataSourceContext : BeaconContext

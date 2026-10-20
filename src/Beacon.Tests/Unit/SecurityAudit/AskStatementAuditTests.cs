@@ -400,7 +400,9 @@ public class AskStatementAuditTests
             new McpProjectContext { UserId = 1, ActiveProjectId = ProjectId, AllowedProjectIds = [ProjectId] },
             log,
             TestQueryCostLimit.Passing,
-            new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources()));
+            new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources()),
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.None);
     }
 
     // The ask tool over a routed single source, its pipeline running the generated SQL once through the real execution
