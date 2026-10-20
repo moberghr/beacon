@@ -47,6 +47,7 @@ The host also maps the login and setup endpoints (`app.MapLoginEndpoints("/beaco
 |---|---|---|
 | `Enabled` | `false` | Turns on the user store, the Users page, first-run setup and `DatabaseAuthorizationProvider` |
 | `AllowInternalUsers` | `true` | Allows password users |
+| `HostOwnsSignIn` | `false` | The host signs people in, so there is no first-run setup (see [When the host owns sign-in](#when-the-host-owns-sign-in)); code-only |
 | `MinimumPasswordLength` | `8` | Shortest password accepted |
 | `RequirePasswordComplexity` | `true` | Requires an upper-case letter, a lower-case letter, a digit and a character that is neither |
 | `SetupToken` | unset | The first-run setup token; also bound from `Beacon:UserManagement:SetupToken` (see [First-run setup](#first-run-setup)) |
@@ -64,6 +65,20 @@ While no super admin has ever existed in the database (an archived super admin c
 A configured `SetupToken` must be at least 32 characters, or the host does not start. Each replica generates its own token, so a deployment with several replicas must configure one. The token is compared in constant time; creation is atomic (a request that loses a race gets `409` and can retry). A wrong or missing token answers `403`.
 
 The setup endpoints are anonymous and throttled per client address, separately from the login form. Until the super admin exists Beacon provisions **no other user**: an SSO sign-in or MCP caller that would create a user is refused. `GET /beacon/api/setup/roles` is anonymous only while setup is open.
+
+### When the host owns sign-in
+
+A host that embeds Beacon behind its own identity, and decides itself whom Beacon provisions, sets `HostOwnsSignIn`. Then there is no first-run setup: `GET /beacon/api/setup/status` reports setup as completed, no token is printed, `POST /beacon/api/setup/superadmin` is refused, and external users (the host's own provisioning, SSO, MCP callers) are created without a super admin existing. Nobody is ever a super admin; the host grants the Admin role to whoever administers Beacon.
+
+```csharp
+options.EnableUserManagement(x =>
+{
+    x.AllowInternalUsers = false;
+    x.HostOwnsSignIn = true;
+});
+```
+
+It is set in code only, never from configuration: a configuration value that turned it on would let the first caller of a fresh installation be provisioned without setup.
 
 ## Managing users
 
