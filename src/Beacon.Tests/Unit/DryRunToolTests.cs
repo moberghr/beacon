@@ -69,10 +69,6 @@ public class DryRunToolTests
                 ["public.customers"] = ["id", "name", "email"]
             });
 
-        _guardrail
-            .Setup(x => x.ApplyRowLimit(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>()))
-            .Returns<string, int, string?>((sql, maxRows, _) => $"{sql} LIMIT {maxRows}");
-
         SetupGuardrailValidation(isValid: true, error: null, piiColumns: null);
 
         _queryExecution

@@ -5,7 +5,6 @@ using Microsoft.Extensions.Options;
 using NUnit.Framework;
 using Beacon.Core.Configuration;
 using Beacon.Core.Models;
-using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Beacon.Tests.Common;
@@ -65,10 +64,10 @@ public class SqlNestingBoundsTests
     [Test]
     public void RowLimit_ChainDeeperThanTheBound_IsRefusedNotCappedTextually()
     {
-        SqlRowLimitRewriter.Apply(LongUnion, 10, "PostgreSQL").Outcome.Should().Be(SqlRowLimitOutcome.Refused);
-        FluentActions.Invoking(() => new QueryGuardrailService().ApplyRowLimit(LongUnion, 10, "PostgreSQL"))
-            .Should().Throw<InvalidOperationException>()
-            .WithMessage(SqlAst.TooDeepMessage);
+        var result = SqlRowLimitRewriter.Apply(LongUnion, 10, "PostgreSQL");
+
+        result.Outcome.Should().Be(SqlRowLimitOutcome.Refused);
+        result.RefusalMessage.Should().Be(SqlAst.TooDeepMessage);
     }
 
     // The parser's own recursion budget runs out on the parentheses; that is a depth refusal too, not a parse gap.

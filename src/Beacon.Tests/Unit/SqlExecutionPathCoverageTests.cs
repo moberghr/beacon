@@ -11,8 +11,8 @@ namespace Beacon.Tests.Unit;
 /// <c>IDataSourceConnectionResolver</c>, and the code that opens a driver connection through <c>DbConnectionFactory</c>.
 /// A change to what a statement may read has to reach all of them, so the lists are exact: a new entry, a moved call or
 /// one taken away fails until it is reviewed and the list says why. The scan pins where the calls are, and each reason
-/// says what that call runs (the gate's own output); it also pins that no production code applies a row limit after the
-/// gate.
+/// says what that call runs (the gate's own output); it also pins that only the gate places a row cap, so none is applied
+/// after it.
 /// </summary>
 [TestFixture]
 public class SqlExecutionPathCoverageTests
@@ -55,7 +55,7 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.AI/Services/Knowledge/ValueGroundingService.cs"] = (1, "a value-grounding probe's FinalSql"),
         ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = (1, "an eval statement's FinalSql"),
         ["src/Beacon.MCP/Services/QueryExecutionService.cs"] = (2, "the ask statement's FinalSql, and the dry run of a statement its callers gated"),
-        ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = (3, "each source's FinalSql, the in-memory join after its gate, and the dry run of a gated statement or retry"),
+        ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = (3, "each source's FinalSql, the in-memory join's FinalSql, and the dry run of a gated statement or retry"),
         ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = (2, "the query tool's FinalSql, and an API source's request (no SQL)")
     };
 
@@ -98,7 +98,7 @@ public class SqlExecutionPathCoverageTests
 
     private static readonly Regex ConnectionFactoryUse = new(@"\bDbConnectionFactory\b", RegexOptions.CultureInvariant);
 
-    private static readonly Regex RowLimitCall = new(@"\.ApplyRowLimit\b", RegexOptions.CultureInvariant);
+    private static readonly Regex RowLimitRewrite = new(@"\bSqlRowLimitRewriter\.Apply\b", RegexOptions.CultureInvariant);
 
     private static readonly Lazy<Dictionary<string, string>> Sources = new(ReadProductionSources);
 
@@ -149,17 +149,16 @@ public class SqlExecutionPathCoverageTests
     }
 
     [Test]
-    public void NoProductionCode_AppliesARowLimitAfterTheGate()
+    public void OnlyTheGate_PlacesARowCap()
     {
-        RowLimitCall.IsMatch("guardrailService.ApplyRowLimit(sql, maxRows, dialect)").Should().BeTrue("the pattern finds a call");
-        Sources.Value.Should().ContainKey("src/Beacon.MCP/Services/QueryExecutionService.cs", "the scan reads the production sources");
-
         var callers = Sources.Value
-            .Where(x => RowLimitCall.IsMatch(x.Value))
+            .Where(x => RowLimitRewrite.IsMatch(x.Value))
             .Select(x => x.Key)
             .ToList();
 
-        callers.Should().BeEmpty("the row cap is the gate's own stage (SqlGateRequest.MaxRows), so what runs is the gate's FinalSql");
+        callers.Should().Equal(
+            ["src/Beacon.Core/Services/Validation/SqlExecutionGate.cs"],
+            "the row cap is the gate's own stage (SqlGateRequest.MaxRows), so what runs is the gate's FinalSql and no limit is applied after it");
     }
 
     // Production C# under src, without tests, migrations and build output, each file without its whole-line comments so a

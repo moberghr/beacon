@@ -120,18 +120,6 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         return new QueryValidationResult(true, PiiColumns: piiColumns);
     }
 
-    public string ApplyRowLimit(string sql, int maxRows, string? databaseEngine = null)
-    {
-        // Placement is decided on the parsed AST (SqlRowLimitRewriter) so a LIMIT/TOP inside a string
-        // literal or a subquery no longer reads as "already bounded" and leaves the outer result uncapped.
-        var result = SqlRowLimitRewriter.Apply(sql, maxRows, databaseEngine);
-
-        // A statement too deep to cap, or holding a character the parser cannot read past, must not run uncapped.
-        return result.Outcome == SqlRowLimitOutcome.Refused
-            ? throw new InvalidOperationException(result.RefusalMessage ?? SqlAst.TooDeepMessage)
-            : result.Sql;
-    }
-
     public bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null)
     {
         if (IsMatchFailClosed(PiiColumnPattern, columnName))

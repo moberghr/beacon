@@ -118,8 +118,7 @@ public class SqlDisallowedCharacterTests
         capped.Outcome.Should().Be(SqlRowLimitOutcome.Refused);
         capped.Sql.Should().Be(sql);
         SqlPageRewriter.Plan(sql, dialect, 0, 50, null).PageSql.Should().BeNull();
-        var applyRowLimit = () => new QueryGuardrailService().ApplyRowLimit(sql, 100, dialect);
-        applyRowLimit.Should().Throw<InvalidOperationException>().WithMessage("*noncharacter*");
+        capped.RefusalMessage.Should().Contain("noncharacter");
     }
 
     // The comment stripper never ends a comment's span at the end of the input on the parser's word: the SQL comes back as

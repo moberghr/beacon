@@ -3,7 +3,6 @@ namespace Beacon.Core.Services.Security;
 public interface IQueryGuardrailService
 {
     QueryValidationResult ValidateQuery(string sql, QueryGuardrailOptions? options = null);
-    string ApplyRowLimit(string sql, int maxRows, string? databaseEngine = null);
     bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null);
     Dictionary<string, object?> MaskPiiValues(Dictionary<string, object?> row, IEnumerable<string> piiColumns);
 }
