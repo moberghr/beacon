@@ -148,8 +148,6 @@ public static class XlsxBuilder
             .Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
             .Alignment.SetVertical(XLAlignmentVerticalValues.Center);
 
-        var dateColumns = new HashSet<int>();
-
         for (var row = 0; row < data.Count; row++)
         {
             var values = data[row]?.Values.ToList() ?? [];
@@ -157,18 +155,15 @@ public static class XlsxBuilder
             for (var column = 0; column < values.Count; column++)
             {
                 var value = Normalize(values[column]);
-                worksheet.Cell(row + 2, column + 1).Value = XLCellValue.FromObject(value, CultureInfo.InvariantCulture);
+                var cell = worksheet.Cell(row + 2, column + 1);
+                cell.Value = XLCellValue.FromObject(value, CultureInfo.InvariantCulture);
 
+                // Per cell: a column may mix dates with other values, which must not be shown as dates.
                 if (value is DateTime)
                 {
-                    dateColumns.Add(column + 1);
+                    cell.Style.DateFormat.SetFormat(_xlsxDateTimeFormat);
                 }
             }
-        }
-
-        foreach (var column in dateColumns)
-        {
-            worksheet.Range(2, column, data.Count + 1, column).Style.DateFormat.SetFormat(_xlsxDateTimeFormat);
         }
     }
 

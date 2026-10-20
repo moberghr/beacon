@@ -249,6 +249,25 @@ public class XlsxBuilderTests
     }
 
     [Test]
+    public async Task Number_in_a_column_that_also_holds_dates_is_not_shown_as_a_date()
+    {
+        List<IDictionary<string, object?>> data =
+        [
+            new Dictionary<string, object?> { ["Mixed"] = null },
+            new Dictionary<string, object?> { ["Mixed"] = 42 },
+            new Dictionary<string, object?> { ["Mixed"] = _date }
+        ];
+
+        using var workbook = await BuildAsync(data);
+        var sheet = workbook.Worksheet(1);
+
+        sheet.Cell(3, 1).DataType.Should().Be(XLDataType.Number);
+        sheet.Cell(3, 1).GetFormattedString().Should().Be("42");
+        sheet.Cell(4, 1).DataType.Should().Be(XLDataType.DateTime);
+        sheet.Cell(4, 1).GetFormattedString().Should().Be("07.03.2026");
+    }
+
+    [Test]
     public async Task Every_header_cell_has_theme_text_colour_and_alignment()
     {
         using var workbook = await BuildAsync(SampleRows());
