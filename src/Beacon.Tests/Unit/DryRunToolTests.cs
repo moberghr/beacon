@@ -533,6 +533,7 @@ public class DryRunToolTests
             factory.Object,
             _gate,
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             _knowledgeGraph.Object,
             _queryExecution.Object,
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),

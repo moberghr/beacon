@@ -402,7 +402,7 @@ public class AskStatementAuditTests
             TestQueryCostLimit.Passing,
             new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources()),
             TestSqlGate.Create(),
-            TestConfiguredDatabases.None);
+            TestConfiguredDatabases.None, TestRowSecurity.Resolver);
     }
 
     // The ask tool over a routed single source, its pipeline running the generated SQL once through the real execution

@@ -78,7 +78,7 @@ public class SqlRowLimitOwnBoundTests
 
         SqlRowLimitRewriter.Apply(sql, Cap, "MSSQL").Outcome.Should().Be(SqlRowLimitOutcome.Refused);
 
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings(sql, "MSSQL", new McpSettingsData()) with { MaxRows = Cap });
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings(sql, "MSSQL", new McpSettingsData(), TestRowSecurity.NotApplicable) with { MaxRows = Cap });
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.UncappableBound);
@@ -115,7 +115,7 @@ public class SqlRowLimitOwnBoundTests
     public void TheGate_RunsTheLoweredStatement()
     {
         var report = TestSqlGate.Create().Evaluate(
-            SqlGateRequest.FromSettings("SELECT id FROM orders LIMIT 5000", "PostgreSQL", new McpSettingsData()) with { MaxRows = Cap });
+            SqlGateRequest.FromSettings("SELECT id FROM orders LIMIT 5000", "PostgreSQL", new McpSettingsData(), TestRowSecurity.NotApplicable) with { MaxRows = Cap });
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.RowLimit.Code.Should().Be(SqlGateCodes.OwnBoundCapped);

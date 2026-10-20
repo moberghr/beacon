@@ -11,6 +11,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Services;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -25,6 +26,7 @@ internal sealed class ProjectQueryTool(
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     IKnowledgeGraphService knowledgeGraph,
     ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
@@ -125,7 +127,8 @@ internal sealed class ProjectQueryTool(
                 // hallucinated column is refused before it reaches the warehouse) → row limit. Tables come
                 // from the AST walk (aliases resolved, CTEs excluded), not from a regex over the text.
                 var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
-                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings) with
+                var rowSecurity = await rowSecurityResolver.ResolveAsync(datasource_id.Value, cancellationToken);
+                report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings, rowSecurity) with
                 {
                     Catalog = catalog,
                     BlockOnSchemaFailure = true,

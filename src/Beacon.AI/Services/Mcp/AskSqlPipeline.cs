@@ -6,6 +6,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Mcp;
@@ -27,6 +28,7 @@ internal sealed class AskSqlPipeline(
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ISqlExecutionGate gate,
+    IRowSecurityResolver rowSecurityResolver,
     ILlmRowDataEgress rowDataEgress,
     IOptions<McpDeploymentOptions> deploymentOptions,
     IMcpStatementLog statementLog,
@@ -50,6 +52,9 @@ internal sealed class AskSqlPipeline(
     {
         // Every caller runs the generated SQL against the source (ask needs Query in the project), so live probes may run.
         var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, liveValueProbes: true, ct);
+
+        // Every candidate and repair is judged as the executor will judge the statement it runs: for this caller.
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSourceId, ct);
 
         // The replay gate injects a candidate learned-pattern block as a suffix on the context string only.
         var fullContext = string.IsNullOrEmpty(options.ExtraContext)
@@ -97,7 +102,7 @@ internal sealed class AskSqlPipeline(
         // schema / lint repairs, whose adoption depends on the schema verdict.
         SqlGateReport EvaluateFull(string sql)
         {
-            return gate.Evaluate(GateRequest(sql, smartContext, settings) with
+            return gate.Evaluate(GateRequest(sql, smartContext, settings, rowSecurity) with
             {
                 Catalog = smartContext.SchemaCatalog,
                 LintContext = lintContext
@@ -129,7 +134,7 @@ internal sealed class AskSqlPipeline(
             try
             {
                 var vote = await RunSelfConsistencyVoteAsync(
-                    promptProvider, dataSourceId, question, settings, smartContext, fullContext, executor, singleCandidate, ct);
+                    promptProvider, dataSourceId, question, settings, smartContext, rowSecurity, fullContext, executor, singleCandidate, ct);
                 votedWinner = vote.Winner;
                 votingNote = vote.Note;
             }
@@ -341,7 +346,7 @@ internal sealed class AskSqlPipeline(
             var dryRunRepairOk = false;
             if (dryRunRetry != null)
             {
-                if (ValidateGeneratedSql(dryRunRetry, settings, smartContext) == null)
+                if (ValidateGeneratedSql(dryRunRetry, settings, smartContext, rowSecurity) == null)
                 {
                     var retryDryRunError = await TryDryRunAsync(executor, dataSourceId, dryRunRetry, ct);
                     dryRunRepairSql = dryRunRetry;
@@ -366,7 +371,7 @@ internal sealed class AskSqlPipeline(
             var redactedExecutionError = RedactedError(execResult.ErrorMessage, generatedSql);
             logger.LogInformation("SQL error detected, retrying ({ErrorClass})", DatabaseErrorRedactor.ClassOnly(execResult.ErrorMessage, logger));
             // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate.
-            var tableNames = gate.Evaluate(GateRequest(generatedSql, smartContext, settings)).TablesUsed.ToList();
+            var tableNames = gate.Evaluate(GateRequest(generatedSql, smartContext, settings, rowSecurity)).TablesUsed.ToList();
             var tablesContext = tableNames.Count > 0
                 ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, projectId, tableNames, ct)
                 : null;
@@ -377,7 +382,7 @@ internal sealed class AskSqlPipeline(
 
             if (retriedSql != null)
             {
-                if (ValidateGeneratedSql(retriedSql, settings, smartContext) == null)
+                if (ValidateGeneratedSql(retriedSql, settings, smartContext, rowSecurity) == null)
                 {
                     var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, retriedSql, settings, ct);
                     repairs.Add(new AskRepairStep("execution", redactedExecutionError, retriedSql, retryExec.IsSuccess));
@@ -410,7 +415,7 @@ internal sealed class AskSqlPipeline(
 
             if (emptyRetry != null && !SqlEquals(emptyRetry, generatedSql))
             {
-                if (ValidateGeneratedSql(emptyRetry, settings, smartContext) == null)
+                if (ValidateGeneratedSql(emptyRetry, settings, smartContext, rowSecurity) == null)
                 {
                     var retryExec = await ExecuteForAsync(McpStatementPurposes.Repair, executor, dataSourceId, emptyRetry, settings, ct);
                     if (retryExec.IsSuccess && retryExec.RowCount > 0)
@@ -463,6 +468,7 @@ internal sealed class AskSqlPipeline(
         string question,
         McpSettingsData settings,
         SmartSchemaContext smartContext,
+        RowSecurityContext rowSecurity,
         string fullContext,
         IAskSqlExecutor executor,
         SqlGenerationResult singleCandidate,
@@ -485,7 +491,7 @@ internal sealed class AskSqlPipeline(
             // SECURITY (§1.5, lesson 2026-07-03): EVERY candidate — including the single low-temperature
             // one — must clear the same guardrail + AST read-only gate the single-candidate path uses
             // BEFORE it can reach ExecuteAsync. A candidate that fails validation is dropped and never executed.
-            if (ValidateGeneratedSql(candidate.Sql, settings, smartContext) != null)
+            if (ValidateGeneratedSql(candidate.Sql, settings, smartContext, rowSecurity) != null)
             {
                 continue;
             }
@@ -500,7 +506,7 @@ internal sealed class AskSqlPipeline(
         var lintCountBySql = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var candidate in evaluated.Where(x => x.Ok))
         {
-            lintCountBySql.TryAdd(candidate.Candidate.Sql, LintCountFor(candidate.Candidate.Sql, settings, smartContext));
+            lintCountBySql.TryAdd(candidate.Candidate.Sql, LintCountFor(candidate.Candidate.Sql, settings, smartContext, rowSecurity));
         }
 
         var winnerSql = SelectMajority(
@@ -535,7 +541,7 @@ internal sealed class AskSqlPipeline(
 
     // Lints one candidate's SQL to feed SelectMajority's tie-break; returns 0 (no opinion) while
     // EnableSemanticLint is off, mirroring the repair-loop lint gate (R9).
-    private int LintCountFor(string sql, McpSettingsData settings, SmartSchemaContext smartContext)
+    private int LintCountFor(string sql, McpSettingsData settings, SmartSchemaContext smartContext, RowSecurityContext rowSecurity)
     {
         if (!settings.EnableSemanticLint)
         {
@@ -547,7 +553,7 @@ internal sealed class AskSqlPipeline(
             smartContext.PrimaryKeyCatalog,
             smartContext.SchemaCatalog);
 
-        return gate.Evaluate(GateRequest(sql, smartContext, settings) with
+        return gate.Evaluate(GateRequest(sql, smartContext, settings, rowSecurity) with
         {
             LintContext = lintContext
         }).LintFindings.Count;
@@ -657,18 +663,19 @@ internal sealed class AskSqlPipeline(
     // Read-only gate only (regex guardrail + AST validator, §1.5) — the check every candidate and every
     // dry-run / execution-error / empty-result repair must clear before it may execute. Returns the block
     // reason, or null when the SQL may proceed.
-    private string? ValidateGeneratedSql(string sql, McpSettingsData settings, SmartSchemaContext smartContext)
+    private string? ValidateGeneratedSql(string sql, McpSettingsData settings, SmartSchemaContext smartContext, RowSecurityContext rowSecurity)
     {
-        var report = gate.Evaluate(GateRequest(sql, smartContext, settings));
+        var report = gate.Evaluate(GateRequest(sql, smartContext, settings, rowSecurity));
 
         return report.Blocked ? report.BlockReason : null;
     }
 
     // Every gate evaluation targets the ask's data source: its own configured database only, and for a host-exposed
-    // DbContext its host policy (allow-list, exclusions, masked columns), on the candidate AND on every repair.
-    private static SqlGateRequest GateRequest(string sql, SmartSchemaContext smartContext, McpSettingsData settings)
+    // DbContext its host policy (allow-list, exclusions, masked columns), on the candidate AND on every repair, for the
+    // caller's row security on it.
+    private static SqlGateRequest GateRequest(string sql, SmartSchemaContext smartContext, McpSettingsData settings, RowSecurityContext rowSecurity)
     {
-        return SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+        return SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings, rowSecurity) with
         {
             HostManagedKey = smartContext.HostManagedKey,
             ConfiguredDatabase = smartContext.ConfiguredDatabase

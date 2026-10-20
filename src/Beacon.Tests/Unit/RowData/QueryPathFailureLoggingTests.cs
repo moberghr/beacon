@@ -85,7 +85,7 @@ public class QueryPathFailureLoggingTests
         executor
             .Setup(x => x.ExecuteAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
-        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), new McpStatementLog(), log.For<AskSqlPipeline>());
+        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowSecurity.Resolver, TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), new McpStatementLog(), log.For<AskSqlPipeline>());
 
         await pipeline.RunAsync(Mock.Of<ILlmProvider>(), 7, 3, "how many?", new McpSettingsData(), executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
 

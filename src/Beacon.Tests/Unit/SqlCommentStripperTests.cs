@@ -90,7 +90,7 @@ public class SqlCommentStripperTests
     [Test]
     public void TheGate_StillRefusesAnExecutableComment_ThroughTheAstStage()
     {
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT 1 /*!50000 , 2 */", "MySQL", TestSqlGate.DefaultSettings()));
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT 1 /*!50000 , 2 */", "MySQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.Ast);
@@ -120,6 +120,6 @@ public class SqlCommentStripperTests
         new SqlReadOnlyAstValidator(Microsoft.Extensions.Logging.Abstractions.NullLogger<SqlReadOnlyAstValidator>.Instance)
             .Validate(sql, dialect)
             .Should().Contain("share");
-        TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings())).Blocked.Should().BeTrue();
+        TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable)).Blocked.Should().BeTrue();
     }
 }

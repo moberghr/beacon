@@ -679,6 +679,7 @@ public class SavedQueryToolExecutorTests
             new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData()).Object),
             TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn(ProjectId)),
+            TestRowSecurity.Resolver,
             costLimit ?? TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance);
     }

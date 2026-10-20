@@ -107,7 +107,7 @@ public class DataQualityCustomSqlReadOnlyTests
     [TestCaseSource(nameof(NonReadOnlyStatements))]
     public void RejectionOf_NonReadOnlySql_IsARejection(string sql, DatabaseEngineType engine)
     {
-        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null, configuredDatabase: null));
+        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null, configuredDatabase: null, TestRowSecurity.NotApplicable));
 
         DataQualityRuleGuard.RejectionOf(report).Should().StartWith("Rule SQL was rejected:", $"'{sql}' is not a single read-only SELECT on {engine}");
     }
@@ -118,7 +118,7 @@ public class DataQualityCustomSqlReadOnlyTests
     [TestCase(DatabaseEngineType.MSSQL, "SELECT 1 AS passed FROM accounts ORDER BY id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY")]
     public void RejectionOf_SqlWithItsOwnRowLimit_IsARejection(DatabaseEngineType engine, string sql)
     {
-        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null, configuredDatabase: null));
+        var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(sql, engine, hostManagedKey: null, configuredDatabase: null, TestRowSecurity.NotApplicable));
 
         DataQualityRuleGuard.RejectionOf(report).Should().Be(DataQualityRuleGuard.OwnRowLimitMessage, "the provider buffers the whole result");
     }
@@ -131,7 +131,7 @@ public class DataQualityCustomSqlReadOnlyTests
         var report = TestSqlGate.Create().Evaluate(DataQualityRuleGuard.GateRequest(
             "SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS passed FROM accounts",
             engine,
-            hostManagedKey: null, configuredDatabase: null));
+            hostManagedKey: null, configuredDatabase: null, TestRowSecurity.NotApplicable));
 
         DataQualityRuleGuard.RejectionOf(report).Should().BeNull();
         report.FinalSql.Should().Be(capped);
@@ -886,6 +886,7 @@ public class DataQualityCustomSqlReadOnlyTests
             TestSqlGate.Create(hostGuard: hostGuard),
             TestConfiguredDatabases.Of("sales"),
             TestProjectAccess.ExecutionAllowed(),
+            TestRowSecurity.Resolver,
             TestQueryServices.DefaultSettings(piiSettings),
             new QueryGuardrailService(),
             configuration ?? new Beacon.Core.BeaconConfiguration(),

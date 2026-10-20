@@ -589,6 +589,7 @@ public class ScheduledWorkRunAsTests
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
             x.GetRequiredService<IExecutionAccessCheck>(),
+            TestRowSecurity.Resolver,
             TestQueryServices.DefaultSettings(),
             new QueryGuardrailService(),
             x.GetRequiredService<BeaconConfiguration>(),

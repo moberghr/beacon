@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Validation;
 
@@ -23,6 +24,7 @@ internal sealed class EvalReadOnlySqlExecutor(
     IDataSourceProviderFactory providerFactory,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     McpSettingsData settings) : IAskSqlExecutor
 {
     // Per-statement execution ceiling, matching the MCP query executor.
@@ -53,10 +55,11 @@ internal sealed class EvalReadOnlySqlExecutor(
     {
         var dataSource = await GetDataSourceAsync(dataSourceId, ct);
         var dialect = DataSourceSqlDialect.Of(dataSource);
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSourceId, ct);
 
         // EnforceReadOnly is forced true regardless of the per-project flag — the eval harness must never
         // mutate a live data source. The row cap comes from the same gate evaluation.
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings, rowSecurity) with
         {
             EnforceReadOnly = true,
             MaxRows = settings.MaxRowLimit,

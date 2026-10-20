@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.HostData;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Services.Validation;
@@ -13,8 +14,8 @@ namespace Beacon.Core.Services.Validation;
 /// of its input), the regex guardrail third, the AST validator fourth, and a read-only failure
 /// short-circuits every later stage so no schema, lint or row-limit work is ever done on a statement that
 /// may not run. A name in another database than the target's configured one, a read of the engine's catalog, statistics or
-/// query history, and a host policy violation, then block whatever the read-only and schema settings. Stateless — the
-/// validators keep their own identifier-only logging.
+/// query history, a caller row-level security denies or filters, and a host policy violation, then block whatever the
+/// read-only and schema settings. Stateless — the validators keep their own identifier-only logging.
 /// </summary>
 public sealed class SqlExecutionGate(
     IQueryGuardrailService guardrail,
@@ -104,6 +105,26 @@ public sealed class SqlExecutionGate(
                 new SqlGateVerdicts(
                     readOnly,
                     boundary,
+                    SqlGateVerdict.Skipped(NotEvaluated),
+                    SqlGateVerdict.Skipped(NotEvaluated)));
+        }
+
+        // Row-level security is authorization too: a caller it denies never reaches the source, and a filtered caller's
+        // statement never runs without its filter, also with read-only enforcement off.
+        var rowSecurity = EvaluateRowSecurity(request);
+        if (rowSecurity != null)
+        {
+            return new SqlGateReport(
+                true,
+                rowSecurity.Message,
+                request.Sql,
+                schemaResult.TablesUsed,
+                schemaResult.ColumnsUsed,
+                piiColumns,
+                [],
+                new SqlGateVerdicts(
+                    readOnly,
+                    rowSecurity,
                     SqlGateVerdict.Skipped(NotEvaluated),
                     SqlGateVerdict.Skipped(NotEvaluated)));
         }
@@ -206,6 +227,19 @@ public sealed class SqlExecutionGate(
         return systemCatalogError == null
             ? null
             : SqlGateVerdict.Fail(SqlGateCodes.SystemCatalog, systemCatalogError);
+    }
+
+    // Null when the statement may run as written. A missing context was never resolved, so it is refused like a denied one.
+    private static SqlGateVerdict? EvaluateRowSecurity(SqlGateRequest request)
+    {
+        return request.RowSecurity?.State switch
+        {
+            RowSecurityState.NotApplicable => null,
+            RowSecurityState.Filtered => SqlGateVerdict.Fail(
+                SqlGateCodes.RowSecurityUnrewritable,
+                "Row-level security filters this data source, and the statement cannot be filtered, so it was not run."),
+            _ => SqlGateVerdict.Fail(SqlGateCodes.NoEntitlement, "You have no access to the rows of this data source.")
+        };
     }
 
     private HostPolicyResult? EvaluateHostPolicy(SqlGateRequest request)

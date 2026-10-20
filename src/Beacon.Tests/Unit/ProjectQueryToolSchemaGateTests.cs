@@ -639,6 +639,7 @@ public class ProjectQueryToolSchemaGateTests
             guardrail,
             _gate,
             _configuredDatabases,
+            TestRowSecurity.Resolver,
             _knowledgeGraph.Object,
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,

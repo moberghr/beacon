@@ -93,7 +93,7 @@ public class DocumentationEnumDiscoveryTests
         var sql = ProjectDocumentationService.BuildEnumDiscoveryQuery(engine, "sales", "orders", ["status", "kind", "region"]);
 
         var report = TestSqlGate.Create().Evaluate(new Beacon.Core.Services.Validation.SqlGateRequest(
-            sql, engine.ToString(), true, false, null, null, false, null, false, null)
+            sql, engine.ToString(), true, false, null, null, false, null, false, null, TestRowSecurity.NotApplicable)
         { ConfiguredDatabase = "sales" });
 
         report.Blocked.Should().BeFalse(report.BlockReason);
@@ -436,6 +436,7 @@ public class DocumentationEnumDiscoveryTests
             providers.Object,
             TestSqlGate.Create(),
             TestConfiguredDatabases.Of(configuredDatabase),
+            TestRowSecurity.Resolver,
             shared.Object,
             new QueryGuardrailService(),
             egress ?? TestRowDataEgress.Discarding(),

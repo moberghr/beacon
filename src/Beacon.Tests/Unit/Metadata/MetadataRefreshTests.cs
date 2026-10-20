@@ -346,6 +346,7 @@ public class MetadataRefreshTests
         var sampler = new ColumnValueSampler(
             new QueryGuardrailService(),
             new GatedSqlRunner(TestSqlGate.Create(), providers.Object, TestConfiguredDatabases.None, TestQueryServices.QueryOptions),
+            TestRowSecurity.Resolver,
             NullLogger<ColumnValueSampler>.Instance);
 
         await world.Service(sampler: sampler, settings: new McpSettingsData { EnableSampleValueCollection = true }).RefreshMetadataAsync(DataSourceId, forceRefresh: true);

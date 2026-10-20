@@ -40,7 +40,7 @@ public class GatedSqlRunnerTests
         var provider = new Mock<IDataSourceProvider>(MockBehavior.Strict);
         var runner = Runner(provider.Object, TestConfiguredDatabases.Of("sales"));
 
-        var act = () => runner.RunAsync(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10), CancellationToken.None);
+        var act = () => runner.RunAsync(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         provider.Invocations.Should().BeEmpty();
@@ -54,7 +54,7 @@ public class GatedSqlRunnerTests
     {
         var runner = Runner(new Mock<IDataSourceProvider>(MockBehavior.Strict).Object, TestConfiguredDatabases.Of("sales"));
 
-        var report = runner.Evaluate(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10));
+        var report = runner.Evaluate(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.Schema.Code.Should().Be(code);
@@ -67,7 +67,7 @@ public class GatedSqlRunnerTests
         var runner = Runner(provider.Object, TestConfiguredDatabases.None);
 
         var run = await runner.RunAsync(
-            new GatedSqlRequest(Source, "SELECT id FROM accounts WHERE id = @p0", new Dictionary<string, object?> { ["p0"] = 5 }, 11),
+            new GatedSqlRequest(Source, "SELECT id FROM accounts WHERE id = @p0", new Dictionary<string, object?> { ["p0"] = 5 }, 11, TestRowSecurity.NotApplicable),
             CancellationToken.None);
 
         run.Rows.Should().ContainSingle();
@@ -84,7 +84,7 @@ public class GatedSqlRunnerTests
         var resolver = new CountingResolver("sales");
         var runner = Runner(Answering(new ProviderQueryResult { Success = true }).Object, resolver);
 
-        await runner.RunAsync(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10), CancellationToken.None);
+        await runner.RunAsync(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable), CancellationToken.None);
 
         resolver.Lookups.Should().Be(lookups);
     }
@@ -95,7 +95,7 @@ public class GatedSqlRunnerTests
         const string error = "42P01: relation \"accounts\" does not exist";
         var runner = Runner(Answering(new ProviderQueryResult { Success = false, ErrorMessage = error }).Object, TestConfiguredDatabases.None);
 
-        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10), CancellationToken.None);
+        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable), CancellationToken.None);
 
         await act.Should().ThrowAsync<QueryExecutionFailedException>().WithMessage(error);
     }
@@ -121,7 +121,7 @@ public class GatedSqlRunnerTests
             settings.Object);
         var pii = requestDetects is { } detects ? new McpSettingsData { EnablePiiDetection = detects } : null;
 
-        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, pii), CancellationToken.None);
+        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable, pii), CancellationToken.None);
 
         var thrown = await act.Should().ThrowAsync<QueryExecutionFailedException>();
         if (redacted)
@@ -141,7 +141,7 @@ public class GatedSqlRunnerTests
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10), cancelled.Token);
+        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable), cancelled.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
         provider.Invocations.Should().BeEmpty();
@@ -176,7 +176,7 @@ public class GatedSqlRunnerTests
         var requested = requestedMs is { } ms ? TimeSpan.FromMilliseconds(ms) : (TimeSpan?)null;
         using var caller = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-        var run = await runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, Timeout: requested), caller.Token);
+        var run = await runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, Timeout: requested, RowSecurity: TestRowSecurity.NotApplicable), caller.Token);
 
         run.TimedOut.Should().BeTrue();
         run.Rows.Should().BeEmpty();
@@ -219,7 +219,7 @@ public class GatedSqlRunnerTests
         var provider = Answering(new ProviderQueryResult { Success = true });
         var runner = Runner(provider.Object, TestConfiguredDatabases.None);
 
-        await runner.RunAsync(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10), CancellationToken.None);
+        await runner.RunAsync(new GatedSqlRequest(Source, sql, new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable), CancellationToken.None);
 
         provider.Verify(
             x => x.ExecuteReadOnlyQueryAsync(Source, It.Is<string>(y => y.Contains("FROM accounts")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
@@ -232,8 +232,8 @@ public class GatedSqlRunnerTests
         var provider = new CappedProvider();
         var runner = Runner(provider, TestConfiguredDatabases.None);
 
-        await runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts LIMIT 1000000", new Dictionary<string, object?>(), 11), CancellationToken.None);
-        await runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 5), CancellationToken.None);
+        await runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts LIMIT 1000000", new Dictionary<string, object?>(), 11, TestRowSecurity.NotApplicable), CancellationToken.None);
+        await runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 5, TestRowSecurity.NotApplicable), CancellationToken.None);
 
         provider.Calls.Should().Equal(("SELECT id FROM accounts LIMIT 11", 11), ("SELECT id FROM accounts LIMIT 5", 5));
     }

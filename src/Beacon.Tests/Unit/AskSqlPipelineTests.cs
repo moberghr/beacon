@@ -482,6 +482,7 @@ public class AskSqlPipelineTests
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             gate ?? TestSqlGate.Create(_guardrail.Object, hostGuard),
+            TestRowSecurity.Resolver,
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
             statementLog ?? new McpStatementLog(),

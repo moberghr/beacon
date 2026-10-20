@@ -82,7 +82,7 @@ public class SqlDisallowedCharacterTests
     {
         var gate = TestSqlGate.Create();
 
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, new McpSettingsData()) with { MaxRows = 100 });
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, new McpSettingsData(), TestRowSecurity.NotApplicable) with { MaxRows = 100 });
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.DisallowedCharacter);
@@ -96,12 +96,12 @@ public class SqlDisallowedCharacterTests
     public void TheCharacter_IsRefused_WithReadOnlyOff_AndAfterAStoredStepIsPutOnOneLine(string dialect, string sql)
     {
         var unlocked = TestSqlGate.Create(deployment: TestSqlGate.Unlocked);
-        var readOnlyOff = SqlGateRequest.FromSettings(sql, dialect, new McpSettingsData { EnforceReadOnly = false });
+        var readOnlyOff = SqlGateRequest.FromSettings(sql, dialect, new McpSettingsData { EnforceReadOnly = false }, TestRowSecurity.NotApplicable);
 
         unlocked.Evaluate(readOnlyOff).Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.DisallowedCharacter);
         unlocked.Evaluate(readOnlyOff with { InMemoryJoin = true }).Blocked.Should().BeTrue();
         TestSqlGate.Create()
-            .Evaluate(SqlGateRequest.FromSettings(StoredSql.Flatten(sql, dialect), dialect, new McpSettingsData()))
+            .Evaluate(SqlGateRequest.FromSettings(StoredSql.Flatten(sql, dialect), dialect, new McpSettingsData(), TestRowSecurity.NotApplicable))
             .Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.DisallowedCharacter);
     }
 

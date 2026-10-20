@@ -369,6 +369,7 @@ public class GroundingGuardrailsTests
             providers.Object,
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             new QueryGuardrailService(),
             new McpStatementLog(),
             NullLogger<ValueGroundingService>.Instance);

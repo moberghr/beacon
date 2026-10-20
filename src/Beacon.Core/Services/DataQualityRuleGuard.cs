@@ -5,6 +5,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.Services;
@@ -30,7 +31,13 @@ internal static class DataQualityRuleGuard
     private const int MaxRows = 1;
 
     /// <param name="configuredDatabase">The database the source's connection is configured for: the only one the SQL may name.</param>
-    public static SqlGateRequest GateRequest(string sql, DatabaseEngineType engineType, string? hostManagedKey, string? configuredDatabase)
+    /// <param name="rowSecurity">Row-level security for the rule's caller on the source.</param>
+    public static SqlGateRequest GateRequest(
+        string sql,
+        DatabaseEngineType engineType,
+        string? hostManagedKey,
+        string? configuredDatabase,
+        RowSecurityContext rowSecurity)
     {
         return new SqlGateRequest(
             sql,
@@ -42,7 +49,8 @@ internal static class DataQualityRuleGuard
             BlockOnSchemaFailure: false,
             LintContext: null,
             EnableSemanticLint: false,
-            MaxRows: MaxRows)
+            MaxRows: MaxRows,
+            rowSecurity)
         {
             HostManagedKey = hostManagedKey,
             ConfiguredDatabase = configuredDatabase
@@ -111,7 +119,13 @@ internal static class DataQualityRuleGuard
                 throw new InvalidOperationException("Custom SQL rules need a database data source.");
             }
 
-            var report = gate.Evaluate(GateRequest(ReadSql(rule), dataSource.DatabaseEngineType.Value, hostManagedKey: null, dataSource.ConfiguredDatabase));
+            // Judged when the contract is saved, never run here: row security applies where the rule runs.
+            var report = gate.Evaluate(GateRequest(
+                ReadSql(rule),
+                dataSource.DatabaseEngineType.Value,
+                hostManagedKey: null,
+                dataSource.ConfiguredDatabase,
+                RowSecurityContext.NotApplicable(RowSecurityContext.SaveCheckReason)));
             var rejection = RejectionOf(report);
             if (rejection != null)
             {

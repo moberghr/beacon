@@ -311,9 +311,10 @@ internal partial class QueryService
 
         var stepParameters = ExtractStepParameters(step, parameters);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, stepParameters);
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(step.DataSourceId, cancellationToken);
 
         var run = await sqlRunner.RunAsync(
-            new GatedSqlRequest(step.DataSource, StoredSql.Flatten(parameterizedSql, DataSourceSqlDialect.Of(step.DataSource)), sqlParameters, ceiling + 1, masking?.Settings, statementTimeout),
+            new GatedSqlRequest(step.DataSource, StoredSql.Flatten(parameterizedSql, DataSourceSqlDialect.Of(step.DataSource)), sqlParameters, ceiling + 1, rowSecurity, masking?.Settings, statementTimeout),
             cancellationToken);
 
         var errorMessage = run.TimedOut

@@ -12,7 +12,8 @@ namespace Beacon.Tests.Unit;
 /// A change to what a statement may read has to reach all of them, so the lists are exact: a new entry, a moved call or
 /// one taken away fails until it is reviewed and the list says why. The scan pins where the calls are, and each reason
 /// says what that call runs (the gate's own output); it also pins that only the gate places a row cap, so none is applied
-/// after it.
+/// after it, and where each gate request's row-level security context comes from: the resolver, or a listed file that
+/// states one itself because what it judges reaches no source's rows.
 /// </summary>
 [TestFixture]
 public class SqlExecutionPathCoverageTests
@@ -40,6 +41,48 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = "gates each source's statement, its retries and the in-memory join",
         ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = "gates the query tool's statement",
         ["src/Beacon.MCP/Tools/DryRunTool.cs"] = "judges a dry_run statement before the provider validates it"
+    };
+
+    // The production files that name the row-security resolver, and why: each resolves the context of what it gates for the
+    // scope's caller.
+    private static readonly Dictionary<string, string> RowSecurityResolverUsers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Core/RowSecurity/IRowSecurityResolver.cs"] = "the resolver's contract",
+        ["src/Beacon.Core/RowSecurity/RowSecurityResolver.cs"] = "the resolver",
+        ["src/Beacon.Core/ServiceConfiguration.cs"] = "registers the resolver",
+        ["src/Beacon.Core/Services/QueryService.cs"] = "query steps, step previews and a proposal's validation on its sources",
+        ["src/Beacon.Core/Services/Metadata/ColumnValueSampler.cs"] = "column value samples",
+        ["src/Beacon.Core/Services/DataQualityEvaluationService.cs"] = "a contract's rules",
+        ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = "a saved query's steps",
+        ["src/Beacon.AI/Services/Mcp/AskSqlPipeline.cs"] = "ask candidates and repairs",
+        ["src/Beacon.AI/Services/Documentation/ProjectDocumentationService.cs"] = "enum discovery statements",
+        ["src/Beacon.AI/Services/Knowledge/ValueGroundingService.cs"] = "value-grounding probes",
+        ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = "the eval harness's statements",
+        ["src/Beacon.AI/Services/Eval/McpEvalService.cs"] = "hands the resolver to the eval executor",
+        ["src/Beacon.MCP/Services/QueryExecutionService.cs"] = "the ask statement it runs",
+        ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = "each source's statement and its retries",
+        ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = "the query tool's statement",
+        ["src/Beacon.MCP/Tools/DryRunTool.cs"] = "a dry_run statement"
+    };
+
+    // The production files that create a row-security context, and why. What runs on a source takes its context from the
+    // resolver; anything else stated here reaches no source's rows.
+    private static readonly Dictionary<string, string> RowSecurityContextCreators = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Core/RowSecurity/RowSecurityResolver.cs"] = "the resolver",
+        ["src/Beacon.Core/Services/Validation/ISqlExecutionGate.cs"] = "the in-memory join's request: it reads only step results, each resolved for its own source",
+        ["src/Beacon.Core/Services/QueryService.cs"] = "a multi-step run's in-memory join: it reads only step results, each resolved for its own source",
+        ["src/Beacon.Core/Services/StepSqlSaveCheck.cs"] = "judges a query step's SQL before it is stored, runs nothing",
+        ["src/Beacon.Core/Services/DataQualityRuleGuard.cs"] = "judges a Custom SQL rule when its contract is saved, runs nothing"
+    };
+
+    // The gate users that neither resolve nor create a context, and why.
+    private static readonly Dictionary<string, string> RowSecurityContextReceivers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Core/Services/Validation/SqlExecutionGate.cs"] = "the gate: acts on the request's context",
+        ["src/Beacon.Core/Services/GatedSqlRunner.cs"] = "takes the context in its request from its callers",
+        ["src/Beacon.Core/Handlers/DataQuality/CreateDataContractHandler.cs"] = "hands the gate to DataQualityRuleGuard, runs nothing",
+        ["src/Beacon.Core/Handlers/DataQuality/UpdateDataContractHandler.cs"] = "hands the gate to DataQualityRuleGuard, runs nothing"
     };
 
     // Per production file: how many calls to a provider's execute, validate or cost-estimate method (or the in-memory
@@ -100,6 +143,10 @@ public class SqlExecutionPathCoverageTests
 
     private static readonly Regex RowLimitRewrite = new(@"\bSqlRowLimitRewriter\.Apply\b", RegexOptions.CultureInvariant);
 
+    private static readonly Regex RowSecurityResolverUse = new(@"\bIRowSecurityResolver\b", RegexOptions.CultureInvariant);
+
+    private static readonly Regex RowSecurityContextCreation = new(@"\bRowSecurityContext\.(?:NotApplicable|Filtered|Denied)\(", RegexOptions.CultureInvariant);
+
     private static readonly Lazy<Dictionary<string, string>> Sources = new(ReadProductionSources);
 
     [Test]
@@ -159,6 +206,41 @@ public class SqlExecutionPathCoverageTests
         callers.Should().Equal(
             ["src/Beacon.Core/Services/Validation/SqlExecutionGate.cs"],
             "the row cap is the gate's own stage (SqlGateRequest.MaxRows), so what runs is the gate's FinalSql and no limit is applied after it");
+    }
+
+    [Test]
+    public void EveryFileThatUsesTheRowSecurityResolver_IsListed()
+    {
+        var users = Sources.Value
+            .Where(x => RowSecurityResolverUse.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .ToList();
+
+        users.Should().BeEquivalentTo(RowSecurityResolverUsers.Keys, "a new path that resolves row security must be reviewed and listed, and a removed one taken off the list");
+    }
+
+    [Test]
+    public void EveryFileThatCreatesARowSecurityContext_IsListed()
+    {
+        var creators = Sources.Value
+            .Where(x => RowSecurityContextCreation.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .ToList();
+
+        creators.Should().BeEquivalentTo(
+            RowSecurityContextCreators.Keys,
+            "a context stated anywhere but the resolver could let a statement read rows its caller may not: only what reaches no source's rows states its own");
+    }
+
+    [Test]
+    public void EveryGateUser_TakesItsRowSecurityContextFromAListedPlace()
+    {
+        var others = GateUsers.Keys
+            .Except(RowSecurityResolverUsers.Keys)
+            .Except(RowSecurityContextCreators.Keys)
+            .ToList();
+
+        others.Should().BeEquivalentTo(RowSecurityContextReceivers.Keys, "every gate request carries a context: from the resolver, created by a listed file, or handed in by a caller");
     }
 
     // Production C# under src, without tests, migrations and build output, each file without its whole-line comments so a

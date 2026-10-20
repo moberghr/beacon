@@ -8,6 +8,7 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -21,6 +22,7 @@ internal sealed class ProjectDocumentationService(
     IDataSourceProviderFactory dataSourceProviderFactory,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
     ILlmRowDataEgress rowDataEgress,
@@ -1223,6 +1225,7 @@ internal sealed class ProjectDocumentationService(
         var engineType = dataSource.DatabaseEngineType!.Value;
         var dialect = DataSourceSqlDialect.Of(dataSource);
         var configuredDatabase = configuredDatabases.Resolve(dataSource);
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, ct);
         var sourceTables = tables
             .Where(x => x.DataSourceId == dataSource.Id)
             .ToList();
@@ -1266,7 +1269,8 @@ internal sealed class ProjectDocumentationService(
                     BlockOnSchemaFailure: false,
                     LintContext: null,
                     EnableSemanticLint: false,
-                    MaxRows: candidates.Count * EnumValuesPerColumn)
+                    MaxRows: candidates.Count * EnumValuesPerColumn,
+                    rowSecurity)
                 {
                     HostManagedKey = dataSource.HostManagedKey,
                     ConfiguredDatabase = configuredDatabase

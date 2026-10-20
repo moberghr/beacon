@@ -724,6 +724,7 @@ public class CrossSourceQueryServiceTests
             guardrail,
             _gate,
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             knowledgeGraph.Object,
             _sqlGen.Object,
             egress ?? TestRowDataEgress.Discarding(),
