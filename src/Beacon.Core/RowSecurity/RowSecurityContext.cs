@@ -2,17 +2,20 @@ using Beacon.Core.Services.Validation;
 
 namespace Beacon.Core.RowSecurity;
 
-/// <summary>What row-level security asks of a statement on one data source.</summary>
+/// <summary>
+/// What row-level security asks of a statement on one data source. <see cref="Denied"/> is the default value, so a state
+/// that was never set refuses rather than runs.
+/// </summary>
 public enum RowSecurityState
 {
-    /// <summary>No row filter applies: the statement runs as written.</summary>
-    NotApplicable,
+    /// <summary>The caller may not read the source's rows: the statement never runs.</summary>
+    Denied,
 
     /// <summary>The source's row policies filter what the caller reads.</summary>
     Filtered,
 
-    /// <summary>The caller may not read the source's rows: the statement never runs.</summary>
-    Denied
+    /// <summary>No row filter applies: the statement runs as written.</summary>
+    NotApplicable
 }
 
 /// <summary>
@@ -20,10 +23,11 @@ public enum RowSecurityState
 /// caller. Every <see cref="SqlGateRequest"/> carries one, and the gate acts on it: a
 /// <see cref="RowSecurityState.Denied"/> context is refused (<see cref="SqlGateCodes.NoEntitlement"/>), and so is a
 /// <see cref="RowSecurityState.Filtered"/> one while the gate cannot write the filter into the statement
-/// (<see cref="SqlGateCodes.RowSecurityUnrewritable"/>), so a filtered statement never runs unfiltered. Only Beacon.Core
-/// creates one: the resolver for every statement that runs, and <see cref="RowSecurityState.NotApplicable"/> by name only
-/// where nothing reaches a source's rows — the in-memory join over step results and the checks that judge SQL before it
-/// is stored.
+/// (<see cref="SqlGateCodes.RowSecurityUnrewritable"/>), so a filtered statement never runs unfiltered. The resolver creates
+/// one for every statement that runs; <see cref="RowSecurityState.NotApplicable"/> is stated by name only where nothing
+/// reaches a source's rows — the in-memory join over step results and the checks that judge SQL before it is stored. The
+/// factories are internal, which keeps them from Beacon.AI and the connectors but not from the assemblies Beacon.Core
+/// shows its internals to: <c>SqlExecutionPathCoverageTests</c> pins every file that creates one.
 /// </summary>
 public sealed record RowSecurityContext
 {

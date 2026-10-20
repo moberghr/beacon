@@ -6,8 +6,8 @@ namespace Beacon.Core.Services.Validation;
 /// <summary>
 /// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: length cap → regex guardrail →
 /// AST read-only validator → cross-database names → system catalog relations → row-level security → host policy → schema
-/// catalog check → semantic lint → row-limit rewrite. Pure and synchronous (no I/O) so it can be evaluated on every candidate, including
-/// every repair attempt, at no cost beyond a parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
+/// catalog check → semantic lint → row-limit rewrite. Pure and synchronous (no I/O) so it can be evaluated on every
+/// candidate, including every repair attempt, at no cost beyond a parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
 /// </summary>
 public interface ISqlExecutionGate
 {
@@ -27,7 +27,7 @@ public interface ISqlExecutionGate
 /// <param name="RowSecurity">Row-level security for the caller on the target, from <see cref="IRowSecurityResolver"/>: a
 /// <see cref="RowSecurityState.Denied"/> or <see cref="RowSecurityState.Filtered"/> context blocks whatever the other
 /// settings say (<see cref="SqlGateCodes.NoEntitlement"/>, <see cref="SqlGateCodes.RowSecurityUnrewritable"/>), and so
-/// does none.</param>
+/// does a missing one.</param>
 public sealed record SqlGateRequest(
     string Sql,
     string? Dialect,
