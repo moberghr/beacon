@@ -32,6 +32,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
+        <ProjectReference Include="..\Beacon.AI.Embeddings.Onnx\Beacon.AI.Embeddings.Onnx.csproj" />
         <ProjectReference Include="..\Beacon.Connector.Api\Beacon.Connector.Api.csproj" />
         <ProjectReference Include="..\Beacon.SampleProject\Beacon.SampleProject.csproj" />
     </ItemGroup>

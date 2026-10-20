@@ -83,8 +83,8 @@ public static class ServiceConfiguration
         services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
 
-        // Local ONNX embeddings (in-process, no egress). Singleton for session reuse.
-        services.AddBeaconEmbeddings();
+        // Disabled by default; Moberg.Beacon.AI.Embeddings.Onnx replaces it through AddBeaconOnnxEmbeddings().
+        services.TryAddSingleton<IBeaconEmbeddingService, DisabledEmbeddingService>();
 
         // Knowledge Graph. Grounding a prompt leaves out is logged once per row and interval, across requests.
         services.TryAddSingleton<WithheldGroundingLog>();
@@ -141,15 +141,13 @@ public static class ServiceConfiguration
     }
 
     /// <summary>
-    /// Registers the local ONNX embedding service. Kept as a discrete extension (per the plan's
-    /// <c>AddBeaconEmbeddings()</c>) though wired via <see cref="AddBeaconAI"/> rather than
-    /// <c>BeaconBuilder</c> — the AI layer registers through <c>AddBeaconAI(IServiceCollection)</c>,
-    /// not the builder chain (that is used only for connectors and DB providers). Singleton so the
-    /// <c>InferenceSession</c> is loaded once and reused (§6). <c>TryAdd</c> lets the host override.
+    /// Registers the disabled embedding service (<c>TryAdd</c>, so an existing registration wins).
+    /// Local embeddings now live in the <c>Moberg.Beacon.AI.Embeddings.Onnx</c> package.
     /// </summary>
+    [Obsolete("Embeddings are no longer part of Moberg.Beacon.AI. Use AddBeaconOnnxEmbeddings() from Moberg.Beacon.AI.Embeddings.Onnx. This method now registers a disabled service.")]
     public static IServiceCollection AddBeaconEmbeddings(this IServiceCollection services)
     {
-        services.TryAddSingleton<IBeaconEmbeddingService, OnnxEmbeddingService>();
+        services.TryAddSingleton<IBeaconEmbeddingService, DisabledEmbeddingService>();
         return services;
     }
 }

@@ -35,10 +35,6 @@
 		<PackageReference Include="OpenAI" />
 		<PackageReference Include="AWSSDK.BedrockRuntime" />
 
-		<!-- Local in-process embeddings (ONNX; bge-small-en-v1.5). No network egress. -->
-		<PackageReference Include="Microsoft.ML.OnnxRuntime" />
-		<PackageReference Include="Microsoft.ML.Tokenizers" />
-
 		<!-- Document generation packages -->
 		<PackageReference Include="Markdig" />
 	</ItemGroup>

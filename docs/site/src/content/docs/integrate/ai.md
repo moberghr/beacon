@@ -68,7 +68,7 @@ Every LLM call goes through one queue that allows at most `Limits:MaxConcurrentR
 
 ## Local embeddings (optional)
 
-Semantic retrieval (finding the right tables, examples and documentation chunks for a question) can use a local ONNX embedding model. Nothing leaves your process.
+Semantic retrieval (finding the right tables, examples and documentation chunks for a question) can use a local ONNX embedding model. Nothing leaves your process. The model support is a separate package: `dotnet add package Moberg.Beacon.AI.Embeddings.Onnx`, then call `services.AddBeaconOnnxEmbeddings()` before or after `AddBeaconAI`. Without it, `AddBeaconAI` registers a disabled service; if `Enabled` is `true` it logs one warning the first time the embedding service is used (not at startup).
 
 ```json
 {

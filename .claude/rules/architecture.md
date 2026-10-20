@@ -31,6 +31,7 @@ public record CreateQueryFolderResult(...);
 ```
 SampleProject (Host) → AI, MCP, Core, Core.PostgreSql/SqlServer, Connector.*
 AI                   → Core
+AI.Embeddings.Onnx   → AI
 MCP                  → Core, AI
 Connector.*          → Core
 Core.PostgreSql/Sql  → Core

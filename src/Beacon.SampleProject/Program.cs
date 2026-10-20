@@ -194,6 +194,7 @@ if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
 
 // Step 3: Add Beacon AI services (required for AI features)
 builder.Services.AddBeaconAI(builder.Configuration);
+builder.Services.AddBeaconOnnxEmbeddings();
 
 // Step 4: Add Beacon MCP server
 builder.Services.AddBeaconMcp();

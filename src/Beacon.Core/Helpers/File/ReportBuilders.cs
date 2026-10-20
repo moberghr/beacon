@@ -2,7 +2,6 @@
 using Beacon.Core.Adapters;
 using Beacon.Core.Data.Enums;
 using System.Collections;
-using System.Data;
 using System.Globalization;
 using System.Text;
 
@@ -119,89 +118,68 @@ public static class XlsxBuilder
 
     public static Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
     {
-        var xlsxDataTable = PrepareDataTable(data);
-
         using var workbook = FileHelper.CreateWorkbook();
 
         var worksheet = workbook.Worksheets.Add();
-        worksheet.InsertData(xlsxDataTable);
-        worksheet.Columns().AdjustToContents(1, 2);
+        if (data?.Count > 0)
+        {
+            WriteData(worksheet, data);
+            worksheet.Columns().AdjustToContents(1, 2);
+        }
 
         using var memoryStream = new MemoryStream();
         workbook.SaveAs(memoryStream);
-        memoryStream.Seek(0, SeekOrigin.Begin);
 
         return Task.FromResult(memoryStream.ToArray());
     }
 
-    private static DataTable PrepareDataTable(List<IDictionary<string, object?>>? data)
+    private static void WriteData(IXLWorksheet worksheet, List<IDictionary<string, object?>> data)
     {
-        var dt = new DataTable();
+        var columns = data[0].Keys.ToList();
 
-        if (data?.Count == 0)
+        for (var column = 0; column < columns.Count; column++)
         {
-            return dt;
+            worksheet.Cell(1, column + 1).Value = columns[column] ?? "";
         }
 
-        foreach (var column in data.FirstOrDefault()!)
-        {
-            var columnName = column.Key ?? "";
-            var propertyType = column.Value?.GetType();
-            // check if column name is unique as DataTable doesn't allow duplicates
-            var index = 1;
-            while (dt.Columns.Contains(columnName))
-            {
-                columnName = column + index.ToString();
-                index++;
-            }
-
-            if (propertyType == null)
-            {
-                dt.Columns.Add(columnName, typeof(string));
-                continue;
-            }
-
-            dt.Columns.Add(columnName, Nullable.GetUnderlyingType(propertyType) ?? propertyType);
-        }
-
-        foreach (var item in data)
-        {
-            var rows = item?.Select(x => x.Value).ToArray();
-
-            dt.Rows.Add(rows);
-        }
-
-        return dt;
-    }
-
-    private static IXLWorksheet InsertData(this IXLWorksheet worksheet, DataTable dt)
-    {
-        var cell = worksheet.Cell(1, 1);
-
-        var table = cell.InsertTable(dt, createTable: false);
-
-        var header = table.HeadersRow();
-
-        header.Style
+        worksheet.Range(1, 1, 1, columns.Count).Style
             .Font.SetFontColor(XLColor.FromTheme(XLThemeColor.Text1))
             .Alignment.SetWrapText(true)
             .Alignment.SetHorizontal(XLAlignmentHorizontalValues.Center)
             .Alignment.SetVertical(XLAlignmentVerticalValues.Center);
 
-        var firstRow = table.FirstRowUsed().RowNumber() + 1;
-        var lastRow = table.LastRowUsed().RowNumber();
+        var dateColumns = new HashSet<int>();
 
-        foreach (DataColumn column in dt.Columns)
+        for (var row = 0; row < data.Count; row++)
         {
-            var columnStyle = worksheet.Range(firstRow, column.Ordinal + 1, lastRow, column.Ordinal + 1).Style;
+            var values = data[row]?.Values.ToList() ?? [];
 
-            if (column.DataType == typeof(DateTime))
+            for (var column = 0; column < values.Count; column++)
             {
-                columnStyle.DateFormat.SetFormat(_xlsxDateTimeFormat);
-                continue;
+                var value = Normalize(values[column]);
+                worksheet.Cell(row + 2, column + 1).Value = XLCellValue.FromObject(value, CultureInfo.InvariantCulture);
+
+                if (value is DateTime)
+                {
+                    dateColumns.Add(column + 1);
+                }
             }
         }
 
-        return worksheet;
+        foreach (var column in dateColumns)
+        {
+            worksheet.Range(2, column, data.Count + 1, column).Style.DateFormat.SetFormat(_xlsxDateTimeFormat);
+        }
+    }
+
+    private static object? Normalize(object? value)
+    {
+        return value switch
+        {
+            DateTimeOffset x => x.DateTime,
+            DateOnly x => x.ToDateTime(TimeOnly.MinValue),
+            TimeOnly x => x.ToTimeSpan(),
+            _ => value
+        };
     }
 }

@@ -14,7 +14,8 @@ Beacon is published to nuget.org as `Moberg.Beacon.*` packages. Package IDs carr
 | `Moberg.Beacon.Core.SqlServer` | Beacon's metadata database on SQL Server: `UseSqlServer(...)`, migrations | Beacon's own data lives in SQL Server |
 | `Moberg.Beacon.Api` | REST endpoints under `/beacon/api`, the SignalR hub, cookie/OIDC/JWT/API-key authentication, login and first-run setup endpoints, antiforgery, Data Protection helpers | You serve the UI or the REST API (in practice always) |
 | `Moberg.Beacon.UI` | The built React app as a Razor Class Library, served at `/beacon` | You want the UI |
-| `Moberg.Beacon.AI` | LLM providers, the request queue, documentation generation, grounding, embeddings, learning loop, AI actors | AI features, and always with MCP (MCP depends on it) |
+| `Moberg.Beacon.AI` | LLM providers, the request queue, documentation generation, grounding, learning loop, AI actors | AI features, and always with MCP (MCP depends on it) |
+| `Moberg.Beacon.AI.Embeddings.Onnx` | Local in-process ONNX embeddings (`AddBeaconOnnxEmbeddings()`) | You want semantic retrieval; without it retrieval stays keyword-based |
 | `Moberg.Beacon.MCP` | The MCP server at `/beacon/mcp`, its tools, filters, discovery documents, host endpoint tools | You expose Beacon to AI clients |
 | `Moberg.Beacon.Connector.PostgreSql` | PostgreSQL connector | You monitor PostgreSQL |
 | `Moberg.Beacon.Connector.SqlServer` | SQL Server connector | You monitor SQL Server |

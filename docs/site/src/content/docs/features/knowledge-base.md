@@ -213,7 +213,7 @@ Keyword matching alone misses the question that says "revenue" when the column i
 
 ### Local embeddings
 
-Embeddings are produced **in-process by a local ONNX model**: a 384-dimension bge-small-en-v1.5 with a WordPiece tokenizer and 512-token inputs. There is no network egress and no third-party embedding API. The model and tokenizer are local files you supply; embeddings are **disabled by default** so an install without a model keeps working on the lexical path.
+Embeddings are produced **in-process by a local ONNX model**: a 384-dimension bge-small-en-v1.5 with a WordPiece tokenizer and 512-token inputs. There is no network egress and no third-party embedding API. The model and tokenizer are local files you supply. The ONNX support is a separate package, `Moberg.Beacon.AI.Embeddings.Onnx`: add it and call `AddBeaconOnnxEmbeddings()` on the service collection. Embeddings are **disabled by default** so an install without the package or a model keeps working on the lexical path.
 
 ```json
 {
