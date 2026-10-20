@@ -54,13 +54,12 @@ public class RemoveUnusedFeaturesMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down restores exactly what Up removes");
         AssertUpOrder(migration.UpOperations.ToList(), sqlServer);
         AssertDownOrder(migration.DownOperations.ToList(), sqlServer);
-        // Only operation type names are compared here: the next migration's content is pinned by RowSecurityModelMigrationTests.
+        // The next migration's own content is pinned by RowSecurityModelMigrationTests.
         var next = MigrationNamed(context, migrations, "_AddRowSecurityModel");
-        differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
-            .Select(x => x.GetType().Name)
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
             .Should().BeEquivalentTo(
-                next.UpOperations.Select(x => x.GetType().Name),
-                "the next migration's target model differs from its target model only by that migration");
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)

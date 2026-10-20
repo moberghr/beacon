@@ -1559,6 +1559,12 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
     protected void ConfigureRowSecurityEntities(ModelBuilder modelBuilder)
     {
+        // Table names and attribute values are kept exactly as entered: PostgreSQL compares them ordinally, and SQL Server
+        // does with a binary collation (its default one ignores case), so a case variant is another table or value on both.
+        var ordinalCollation = Database.ProviderName == HostModelReader.SqlServerProviderName
+            ? "Latin1_General_100_BIN2"
+            : null;
+
         modelBuilder.Entity<AttributeDefinition>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -1586,7 +1592,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         {
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Value).HasMaxLength(256).IsRequired();
+            entity.Property(e => e.Value).HasMaxLength(256).IsRequired().UseCollation(ordinalCollation);
             entity.Property(e => e.CreatedByUserId).HasMaxLength(200);
 
             // A user holds a value once; the index also serves reading a user's values.
@@ -1603,8 +1609,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         {
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.SchemaName).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.SchemaName).HasMaxLength(200).IsRequired().UseCollation(ordinalCollation);
+            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired().UseCollation(ordinalCollation);
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
             entity.Property(e => e.Description).HasMaxLength(1000);
 
@@ -1643,8 +1649,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         {
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.SchemaName).HasMaxLength(200).IsRequired();
-            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.SchemaName).HasMaxLength(200).IsRequired().UseCollation(ordinalCollation);
+            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired().UseCollation(ordinalCollation);
 
             // One class per table of a source.
             entity.HasIndex(e => new { e.DataSourceId, e.SchemaName, e.TableName }).IsUnique();

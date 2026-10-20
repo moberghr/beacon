@@ -14,8 +14,8 @@ public class UserAttributeValue : BaseEntity
     public int AttributeDefinitionId { get; set; }
 
     /// <summary>
-    /// The value in the canonical text of the attribute's type: as entered for text (compared ordinally), invariant decimal
-    /// digits for an integer, the lowercase "D" form for a guid.
+    /// The value in the canonical text of the attribute's type: as entered for text, invariant decimal digits for an
+    /// integer, the lowercase "D" form for a guid. Stored and kept unique ordinally on both providers.
     /// </summary>
     public required string Value { get; set; }
 

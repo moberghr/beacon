@@ -65,8 +65,13 @@ public class SecurityAuditCoverageTests
             .Except(Reserved)
             .ToList();
 
+        var recordedReserved = Reserved
+            .Where(x => sources.Any(y => Regex.IsMatch(y, $@"\bSecurityAuditActions\.{x}\b")))
+            .ToList();
+
         actions.Should().HaveCountGreaterThan(90);
         unrecorded.Should().BeEmpty("an action in the catalogue that nothing records promises an event the trail never holds");
+        recordedReserved.Should().BeEmpty("an action something records is no longer reserved");
     }
 
     [TestCase(true)]

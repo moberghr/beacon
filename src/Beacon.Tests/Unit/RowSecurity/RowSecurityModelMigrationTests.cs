@@ -20,11 +20,12 @@ namespace Beacon.Tests.Unit.RowSecurity;
 /// The row-security model migration, checked offline on both providers (nothing connects, nothing is migrated): it creates
 /// the attribute, user value, policy, policy version and table class tables and adds the data sources' row-security
 /// version (0 on every existing source), and runs no SQL. Up is exactly the difference between the model before it and its
-/// target model, and Down is exactly the way back. An attribute key is unique among live attributes only, a user holds a
-/// value once, a table has one class per source and a policy one version per number. A data source cannot be deleted under
-/// its policies or classes, a user's or an attribute's values go with it, a policy's versions go with the policy, and the
-/// active version adds no second cascade path. Its target model is the snapshot, the model has no pending changes, and it
-/// sorts last.
+/// target model, and Down is exactly the way back, each in dependency order. An attribute key is unique among live
+/// attributes only, a user holds a value once, a table has one class per source and a policy one version per number. Enums
+/// are stored as integers; table names and values compare ordinally (SQL Server through a binary collation). A data source
+/// cannot be deleted under its policies or classes, a user's or an attribute's values go with it, a policy's versions go
+/// with the policy, and the active version adds no second cascade path. Its target model is the snapshot, the model has no
+/// pending changes, and it sorts last.
 /// </summary>
 [TestFixture]
 public class RowSecurityModelMigrationTests
@@ -81,27 +82,78 @@ public class RowSecurityModelMigrationTests
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void TheMigration_CreatesAndDropsInDependencyOrder(bool sqlServer)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var migration = MigrationNamed(context, migrations, Suffix);
+        var up = migration.UpOperations.ToList();
+        var down = migration.DownOperations.ToList();
+
+        var activeVersionKey = up.FindIndex(x => x is AddForeignKeyOperation key && key.Table == Named(sqlServer, "row_policies"));
+
+        TableIndex<CreateTableOperation>(up, sqlServer, "row_policies")
+            .Should().BeLessThan(TableIndex<CreateTableOperation>(up, sqlServer, "row_policy_versions"), "a version's key points at its policy");
+        TableIndex<CreateTableOperation>(up, sqlServer, "attribute_definitions")
+            .Should().BeLessThan(TableIndex<CreateTableOperation>(up, sqlServer, "user_attribute_values"), "a value's key points at its attribute");
+        activeVersionKey.Should().BeGreaterThan(TableIndex<CreateTableOperation>(up, sqlServer, "row_policy_versions"), "the active version key needs both tables");
+        down.FindIndex(x => x is DropForeignKeyOperation key && key.Table == Named(sqlServer, "row_policies"))
+            .Should().Be(0, "the active version key goes first: the policies and their versions point at each other");
+        TableIndex<DropTableOperation>(down, sqlServer, "row_policy_versions")
+            .Should().BeLessThan(TableIndex<DropTableOperation>(down, sqlServer, "row_policies"), "the versions go before their policies");
+        TableIndex<DropTableOperation>(down, sqlServer, "user_attribute_values")
+            .Should().BeLessThan(TableIndex<DropTableOperation>(down, sqlServer, "attribute_definitions"), "the values go before their attributes");
+    }
+
     [TestCase(false, "archived_time IS NULL")]
     [TestCase(true, "[ArchivedTime] IS NULL")]
-    public void TheUniqueIndexes_HoldAKeyAmongLiveAttributes_AValueOnce_AClassPerTable_AndAVersionPerNumber(bool sqlServer, string liveFilter)
+    public void TheIndexes_HoldAKeyAmongLiveAttributes_AValueOnce_AClassPerTable_AndAVersionPerNumber(bool sqlServer, string liveFilter)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var migrations = context.GetService<IMigrationsAssembly>();
 
-        var unique = MigrationNamed(context, migrations, Suffix).UpOperations
+        var indexes = MigrationNamed(context, migrations, Suffix).UpOperations
             .OfType<CreateIndexOperation>()
-            .Where(x => x.IsUnique)
-            .Select(x => $"{x.Table}({string.Join(",", x.Columns)}) {x.Filter}".TrimEnd())
+            .Select(x => $"{x.Table}({string.Join(",", x.Columns)}) unique={x.IsUnique} {x.Filter}".TrimEnd())
             .ToList();
 
-        unique.Should().BeEquivalentTo(
+        indexes.Should().BeEquivalentTo(
         [
-            $"{Named(sqlServer, "attribute_definitions")}({Named(sqlServer, "key")}) {liveFilter}",
-            $"{Named(sqlServer, "user_attribute_values")}({Named(sqlServer, "user_id")},{Named(sqlServer, "attribute_definition_id")},{Named(sqlServer, "value")})",
-            $"{Named(sqlServer, "table_classifications")}({Named(sqlServer, "data_source_id")},{Named(sqlServer, "schema_name")},{Named(sqlServer, "table_name")})",
-            $"{Named(sqlServer, "row_policy_versions")}({Named(sqlServer, "row_policy_id")},{Named(sqlServer, "version_number")})"
+            $"{Named(sqlServer, "attribute_definitions")}({Named(sqlServer, "key")}) unique=True {liveFilter}",
+            $"{Named(sqlServer, "user_attribute_values")}({Named(sqlServer, "user_id")},{Named(sqlServer, "attribute_definition_id")},{Named(sqlServer, "value")}) unique=True",
+            $"{Named(sqlServer, "user_attribute_values")}({Named(sqlServer, "attribute_definition_id")}) unique=False",
+            $"{Named(sqlServer, "table_classifications")}({Named(sqlServer, "data_source_id")},{Named(sqlServer, "schema_name")},{Named(sqlServer, "table_name")}) unique=True",
+            $"{Named(sqlServer, "row_policies")}({Named(sqlServer, "data_source_id")},{Named(sqlServer, "schema_name")},{Named(sqlServer, "table_name")}) unique=False",
+            $"{Named(sqlServer, "row_policies")}({Named(sqlServer, "active_version_id")}) unique=False",
+            $"{Named(sqlServer, "row_policy_versions")}({Named(sqlServer, "row_policy_id")},{Named(sqlServer, "version_number")}) unique=True",
+            $"{Named(sqlServer, "row_policy_versions")}({Named(sqlServer, "row_policy_id")},{Named(sqlServer, "status")}) unique=False"
         ]);
+    }
+
+    [TestCase(false, "integer", null)]
+    [TestCase(true, "int", "Latin1_General_100_BIN2")]
+    public void TheColumns_StoreEnumsAsIntegers_AndTableNamesAndValuesOrdinally(bool sqlServer, string integerType, string? ordinalCollation)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        string[] enums = ["attribute_definitions.value_type", "row_policy_versions.status", "table_classifications.class", "table_classifications.requested_class"];
+        string[] ordinal = ["user_attribute_values.value", "row_policies.schema_name", "row_policies.table_name", "table_classifications.schema_name", "table_classifications.table_name"];
+
+        var columns = MigrationNamed(context, migrations, Suffix).UpOperations
+            .OfType<CreateTableOperation>()
+            .SelectMany(x => x.Columns)
+            .ToDictionary(x => $"{x.Table}.{x.Name}");
+
+        enums.Select(x => columns[Column(sqlServer, x)].ColumnType).Should().AllBe(integerType);
+        ordinal.Select(x => columns[Column(sqlServer, x)].Collation).Should().AllBe(ordinalCollation);
+        columns
+            .Where(x => !ordinal.Select(y => Column(sqlServer, y)).Contains(x.Key))
+            .Should().OnlyContain(x => x.Value.Collation == null, "only table names and values get a collation of their own");
     }
 
     [TestCase(false)]
@@ -129,6 +181,23 @@ public class RowSecurityModelMigrationTests
             $"{Named(sqlServer, "row_policy_versions")}({Named(sqlServer, "row_policy_id")}) -> {Named(sqlServer, "row_policies")} {ReferentialAction.Cascade}",
             $"{Named(sqlServer, "row_policies")}({Named(sqlServer, "active_version_id")}) -> {Named(sqlServer, "row_policy_versions")} {ReferentialAction.NoAction}"
         ]);
+    }
+
+    private static int TableIndex<TOperation>(List<MigrationOperation> operations, bool sqlServer, string table)
+        where TOperation : MigrationOperation
+    {
+        var index = operations.FindIndex(x => x is TOperation and ITableMigrationOperation operation && operation.Table == Named(sqlServer, table));
+        index.Should().BeGreaterThanOrEqualTo(0, $"{table} is in the migration");
+
+        return index;
+    }
+
+    // "table.column", in the provider's naming.
+    private static string Column(bool sqlServer, string column)
+    {
+        var dot = column.IndexOf('.', StringComparison.Ordinal);
+
+        return $"{Named(sqlServer, column[..dot])}.{Named(sqlServer, column[(dot + 1)..])}";
     }
 
     // PostgreSQL names tables and columns in snake_case; SQL Server keeps the model's PascalCase.

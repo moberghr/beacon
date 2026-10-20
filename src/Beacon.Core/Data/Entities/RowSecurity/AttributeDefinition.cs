@@ -5,8 +5,8 @@ namespace Beacon.Core.Data.Entities.RowSecurity;
 
 /// <summary>
 /// An attribute users hold values of (a branch, an advisor id), which row policies compare a table's column with. A user
-/// with no value of an attribute a policy's clause names gets no row through that policy, and an archived attribute holds
-/// no value for anyone.
+/// with no value of an attribute a policy's clause names gets no row through that policy. Values read through their
+/// attribute leave out an archived attribute's (its soft-delete filter hides it), so an archived attribute grants no row.
 /// </summary>
 public class AttributeDefinition : ArchivableBaseEntity, IAttributedEntity
 {
@@ -17,7 +17,7 @@ public class AttributeDefinition : ArchivableBaseEntity, IAttributedEntity
 
     public string? Description { get; set; }
 
-    public RowAttributeValueType ValueType { get; set; }
+    public required RowAttributeValueType ValueType { get; set; }
 
     /// <inheritdoc />
     public string? CreatedByUserId { get; set; }

@@ -84,7 +84,8 @@ public class DataSource : ArchivableBaseEntity
 
     /// <summary>
     /// Goes up by one in the save of every change to what row security enforces on the source (a policy version approved,
-    /// a policy archived, a table class applied), so a cached copy of the source's policies tells it is stale by one read.
+    /// a policy archived, a table class applied), so a cached copy of the source's policies can tell it is stale from a
+    /// single read of this column.
     /// </summary>
     public long RowSecurityVersion { get; set; }
 

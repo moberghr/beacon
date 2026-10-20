@@ -49,8 +49,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     DataSourceId = table.Column<int>(type: "int", nullable: false),
-                    SchemaName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    TableName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    SchemaName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false, collation: "Latin1_General_100_BIN2"),
+                    TableName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false, collation: "Latin1_General_100_BIN2"),
                     Class = table.Column<int>(type: "int", nullable: true),
                     RequestedClass = table.Column<int>(type: "int", nullable: true),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
@@ -79,7 +79,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     UserId = table.Column<int>(type: "int", nullable: false),
                     AttributeDefinitionId = table.Column<int>(type: "int", nullable: false),
-                    Value = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
+                    Value = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false, collation: "Latin1_General_100_BIN2"),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
                     CreatedTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
@@ -110,8 +110,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     DataSourceId = table.Column<int>(type: "int", nullable: false),
-                    SchemaName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    TableName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    SchemaName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false, collation: "Latin1_General_100_BIN2"),
+                    TableName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false, collation: "Latin1_General_100_BIN2"),
                     Name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
                     Description = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
                     ActiveVersionId = table.Column<int>(type: "int", nullable: true),

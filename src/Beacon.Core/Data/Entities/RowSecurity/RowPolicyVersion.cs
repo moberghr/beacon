@@ -14,7 +14,7 @@ public class RowPolicyVersion : BaseEntity
     /// <summary>1 for the policy's first version, then one more for each version after it.</summary>
     public int VersionNumber { get; set; }
 
-    public RowPolicyVersionStatus Status { get; set; }
+    public required RowPolicyVersionStatus Status { get; set; }
 
     /// <summary>
     /// The clauses a row must all meet, as JSON: each compares a column of the table with the values the reading user holds
