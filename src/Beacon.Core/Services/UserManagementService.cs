@@ -32,9 +32,15 @@ internal class UserManagementService(
     private static readonly string DummyPasswordSalt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     // "No super admin has EVER existed": an archived super admin counts, so archiving it never reopens first-run setup,
-    // and users created by any other path (SSO, MCP, an administrator) never close it.
+    // and users created by any other path (SSO, MCP, an administrator) never close it. A host that owns sign-in has no
+    // first run at all.
     public async Task<bool> IsFirstRunAsync(CancellationToken ct = default)
     {
+        if (configuration.UserManagement.HostOwnsSignIn)
+        {
+            return false;
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         return !await context.Users
@@ -513,11 +519,13 @@ internal class UserManagementService(
         }
 
         // Nobody is provisioned before first-run setup: the first user of an installation is always the super admin
-        // created with the setup token, never whoever reaches SSO or MCP first.
-        var setupCompleted = await context.Users
-            .IgnoreQueryFilters()
-            .Where(x => x.IsSuperAdmin)
-            .AnyAsync(ct);
+        // created with the setup token, never whoever reaches SSO or MCP first. A host that owns sign-in has already
+        // decided who this is, and has no setup to wait for.
+        var setupCompleted = configuration.UserManagement.HostOwnsSignIn
+            || await context.Users
+                .IgnoreQueryFilters()
+                .Where(x => x.IsSuperAdmin)
+                .AnyAsync(ct);
         if (!setupCompleted)
         {
             throw new BeaconException(

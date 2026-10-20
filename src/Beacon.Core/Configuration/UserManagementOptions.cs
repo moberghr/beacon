@@ -18,6 +18,14 @@ public class UserManagementOptions
     public bool AllowInternalUsers { get; set; } = true;
 
     /// <summary>
+    /// The host signs people in and decides whom Beacon provisions, so there is no first-run setup: no super admin is
+    /// ever created, the setup page reports setup as completed and announces no token, and external users are
+    /// provisioned without waiting for one. For a host that embeds Beacon behind its own identity; code-only, never
+    /// bound from configuration. Default: false.
+    /// </summary>
+    public bool HostOwnsSignIn { get; set; }
+
+    /// <summary>
     /// Minimum password length for internal users.
     /// Default: 8
     /// </summary>

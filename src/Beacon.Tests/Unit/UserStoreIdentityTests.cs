@@ -18,8 +18,8 @@ namespace Beacon.Tests.Unit;
 /// The user store's identity queries, run as real service code. SQL is captured on the Npgsql provider without a
 /// database (<see cref="SqlCapture"/>): the soft-delete filter is bypassed exactly where archived users must count or be
 /// refused, and first-run creation is serializable. Behaviour is checked on in-memory sets
-/// (<see cref="RecordingBeaconContext"/>): provisioning waits for first-run setup, refuses archived and disabled users,
-/// and creates role-less users when no default role is configured.
+/// (<see cref="RecordingBeaconContext"/>): provisioning waits for first-run setup unless the host owns sign-in, refuses
+/// archived and disabled users, and creates role-less users when no default role is configured.
 /// </summary>
 [TestFixture]
 public class UserStoreIdentityTests
@@ -126,6 +126,30 @@ public class UserStoreIdentityTests
         roles.Verify(x => x.SeedSystemRolesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Test]
+    public async Task IsFirstRun_WhenTheHostOwnsSignIn_IsFalse_WithoutAskingTheDatabase()
+    {
+        var capture = new SqlCapture();
+
+        var isFirstRun = await Service(capture, hostOwnsSignIn: true).IsFirstRunAsync();
+
+        isFirstRun.Should().BeFalse("a host that owns sign-in has no first-run setup to open");
+        capture.Commands.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Provisioning_WhenTheHostOwnsSignIn_NeedsNoSuperAdmin()
+    {
+        var saved = new List<object>();
+
+        var user = await Service([], saved, hostOwnsSignIn: true).GetOrCreateExternalUserAsync("sub-1", Provider, "ana", null, null, null);
+
+        user.ExternalId.Should().Be("sub-1");
+        user.IsSuperAdmin.Should().BeFalse();
+        saved.OfType<BeaconUser>().Should().ContainSingle()
+            .Which.IsSuperAdmin.Should().BeFalse();
+    }
+
     [TestCase(true, false, "*archived*")]
     [TestCase(false, false, "*disabled*")]
     public async Task ExistingArchivedOrDisabledUser_IsRefused_AndNothingIsCreated(bool archived, bool enabled, string message)
@@ -225,13 +249,13 @@ public class UserStoreIdentityTests
         };
     }
 
-    private static UserManagementService Service(SqlCapture capture)
+    private static UserManagementService Service(SqlCapture capture, bool hostOwnsSignIn = false)
     {
         return new UserManagementService(
             capture.Factory(),
             Mock.Of<IPasswordHasher>(),
             Mock.Of<IRoleService>(),
-            new BeaconConfiguration(),
+            Configuration(hostOwnsSignIn),
             TimeProvider.System,
             new RecordingSecurityAudit());
     }
@@ -240,7 +264,8 @@ public class UserStoreIdentityTests
         List<BeaconUser> users,
         List<object>? saved = null,
         List<BeaconRole>? roles = null,
-        Mock<IRoleService>? roleService = null)
+        Mock<IRoleService>? roleService = null,
+        bool hostOwnsSignIn = false)
     {
         saved ??= [];
         var sets = new Dictionary<Type, object>
@@ -261,8 +286,13 @@ public class UserStoreIdentityTests
             factory.Object,
             Mock.Of<IPasswordHasher>(),
             (roleService ?? new Mock<IRoleService>()).Object,
-            new BeaconConfiguration(),
+            Configuration(hostOwnsSignIn),
             TimeProvider.System,
             new RecordingSecurityAudit());
+    }
+
+    private static BeaconConfiguration Configuration(bool hostOwnsSignIn)
+    {
+        return new BeaconConfiguration { UserManagement = { HostOwnsSignIn = hostOwnsSignIn } };
     }
 }
