@@ -216,6 +216,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IControlTowerService, ControlTowerService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddSingleton<MigrationBulkContextFactory>();
+        services.TryAddSingleton<DataMigration.MigrationBulkWriters>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
         services.TryAddTransient<Services.Metadata.IColumnValueSampler, Services.Metadata.ColumnValueSampler>();
         services.TryAddTransient<Services.Metadata.ISchemaRelationshipSyncService, Services.Metadata.SchemaRelationshipSyncService>();

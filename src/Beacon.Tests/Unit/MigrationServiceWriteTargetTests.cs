@@ -395,6 +395,7 @@ public class MigrationServiceWriteTargetTests
             _preview.Object,
             Mock.Of<IBeaconUserContext>(),
             new MigrationBulkContextFactory([]),
+            MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = enabled, MaxRows = maxRows }),
             TestChangeApprovals.Submitter(), TestProjectAccess.Actors(), audit ?? new RecordingSecurityAudit(), TimeProvider.System);

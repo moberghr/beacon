@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.DataMigration;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
@@ -178,7 +179,32 @@ internal partial class MigrationService
             throw new BeaconException($"Destination data source {destinationDataSource.Id} is not a database type");
 
         var databaseEngineType = destinationDataSource.DatabaseEngineType.Value;
-        bulkContextFactory.EnsureAvailable(databaseEngineType);
+
+        // Before anything decrypts the destination's credentials: the engine's writer must be registered by its connector
+        // package (MySQL still writes through its bulk provider).
+        var writer = databaseEngineType == DatabaseEngineType.MySQL ? null : writers.Require(databaseEngineType);
+        if (writer == null)
+        {
+            bulkContextFactory.EnsureAvailable(databaseEngineType);
+        }
+
+        // Every identifier is validated before the destination is connected to (§1.10).
+        var (schema, table) = ParseSchemaAndTableName(destinationTable);
+        if (schema != null)
+        {
+            SqlIdentifierGuard.Validate(schema, "schema");
+        }
+
+        SqlIdentifierGuard.Validate(table, "table");
+
+        // SQL Server would resolve an unqualified name through the login's default schema; the run writes into dbo, as it
+        // always has, so the existence check, the key lookup and the writer all name the same table.
+        if (schema == null && databaseEngineType == DatabaseEngineType.MSSQL)
+        {
+            schema = "dbo";
+        }
+
+        var rows = MigrationRowsOf(data);
 
         DbConnection? connection = null;
         DbTransaction? transaction = null;
@@ -190,7 +216,7 @@ internal partial class MigrationService
             await connection.OpenAsync(cancellationToken);
 
             // Validate destination table exists
-            await ValidateDestinationTable(connection, destinationTable, databaseEngineType);
+            await ValidateDestinationTable(connection, schema, table, databaseEngineType);
 
             // Start transaction for data consistency
             transaction = await connection.BeginTransactionAsync(cancellationToken);
@@ -202,21 +228,35 @@ internal partial class MigrationService
 
             try
             {
-                // Execute operation based on mode
-                switch (mode)
+                // Upsert matches rows by the table's primary key, read inside the run's transaction; a table without one,
+                // or a lookup that fails, fails the run instead of inserting duplicates. With no rows there is nothing to
+                // match, so nothing is read or written.
+                IReadOnlyList<string> keyColumns = mode == MigrationMode.Upsert && rows.Rows.Count > 0
+                    ? await RequirePrimaryKey(connection, transaction, schema, table, rows, databaseEngineType, cancellationToken)
+                    : [];
+
+                if (writer != null)
                 {
-                    case MigrationMode.Truncate:
-                        await ExecuteTruncate(connection, transaction, destinationTable, databaseEngineType);
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
-                        break;
+                    var target = new MigrationWriteTarget(connection, transaction, schema, table, Constants.Migration.BulkCopyTimeoutSeconds);
+                    rowsWritten = await WriteThroughAsync(writer, target, rows, mode, keyColumns, cancellationToken);
+                }
+                else
+                {
+                    switch (mode)
+                    {
+                        case MigrationMode.Truncate:
+                            await ExecuteTruncate(connection, transaction, destinationTable, databaseEngineType);
+                            (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
+                            break;
 
-                    case MigrationMode.Insert:
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
-                        break;
+                        case MigrationMode.Insert:
+                            (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
+                            break;
 
-                    case MigrationMode.Upsert:
-                        (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, databaseEngineType);
-                        break;
+                        case MigrationMode.Upsert:
+                            (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, keyColumns, databaseEngineType);
+                            break;
+                    }
                 }
 
                 await transaction.CommitAsync(cancellationToken);

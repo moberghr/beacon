@@ -54,6 +54,10 @@ A job writes only into a data source an Admin marked as a **migration write targ
 
 - Only a PostgreSQL, MySQL or SQL Server database can be a write target. A host-managed data source or one marked
   read-only cannot.
+- The host registers the target engine's connector, which brings its writer: `AddPostgreSqlConnector()`
+  (`Moberg.Beacon.Connector.PostgreSql`), `AddSqlServerConnector()` (`Moberg.Beacon.Connector.SqlServer`) or
+  `AddMySqlConnector()` (`Moberg.Beacon.Connector.MySql`). Without it a run fails, naming the package, before the
+  target's credentials are decrypted.
 - Beacon never reads a write target. Query steps, previews, subscriptions, data quality, MCP tools, AI grounding,
   documentation and metadata scans refuse it or leave it out. Only the migration writer connects with its credentials, so
   only its login holds [write grants](#destination-privileges); every data source Beacon reads keeps a read-only login.
@@ -159,7 +163,7 @@ step of plain SQL.
 | Mode (UI label) | What it does | Needs |
 |-----------------|--------------|-------|
 | **Insert only** | Inserts every source row. A row that violates a key or constraint fails the write. | |
-| **Insert or update** (Upsert) | Stages the rows in a temporary table, then inserts new rows and updates existing ones by primary key. | A primary key on the destination table, and every key column in each source row (otherwise the run fails). Without a primary key the job inserts, as in Insert only. |
+| **Insert or update** (Upsert) | Stages the rows in a temporary table, then inserts new rows and updates existing ones by primary key. | A primary key on the destination table, and every key column in each source row (otherwise the run fails). Without a primary key the run fails. |
 | **Truncate & insert** | Empties the destination table, then inserts every source row. | |
 
 :::caution
@@ -172,12 +176,21 @@ How the write is done per engine:
 | Engine | Insert | Upsert |
 |--------|--------|--------|
 | PostgreSQL | `COPY … FROM STDIN (FORMAT BINARY)` | `COPY` into a temporary table, then `INSERT … ON CONFLICT` |
-| SQL Server | bulk copy | bulk merge, staged in a session temporary table |
+| SQL Server | bulk copy, keeping identity values | bulk copy into a session temporary table, then `MERGE` (a matched row is updated only when a value changed) |
 | MySQL | bulk insert; if it fails, row by row | bulk insert into a temporary table, then `INSERT … ON DUPLICATE KEY UPDATE` |
 
 On PostgreSQL and SQL Server a failed write fails the run. On MySQL, when the bulk insert fails, Beacon inserts the rows
 one at a time: rows that fail are counted and listed in the run's error, and the run ends as **Partial**. It stops after
 more than 100 failed rows.
+
+On PostgreSQL and SQL Server the rows are written as the source returns them:
+
+- The columns written are those of all source rows. A NULL, or a column a row does not carry, writes NULL, never the
+  column's default; in Upsert mode that NULL replaces the existing value. Rows from one query all carry the same columns.
+- SQL Server keeps the source's identity values (the table does not generate new ones) and fires the table's insert
+  triggers, and checks `CHECK` and foreign-key constraints: a violating row fails the run, which rolls back.
+- In Upsert mode two source rows with the same primary key in one batch of 10,000 fail the run, which rolls back.
+- A SQL Server table named without a schema is the `dbo` one.
 
 ### Schedules
 
@@ -259,11 +272,12 @@ uses, on the destination table only:
 
 | Mode | PostgreSQL | MySQL | SQL Server |
 |------|------------|-------|------------|
-| Insert only | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy) |
-| Insert or update | `INSERT`, `UPDATE`, and `TEMPORARY` on the database (rows are staged in a temporary table) | `INSERT`, `UPDATE`, `CREATE TEMPORARY TABLES` | `INSERT`, `UPDATE` (staged in a session temporary table) |
+| Insert only | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy); `ALTER` on the table too when the job writes an identity column |
+| Insert or update | `INSERT`, `UPDATE`, `SELECT` on the written columns (`ON CONFLICT` reads them, also on a table whose columns are all key columns), and `TEMPORARY` on the database (rows are staged in a temporary table; PostgreSQL grants it to `PUBLIC` by default) | `INSERT`, `UPDATE`, `CREATE TEMPORARY TABLES` | `SELECT`, `INSERT`, `UPDATE` (staged in a session temporary table); `ALTER` on the table too when the job writes an identity column (`IDENTITY_INSERT`) |
 | Truncate & insert | the `TRUNCATE` privilege, `INSERT` | `DROP` on the table (MySQL requires it to truncate), `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
 
-Every mode also reads `information_schema` to check that the table exists (and, for Upsert, its primary key). Some of
+On PostgreSQL every mode also needs `USAGE` on the table's schema. Every mode also reads `information_schema` to check
+that the table exists (and, for Upsert, its primary key). Some of
 these grants are DDL-grade (`ALTER`, `DROP`, the `TRUNCATE` privilege), which is why such a login belongs on a write
 target that Beacon never reads, not on an ordinary data source.
 

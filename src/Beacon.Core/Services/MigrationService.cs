@@ -15,7 +15,6 @@ using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
-using Beacon.Core.Helpers.BulkHelpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Models.Queries;
@@ -48,6 +47,7 @@ internal partial class MigrationService(
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
     MigrationBulkContextFactory bulkContextFactory,
+    DataMigration.MigrationBulkWriters writers,
     ILogger<MigrationService> logger,
     IOptions<MigrationOptions> migrationOptions,
     ChangeApprovalSubmitter changeApprovals,

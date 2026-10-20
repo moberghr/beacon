@@ -2,6 +2,7 @@ using System.Data.Common;
 using Npgsql;
 using Beacon.Core;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.DataMigration;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +18,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.PostgreSQL, "PostgreSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, PostgreSqlMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, PostgreSqlTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigrationBulkWriter, PostgreSqlMigrationBulkWriter>());
         return builder;
     }
 }

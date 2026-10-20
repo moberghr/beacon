@@ -6,8 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.DataMigration;
 using Beacon.Core.Helpers;
-using Beacon.Core.Helpers.BulkHelpers;
 using Beacon.Core.Models;
 
 namespace Beacon.Core.Services;
@@ -46,13 +46,11 @@ internal partial class MigrationService
         }
     }
 
-    private async Task ValidateDestinationTable(DbConnection connection, string tableName, DatabaseEngineType engineType)
+    private async Task ValidateDestinationTable(DbConnection connection, string? schema, string table, DatabaseEngineType engineType)
     {
+        var tableName = schema == null ? table : $"{schema}.{table}";
         try
         {
-            // Parse schema and table name
-            var (schema, table) = ParseSchemaAndTableName(tableName);
-
             // Identifiers appear as string literals here, but are still whitelist-validated (§1.10);
             // embedded single quotes are doubled defence-in-depth.
             if (schema != null)
@@ -126,20 +124,7 @@ internal partial class MigrationService
         if (!data.Any())
             return (0, 0, errorDetails);
 
-        // Use database-specific bulk insert methods
-        if (engineType == DatabaseEngineType.PostgreSQL)
-        {
-            return await ExecutePostgresInsert(connection, transaction, tableName, data, errorDetails);
-        }
-        else if (engineType == DatabaseEngineType.MSSQL)
-        {
-            return await ExecuteSqlServerInsert(connection, tableName, data, errorDetails);
-        }
-        else
-        {
-            return await ExecuteGenericBulkInsert(connection, transaction, tableName, data, engineType, errorDetails);
-        }
-
+        return await ExecuteGenericBulkInsert(connection, transaction, tableName, data, engineType, errorDetails);
     }
 
     private async Task<(int rowsWritten, int rowsFailed, List<string> errorDetails)> ExecuteUpserts(
@@ -147,6 +132,7 @@ internal partial class MigrationService
         DbTransaction transaction,
         string tableName,
         List<Dictionary<string, object?>> data,
+        IReadOnlyList<string> primaryKeyColumns,
         DatabaseEngineType engineType)
     {
         var errorDetails = new List<string>();
@@ -156,35 +142,7 @@ internal partial class MigrationService
 
         try
         {
-            // Get primary key columns for the table
-            var primaryKeyColumns = await GetPrimaryKeyColumns(connection, tableName, engineType);
-
-            if (!primaryKeyColumns.Any())
-            {
-                logger.LogWarning("No primary key found for table {Table}, falling back to insert mode", tableName);
-                return await ExecuteInserts(connection, transaction, tableName, data, engineType);
-            }
-
-            // Validate that all rows have the primary key columns
-            var missingKeys = data.Where(row => !primaryKeyColumns.All(pk => row.ContainsKey(pk))).ToList();
-            if (missingKeys.Any())
-            {
-                var errorMsg = $"Some rows are missing primary key columns: {string.Join(", ", primaryKeyColumns)}";
-                logger.LogError(errorMsg);
-                throw new InvalidOperationException(errorMsg);
-            }
-
-            // Use database-specific bulk upsert methods
-            if (engineType == DatabaseEngineType.PostgreSQL)
-            {
-                return await ExecutePostgresUpsert(connection, transaction, tableName, data, primaryKeyColumns, errorDetails);
-            }
-            else if (engineType == DatabaseEngineType.MSSQL)
-            {
-                return await ExecuteSqlServerUpsert(connection, tableName, data, errorDetails);
-            }
-
-            // Use temp table + merge approach for other databases (MySQL)
+            // Temp table + merge (MySQL)
             var tempTableName = $"temp_{Guid.NewGuid():N}";
 
             // Filter out any empty column names
@@ -226,7 +184,7 @@ internal partial class MigrationService
                 await bulkContext.BulkInsertAsync(entities.Cast<object>().ToList(), bulkConfig);
 
                 // Step 3: Merge from temp table to destination table
-                var mergeQuery = BuildMergeQuery(tableName, tempTableName, columns, primaryKeyColumns, engineType);
+                var mergeQuery = BuildMergeQuery(tableName, tempTableName, columns, primaryKeyColumns.ToList(), engineType);
 
                 logger.LogDebug("Executing merge query: {MergeQuery}", mergeQuery);
 
@@ -249,10 +207,7 @@ internal partial class MigrationService
                 // Clean up temp table
                 try
                 {
-                    if (engineType != DatabaseEngineType.PostgreSQL) // PostgreSQL auto-drops temp tables
-                    {
-                        await connection.ExecuteAsync($"DROP TABLE IF EXISTS {SqlIdentifierGuard.Validate(tempTableName, "temp table")}", transaction: transaction);
-                    }
+                    await connection.ExecuteAsync($"DROP TABLE IF EXISTS {SqlIdentifierGuard.Validate(tempTableName, "temp table")}", transaction: transaction);
                 }
                 catch (Exception ex)
                 {
@@ -263,176 +218,6 @@ internal partial class MigrationService
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
             throw new InvalidOperationException($"Upsert operation failed: {ex.Message}", ex);
-        }
-    }
-
-    private async Task<(int rowsWritten, int rowsFailed, List<string> errorDetails)> ExecutePostgresInsert(
-        DbConnection connection,
-        DbTransaction transaction,
-        string tableName,
-        List<Dictionary<string, object?>> data,
-        List<string> errorDetails)
-    {
-        try
-        {
-            var npgsqlConnection = connection as Npgsql.NpgsqlConnection;
-            if (npgsqlConnection == null)
-            {
-                throw new InvalidOperationException("Connection is not a PostgreSQL connection");
-            }
-
-            var columns = data.First().Keys.Where(k => !string.IsNullOrWhiteSpace(k)).ToList();
-            var quotedColumns = string.Join(", ", columns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)));
-
-            // Use PostgreSQL COPY for fast bulk insert
-            var copyCommand = $"COPY {ValidateTable(tableName)} ({quotedColumns}) FROM STDIN (FORMAT BINARY)";
-
-            await using var import = await npgsqlConnection.BeginBinaryImportAsync(copyCommand);
-
-            foreach (var row in data)
-            {
-                await import.StartRowAsync();
-                foreach (var col in columns)
-                {
-                    var value = row.ContainsKey(col) ? row[col] : null;
-                    await import.WriteAsync(value);
-                }
-            }
-
-            await import.CompleteAsync();
-            var rowsWritten = data.Count; // COPY doesn't return rows imported, use data count
-
-            logger.LogInformation("Bulk inserted {RowCount} rows into {Table} using PostgreSQL COPY", rowsWritten, tableName);
-            return (rowsWritten, 0, errorDetails);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("PostgreSQL bulk insert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
-            throw new InvalidOperationException($"PostgreSQL bulk insert failed: {ex.Message}", ex);
-        }
-    }
-
-    private async Task<(int rowsWritten, int rowsFailed, List<string> errorDetails)> ExecuteSqlServerInsert(
-        DbConnection connection,
-        string tableName,
-        List<Dictionary<string, object?>> data,
-        List<string> errorDetails)
-    {
-        try
-        {
-            var (schema, table) = ParseSchemaAndTableName(tableName);
-            var entities = ConvertToExpandoObjects(data);
-
-            // Get connection string from the connection
-            var connectionString = connection.ConnectionString;
-
-            using var dataTransferManager = new SqlServerDataTransferManager(connectionString);
-            dataTransferManager.BulkInsert(entities, table, schema);
-
-            logger.LogInformation("Bulk inserted {RowCount} rows into {Table} using SqlServerDataTransferManager", data.Count, tableName);
-            return await Task.FromResult((data.Count, 0, errorDetails));
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("SQL Server bulk insert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
-            throw new InvalidOperationException($"SQL Server bulk insert failed: {ex.Message}", ex);
-        }
-    }
-
-    private async Task<(int rowsWritten, int rowsFailed, List<string> errorDetails)> ExecutePostgresUpsert(
-        DbConnection connection,
-        DbTransaction transaction,
-        string tableName,
-        List<Dictionary<string, object?>> data,
-        List<string> primaryKeyColumns,
-        List<string> errorDetails)
-    {
-        try
-        {
-            var npgsqlConnection = connection as Npgsql.NpgsqlConnection;
-            if (npgsqlConnection == null)
-            {
-                throw new InvalidOperationException("Connection is not a PostgreSQL connection");
-            }
-
-            var columns = data.First().Keys.Where(k => !string.IsNullOrWhiteSpace(k)).ToList();
-            var tempTableName = $"temp_{Guid.NewGuid():N}";
-
-            // Step 1: Create temp table
-            var quotedColumns = string.Join(", ", columns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)));
-            var validatedTable = ValidateTable(tableName);
-            var createTempQuery = $"CREATE TEMP TABLE {tempTableName} AS SELECT {quotedColumns} FROM {validatedTable} LIMIT 0";
-            await connection.ExecuteAsync(createTempQuery, transaction: transaction);
-
-            // Step 2: Bulk insert into temp table using COPY
-            var copyCommand = $"COPY {tempTableName} ({quotedColumns}) FROM STDIN (FORMAT BINARY)";
-            await using (var import = await npgsqlConnection.BeginBinaryImportAsync(copyCommand))
-            {
-                foreach (var row in data)
-                {
-                    await import.StartRowAsync();
-                    foreach (var col in columns)
-                    {
-                        var value = row.ContainsKey(col) ? row[col] : null;
-                        await import.WriteAsync(value);
-                    }
-                }
-
-                await import.CompleteAsync();
-            }
-
-            // Step 3: Merge from temp table to destination
-            var nonKeyColumns = columns.Except(primaryKeyColumns).ToList();
-            var quotedPrimaryKeys = string.Join(", ", primaryKeyColumns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)));
-            var updateSet = nonKeyColumns.Any()
-                ? string.Join(", ", nonKeyColumns.Select(x =>
-                    $"{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)}"))
-                : $"{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)}";
-
-            var mergeQuery = $@"
-INSERT INTO {validatedTable} ({quotedColumns})
-SELECT {quotedColumns} FROM {tempTableName}
-ON CONFLICT ({quotedPrimaryKeys})
-DO UPDATE SET {updateSet}";
-
-            await connection.ExecuteAsync(mergeQuery, transaction: transaction);
-
-            logger.LogInformation("Bulk upserted {RowCount} rows into {Table} using PostgreSQL COPY + MERGE", data.Count, tableName);
-            return (data.Count, 0, errorDetails);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("PostgreSQL bulk upsert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
-            throw new InvalidOperationException($"PostgreSQL bulk upsert failed: {ex.Message}", ex);
-        }
-    }
-
-    private async Task<(int rowsWritten, int rowsFailed, List<string> errorDetails)> ExecuteSqlServerUpsert(
-        DbConnection connection,
-        string tableName,
-        List<Dictionary<string, object?>> data,
-        List<string> errorDetails)
-    {
-        try
-        {
-            var (schema, table) = ParseSchemaAndTableName(tableName);
-            var entities = ConvertToExpandoObjects(data);
-
-            // Get connection string from the connection
-            var connectionString = connection.ConnectionString;
-
-            using var dataTransferManager = new SqlServerDataTransferManager(connectionString);
-
-            // Use MergeData for upsert - overwriteDestination=false, updateOnlyChangedRows=true
-            dataTransferManager.MergeData(entities, table, schema, overwriteDestination: false, updateOnlyChangedRows: true);
-
-            logger.LogInformation("Bulk upserted {RowCount} rows into {Table} using SqlServerDataTransferManager", data.Count, tableName);
-            return await Task.FromResult((data.Count, 0, errorDetails));
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("SQL Server bulk upsert failed for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
-            throw new InvalidOperationException($"SQL Server bulk upsert failed: {ex.Message}", ex);
         }
     }
 
@@ -539,10 +324,7 @@ DO UPDATE SET {updateSet}";
 
         var createQuery = engineType switch
         {
-            // PostgreSQL: Don't quote temp table name - let it be lowercase
-            DatabaseEngineType.PostgreSQL => $"CREATE TEMP TABLE {tempTableName} AS SELECT * FROM {validatedSource} LIMIT 0",
             DatabaseEngineType.MySQL => $"CREATE TEMPORARY TABLE {tempTableName} LIKE {validatedSource}",
-            DatabaseEngineType.MSSQL => $"SELECT * INTO {tempTableName} FROM {validatedSource} WHERE 1=0",
             _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
         };
 
@@ -562,34 +344,9 @@ DO UPDATE SET {updateSet}";
 
         return engineType switch
         {
-            DatabaseEngineType.PostgreSQL => BuildPostgreSqlMerge(destinationTable, sourceTable, columns, primaryKeyColumns, nonKeyColumns),
             DatabaseEngineType.MySQL => BuildMySqlMerge(destinationTable, sourceTable, columns, primaryKeyColumns, nonKeyColumns),
-            DatabaseEngineType.MSSQL => BuildSqlServerMerge(destinationTable, sourceTable, columns, primaryKeyColumns, nonKeyColumns),
             _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
         };
-    }
-
-    private string BuildPostgreSqlMerge(string destinationTable, string sourceTable, List<string> columns, List<string> primaryKeyColumns, List<string> nonKeyColumns)
-    {
-        // Quote identifiers to handle case-sensitive and reserved words
-        var quotedColumns = columns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)).ToList();
-        var columnList = string.Join(", ", quotedColumns);
-        var quotedPrimaryKeys = primaryKeyColumns.Select(x => QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)).ToList();
-
-        var updateSet = nonKeyColumns.Any()
-            ? string.Join(", ", nonKeyColumns.Select(x =>
-                $"{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(x, DatabaseEngineType.PostgreSQL)}"))
-            : $"{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)} = EXCLUDED.{QuoteIdentifier(primaryKeyColumns.First(), DatabaseEngineType.PostgreSQL)}"; // Dummy update if no non-key columns
-
-        // Quote table names properly
-        var validatedDestination = ValidateTable(destinationTable);
-        var quotedSourceTable = sourceTable.Contains(".") ? ValidateTable(sourceTable) : QuoteIdentifier(sourceTable, DatabaseEngineType.PostgreSQL);
-
-        return $@"
-INSERT INTO {validatedDestination} ({columnList})
-SELECT {columnList} FROM {quotedSourceTable}
-ON CONFLICT ({string.Join(", ", quotedPrimaryKeys)})
-DO UPDATE SET {updateSet}";
     }
 
     private string BuildMySqlMerge(string destinationTable, string sourceTable, List<string> columns, List<string> primaryKeyColumns, List<string> nonKeyColumns)
@@ -613,50 +370,111 @@ DO UPDATE SET {updateSet}";
             ON DUPLICATE KEY UPDATE {updateSet}";
     }
 
-    private string BuildSqlServerMerge(string destinationTable, string sourceTable, List<string> columns, List<string> primaryKeyColumns, List<string> nonKeyColumns)
+    /// <summary>
+    /// The rows to write, with every column name validated (§1.10): the names of all rows in the order they first appear,
+    /// empty names left out. A row without one of the columns writes NULL there.
+    /// </summary>
+    private static MigrationRows MigrationRowsOf(List<Dictionary<string, object?>> data)
     {
-        foreach (var x in columns)
+        var columns = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in data)
         {
-            SqlIdentifierGuard.Validate(x, "column");
+            foreach (var column in row.Keys)
+            {
+                if (string.IsNullOrWhiteSpace(column) || !seen.Add(column))
+                {
+                    continue;
+                }
+
+                SqlIdentifierGuard.Validate(column, "column");
+                columns.Add(column);
+            }
         }
-        foreach (var x in primaryKeyColumns)
+
+        if (data.Count > 0 && columns.Count == 0)
         {
-            SqlIdentifierGuard.Validate(x, "column");
+            throw new InvalidOperationException("Source data contains no valid column names");
         }
-        var validatedDestination = ValidateTable(destinationTable);
-        var validatedSource = ValidateTable(sourceTable);
 
-        var keyConditions = string.Join(" AND ", primaryKeyColumns.Select(x => $"target.{x} = source.{x}"));
-        var insertColumns = string.Join(", ", columns);
-        var insertValues = string.Join(", ", columns.Select(x => $"source.{x}"));
-        var updateSet = nonKeyColumns.Any()
-            ? string.Join(", ", nonKeyColumns.Select(x => $"target.{x} = source.{x}"))
-            : $"target.{primaryKeyColumns.First()} = source.{primaryKeyColumns.First()}"; // Dummy update
-
-        return $@"
-            MERGE {validatedDestination} AS target
-            USING {validatedSource} AS source
-            ON {keyConditions}
-            WHEN MATCHED THEN
-                UPDATE SET {updateSet}
-            WHEN NOT MATCHED THEN
-                INSERT ({insertColumns})
-                VALUES ({insertValues});";
+        return new MigrationRows(columns, data);
     }
 
-    private async Task<List<string>> GetPrimaryKeyColumns(DbConnection connection, string tableName, DatabaseEngineType engineType)
+    /// <summary>
+    /// Writes <paramref name="rows"/> through the engine's writer, inside the run's transaction: Truncate clears the table
+    /// first; rows go in chunks of <see cref="Constants.Migration.BulkInsertBatchSize"/>, never an empty one.
+    /// </summary>
+    private static async Task<int> WriteThroughAsync(
+        IMigrationBulkWriter writer,
+        MigrationWriteTarget target,
+        MigrationRows rows,
+        MigrationMode mode,
+        IReadOnlyList<string> keyColumns,
+        CancellationToken cancellationToken)
     {
-        var (schema, table) = ParseSchemaAndTableName(tableName);
+        if (mode == MigrationMode.Truncate)
+        {
+            await writer.ClearAsync(target, cancellationToken);
+        }
 
+        var rowsWritten = 0;
+        foreach (var chunk in rows.Rows.Chunk(Constants.Migration.BulkInsertBatchSize))
+        {
+            var chunkRows = new MigrationRows(rows.Columns, chunk);
+            rowsWritten += mode == MigrationMode.Upsert
+                ? await writer.UpsertAsync(target, chunkRows, keyColumns, cancellationToken)
+                : await writer.InsertAsync(target, chunkRows, cancellationToken);
+        }
+
+        return rowsWritten;
+    }
+
+    /// <summary>
+    /// The destination table's primary key, which Upsert matches rows by. A table without one, a key column that is not a
+    /// plain identifier, or a row lacking a key column fails the run.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> RequirePrimaryKey(
+        DbConnection connection,
+        DbTransaction transaction,
+        string? schema,
+        string table,
+        MigrationRows rows,
+        DatabaseEngineType engineType,
+        CancellationToken cancellationToken)
+    {
+        var keyColumns = await GetPrimaryKeyColumns(connection, transaction, schema, table, engineType, cancellationToken);
+        var tableName = schema == null ? table : $"{schema}.{table}";
+        if (keyColumns.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Table '{tableName}' has no primary key. Upsert mode matches rows by the primary key: add one to the table, or run the job in Insert or Truncate mode.");
+        }
+
+        foreach (var keyColumn in keyColumns)
+        {
+            SqlIdentifierGuard.Validate(keyColumn, "key column");
+        }
+
+        if (rows.Rows.Any(x => !keyColumns.All(x.ContainsKey)))
+        {
+            throw new InvalidOperationException($"Some rows are missing primary key columns: {string.Join(", ", keyColumns)}");
+        }
+
+        return keyColumns;
+    }
+
+    /// <summary>The primary key columns of the table, in key order, read inside <paramref name="transaction"/>; a failed lookup throws.</summary>
+    private async Task<List<string>> GetPrimaryKeyColumns(
+        DbConnection connection,
+        DbTransaction transaction,
+        string? schema,
+        string table,
+        DatabaseEngineType engineType,
+        CancellationToken cancellationToken)
+    {
         var query = engineType switch
         {
-            DatabaseEngineType.PostgreSQL => schema != null
-                ? @"SELECT a.attname
-                    FROM pg_index i
-                    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                    WHERE i.indrelid = @tableName::regclass AND i.indisprimary
-                    ORDER BY array_position(i.indkey, a.attnum)"
-                : @"SELECT a.attname
+            DatabaseEngineType.PostgreSQL => @"SELECT a.attname
                     FROM pg_index i
                     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                     WHERE i.indrelid = @tableName::regclass AND i.indisprimary
@@ -672,45 +490,33 @@ DO UPDATE SET {updateSet}";
                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @table AND CONSTRAINT_NAME = 'PRIMARY'
                     ORDER BY ORDINAL_POSITION",
 
-            DatabaseEngineType.MSSQL => schema != null
-                ? @"SELECT c.name
+            DatabaseEngineType.MSSQL => @"SELECT c.name
                     FROM sys.indexes i
                     INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
                     INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-                    INNER JOIN sys.tables t ON i.object_id = t.object_id
-                    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE i.is_primary_key = 1 AND s.name = @schema AND t.name = @table
-                    ORDER BY ic.key_ordinal"
-                : @"SELECT c.name
-                    FROM sys.indexes i
-                    INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-                    INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-                    INNER JOIN sys.tables t ON i.object_id = t.object_id
-                    WHERE i.is_primary_key = 1 AND t.name = @table
+                    WHERE i.object_id = OBJECT_ID(@tableName) AND i.is_primary_key = 1
                     ORDER BY ic.key_ordinal",
 
             _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
         };
 
+        // PostgreSQL (regclass) and SQL Server (OBJECT_ID) resolve the table from its quoted name, the way the writer names it,
+        // so the key is read from the very table the rows go into.
+        object parameters = engineType == DatabaseEngineType.MySQL
+            ? new { schema, table }
+            : new { tableName = QuotedTableName(schema, table, engineType) };
+
         try
         {
-            if (engineType == DatabaseEngineType.PostgreSQL)
-            {
-                // PostgreSQL uses $1 parameter, pass the full table name
-                var fullTableName = schema != null ? $"{schema}.{table}" : table;
-                var result = await connection.QueryAsync<string>(query, new { tableName = fullTableName });
-                return result.ToList();
-            }
-            else
-            {
-                var result = await connection.QueryAsync<string>(query, new { schema, table });
-                return result.ToList();
-            }
+            var command = new CommandDefinition(query, parameters, transaction, cancellationToken: cancellationToken);
+            var result = await connection.QueryAsync<string>(command);
+            return result.ToList();
         }
         catch (Exception ex)
         {
-            logger.LogError("Failed to retrieve primary key columns for table {Table} ({Failure})", tableName, FailureCodes.Describe(ex));
-            return new List<string>();
+            var tableName = schema == null ? table : $"{schema}.{table}";
+            logger.LogError("Failed to read the primary key of table {Table} ({Failure})", SqlIdentifierGuard.ForLog(tableName), FailureCodes.Describe(ex));
+            throw new InvalidOperationException($"Failed to read the primary key of table '{tableName}': {ex.Message}", ex);
         }
     }
 
@@ -719,17 +525,14 @@ DO UPDATE SET {updateSet}";
     // before it reaches a query string. Where an identifier is wrapped in quotes, the embedded
     // quote char is doubled as defence-in-depth.
 
-    private static string QuoteIdentifier(string identifier, DatabaseEngineType engineType)
+    private static string QuotedTableName(string? schema, string table, DatabaseEngineType engineType)
     {
-        SqlIdentifierGuard.Validate(identifier, "identifier");
+        var dialect = engineType.ToString();
+        var quotedTable = SqlIdentifierGuard.Quote(SqlIdentifierGuard.Validate(table, "table"), dialect);
 
-        return engineType switch
-        {
-            DatabaseEngineType.PostgreSQL => $"\"{SqlIdentifierGuard.EscapeQuote(identifier, '"')}\"",
-            DatabaseEngineType.MSSQL => $"[{identifier.Replace("]", "]]")}]",
-            DatabaseEngineType.MySQL => $"`{SqlIdentifierGuard.EscapeQuote(identifier, '`')}`",
-            _ => identifier
-        };
+        return schema == null
+            ? quotedTable
+            : $"{SqlIdentifierGuard.Quote(SqlIdentifierGuard.Validate(schema, "schema"), dialect)}.{quotedTable}";
     }
 
     private static string ValidateTable(string tableName)
