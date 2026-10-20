@@ -30,8 +30,18 @@ public class SecurityAuditCoverageTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 14, 9, 0, 0, TimeSpan.Zero);
 
-    // Actions defined for an event site a later change adds; none at present.
-    private static readonly string[] Reserved = [];
+    // Actions defined for an event site a later change adds: the row-security management endpoints record these.
+    private static readonly string[] Reserved =
+    [
+        nameof(SecurityAuditActions.AttributeDefined),
+        nameof(SecurityAuditActions.AttributeUpdated),
+        nameof(SecurityAuditActions.AttributeArchived),
+        nameof(SecurityAuditActions.AttributeValuesSet),
+        nameof(SecurityAuditActions.RowPolicyCreated),
+        nameof(SecurityAuditActions.RowPolicyUpdated),
+        nameof(SecurityAuditActions.RowPolicyArchived),
+        nameof(SecurityAuditActions.TableClassified)
+    ];
 
     [Test]
     public void EveryCatalogueAction_IsRecordedSomewhere()

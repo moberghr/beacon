@@ -17,6 +17,7 @@ public static class SecurityAuditCategories
     public const string Curation = "curation";
     public const string DataQuality = "data_quality";
     public const string Migrations = "migrations";
+    public const string RowSecurity = "row_security";
     public const string Audit = "audit";
 }
 
@@ -62,6 +63,9 @@ public static class SecurityAuditResources
     public const string GlossaryTerm = "glossary_term";
     public const string DocumentationSection = "documentation_section";
     public const string McpAudit = "mcp_audit";
+    public const string AttributeDefinition = "attribute_definition";
+    public const string RowPolicy = "row_policy";
+    public const string TableClassification = "table_classification";
 }
 
 /// <summary>How the actor of an event was authenticated.</summary>
@@ -212,6 +216,16 @@ public static class SecurityAuditActions
     public const string MigrationJobDeleted = "migrations.job_deleted";
     public const string MigrationJobStarted = "migrations.job_started";
     public const string MigrationJobRunEnded = "migrations.job_run_ended";
+
+    // Row security
+    public const string AttributeDefined = "row_security.attribute_defined";
+    public const string AttributeUpdated = "row_security.attribute_updated";
+    public const string AttributeArchived = "row_security.attribute_archived";
+    public const string AttributeValuesSet = "row_security.attribute_values_set";
+    public const string RowPolicyCreated = "row_security.policy_created";
+    public const string RowPolicyUpdated = "row_security.policy_updated";
+    public const string RowPolicyArchived = "row_security.policy_archived";
+    public const string TableClassified = "row_security.table_classified";
 
     // The audit itself
     public const string AuditRead = "audit.read";

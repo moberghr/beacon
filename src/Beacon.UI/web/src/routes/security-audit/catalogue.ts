@@ -172,6 +172,20 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
     actions: ['migrations.job_created', 'migrations.job_deleted', 'migrations.job_started', 'migrations.job_run_ended'],
   },
   {
+    code: 'row_security',
+    label: 'Row security',
+    actions: [
+      'row_security.attribute_defined',
+      'row_security.attribute_updated',
+      'row_security.attribute_archived',
+      'row_security.attribute_values_set',
+      'row_security.policy_created',
+      'row_security.policy_updated',
+      'row_security.policy_archived',
+      'row_security.table_classified',
+    ],
+  },
+  {
     code: 'audit',
     label: 'The audit itself',
     actions: ['audit.read', 'audit.verified', 'audit.purged', 'audit.mcp_audit_read'],
@@ -204,6 +218,9 @@ export const SECURITY_AUDIT_RESOURCE_TYPES: readonly string[] = [
   'glossary_term',
   'documentation_section',
   'mcp_audit',
+  'attribute_definition',
+  'row_policy',
+  'table_classification',
 ];
 
 /** How the actor of an event was authenticated, as the page names it. */

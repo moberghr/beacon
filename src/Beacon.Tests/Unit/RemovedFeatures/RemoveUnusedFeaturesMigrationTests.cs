@@ -19,8 +19,8 @@ namespace Beacon.Tests.Unit.RemovedFeatures;
 /// <summary>
 /// The migration that removes the dashboards, MCP session, AI alert and AI usage metrics tables and the audit log's session key, checked
 /// offline on both providers (nothing connects, nothing is migrated): it runs no SQL, Up is exactly the difference between
-/// the model before it and its target model, and Down is exactly the way back, so it can be reverted. Its target model is
-/// the snapshot, the model has no pending changes, and it sorts last.
+/// the model before it and its target model, and Down is exactly the way back, so it can be reverted. The next migration
+/// builds on its target model, the model has no pending changes, and it sorts after the data-source disable migration.
 /// </summary>
 [TestFixture]
 public class RemoveUnusedFeaturesMigrationTests
@@ -54,12 +54,19 @@ public class RemoveUnusedFeaturesMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down restores exactly what Up removes");
         AssertUpOrder(migration.UpOperations.ToList(), sqlServer);
         AssertDownOrder(migration.DownOperations.ToList(), sqlServer);
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+        // Only operation type names are compared here: the next migration's content is pinned by RowSecurityModelMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddRowSecurityModel");
+        differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel())
+            .Select(x => x.GetType().Name)
+            .Should().BeEquivalentTo(
+                next.UpOperations.Select(x => x.GetType().Name),
+                "the next migration's target model differs from its target model only by that migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_AddDataSourceDisable", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 
