@@ -43,6 +43,10 @@ public class SqlServerMigrationWriterIntegrationTests
             $"CREATE TABLE [{_schema}].docs (id int PRIMARY KEY, body xml NULL, title nvarchar(max) NULL)",
             $"CREATE TABLE [{_schema}].events (id int PRIMARY KEY, label nvarchar(20) NULL DEFAULT 'dflt')",
             $"CREATE TABLE [{_schema}].event_log (id int NOT NULL)",
+            $"CREATE TABLE [{_schema}].parents (id int PRIMARY KEY)",
+            $"CREATE TABLE [{_schema}].checked (id int PRIMARY KEY, qty int NOT NULL CONSTRAINT ck_qty CHECK (qty > 0), parent_id int NULL CONSTRAINT fk_parent REFERENCES [{_schema}].parents (id))",
+            $"INSERT INTO [{_schema}].parents VALUES (1)",
+            $"INSERT INTO [{_schema}].checked VALUES (1, 5, 1)",
             $"CREATE TRIGGER [{_schema}].events_logged ON [{_schema}].events AFTER INSERT AS INSERT INTO [{_schema}].event_log (id) SELECT id FROM inserted",
             $"INSERT INTO [{_schema}].[Orders] VALUES (1, 1, 10, 'old'), (1, 2, 20, 'keep')",
             $"INSERT INTO [{_schema}].links VALUES (1, 1)",
@@ -63,6 +67,8 @@ public class SqlServerMigrationWriterIntegrationTests
             $"DROP TABLE IF EXISTS [{_schema}].links",
             $"DROP TABLE IF EXISTS [{_schema}].people",
             $"DROP TABLE IF EXISTS [{_schema}].docs",
+            $"DROP TABLE IF EXISTS [{_schema}].checked",
+            $"DROP TABLE IF EXISTS [{_schema}].parents",
             $"DROP TABLE IF EXISTS [{_schema}].events",
             $"DROP TABLE IF EXISTS [{_schema}].event_log",
             $"DROP SCHEMA IF EXISTS [{_schema}]");
@@ -282,6 +288,58 @@ public class SqlServerMigrationWriterIntegrationTests
         await transaction.RollbackAsync();
 
         (await OrdersAsync()).Should().Equal("1|1|10.00|old", "1|2|20.00|keep");
+    }
+
+    [Test]
+    public async Task Insert_ARowViolatingACheckConstraint_FailsTheRun()
+    {
+        var rows = new MigrationRows(["id", "qty", "parent_id"], [new Dictionary<string, object?> { ["id"] = 2, ["qty"] = 0, ["parent_id"] = 1 }]);
+
+        var write = () => WriteAsync("checked", target => _writer.InsertAsync(target, rows, CancellationToken.None));
+
+        (await write.Should().ThrowAsync<SqlException>()).Which.Message.Should().Contain("ck_qty");
+        (await RowsAsync($"SELECT id FROM [{_schema}].checked")).Should().Equal("1");
+    }
+
+    [Test]
+    public async Task Insert_ARowViolatingAForeignKey_FailsTheRun()
+    {
+        var rows = new MigrationRows(["id", "qty", "parent_id"], [new Dictionary<string, object?> { ["id"] = 2, ["qty"] = 1, ["parent_id"] = 99 }]);
+
+        var write = () => WriteAsync("checked", target => _writer.InsertAsync(target, rows, CancellationToken.None));
+
+        (await write.Should().ThrowAsync<SqlException>()).Which.Message.Should().Contain("fk_parent");
+        (await RowsAsync($"SELECT id FROM [{_schema}].checked")).Should().Equal("1");
+    }
+
+    [Test]
+    public async Task Truncate_WhoseRowsViolateACheckConstraint_RestoresThePreviousRows()
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
+        var target = new MigrationWriteTarget(connection, transaction, _schema, "checked", 30);
+        var rows = new MigrationRows(["id", "qty", "parent_id"], [new Dictionary<string, object?> { ["id"] = 3, ["qty"] = -1, ["parent_id"] = null }]);
+
+        await _writer.ClearAsync(target, CancellationToken.None);
+        var failing = () => _writer.InsertAsync(target, rows, CancellationToken.None);
+        await failing.Should().ThrowAsync<Exception>();
+        await transaction.RollbackAsync();
+
+        (await RowsAsync($"SELECT id, qty FROM [{_schema}].checked")).Should().Equal("1|5");
+    }
+
+    [Test]
+    public async Task Insert_KeepsTheConstraintsTrusted()
+    {
+        var rows = new MigrationRows(["id", "qty", "parent_id"], [new Dictionary<string, object?> { ["id"] = 2, ["qty"] = 3, ["parent_id"] = 1 }]);
+
+        await WriteAsync("checked", target => _writer.InsertAsync(target, rows, CancellationToken.None));
+
+        (await ScalarAsync(
+            $"SELECT (SELECT count(*) FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID('[{_schema}].checked') AND is_not_trusted = 1)"
+            + $" + (SELECT count(*) FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID('[{_schema}].checked') AND is_not_trusted = 1)"))
+            .Should().Be(0);
     }
 
     private async Task WriteAsync(string table, Func<MigrationWriteTarget, Task> write)

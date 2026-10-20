@@ -70,7 +70,7 @@ public class SqlServerMigrationSqlTests
     [Test]
     public void MergeFromStage_WhenAnUpdatableColumnCannotBeCompared_UpdatesEveryMatchedRow()
     {
-        var sql = SqlServerMigrationSql.MergeFromStage("beacon_stage_1", null, "docs", ["id", "body", "title"], ["id"], [], ["Body"]);
+        var sql = SqlServerMigrationSql.MergeFromStage("beacon_stage_1", null, "docs", ["id", "body", "title"], ["id"], [], ["body"]);
 
         sql.Should().Be(
             "MERGE [docs] WITH (HOLDLOCK) AS target USING [#beacon_stage_1] AS source ON target.[id] = source.[id] "
@@ -87,6 +87,15 @@ public class SqlServerMigrationSqlTests
         sql.Should().Contain("WHEN MATCHED AND EXISTS (SELECT source.[title] EXCEPT SELECT target.[title]) THEN UPDATE");
     }
 
+    // On a case-sensitive database `id` and `ID` are different columns: ID is updated, not taken for the key.
+    [Test]
+    public void MergeFromStage_ComparesColumnNamesExactly()
+    {
+        var sql = SqlServerMigrationSql.MergeFromStage("beacon_stage_1", null, "t", ["id", "ID"], ["id"], [], []);
+
+        sql.Should().Contain("WHEN MATCHED AND EXISTS (SELECT source.[ID] EXCEPT SELECT target.[ID]) THEN UPDATE SET target.[ID] = source.[ID]");
+    }
+
     [Test]
     public void MergeFromStage_OnAnAllKeyTable_HasNoUpdateBranch()
     {
@@ -101,21 +110,22 @@ public class SqlServerMigrationSqlTests
     [Test]
     public void MergeFromStage_InsertingAnIdentityColumn_RunsWithIdentityInsert_AndNeverUpdatesIt()
     {
-        // Key and identity columns are matched case-insensitively, the way SQL Server compares names.
-        var sql = SqlServerMigrationSql.MergeFromStage("beacon_stage_1", "sales", "orders", ["ID", "seq", "total"], ["id"], ["Seq", "id"], []);
+        // Names are the catalog's own spelling and are matched exactly.
+        var sql = SqlServerMigrationSql.MergeFromStage("beacon_stage_1", "sales", "orders", ["id", "seq", "total"], ["id"], ["seq", "id"], []);
 
         sql.Should().Be(
             "SET IDENTITY_INSERT [sales].[orders] ON; "
             + "MERGE [sales].[orders] WITH (HOLDLOCK) AS target USING [#beacon_stage_1] AS source ON target.[id] = source.[id] "
             + "WHEN MATCHED AND EXISTS (SELECT source.[total] EXCEPT SELECT target.[total]) THEN UPDATE SET target.[total] = source.[total] "
-            + "WHEN NOT MATCHED THEN INSERT ([ID], [seq], [total]) VALUES (source.[ID], source.[seq], source.[total]); "
+            + "WHEN NOT MATCHED THEN INSERT ([id], [seq], [total]) VALUES (source.[id], source.[seq], source.[total]); "
             + "SET IDENTITY_INSERT [sales].[orders] OFF;");
     }
 
     [Test]
     public void InsertsIdentity_OnlyWhenAWrittenColumnIsAnIdentityColumn()
     {
-        SqlServerMigrationSql.InsertsIdentity(["id", "total"], ["ID"]).Should().BeTrue();
+        SqlServerMigrationSql.InsertsIdentity(["id", "total"], ["id"]).Should().BeTrue();
+        SqlServerMigrationSql.InsertsIdentity(["id", "total"], ["ID"]).Should().BeFalse();
         SqlServerMigrationSql.InsertsIdentity(["total"], ["id"]).Should().BeFalse();
         SqlServerMigrationSql.InsertsIdentity(["total"], []).Should().BeFalse();
     }

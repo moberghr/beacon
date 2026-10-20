@@ -9,9 +9,9 @@ namespace Beacon.Connector.SqlServer;
 
 /// <summary>
 /// Writes migration rows into SQL Server with <see cref="SqlBulkCopy"/>, on the connection and inside the transaction Core
-/// opened. Insert copies straight into the table, keeping identity values and NULLs; Upsert copies into a temporary staging
-/// table with the destination's columns and moves the rows with a <c>MERGE</c> on the primary key; Clear truncates
-/// (transactional on SQL Server).
+/// opened. Insert copies straight into the table, keeping identity values and NULLs and checking CHECK and foreign-key
+/// constraints; Upsert copies into a temporary staging table with the destination's columns and moves the rows with a
+/// <c>MERGE</c> on the primary key; Clear truncates (transactional on SQL Server).
 /// </summary>
 internal sealed class SqlServerMigrationBulkWriter(ILogger<SqlServerMigrationBulkWriter> logger) : IMigrationBulkWriter
 {
@@ -139,8 +139,10 @@ internal sealed class SqlServerMigrationBulkWriter(ILogger<SqlServerMigrationBul
     }
 
     // Identity values are kept and NULLs stay NULL (a missing value is NULL, never the column's default); the table's insert
-    // triggers fire, as they did before the writer moved here. Rows stream from the reader; each field maps by position to its
-    // destination column's name (SqlBulkCopy matches names case-sensitively).
+    // triggers fire, as they did before the writer moved here, and CHECK and foreign-key constraints are checked (SqlBulkCopy
+    // skips them by default, so a violation would commit and leave the constraint untrusted; the stage has none). Rows
+    // stream from the reader; each field maps by position to its destination column's name (SqlBulkCopy matches names
+    // case-sensitively).
     private static async Task<int> CopyAsync(
         SqlConnection connection,
         SqlTransaction transaction,
@@ -150,7 +152,7 @@ internal sealed class SqlServerMigrationBulkWriter(ILogger<SqlServerMigrationBul
         MigrationWriteTarget target,
         CancellationToken cancellationToken)
     {
-        using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.FireTriggers, transaction)
+        using var bulkCopy = new SqlBulkCopy(connection, SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.FireTriggers | SqlBulkCopyOptions.CheckConstraints, transaction)
         {
             DestinationTableName = tableSql,
             EnableStreaming = true,

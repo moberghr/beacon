@@ -188,7 +188,7 @@ On PostgreSQL and SQL Server the rows are written as the source returns them:
 - The columns written are those of all source rows. A NULL, or a column a row does not carry, writes NULL, never the
   column's default; in Upsert mode that NULL replaces the existing value. Rows from one query all carry the same columns.
 - SQL Server keeps the source's identity values (the table does not generate new ones) and fires the table's insert
-  triggers.
+  triggers, and checks `CHECK` and foreign-key constraints: a violating row fails the run, which rolls back.
 - In Upsert mode two source rows with the same primary key in one batch of 10,000 fail the run, which rolls back.
 - A SQL Server table named without a schema is the `dbo` one.
 

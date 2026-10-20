@@ -74,11 +74,11 @@ internal static class SqlServerMigrationSql
     {
         var destination = Table(schema, table);
         var updatable = columns
-            .Where(x => !keyColumns.Contains(x, StringComparer.OrdinalIgnoreCase))
-            .Where(x => !identityColumns.Contains(x, StringComparer.OrdinalIgnoreCase))
+            .Where(x => !keyColumns.Contains(x, StringComparer.Ordinal))
+            .Where(x => !identityColumns.Contains(x, StringComparer.Ordinal))
             .ToList();
         var on = string.Join(" AND ", keyColumns.Select(x => $"target.{Quote(x)} = source.{Quote(x)}"));
-        var changedOnly = updatable.Any(x => nonComparableColumns.Contains(x, StringComparer.OrdinalIgnoreCase))
+        var changedOnly = updatable.Any(x => nonComparableColumns.Contains(x, StringComparer.Ordinal))
             ? ""
             : $" AND EXISTS (SELECT {Prefixed("source", updatable)} EXCEPT SELECT {Prefixed("target", updatable)})";
         var whenMatched = updatable.Count == 0
@@ -96,7 +96,7 @@ internal static class SqlServerMigrationSql
     /// <summary>True when one of <paramref name="columns"/> is an identity column, so inserting it needs <c>IDENTITY_INSERT</c>.</summary>
     public static bool InsertsIdentity(IReadOnlyList<string> columns, IReadOnlyList<string> identityColumns)
     {
-        return columns.Any(x => identityColumns.Contains(x, StringComparer.OrdinalIgnoreCase));
+        return columns.Any(x => identityColumns.Contains(x, StringComparer.Ordinal));
     }
 
     public static string IdentityInsert(string? schema, string table, bool on)
