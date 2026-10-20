@@ -4,9 +4,9 @@ namespace Beacon.Core.Services.Validation;
 
 /// <summary>
 /// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: length cap → regex guardrail →
-/// AST read-only validator → cross-database names → host policy → schema catalog check → semantic lint → row-limit rewrite. Pure and synchronous
-/// (no I/O) so it can be evaluated on every candidate, including every repair attempt, at no cost beyond a
-/// parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
+/// AST read-only validator → cross-database names → system catalog relations → host policy → schema catalog check →
+/// semantic lint → row-limit rewrite. Pure and synchronous (no I/O) so it can be evaluated on every candidate, including
+/// every repair attempt, at no cost beyond a parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
 /// </summary>
 public interface ISqlExecutionGate
 {
@@ -51,7 +51,8 @@ public sealed record SqlGateRequest(
 
     /// <summary>
     /// True only for the statement that joins step results on Beacon's own in-memory SQLite database
-    /// (<see cref="ForInMemoryJoin"/>): it reaches no other database, so <see cref="SqlCrossDatabaseRule"/> does not apply.
+    /// (<see cref="ForInMemoryJoin"/>): it reaches no other database, so neither <see cref="SqlCrossDatabaseRule"/> nor
+    /// <see cref="SqlSystemCatalogRule"/> applies.
     /// A SQLite data source is checked like any other.
     /// </summary>
     public bool InMemoryJoin { get; init; }
@@ -143,6 +144,9 @@ public static class SqlGateCodes
 
     /// <summary>Schema: the SQL names another database (catalog, project) than the one the data source is configured for.</summary>
     public const string CrossDatabase = "cross_database";
+
+    /// <summary>Schema: the SQL reads the engine's catalog, statistics or query history (<see cref="SqlSystemCatalogRule"/>).</summary>
+    public const string SystemCatalog = "system_catalog";
 
     /// <summary>Schema: no catalog rows exist for the data source, so nothing could be checked.</summary>
     public const string EmptyCatalog = "empty_catalog";

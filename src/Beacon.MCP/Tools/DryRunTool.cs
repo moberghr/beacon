@@ -165,7 +165,7 @@ internal sealed class DryRunTool(
             }
             else if (schema.Status == SqlGateStatus.Fail)
             {
-                issues.Add(new GateIssue(SchemaGate, SqlGateCodes.Schema, schema.Message ?? "Schema validation failed"));
+                issues.Add(new GateIssue(SchemaGate, schema.Code ?? SqlGateCodes.Schema, schema.Message ?? "Schema validation failed"));
             }
 
             // Gate 4: provider dry-run (EXPLAIN / sp_describe_first_result_set) — ONLY when every

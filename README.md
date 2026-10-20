@@ -57,7 +57,7 @@ Every SQL statement that Beacon runs, whether from an MCP tool, a scheduled chec
  grounding ────────── M-Schema with join paths, glossary and verified examples (schema, not rows)
        │
  SQL gate ─────────── deployment locks · length · characters · guardrail · dialect AST validator
-       │              · cross-database rule · host policy · row cap written into the SQL
+       │              · cross-database rule · system catalog rule · host policy · row cap written into the SQL
        ▼
  execution ────────── READ ONLY transaction on PostgreSQL and MySQL · statement timeout · read-only login
        │
