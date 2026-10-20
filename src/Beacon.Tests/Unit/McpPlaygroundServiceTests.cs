@@ -438,9 +438,6 @@ public class McpPlaygroundServiceTests
         guardrail
             .Setup(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions?>()))
             .Returns(new GuardrailValidationResult(true));
-        guardrail
-            .Setup(x => x.ApplyRowLimit(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>()))
-            .Returns<string, int, string?>((sql, maxRows, _) => $"{sql} LIMIT {maxRows}");
 
         var services = new ServiceCollection();
 

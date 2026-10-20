@@ -331,9 +331,6 @@ public class McpEvalServiceJudgeGateTests
             .Setup(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions>()))
             .Returns(new Beacon.Core.Services.Security.QueryValidationResult(true));
         guardrail
-            .Setup(x => x.ApplyRowLimit(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string?>()))
-            .Returns<string, int, string?>((sql, _, _) => sql);
-        guardrail
             .Setup(x => x.IsPiiColumn(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>?>()))
             .Returns(false);
 

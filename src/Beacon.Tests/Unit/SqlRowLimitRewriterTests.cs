@@ -1,6 +1,5 @@
 using FluentAssertions;
 using NUnit.Framework;
-using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 
 namespace Beacon.Tests.Unit;
@@ -179,6 +178,68 @@ public class SqlRowLimitRewriterTests
     }
 
     [Test]
+    public void Apply_Postgres_AppendsLimit()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT * FROM orders", 500, "PostgreSQL");
+
+        result.Sql.Should().Be("SELECT * FROM orders LIMIT 500");
+    }
+
+    [Test]
+    public void Apply_TSql_InsertsTop()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT * FROM orders", 500, "MSSQL");
+
+        result.Sql.Should().Contain("SELECT TOP 500");
+    }
+
+    [Test]
+    public void Apply_TSql_DerivedTable_OnlyOutermostGetsTop()
+    {
+        var result = SqlRowLimitRewriter.Apply(
+            "SELECT category, COUNT(*) FROM (SELECT id, category FROM orders) x GROUP BY category",
+            500,
+            "MSSQL");
+
+        // Only the outer SELECT is capped — the inner subquery must NOT get TOP, or its rows would be
+        // truncated before aggregation, corrupting the COUNT.
+        result.Sql.Should().StartWith("SELECT TOP 500 category");
+        result.Sql.Should().NotContain("(SELECT TOP");
+    }
+
+    [Test]
+    public void Apply_Synapse_InsertsTop()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT * FROM sales", 100, "AzureSynapse");
+
+        // Azure Synapse is T-SQL: it must use TOP, never LIMIT (which Synapse rejects).
+        result.Sql.Should().Contain("SELECT TOP 100");
+        result.Sql.Should().NotContain("LIMIT");
+    }
+
+    [Test]
+    public void Apply_Synapse_OrderBy_UsesOffsetFetch()
+    {
+        var result = SqlRowLimitRewriter.Apply("SELECT * FROM sales ORDER BY id", 100, "AzureSynapse");
+
+        result.Sql.Should().Contain("FETCH NEXT 100 ROWS ONLY");
+        result.Sql.Should().NotContain("LIMIT");
+    }
+
+    [Test]
+    public void Apply_Synapse_CteLeading_UsesOrderByOffsetFetch()
+    {
+        var result = SqlRowLimitRewriter.Apply(
+            "WITH r AS (SELECT id, category FROM orders) SELECT category, COUNT(*) AS n FROM r GROUP BY category",
+            500,
+            "AzureSynapse");
+
+        result.Sql.Should().Contain("FETCH NEXT 500 ROWS ONLY");
+        result.Sql.Should().NotContain("TOP");
+        result.Sql.Should().NotContain("LIMIT");
+    }
+
+    [Test]
     public void Apply_ExplainTable_Unchanged()
     {
         var result = SqlRowLimitRewriter.Apply("DESCRIBE t", 100, "MySQL");
@@ -198,15 +259,6 @@ public class SqlRowLimitRewriterTests
         result.Outcome.Should().Be(SqlRowLimitOutcome.Refused);
         result.RefusalCode.Should().Be(SqlGateCodes.InvalidRowCap);
         result.RefusalMessage.Should().Be(SqlRowLimitRewriter.InvalidRowCapMessage);
-    }
-
-    [TestCase(0)]
-    [TestCase(-1)]
-    public void ApplyRowLimit_NonPositiveMaxRows_Throws(int maxRows)
-    {
-        var act = () => new QueryGuardrailService().ApplyRowLimit("SELECT a FROM t", maxRows, "PostgreSQL");
-
-        act.Should().Throw<InvalidOperationException>().WithMessage(SqlRowLimitRewriter.InvalidRowCapMessage);
     }
 
     [Test]

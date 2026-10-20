@@ -314,7 +314,7 @@ internal sealed class CrossSourceQueryService(
             return (text, false);
         }
 
-        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(translatedSql, settings.StatementTimeoutSeconds);
+        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(joinReport.FinalSql, settings.StatementTimeoutSeconds);
 
         if (timedOut)
         {
