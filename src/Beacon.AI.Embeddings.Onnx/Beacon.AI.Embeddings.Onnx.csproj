@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Package Information -->
+		<Authors>Moberg</Authors>
+		<Description>Local in-process ONNX text embeddings for Beacon semantic retrieval. Optional add-on for Beacon AI; no network egress.</Description>
+		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+		<PackageTags>beacon;ai;embeddings;onnx;semantic-search;database</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<IsPackable>true</IsPackable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Beacon.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Local in-process embeddings (ONNX; bge-small-en-v1.5). No network egress. -->
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" />
+		<PackageReference Include="Microsoft.ML.Tokenizers" />
+	</ItemGroup>
+
+</Project>

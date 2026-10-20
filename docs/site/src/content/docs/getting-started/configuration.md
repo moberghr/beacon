@@ -605,7 +605,7 @@ At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [A
 | `ModelPath` | string | None | The ONNX model file (384 dimensions, for example bge-small-en-v1.5) |
 | `TokenizerPath` | string | None | The WordPiece vocabulary file |
 
-The service is available only when `Enabled` is `true` and both files exist; otherwise retrieval falls back to lexical matching. On PostgreSQL the vectors live in a pgvector column, so the `vector` extension must be available to Beacon's migrations; on SQL Server they are compared in memory. The sample host re-indexes every 12 hours (`mcp-embedding-reindex`, `mcp-docchunk-reindex`).
+These keys are read by the `Moberg.Beacon.AI.Embeddings.Onnx` package (`AddBeaconOnnxEmbeddings()`). The service is available only when `Enabled` is `true` and both files exist; otherwise retrieval falls back to lexical matching. On PostgreSQL the vectors live in a pgvector column, so the `vector` extension must be available to Beacon's migrations; on SQL Server they are compared in memory. The sample host re-indexes every 12 hours (`mcp-embedding-reindex`, `mcp-docchunk-reindex`).
 
 ## Notification destinations (optional)
 

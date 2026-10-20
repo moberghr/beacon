@@ -106,6 +106,7 @@ builder.Services.AddBeaconCookieAuthentication("/beacon");
 builder.Services.AddBeaconApiAuthorization();
 builder.Services.AddBeaconApiServices();
 builder.Services.AddBeaconAI(builder.Configuration);
+builder.Services.AddBeaconOnnxEmbeddings();           // optional: local embeddings (Moberg.Beacon.AI.Embeddings.Onnx)
 builder.Services.AddBeaconMcp();
 
 var app = builder.Build();
@@ -245,7 +246,8 @@ All project references point to `Beacon.Core`. One MediatR handler backs each RE
 | `Beacon.Core.PostgreSql` / `Beacon.Core.SqlServer` | Metadata database providers and their migrations |
 | `Beacon.Api` | REST endpoints, SignalR hub, authentication, sessions, antiforgery |
 | `Beacon.UI` | React app (`web/`) shipped as a Razor Class Library, served at `/beacon` |
-| `Beacon.AI` | LLM providers, request queue, documentation, grounding, embeddings, AI actors |
+| `Beacon.AI` | LLM providers, request queue, documentation, grounding, AI actors |
+| `Beacon.AI.Embeddings.Onnx` | Optional local ONNX embeddings for semantic retrieval |
 | `Beacon.MCP` | MCP server, tools, filters, discovery documents, host endpoint tools |
 | `Beacon.Connector.*` | PostgreSQL, SQL Server, MySQL, Synapse, Snowflake, BigQuery, Databricks, CloudWatch, REST API |
 | `Beacon.SampleProject` | The reference host (never shipped): Warp jobs, OIDC, OpenTelemetry |
