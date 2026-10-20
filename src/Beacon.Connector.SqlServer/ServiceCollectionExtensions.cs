@@ -1,6 +1,7 @@
 using Microsoft.Data.SqlClient;
 using Beacon.Core;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.DataMigration;
 using Beacon.Core.Helpers;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.MSSQL, "MSSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SqlServerMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SqlServerTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigrationBulkWriter, SqlServerMigrationBulkWriter>());
         return builder;
     }
 }

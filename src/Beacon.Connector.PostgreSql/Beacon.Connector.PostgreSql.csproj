@@ -7,6 +7,9 @@
     <Description>PostgreSQL connector for Beacon</Description>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Beacon.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
