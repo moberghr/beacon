@@ -125,13 +125,15 @@ export default function McpSettingsPage() {
 }
 
 /** Shown to an Auditor: the settings are theirs to read, a SecurityAdmin's to change. */
-function ReadOnlyBanner() {
+function ReadOnlyBanner({ gateway = false }: { gateway?: boolean }) {
   return (
     <Banner
       tone="info"
       icon={<Eye />}
       title="Read only"
-      sub="You can read these settings. Changing them needs the SecurityAdmin permission."
+      sub={gateway
+        ? 'The MCP gateway does not serve changes to the global defaults. Pick a project to change its overrides.'
+        : 'You can read these settings. Changing them needs the SecurityAdmin permission.'}
     />
   );
 }
@@ -163,7 +165,7 @@ function McpSettingsShell() {
   );
 
   if (scope === 'global') {
-    return <McpSettingsForm scopeSelector={scopeSelector} readOnly={readOnly} />;
+    return <McpSettingsForm scopeSelector={scopeSelector} readOnly={readOnly || access.gatewayMode} gateway={access.gatewayMode} />;
   }
 
   const projectName = scopeName ?? `#${scope}`;
@@ -178,7 +180,7 @@ function McpSettingsShell() {
   );
 }
 
-function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode; readOnly: boolean }) {
+function McpSettingsForm({ scopeSelector, readOnly, gateway }: { scopeSelector: ReactNode; readOnly: boolean; gateway: boolean }) {
   const isAdmin = useAccess().isAdmin;
   const { data, isLoading, isError } = useMcpSettings();
   // Settings the deployment pins: their switches stay as pinned, for every role.
@@ -299,7 +301,7 @@ function McpSettingsForm({ scopeSelector, readOnly }: { scopeSelector: ReactNode
           }
         />
 
-        {readOnly && <ReadOnlyBanner />}
+        {readOnly && <ReadOnlyBanner gateway={gateway} />}
 
         <Tabs<TabKey>
           active={tab}

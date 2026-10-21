@@ -47,6 +47,7 @@ const DataContractDetailPage = lazyWithRetry(() => import('./routes/data-quality
 const McpPlaygroundPage = lazyWithRetry(() => import('./routes/mcp/McpPlaygroundPage'));
 const McpLearningPage = lazyWithRetry(() => import('./routes/mcp/McpLearningPage'));
 const McpSettingsPage = lazyWithRetry(() => import('./routes/mcp/McpSettingsPage'));
+const McpAuditPage = lazyWithRetry(() => import('./routes/mcp/McpAuditPage'));
 const SecurityAuditPage = lazyWithRetry(() => import('./routes/security-audit/SecurityAuditPage'));
 const AiActorsListPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorsListPage'));
 const AiActorDetailPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorDetailPage'));
@@ -117,6 +118,7 @@ export default function App() {
                   <Route path="/settings" element={lazyRoute(SettingsPage)} />
                   <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
                   <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
+                  <Route path="/mcp-audit" element={lazyRoute(McpAuditPage)} />
                   {/* The MCP gateway serves only the projects and MCP pages. */}
                   <Route element={<RequireFullBeacon />}>
                     <Route path="/notifications" element={lazyRoute(NotificationsPage)} />

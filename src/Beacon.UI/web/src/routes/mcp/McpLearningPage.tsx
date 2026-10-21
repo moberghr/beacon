@@ -14,7 +14,7 @@ import {
 import { Pager } from '@/components/data/Pager';
 import { EmptyState } from '@/components/data/EmptyState';
 import { Tabs, type TabDef } from '@/components/Tabs';
-import { useIsAdmin } from '@/auth/useAuth';
+import { useAccess, useIsAdmin } from '@/auth/useAuth';
 import { McpDocPatchStatus, McpPatternStatus } from '@/lib/enums';
 import { GoldenCandidatesTab, GoldenCasesTab } from './GoldenTabs';
 import { GroundingRecheckTab } from './GroundingRecheckTab';
@@ -46,7 +46,9 @@ const ADMIN_TABS: TabKey[] = ['candidates', 'golden', 'recheck'];
 export default function McpLearningPage() {
   const statsQ = useLearningStats();
   const patternsQ = useLearnedPatternsList();
-  const patchesQ = useDocumentationPatchesList();
+  // The MCP gateway serves neither documentation patches, golden cases, the grounding recheck nor pattern reviews.
+  const gateway = useAccess().gatewayMode;
+  const patchesQ = useDocumentationPatchesList(!gateway);
   const updatePattern = useUpdatePatternStatus();
   const applyPatch = useApplyPatch();
   const rejectPatch = useRejectPatch();
@@ -106,17 +108,17 @@ export default function McpLearningPage() {
       label: 'Learned patterns',
       count: stats?.patternsPending,
     },
-    { key: 'patches', label: 'Doc patches', count: stats?.patchesProposed },
+    ...(gateway ? [] : [{ key: 'patches' as const, label: 'Doc patches', count: stats?.patchesProposed }]),
     { key: 'problems', label: 'Problem tables' },
   ];
-  if (isAdmin) {
+  if (isAdmin && !gateway) {
     tabs.push(
       { key: 'candidates', label: 'Golden candidates' },
       { key: 'golden', label: 'Golden examples' },
       { key: 'recheck', label: 'Grounding recheck' },
     );
   }
-  const activeTab: TabKey = !isAdmin && ADMIN_TABS.includes(tab) ? 'patterns' : tab;
+  const activeTab: TabKey = (!isAdmin || gateway) && ADMIN_TABS.includes(tab) || (gateway && tab === 'patches') ? 'patterns' : tab;
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -230,7 +232,7 @@ export default function McpLearningPage() {
                           <Button size="sm" type="button" onClick={() => setViewingPattern(p)}>
                             View
                           </Button>
-                          {p.canCurate ? (
+                          {gateway ? null : p.canCurate ? (
                             PATTERN_REVIEW_ACTIONS.filter(x => x.status !== p.status).map(x => (
                               <Button
                                 key={x.status}
@@ -389,6 +391,7 @@ export default function McpLearningPage() {
         onClose={() => setViewingPattern(null)}
         onReview={handleReviewPattern}
         isBusy={updatePattern.isPending}
+        gateway={gateway}
       />
       <PatchDetailModal
         patch={viewingPatch}

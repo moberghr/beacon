@@ -700,4 +700,22 @@ describe('McpLearningPage grounding recheck (Admin)', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CHANGED_SINCE_REVIEWED));
     expect(toast.success).not.toHaveBeenCalled();
   });
+
+  it('hides the tabs and review actions the MCP gateway does not serve', async () => {
+    mockLearning([pattern({ id: 1 })]);
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
+
+    renderWithProviders(<McpLearningPage />);
+    await screen.findByText('orders');
+
+    expect(screen.getByRole('tab', { name: /Learned patterns/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Problem tables' })).toBeInTheDocument();
+    for (const name of [/Doc patches/, 'Golden candidates', 'Golden examples', 'Grounding recheck']) {
+      await waitFor(() => expect(screen.queryByRole('tab', { name })).toBeNull());
+    }
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Learned pattern' });
+    expect(within(dialog).queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
 });

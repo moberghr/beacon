@@ -22,6 +22,7 @@ import {
   Settings as IconCog,
   Info as IconInfo,
   ScrollText as IconAudit,
+  Activity as IconMcpAudit,
   ChevronDown,
   LogOut as IconLogOut,
   type LucideIcon,
@@ -55,7 +56,7 @@ interface NavSection {
 }
 
 /** The pages the MCP gateway's admin UI serves (everything else answers 404 there). */
-const GATEWAY_SLUGS = ['projects', 'mcp-settings', 'mcp-learning'];
+const GATEWAY_SLUGS = ['projects', 'mcp-settings', 'mcp-learning', 'mcp-audit'];
 
 const SECTIONS: NavSection[] = [
   {
@@ -103,6 +104,7 @@ const SECTIONS: NavSection[] = [
       { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
       { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground' },
       { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning' },
+      { name: 'MCP Audit', Icon: IconMcpAudit, slug: 'mcp-audit', visible: opensFor('Auditor') },
     ],
   },
   {

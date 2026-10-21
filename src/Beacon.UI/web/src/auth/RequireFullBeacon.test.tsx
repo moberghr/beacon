@@ -9,7 +9,7 @@ import { RequireFullBeacon } from './RequireFullBeacon';
 function renderAt(path: string) {
   return renderWithProviders(
     <Routes>
-      <Route path="/mcp-learning" element={<span>gateway landing</span>} />
+      <Route path="/mcp-audit" element={<span>gateway landing</span>} />
       <Route element={<RequireFullBeacon />}>
         <Route path="/queries" element={<span>queries page</span>} />
       </Route>

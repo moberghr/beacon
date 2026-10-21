@@ -82,10 +82,12 @@ interface PatternDetailModalProps {
   onClose: () => void;
   onReview: (pattern: LearnedPatternEntry, status: number) => void;
   isBusy: boolean;
+  /** The MCP gateway serves no review: no actions and no review note. */
+  gateway?: boolean;
 }
 
 /** A learned pattern in full — its content and example — with who reviewed it and the review actions the caller holds. */
-export function PatternDetailModal({ pattern, onClose, onReview, isBusy }: PatternDetailModalProps) {
+export function PatternDetailModal({ pattern, onClose, onReview, isBusy, gateway = false }: PatternDetailModalProps) {
   if (pattern === null) return null;
 
   const target = [pattern.schemaName, pattern.tableName, pattern.columnName].filter(Boolean).join('.');
@@ -115,12 +117,12 @@ export function PatternDetailModal({ pattern, onClose, onReview, isBusy }: Patte
         <ContentBlock label="Content" text={pattern.patternContent} />
         <ContentBlock label="Example question" text={pattern.exampleQuestion} />
         <ContentBlock label="Example SQL" text={pattern.exampleSql} mono />
-        {!pattern.canCurate && (
+        {!pattern.canCurate && !gateway && (
           <Banner tone="info" title="You cannot review this pattern" sub={PATTERN_CURATE_REASON} />
         )}
       </ModalBody>
       <ModalFooter hints={closeHint}>
-        {pattern.canCurate &&
+        {pattern.canCurate && !gateway &&
           actions.map(x => (
             <Button
               key={x.status}

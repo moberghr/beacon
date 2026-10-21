@@ -12,7 +12,7 @@ vi.mock('sonner', () => ({
 }));
 
 /** The pages a functional permission opens, by sidebar name. */
-const PERMISSION_PAGES = ['Data Migration', 'MCP Settings', 'Approvals', 'User Management', 'Admin Settings', 'Security Audit'];
+const PERMISSION_PAGES = ['Data Migration', 'MCP Settings', 'Approvals', 'User Management', 'Admin Settings', 'Security Audit', 'MCP Audit'];
 
 function sessionOf(isAuthenticated: boolean, roles: string[], displayName: string, signOutEverywhereEnabled = true) {
   mswServer.use(
@@ -46,6 +46,7 @@ describe('Sidebar', () => {
     expect(await screen.findByText('MCP Settings')).toBeInTheDocument();
     expect(screen.getByText('Projects')).toBeInTheDocument();
     expect(screen.getByText('MCP Learning')).toBeInTheDocument();
+    expect(screen.getByText('MCP Audit')).toBeInTheDocument();
     for (const name of ['Home', 'Control Tower', 'Data Sources', 'Queries', 'API Keys', 'MCP Playground', 'Approvals', 'User Management', 'Security Audit']) {
       expect(screen.queryByText(name)).not.toBeInTheDocument();
     }
@@ -86,7 +87,7 @@ describe('Sidebar', () => {
 
   it.each([
     ['Approver', ['Approvals']],
-    ['Auditor', ['MCP Settings', 'Admin Settings', 'Security Audit']],
+    ['Auditor', ['MCP Settings', 'Admin Settings', 'Security Audit', 'MCP Audit']],
     ['SecurityAdmin', ['MCP Settings', 'Admin Settings']],
     ['UserAdmin', ['User Management']],
     ['MigrationOperator', ['Data Migration']],
