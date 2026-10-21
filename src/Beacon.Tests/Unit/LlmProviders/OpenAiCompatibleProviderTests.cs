@@ -420,13 +420,12 @@ public class OpenAiCompatibleProviderTests
         delays.Should().BeEmpty();
     }
 
-    [TestCase(HttpStatusCode.OK)]
-    [TestCase(HttpStatusCode.InternalServerError)]
+    [Test]
     [CancelAfter(10_000)]
-    public async Task ABodyThatNeverEnds_FailsAtTheAttemptTimeout_AndIsNotRetried(HttpStatusCode status)
+    public async Task ABodyThatNeverEnds_FailsAtTheAttemptTimeout_AndIsNotRetried()
     {
         var delays = new List<TimeSpan>();
-        var handler = new StubHandler(_ => new HttpResponseMessage(status) { Content = new StreamContent(new StalledStream()) });
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream()) });
         var provider = OpenAiCompatibleProvider.ForOpenAi(new HttpClient(handler), Key, "m", Recorder(delays), attemptTimeout: TimeSpan.FromMilliseconds(100));
 
         var act = () => provider.CompleteAsync(GoldenRequest()).WaitAsync(TestContext.CurrentContext.CancellationToken);
@@ -436,6 +435,24 @@ public class OpenAiCompatibleProviderTests
         thrown.Which.InnerException.Should().BeOfType<TimeoutException>();
         handler.Requests.Should().ContainSingle();
         delays.Should().BeEmpty();
+    }
+
+    [Test]
+    [CancelAfter(10_000)]
+    public async Task AnErrorBodyThatNeverEnds_KeepsTheStatus_AndTheStatusRulesApply()
+    {
+        var delays = new List<TimeSpan>();
+        var handler = new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StreamContent(new StalledStream()) });
+        var provider = OpenAiCompatibleProvider.ForOpenAi(new HttpClient(handler), Key, "m", Recorder(delays), attemptTimeout: TimeSpan.FromMilliseconds(100));
+
+        var act = () => provider.CompleteAsync(GoldenRequest()).WaitAsync(TestContext.CurrentContext.CancellationToken);
+
+        var thrown = await act.Should().ThrowExactlyAsync<HttpRequestException>();
+        thrown.Which.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        thrown.Which.Message.Should().Be("OpenAI returned HTTP 503.");
+        handler.Requests.Should().HaveCount(OpenAiCompatibleProvider.MaxRetries + 1);
+        delays.Should().HaveCount(OpenAiCompatibleProvider.MaxRetries);
     }
 
     [Test]
@@ -811,7 +828,7 @@ public class OpenAiCompatibleProviderTests
     }
 
     /// <summary>A response body that never delivers a byte; a read ends only when it is cancelled.</summary>
-    private sealed class StalledStream(TaskCompletionSource? reading = null) : Stream
+    internal sealed class StalledStream(TaskCompletionSource? reading = null) : Stream
     {
         public override bool CanRead => true;
 

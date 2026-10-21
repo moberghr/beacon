@@ -31,6 +31,8 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
     private const long MaxErrorBytes = 64 * 1024;
 
+    private static readonly TimeSpan ErrorBodyTimeout = TimeSpan.FromSeconds(10);
+
     private const decimal DefaultInputCostPerMillionTokens = 5.00m;
 
     private const decimal DefaultOutputCostPerMillionTokens = 15.00m;
@@ -290,7 +292,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            return await SendAndReadAsync(body, attempt.Token);
+            return await SendAndReadAsync(body, attempt.Token, cancellationToken);
         }
         catch (Exception ex) when ((ex is OperationCanceledException or IOException or HttpRequestException)
             && timeout.IsCancellationRequested
@@ -302,7 +304,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         }
     }
 
-    private async Task<Attempt> SendAndReadAsync(byte[] body, CancellationToken cancellationToken)
+    private async Task<Attempt> SendAndReadAsync(byte[] body, CancellationToken cancellationToken, CancellationToken callerToken)
     {
         using var request = CreateRequest(body);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -315,7 +317,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
             return new Attempt(response.StatusCode, completion, null, null);
         }
 
-        return new Attempt(response.StatusCode, null, RequestedDelay(response), await ErrorCodeAsync(response.Content, cancellationToken));
+        return new Attempt(response.StatusCode, null, RequestedDelay(response), await ErrorCodeAsync(response.Content, cancellationToken, callerToken));
     }
 
     private HttpRequestMessage CreateRequest(byte[] body)
@@ -474,12 +476,16 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         return null;
     }
 
-    // The provider's error code when it is a plain token such as invalid_api_key; never the error message.
-    private static async Task<string?> ErrorCodeAsync(HttpContent content, CancellationToken cancellationToken)
+    // The provider's error code when it is a plain token such as invalid_api_key; never the error message. The status is
+    // already known, so a body that cannot be read, or not within ErrorBodyTimeout or the attempt timeout, only means the
+    // failure carries no code: only the caller's cancellation ends the attempt here.
+    private async Task<string?> ErrorCodeAsync(HttpContent content, CancellationToken cancellationToken, CancellationToken callerToken)
     {
+        using var timeout = new CancellationTokenSource(ErrorBodyTimeout, _timeProvider);
+        using var read = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            var body = await ReadCappedAsync(content, MaxErrorBytes, cancellationToken);
+            var body = await ReadCappedAsync(content, MaxErrorBytes, read.Token);
             if (body is null)
             {
                 return null;
@@ -500,9 +506,9 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
             return null;
         }
-        catch (Exception ex) when (ex is JsonException || ((ex is IOException or HttpRequestException) && !cancellationToken.IsCancellationRequested))
+        catch (Exception ex) when ((ex is JsonException or OperationCanceledException or IOException or HttpRequestException)
+            && !callerToken.IsCancellationRequested)
         {
-            // An unreadable error body only means the failure carries no error code.
             return null;
         }
     }
