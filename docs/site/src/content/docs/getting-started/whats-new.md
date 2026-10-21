@@ -83,12 +83,6 @@ the AWS SDK. The admin settings page lists only the providers you installed
 (`GET /beacon/api/admin-settings/llm-providers`). A configured provider that is not installed leaves AI without a
 provider: the host logs a warning, and AI calls fail with a message that names the package to add.
 
-OpenAI and Azure OpenAI now go over plain HTTP, as Claude already did, so `Moberg.Beacon.AI` no longer brings the
-`OpenAI`, `Azure.AI.OpenAI` or `Azure.Core` packages. Requests keep the SDKs' wire format and retry policy (up to three
-retries on 408, 429 and 5xx, honouring `Retry-After` up to 60 seconds). Redirects are not followed, so an API key never
-travels to a redirect target. This also fixes Azure OpenAI, which failed on every call in 4.x with a
-`MissingMethodException`.
-
 **Local embeddings moved to their own package too**: `Moberg.Beacon.AI.Embeddings.Onnx`, activated with
 `AddBeaconOnnxEmbeddings()`. Without it, retrieval is keyword-based and `Moberg.Beacon.AI` carries no ONNX runtime.
 
@@ -160,8 +154,7 @@ two items.
 - [ ] **SQL Server provider no longer transitive.** `Moberg.Beacon.Core` no longer references
       `Microsoft.EntityFrameworkCore.SqlServer` or `EFCore.BulkExtensions`. A host on SQL Server already references
       `Moberg.Beacon.Core.SqlServer`. Add your own reference only if your own code used those packages through Beacon.
-      The same goes for `OpenAI`, `Azure.AI.OpenAI`, `Azure.Core`, `AWSSDK.BedrockRuntime` and the ONNX packages,
-      which `Moberg.Beacon.AI` no longer brings.
+      The same goes for `AWSSDK.BedrockRuntime` and the ONNX packages, which `Moberg.Beacon.AI` no longer brings.
 - [ ] **Code that calls Beacon's internals:**
   - `SqlGateRequest` takes a `RowSecurity` argument, which you get from `IRowSecurityResolver`.
   - The `LlmProviderFactory(accessor, logger)` constructor is obsolete. Resolve the provider registrations from DI.
@@ -169,9 +162,6 @@ two items.
   - `IMigrationBulkContextProvider`, `MigrationBulkContextFactory` and `DynamicDbContext` are removed with
     `EFCore.BulkExtensions`, and `SqlServerDataTransferManager` and `ObjectDataReader<T>` with the old SQL Server
     bulk path. Migration writes use the connectors' `IMigrationBulkWriter`.
-  - `OpenAiProvider` and `AzureOpenAiProvider` keep their constructors but are obsolete. Providers are built through
-    the `ILlmProviderRegistration`s that `AddBeaconAI()` installs; a host's own registration for a built-in provider
-    wins, whatever the call order.
   - `BedrockProvider` moved to the `Beacon.AI.Bedrock` assembly and `IHostEndpointDispatchMiddleware` to `Beacon.MCP`.
     Both keep their namespaces: recompile.
   - `SqlClientTransportInspector` has an abstract `Read(string)` method, so a class of your own that derives from it
@@ -189,8 +179,29 @@ two items.
 | Admin standing | A user who loses the Admin role loses Admin routes on their next request, not at the next session revalidation. |
 | PostgreSQL and SQL Server migration runs | All-or-nothing: the writes and the key lookup share the run's transaction, with no row-by-row fallback. An Upsert into a table without a primary key fails. An unqualified SQL Server table means `dbo`. |
 | SQL Server migration Insert | Keeps source identity values and NULLs (writing identity values needs `ALTER` on the table) and checks CHECK and foreign-key constraints: a violating row fails the run. |
-| OpenAI and Azure OpenAI | Failures name the HTTP status and the provider's error code, never the response body. The request queue does not resend a call that failed with a status, since the provider already retried it. |
 | XLSX attachments | Dates keep a date format per cell, `DateOnly` and `DateTimeOffset` are written as dates, and a report with no rows is an empty workbook instead of an error. |
+
+## After 5.0.0
+
+These changes are on `main` and ship in the next release after 5.0.0.
+
+### OpenAI and Azure OpenAI over plain HTTP
+
+OpenAI and Azure OpenAI now go over plain HTTP, as Claude already did, so `Moberg.Beacon.AI` no longer brings the
+`OpenAI`, `Azure.AI.OpenAI` or `Azure.Core` packages. Requests keep the SDKs' wire format and retry policy (up to three
+retries on 408, 429 and 5xx, honouring `Retry-After` up to 60 seconds). Redirects are not followed, so an API key never
+travels to a redirect target. Failures name the HTTP status and the provider's error code, never the response body, and
+the request queue does not resend a call that failed with a status, since the provider already retried it.
+
+This also fixes Azure OpenAI, which failed on every call in 4.x and 5.0.0 with a `MissingMethodException`.
+
+When you upgrade:
+
+- [ ] **Packages no longer transitive.** If your own code used `OpenAI`, `Azure.AI.OpenAI` or `Azure.Core` through
+      Beacon, reference them yourself.
+- [ ] **Code that builds providers itself:** `OpenAiProvider` and `AzureOpenAiProvider` keep their constructors but
+      are obsolete. Providers are built through the `ILlmProviderRegistration`s that `AddBeaconAI()` installs, and a
+      host's own registration for a built-in provider now wins whatever the call order.
 
 ## Release notes
 
