@@ -70,4 +70,13 @@ public class QueryResultFile
     public required string Name { get; init; }
 
     public required string ContentType { get; init; }
+
+    /// <summary>The rows the file holds, or null when not recorded.</summary>
+    public int? RowCount { get; init; }
+
+    /// <summary>The rows the run delivered for the file, or null when not recorded.</summary>
+    public int? SourceRowCount { get; init; }
+
+    /// <summary>The file holds fewer rows than the run delivered: it was cut to stay within the attachment size limit.</summary>
+    public bool Truncated => RowCount < SourceRowCount;
 }

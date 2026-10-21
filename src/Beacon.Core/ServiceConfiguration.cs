@@ -338,6 +338,13 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.QueryExecutionOptions>, Configuration.QueryExecutionOptionsValidator>());
 
+        // Subscription limits (Beacon:Subscriptions): the shortest schedule interval a save accepts and the largest file a
+        // delivery attaches. ValidateOnStart so a limit out of range fails the host at boot.
+        services.AddOptions<Configuration.SubscriptionOptions>()
+            .Bind(configuration.GetSection(Configuration.SubscriptionOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SubscriptionOptions>, Configuration.SubscriptionOptionsValidator>());
+
         // Data-source transport (Beacon:DataSources:Transport): a connection must authenticate the server over TLS, as each
         // connector's inspector judges it; the options decide what happens to a stored source that does not.
         services.AddOptions<Configuration.DataSourceTransportOptions>()

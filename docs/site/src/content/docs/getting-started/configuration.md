@@ -498,6 +498,17 @@ Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that
 |---|---|---|---|---|
 | `Beacon:Metadata:ForcedRefreshCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | After a successful forced metadata refresh of a data source, the next one answers `429` until this passes. Per process; Admins and DataSourceAdmins are not held to it. Validated at startup |
 
+## Subscription limits
+
+Bound from `Beacon:Subscriptions`, validated at startup.
+
+| Key | Type | Default | Range | What it does |
+|---|---|---|---|---|
+| `MinIntervalMinutes` | int | `5` | 1–1440 | The shortest time between two runs of a subscription's cron schedule (in UTC). Creating a subscription with a schedule that fires more often, or changing one to it, is refused; a subscription saved before keeps its schedule through other edits and a reactivation |
+| `MaxAttachmentBytes` | int | `10485760` (10 MB) | 65,536–104,857,600 | The largest file a subscription attaches to its email. A larger CSV or XLSX keeps only its first rows that fit (an XLSX file can keep a few fewer), and the email says how many of the rows it delivers the file holds; a first row larger than the limit leaves the column headers only. The email itself is about 1.33 times the attachment's size (base64 encoding), so keep the limit below your mail server's message limit |
+
+See [Subscriptions](/features/subscriptions/).
+
 ## Data migration
 
 Bound from `Beacon:Migrations`, validated at startup. **A deployment lock**: only configuration turns it on.
@@ -663,7 +674,7 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 
 A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
-Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
+Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Subscriptions:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
 
 ## MCP (`Beacon:Mcp`)
 

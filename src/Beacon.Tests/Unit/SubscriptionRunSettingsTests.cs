@@ -290,6 +290,40 @@ public class SubscriptionRunSettingsTests
         result.MaxRows.Should().Be(maxRows is > 0 ? maxRows : Constants.Query.DefaultMaxRows);
     }
 
+    // A subscription run is recorded in its run history, not as a manual execution: no row per run, per step or for the
+    // whole query. Running the same query from the editor still records one.
+    [Test]
+    public async Task ASubscriptionRun_RecordsNoManualExecution()
+    {
+        ConnectLedger([("id", x => x + 1)]);
+        var log = new Mock<IManualQueryExecutionLogger>();
+        var service = Service([(Ledger, "SELECT id FROM accounts")], executionLogger: log.Object);
+
+        await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
+
+        log.Verify(
+            x => x.LogQueryExecutionAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task RunningTheQueryFromTheEditor_StillRecordsAManualExecution()
+    {
+        ConnectLedger([("id", x => x + 1)]);
+        var log = new Mock<IManualQueryExecutionLogger>();
+        var service = Service([(Ledger, "SELECT id FROM accounts")], executionLogger: log.Object);
+
+        await service.ExecuteQueryAdvanced(QueryId, cancellationToken: CancellationToken.None);
+        await service.PreviewQueryStep(QueryId, 1, CancellationToken.None);
+
+        log.Verify(
+            x => x.LogQueryExecutionAsync(It.IsAny<string>(), 3, It.IsAny<double>(), true, Ledger, "QueryStepPreview", It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+        log.Verify(
+            x => x.LogQueryExecutionAsync(It.IsAny<string>(), 3, It.IsAny<double>(), true, Ledger, "FullQueryPreview", It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     private static void ConnectLedger(IReadOnlyList<(string Name, Func<int, object?> Value)> columns)
     {
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => new RecordingDbConnection { Columns = columns, RowCount = 3 });
@@ -311,7 +345,8 @@ public class SubscriptionRunSettingsTests
         TimeSpan? statementTimeout = null,
         int? finalQueryTimeoutSeconds = null,
         HostExposureSnapshot? hostSnapshot = null,
-        int? maxRows = 50)
+        int? maxRows = 50,
+        IManualQueryExecutionLogger? executionLogger = null)
     {
         var dataSources = new List<DataSource>
         {
@@ -370,7 +405,8 @@ public class SubscriptionRunSettingsTests
             sharedSourceSettings: shared.Object,
             providers: providers,
             finalQueryTimeoutSeconds: finalQueryTimeoutSeconds,
-            statementTimeout: statementTimeout);
+            statementTimeout: statementTimeout,
+            executionLogger: executionLogger);
     }
 
     private sealed class SingleHostRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry

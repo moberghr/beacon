@@ -6,6 +6,29 @@ namespace Beacon.Core.Adapters;
 
 public static class Helpers
 {
+    /// <summary>
+    /// <see cref="GenerateEmailContent(QueryResult)"/> for an e-mail that carries <paramref name="attachment"/>: when the
+    /// file was cut to stay within the attachment size limit, the body says how many of the rows this message delivers it
+    /// holds (the delivered rows, not the run's total, which can be larger).
+    /// </summary>
+    internal static string GenerateEmailContent(QueryResult queryResult, QueryResultFile? attachment)
+    {
+        var content = GenerateEmailContent(queryResult);
+        if (attachment is not { Truncated: true })
+        {
+            return content;
+        }
+
+        var name = System.Net.WebUtility.HtmlEncode(attachment.Name);
+        var delivered = System.Net.WebUtility.HtmlEncode(attachment.SourceRowCount.ToString());
+        var note = attachment.RowCount == 0
+            ? $"<p><strong>The attachment holds no rows:</strong> one row of the {delivered} rows this message delivers is larger than the attachment size limit, so {name} has the column headers only.</p>"
+            : $"<p><strong>The attachment was truncated:</strong> {name} holds the first {System.Net.WebUtility.HtmlEncode(attachment.RowCount.ToString())} of the {delivered} rows this message delivers, to stay within the attachment size limit.</p>";
+        var end = content.LastIndexOf("</body>", StringComparison.Ordinal);
+
+        return content.Insert(end, note);
+    }
+
     public static string GenerateEmailContent(QueryResult queryResult)
     {
         // HTML-encode every dynamic value (§XSS) — query text, column keys, and cell values are
