@@ -331,7 +331,7 @@ public class AiActorCycleProposeOnlyTests
     }
 
     [Test]
-    public async Task ExecuteThinkCycleAsync_AfterCooldown_RunsAndRecordsTheLastThinkTime()
+    public async Task ExecuteThinkCycleAsync_AfterCooldown_RunsAndCompletionDoesNotWriteTheLastThinkTime()
     {
         var actor = SeedActor();
         actor.LastThinkTime = Now.AddMinutes(-16);
@@ -340,8 +340,22 @@ public class AiActorCycleProposeOnlyTests
         var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
 
         result.Success.Should().BeTrue(result.ErrorMessage);
-        actor.LastThinkTime.Should().Be(Now);
         actor.ThinkCount.Should().Be(1);
+        actor.LastThinkTime.Should().Be(Now.AddMinutes(-16), "only the claim writes it");
+        SingleCompletedExecution().CompletedAt.Should().NotBeNull();
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_NewerClaimLandsDuringTheCycle_KeepsTheNewerTimestamp()
+    {
+        var actor = SeedActor();
+        var newer = Now.AddMinutes(20);
+        var service = BuildService(PlanJson, () => actor.LastThinkTime = newer, time: new FixedTimeProvider(Now));
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        actor.LastThinkTime.Should().Be(newer);
     }
 
     [Test]

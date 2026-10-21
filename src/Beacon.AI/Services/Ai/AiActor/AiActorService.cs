@@ -419,7 +419,8 @@ public class AiActorService : IAiActorServiceExtended
             execution.CompletedAt = DateTime.UtcNow;
 
             // Update actor statistics
-            actor.LastThinkTime = _timeProvider.GetUtcNow().UtcDateTime;
+            // LastThinkTime is written only by the think claim, so a late completion cannot overwrite a newer claim; the
+            // completion time is on the execution record.
             actor.ThinkCount++;
             actor.TotalTokensUsed += execution.TokensUsed;
             actor.TotalCost += execution.EstimatedCost;
