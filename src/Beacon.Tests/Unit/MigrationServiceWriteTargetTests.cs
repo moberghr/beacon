@@ -394,7 +394,6 @@ public class MigrationServiceWriteTargetTests
             Mock.Of<IQueryService>(),
             _preview.Object,
             Mock.Of<IBeaconUserContext>(),
-            new MigrationBulkContextFactory([]),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = enabled, MaxRows = maxRows }),

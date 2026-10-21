@@ -163,7 +163,7 @@ step of plain SQL.
 | Mode (UI label) | What it does | Needs |
 |-----------------|--------------|-------|
 | **Insert only** | Inserts every source row. A row that violates a key or constraint fails the write. | |
-| **Insert or update** (Upsert) | Stages the rows in a temporary table, then inserts new rows and updates existing ones by primary key. | A primary key on the destination table, and every key column in each source row (otherwise the run fails). Without a primary key the run fails. |
+| **Insert or update** (Upsert) | Inserts new rows and updates existing ones by primary key. | A primary key on the destination table, and every key column in each source row (otherwise the run fails). Without a primary key the run fails. |
 | **Truncate & insert** | Empties the destination table, then inserts every source row. | |
 
 :::caution
@@ -177,20 +177,31 @@ How the write is done per engine:
 |--------|--------|--------|
 | PostgreSQL | `COPY … FROM STDIN (FORMAT BINARY)` | `COPY` into a temporary table, then `INSERT … ON CONFLICT` |
 | SQL Server | bulk copy, keeping identity values | bulk copy into a session temporary table, then `MERGE` (a matched row is updated only when a value changed) |
-| MySQL | bulk insert; if it fails, row by row | bulk insert into a temporary table, then `INSERT … ON DUPLICATE KEY UPDATE` |
+| MySQL | multi-row parameterised `INSERT … VALUES (…), (…)` | the same, with `ON DUPLICATE KEY UPDATE col = VALUES(col)` |
 
-On PostgreSQL and SQL Server a failed write fails the run. On MySQL, when the bulk insert fails, Beacon inserts the rows
-one at a time: rows that fail are counted and listed in the run's error, and the run ends as **Partial**. It stops after
-more than 100 failed rows.
+A run writes in one transaction on every engine: a failed write fails the run and rolls every row back, so a run either
+completes or writes nothing. On MySQL this holds for a transactional table (InnoDB); a MyISAM or MEMORY table cannot roll
+back, so a failed run keeps the rows written before the failure, and a Truncate & insert run the deleted rows stay deleted.
 
-On PostgreSQL and SQL Server the rows are written as the source returns them:
+Truncate & insert empties a MySQL table with `DELETE`, because `TRUNCATE` would commit the transaction there. So the
+table's delete triggers fire and its `AUTO_INCREMENT` counter is not reset. A MySQL table that another table references
+by foreign key is refused (`TRUNCATE` refuses it too, while `DELETE` would cascade into, or set NULL in, the referencing
+rows): the run fails before anything is deleted. A table's foreign key to itself does not stop it. The check reads
+`information_schema`, which shows the write login only the referencing tables it holds a privilege on.
+
+The rows are written as the source returns them:
 
 - The columns written are those of all source rows. A NULL, or a column a row does not carry, writes NULL, never the
   column's default; in Upsert mode that NULL replaces the existing value. Rows from one query all carry the same columns.
 - SQL Server keeps the source's identity values (the table does not generate new ones) and fires the table's insert
   triggers, and checks `CHECK` and foreign-key constraints: a violating row fails the run, which rolls back.
-- In Upsert mode two source rows with the same primary key in one batch of 10,000 fail the run, which rolls back.
+- In Upsert mode two source rows with the same primary key in one batch of 10,000 fail the run on PostgreSQL and SQL
+  Server, which rolls back; on MySQL the later row wins.
 - A SQL Server table named without a schema is the `dbo` one.
+- MySQL sends at most 1,000 rows, 60,000 values or about 1 MB of values per statement, under MySQL 5.7's default
+  4 MB `max_allowed_packet`. Its Upsert matches on any unique key of the table, not only the primary key (how
+  `ON DUPLICATE KEY UPDATE` works), and keeps `VALUES(col)`, which MariaDB and MySQL 5.7 understand; MySQL 8.0.20 and
+  later accept it with a deprecation warning.
 
 ### Schedules
 
@@ -224,7 +235,7 @@ The run history page (`/beacon/migration-history`) lists runs of every job you c
 |--------|---------|
 | Running | The run has started. |
 | Completed | Every row was written. |
-| Partial | Some rows failed (MySQL row-by-row fallback); see the run's error. The job page labels it **Partial success**. |
+| Partial | Recorded by earlier versions, whose MySQL writes fell back to row by row; runs no longer end in it. The job page labels it **Partial success**. |
 | Failed | The read or the write failed, or the run was refused (not approved, not a write target). The error says why. |
 
 ### Delete a job
@@ -273,12 +284,12 @@ uses, on the destination table only:
 | Mode | PostgreSQL | MySQL | SQL Server |
 |------|------------|-------|------------|
 | Insert only | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy); `ALTER` on the table too when the job writes an identity column |
-| Insert or update | `INSERT`, `UPDATE`, `SELECT` on the written columns (`ON CONFLICT` reads them, also on a table whose columns are all key columns), and `TEMPORARY` on the database (rows are staged in a temporary table; PostgreSQL grants it to `PUBLIC` by default) | `INSERT`, `UPDATE`, `CREATE TEMPORARY TABLES` | `SELECT`, `INSERT`, `UPDATE` (staged in a session temporary table); `ALTER` on the table too when the job writes an identity column (`IDENTITY_INSERT`) |
-| Truncate & insert | the `TRUNCATE` privilege, `INSERT` | `DROP` on the table (MySQL requires it to truncate), `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
+| Insert or update | `INSERT`, `UPDATE`, `SELECT` on the written columns (`ON CONFLICT` reads them, also on a table whose columns are all key columns), and `TEMPORARY` on the database (rows are staged in a temporary table; PostgreSQL grants it to `PUBLIC` by default) | `INSERT`, `UPDATE`; `SELECT` on the first key column too when every column is a key column (the update assigns it to itself) | `SELECT`, `INSERT`, `UPDATE` (staged in a session temporary table); `ALTER` on the table too when the job writes an identity column (`IDENTITY_INSERT`) |
+| Truncate & insert | the `TRUNCATE` privilege, `INSERT` | `DELETE`, `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
 
 On PostgreSQL every mode also needs `USAGE` on the table's schema. Every mode also reads `information_schema` to check
 that the table exists (and, for Upsert, its primary key). Some of
-these grants are DDL-grade (`ALTER`, `DROP`, the `TRUNCATE` privilege), which is why such a login belongs on a write
+these grants are DDL-grade (`ALTER`, the `TRUNCATE` privilege), which is why such a login belongs on a write
 target that Beacon never reads, not on an ordinary data source.
 
 ## REST API

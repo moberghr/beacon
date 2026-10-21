@@ -298,7 +298,6 @@ public class FunctionalPermissionTranslationTests
             Mock.Of<IQueryService>(),
             Mock.Of<IQueryExecutionPreviewService>(),
             Mock.Of<IBeaconUserContext>(),
-            new MigrationBulkContextFactory([]),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,
             Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.MigrationOptions()),

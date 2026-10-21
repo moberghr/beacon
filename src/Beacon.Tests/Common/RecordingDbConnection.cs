@@ -28,6 +28,9 @@ internal sealed class RecordingDbConnection : DbConnection
 
     public List<(string CommandText, DbTransaction? Transaction, IReadOnlyList<DbParameter> Parameters)> Executions { get; } = [];
 
+    /// <summary>The timeout of every command recorded by <see cref="Record"/>, in order.</summary>
+    public List<int> CommandTimeouts { get; } = [];
+
     public int BeginTransactionCalls { get; private set; }
 
     public int RowsRead { get; set; }
@@ -80,6 +83,7 @@ internal sealed class RecordingDbConnection : DbConnection
     public void Record(DbCommand command)
     {
         Executions.Add((command.CommandText, command.Transaction, command.Parameters.Cast<DbParameter>().ToList()));
+        CommandTimeouts.Add(command.CommandTimeout);
         if (FailOnCommandText?.Invoke(command.CommandText) == true)
         {
             throw new InvalidOperationException("The command failed on the server.");

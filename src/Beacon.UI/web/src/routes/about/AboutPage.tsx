@@ -83,7 +83,7 @@ const USE_CASES = [
 const STACK = [
   { label: 'Framework', items: ['.NET 9', 'C# 13', 'ASP.NET Core 9'] },
   { label: 'UI', items: ['React 18', 'Vite', 'TypeScript', 'Beacon design system'] },
-  { label: 'Data access', items: ['EF Core 9', 'Dapper', 'EFCore.BulkExtensions'] },
+  { label: 'Data access', items: ['EF Core 9', 'Dapper'] },
   { label: 'Databases', items: ['Npgsql', 'Microsoft.Data.SqlClient', 'MySql.Data'] },
   { label: 'Background jobs', items: ['Moberg.Warp', 'Cronos'] },
   { label: 'Integrations', items: ['Atlassian.SDK', 'AdaptiveCards', 'ClosedXML', 'CsvHelper'] },

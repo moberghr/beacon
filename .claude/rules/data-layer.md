@@ -37,7 +37,7 @@
 
 §5.11 **Dapper is in use alongside EF Core** for metadata extraction (`*MetadataExtractor.cs`), bulk operations, and performance-critical raw SQL — see `src/Beacon.Core/Services/MigrationService.cs`, `src/Beacon.Core/Services/SqlPageExecutor.cs` and `src/Beacon.Core/Services/InMemoryDatabaseManager.cs`. Do NOT migrate these to EF Core unless explicitly asked.
 
-§5.12 **Migration bulk writes go through the destination engine's `IMigrationBulkWriter`** (`src/Beacon.Core/DataMigration/`), registered by its connector (`Add{Engine}Connector()`): PostgreSQL binary COPY, SQL Server `SqlBulkCopy`, both on the run's connection and transaction. MySQL still writes through `EFCore.BulkExtensions` (`BulkInsertAsync` in `src/Beacon.Core/Services/MigrationService.Sql.cs`). Never `context.AddRange` for >1k rows.
+§5.12 **Migration bulk writes go through the destination engine's `IMigrationBulkWriter`** (`src/Beacon.Core/DataMigration/`), registered by its connector (`Add{Engine}Connector()`): PostgreSQL binary COPY, SQL Server `SqlBulkCopy`, MySQL multi-row parameterised `INSERT` (`ON DUPLICATE KEY UPDATE` for Upsert, `DELETE` to clear), all on the run's connection and transaction. Never `context.AddRange` for >1k rows.
 
 ## Pitfalls
 

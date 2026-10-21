@@ -412,7 +412,6 @@ public class DataResourceEventTests
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<IQueryExecutionPreviewService>(MockBehavior.Strict),
             Mock.Of<IBeaconUserContext>(),
-            new MigrationBulkContextFactory([]),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = true }),

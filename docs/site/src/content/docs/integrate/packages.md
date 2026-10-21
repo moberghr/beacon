@@ -68,7 +68,7 @@ Moberg.Beacon.Connector.*    → Core
 Moberg.Beacon.UI             → (nothing; static web assets)
 ```
 
-`Moberg.Beacon.Core` itself references `Microsoft.EntityFrameworkCore.SqlServer`, so every host gets the SQL Server EF provider. Npgsql and pgvector come only with `Moberg.Beacon.Core.PostgreSql` or the PostgreSQL connector.
+`Moberg.Beacon.Core` itself references no server database driver or EF Core provider (it carries `Microsoft.Data.Sqlite` for the in-memory joins of cross-source queries). The SQL Server EF provider comes only with `Moberg.Beacon.Core.SqlServer`; Npgsql and pgvector only with `Moberg.Beacon.Core.PostgreSql` or the PostgreSQL connector; each connector brings its own driver.
 
 ## Versions
 
@@ -93,7 +93,6 @@ If you use central package management, pin one version for all of them:
 
 - **`Microsoft.AspNetCore.OpenApi`.** If your host calls `AddOpenApi()`/`MapOpenApi()`, reference `Microsoft.AspNetCore.OpenApi` directly; relying on the copy that comes with `Moberg.Beacon.Api` fails the build with `CS9137` (interceptors).
 - **Transitive package advisories.** If restore reports `NU1902`/`NU1903` for a transitive dependency and you treat warnings as errors, add a direct `PackageReference` to the patched version of that package in your project.
-- **MySQL connector and `NU1608`.** `Moberg.Beacon.Connector.MySql` carries the Pomelo EF Core provider, which declares an EF Core 9 dependency range. Restore prints `NU1608`; under `TreatWarningsAsErrors`, suppress it in the project that references the connector: `<NoWarn>$(NoWarn);NU1608</NoWarn>`.
 - **The UI package** contains the production React build. You do not need Node.js to consume it. The host must call `app.UseStaticFiles()` so the assets are served.
 - **Building from source** (project references instead of packages): `Beacon.UI` builds the React app only in `Release`, or in `Debug` with `-p:BuildReactInDebug=true`. Node.js 22 and npm 11 match the CI build.
 

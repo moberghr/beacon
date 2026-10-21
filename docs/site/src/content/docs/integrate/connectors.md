@@ -105,6 +105,5 @@ To let Beacon (and MCP clients) read your application's own EF Core model (with 
 
 ## Notes
 
-- **MySQL** carries the Pomelo EF Core provider (used for migration writes). Restore prints `NU1608`; suppress it if you treat warnings as errors.
 - Connector registration also fills process-wide registries (engine → connection factory). Register connectors once, at startup.
 - The data-quality SQL generator supports PostgreSQL, SQL Server and MySQL.
