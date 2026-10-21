@@ -6,9 +6,11 @@ export const SECTIONS = [
   {
     label: 'Start here',
     slug: 'getting-started',
-    summary: 'What Beacon is, its core concepts, and running it locally in minutes.',
+    summary: 'What Beacon is, what is new in 5.0, how to work with Beacon through an AI assistant, and running it locally in minutes.',
     items: [
       { label: 'Overview', slug: 'getting-started' },
+      { label: "What's new in 5.0", slug: 'getting-started/whats-new' },
+      { label: 'Build with AI', slug: 'getting-started/with-ai' },
       { label: 'Core concepts', slug: 'getting-started/concepts' },
       { label: 'Quick start', slug: 'getting-started/quick-start' },
       { label: 'Run the sample host', slug: 'getting-started/installation' },
@@ -31,13 +33,88 @@ export const SECTIONS = [
     ],
   },
   {
+    label: 'Cookbooks',
+    slug: 'cookbooks',
+    summary: 'Task-shaped recipes, each one start to finish with a prompt you can hand to your coding agent, and a library of prompts for coding agents, MCP users and admins.',
+    items: [
+      { label: 'All recipes', slug: 'cookbooks' },
+      { label: 'Prompt library', slug: 'cookbooks/prompts' },
+    ],
+  },
+  {
+    label: 'Connect AI to your data',
+    slug: 'cookbooks',
+    summary: 'Recipes for connecting AI assistants to Beacon and getting good answers from them.',
+    items: [
+      { label: 'Connect a coding agent', slug: 'cookbooks/connect-coding-agent' },
+      { label: 'Claude connector with Entra', slug: 'cookbooks/claude-connector-entra' },
+      { label: 'Ask your data with an agent', slug: 'cookbooks/ask-your-data' },
+      { label: 'Publish a saved query as a tool', slug: 'cookbooks/saved-query-tool' },
+      { label: 'An agent for one project only', slug: 'cookbooks/agent-one-project' },
+    ],
+  },
+  {
+    label: 'Make your app AI-ready',
+    slug: 'cookbooks',
+    summary: 'Recipes for turning your own ASP.NET Core application into something AI assistants can use safely.',
+    items: [
+      { label: 'Expose an endpoint as a tool', slug: 'cookbooks/endpoint-as-tool' },
+      { label: 'Ground answers in your docs', slug: 'cookbooks/ground-with-your-docs' },
+    ],
+  },
+  {
+    label: 'Embed Beacon',
+    slug: 'cookbooks',
+    summary: 'Recipes for running Beacon inside your own application, on the stack you already have.',
+    items: [
+      { label: 'PostgreSQL + Warp', slug: 'cookbooks/embed-postgresql-warp' },
+      { label: 'SQL Server + Hangfire', slug: 'cookbooks/embed-sqlserver-hangfire' },
+      { label: 'Single sign-on with Entra ID', slug: 'cookbooks/entra-sso' },
+    ],
+  },
+  {
+    label: 'Monitor & govern',
+    slug: 'cookbooks',
+    summary: 'Recipes for alerting, data quality and audit.',
+    items: [
+      { label: 'Alert Slack or Teams on a failed check', slug: 'cookbooks/alert-on-failed-check' },
+      { label: 'Score a table with a data contract', slug: 'cookbooks/data-contract' },
+      { label: 'Ship the MCP audit to your SIEM', slug: 'cookbooks/audit-to-siem' },
+    ],
+  },
+  {
+    label: 'MCP',
+    slug: 'mcp',
+    summary:
+      "Beacon's Model Context Protocol server: the tools, connecting AI clients with API keys or Entra sign-in, the gateway mode for your own application, and the audit.",
+    items: [
+      { label: 'MCP overview', slug: 'mcp' },
+      { label: 'Server & tools', slug: 'mcp/server' },
+      { label: 'Connect AI clients', slug: 'mcp/connect' },
+      { label: 'Entra ID callers', slug: 'mcp/entra-callers' },
+      { label: 'Observability & audit', slug: 'mcp/observability-and-audit' },
+    ],
+  },
+  {
+    label: 'Extend MCP',
+    slug: 'mcp',
+    summary: 'Your own application behind MCP: the gateway mode, saved queries and endpoints as tools, your EF model and documents as grounding.',
+    items: [
+      { label: 'MCP gateway for your app', slug: 'mcp/gateway' },
+      { label: 'Saved query tools', slug: 'mcp/saved-query-tools' },
+      { label: 'Host endpoint tools', slug: 'mcp/host-endpoint-tools' },
+      { label: 'Host DbContext', slug: 'mcp/host-dbcontext' },
+      { label: 'Host docs', slug: 'mcp/host-docs' },
+      { label: 'Grounding & knowledge base', slug: 'mcp/knowledge-base' },
+    ],
+  },
+  {
     label: 'Integrate Beacon',
     slug: 'integrate',
     summary:
       'Embed Beacon in your own ASP.NET Core application: packages, host wiring, database, sign-in, access control, jobs, connectors, AI, MCP and production.',
     items: [
       { label: 'Integration overview', slug: 'integrate' },
-      { label: 'MCP gateway for your app', slug: 'integrate/gateway' },
       { label: 'Packages', slug: 'integrate/packages' },
       { label: 'Host wiring', slug: 'integrate/host-setup' },
       { label: 'Metadata database', slug: 'integrate/database' },
@@ -46,7 +123,6 @@ export const SECTIONS = [
       { label: 'Background jobs', slug: 'integrate/background-jobs' },
       { label: 'Data-source connectors', slug: 'integrate/connectors' },
       { label: 'AI providers', slug: 'integrate/ai' },
-      { label: 'MCP & AI clients', slug: 'integrate/mcp' },
       { label: 'Extending Beacon', slug: 'integrate/extending' },
       { label: 'Production checklist', slug: 'integrate/production' },
       { label: 'Troubleshooting', slug: 'integrate/troubleshooting' },
@@ -70,34 +146,26 @@ export const SECTIONS = [
     ],
   },
   {
-    label: 'AI & MCP',
+    label: 'AI in the app',
     slug: 'features',
-    summary: 'The governed MCP server, its tools and extension points, grounding, the AI layer and AI actors.',
+    summary: 'The AI layer inside Beacon: SQL assistance, documentation generation and AI actors.',
     items: [
-      { label: 'MCP server', slug: 'features/mcp-server' },
-      { label: 'Entra ID callers', slug: 'features/mcp-entra-callers' },
-      { label: 'Saved query tools', slug: 'features/saved-query-tools' },
-      { label: 'Host endpoint tools', slug: 'features/host-endpoint-tools' },
-      { label: 'Host DbContext', slug: 'features/host-dbcontext' },
-      { label: 'Host docs', slug: 'features/host-docs' },
-      { label: 'Knowledge base & grounding', slug: 'features/knowledge-base' },
       { label: 'AI integration', slug: 'features/ai-integration' },
       { label: 'AI actors', slug: 'features/ai-actors' },
-      { label: 'MCP observability & audit', slug: 'features/mcp-observability-and-audit' },
     ],
   },
   {
-    label: 'Govern & secure',
-    slug: 'features',
+    label: 'Security',
+    slug: 'security',
     summary: 'The security model: projects, permissions, approvals, users, API keys, the security audit trail and admin settings.',
     items: [
-      { label: 'Security model', slug: 'features/security-model' },
-      { label: 'Authorization', slug: 'features/authorization' },
-      { label: 'Approvals', slug: 'features/approvals' },
-      { label: 'User management', slug: 'features/user-management' },
-      { label: 'API keys', slug: 'features/api-keys' },
-      { label: 'Security audit trail', slug: 'features/security-audit' },
-      { label: 'Admin settings', slug: 'features/admin-settings' },
+      { label: 'Security model', slug: 'security' },
+      { label: 'Authorization', slug: 'security/authorization' },
+      { label: 'Approvals', slug: 'security/approvals' },
+      { label: 'User management', slug: 'security/user-management' },
+      { label: 'API keys', slug: 'security/api-keys' },
+      { label: 'Security audit trail', slug: 'security/audit-trail' },
+      { label: 'Admin settings', slug: 'security/admin-settings' },
     ],
   },
   {
@@ -111,9 +179,32 @@ export const SECTIONS = [
   },
 ];
 
+/** Old page URLs and where they live now; astro.config.mjs turns them into redirects. */
+export const MOVED = {
+  'features/mcp-server': 'mcp/server',
+  'features/mcp-entra-callers': 'mcp/entra-callers',
+  'features/saved-query-tools': 'mcp/saved-query-tools',
+  'features/host-endpoint-tools': 'mcp/host-endpoint-tools',
+  'features/host-dbcontext': 'mcp/host-dbcontext',
+  'features/host-docs': 'mcp/host-docs',
+  'features/knowledge-base': 'mcp/knowledge-base',
+  'features/mcp-observability-and-audit': 'mcp/observability-and-audit',
+  'integrate/mcp': 'mcp/connect',
+  'integrate/gateway': 'mcp/gateway',
+  'features/security-model': 'security',
+  'features/authorization': 'security/authorization',
+  'features/approvals': 'security/approvals',
+  'features/user-management': 'security/user-management',
+  'features/api-keys': 'security/api-keys',
+  'features/security-audit': 'security/audit-trail',
+  'features/admin-settings': 'security/admin-settings',
+};
+
 /** Starlight sidebar built from SECTIONS. */
 export const sidebar = SECTIONS.map((section) => ({
   label: section.label,
+  // Every group starts closed; Starlight opens the one that holds the current page.
+  collapsed: true,
   items: section.items.map((item) => ({
     label: item.label,
     link: `/${item.slug}/`,

@@ -50,7 +50,7 @@ The access boundary. A project links data sources and has members.
 - **Open** projects are visible to every user with a Beacon role, at the level of that role.
 - Queries, subscriptions, notifications, tasks and MCP calls are all filtered by the projects the caller can read.
 
-See [Authorization](/features/authorization/) and [Security model](/features/security-model/).
+See [Authorization](/security/authorization/) and [Security model](/security/).
 
 ## Query
 
@@ -104,13 +104,13 @@ See [Data quality](/features/data-quality/).
 
 An opt-in four-eyes workflow. When the host enables it, a change to a query's executable content, a migration job, a Custom SQL rule or a recipient's destination takes effect only after a second person with the Approver permission approves exactly the reviewed content. It is off by default.
 
-See [Approvals](/features/approvals/).
+See [Approvals](/security/approvals/).
 
 ## The SQL execution gate
 
 Every statement Beacon runs on a data source passes one gate first, whoever asked for it: a subscription, a preview, a data contract or an MCP tool. The gate refuses anything but a single read-only statement, refuses names from other databases and SQL that switches context or runs dynamic SQL, and writes a row cap into the SQL. For subscriptions and previews, a result larger than `Beacon:Query:MaxExecutionRows` fails the run rather than being cut. Data migration, the only write path, is separate and off by default.
 
-See [Security model](/features/security-model/) and [Queries](/features/queries/).
+See [Security model](/security/) and [Queries](/features/queries/).
 
 ## MCP server and tools
 
@@ -120,13 +120,13 @@ See [Security model](/features/security-model/) and [Queries](/features/queries/
 - **Saved-query tools**: a published query appears as `q_<name>` and runs only its approved version.
 - **Host endpoint tools**: a host can expose its own HTTP endpoints as `api_<name>` tools.
 
-The caller's projects are resolved on every call, and every call is written to the audit log. See [MCP server](/features/mcp-server/), [Saved query tools](/features/saved-query-tools/) and [Host endpoint tools](/features/host-endpoint-tools/).
+The caller's projects are resolved on every call, and every call is written to the audit log. See [MCP server](/mcp/server/), [Saved query tools](/mcp/saved-query-tools/) and [Host endpoint tools](/mcp/host-endpoint-tools/).
 
 ## Grounding and knowledge base
 
 What Beacon gives an LLM to write SQL with: schema metadata, verified relationships, a business glossary, human-verified golden examples, learned patterns from usage, and project documentation. Curating it (verifying relationships, reviewing learned patterns, editing documentation) needs the Curate action in the project: ProjectAdmin members and Admins.
 
-See [Knowledge base & grounding](/features/knowledge-base/).
+See [Knowledge base & grounding](/mcp/knowledge-base/).
 
 ## Roles, project roles and functional permissions
 
@@ -138,13 +138,13 @@ Three separate ideas:
 | Project role | Viewer, Editor, ProjectAdmin | What a member may do in one project: read and run (Viewer), also write and query (Editor), also manage members and curate (ProjectAdmin). |
 | Functional permission | Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin, MigrationOperator | One administrative duty split out of the Admin role. Grants no project data by itself. |
 
-API keys act as their owner, capped by their scope (Read or Execute), and never hold a functional permission. See [Authorization](/features/authorization/), [User management](/features/user-management/) and [API keys](/features/api-keys/).
+API keys act as their owner, capped by their scope (Read or Execute), and never hold a functional permission. See [Authorization](/security/authorization/), [User management](/security/user-management/) and [API keys](/security/api-keys/).
 
 ## Deployment locks
 
 Some settings are fixed by the host's configuration and cannot be changed from the UI or API, not even by an Admin. Examples: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` (both on by default), `Beacon:Mcp:ForbidRowDataToLlm`, and `Beacon:Migrations:Enabled` (off by default). Only a configuration change lifts a lock.
 
-See [Configuration](/getting-started/configuration/) and [Admin settings](/features/admin-settings/).
+See [Configuration](/getting-started/configuration/) and [Admin settings](/security/admin-settings/).
 
 ## Audit
 
@@ -153,4 +153,4 @@ See [Configuration](/getting-started/configuration/) and [Admin settings](/featu
 - **Security audit trail**: one append-only, signed event per security-relevant action (sign-ins, users and roles, API keys, project access, data sources, delivery, settings, approvals, ownership, curation, data quality, migrations and reads of audit data), by id only. Auditors read and verify it on the **Security Audit** page.
 - **Security log events**: structured log events (event ids 7101 to 7123) for membership changes, refused access, sign-in events and more. They go to the host's log pipeline.
 
-See [Security audit trail](/features/security-audit/) and [MCP observability & audit](/features/mcp-observability-and-audit/).
+See [Security audit trail](/security/audit-trail/) and [MCP observability & audit](/mcp/observability-and-audit/).

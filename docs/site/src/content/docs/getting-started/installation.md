@@ -45,7 +45,7 @@ The sample reads standard ASP.NET Core configuration: `appsettings.json`, `appse
 | `Beacon:UserManagement:SetupToken` | Recommended outside Development | First-run setup token, at least 32 characters. Unset, each process prints its own random token to the console. |
 | `Beacon:UserManagement:LocalLogin:Enabled`, `BreakGlassUserNames` | No | Password sign-in on or off, and up to three break-glass accounts that keep a password when it is off. |
 | `Beacon:Authentication:Oidc:*` | No | OIDC/SSO. See [Sign-in with OIDC](#sign-in-with-oidc-and-jwt-for-mcp). |
-| `Beacon:Mcp:Callers:*` | No | Entra callers admitted to `/beacon/mcp`. See [Entra ID callers](/features/mcp-entra-callers/). |
+| `Beacon:Mcp:Callers:*` | No | Entra callers admitted to `/beacon/mcp`. See [Entra ID callers](/mcp/entra-callers/). |
 | `Beacon:ForwardedHeaders:Enabled`, `KnownProxies` | No | Trust `X-Forwarded-For` and `X-Forwarded-Proto` from the listed proxy IP addresses. An empty list trusts none. |
 | `Beacon:Smtp:Host`, `FromAddress`, `Username`, `Password`, `Port`, `EnableSsl` | For email | SMTP for email recipients. `Port` defaults to `465`, `EnableSsl` to `true`. A missing required key fails the send, not the startup. |
 | `Beacon:LLM:*` | For AI features | The LLM provider. See [AI providers](/integrate/ai/). |

@@ -1,5 +1,5 @@
 ---
-title: MCP Server
+title: MCP server and tools
 description: A Model Context Protocol server that lets AI assistants query your data sources, search your catalog, and read documentation over authenticated HTTP.
 ---
 
@@ -11,7 +11,7 @@ The MCP server is **project-centric**: each API key is scoped to one or more pro
 
 Project resolution is **stateless**: it is computed per call, with no session memory. If the key is restricted to a single project, that project is used automatically; if it can reach several, pass `project_id` on every call (the error lists the candidates when you don't).
 
-**Which projects a caller reaches** is decided on every call by the same [project access](/features/authorization/#project-access) rules as the REST API and the playground. The projects the caller may read:
+**Which projects a caller reaches** is decided on every call by the same [project access](/security/authorization/#project-access) rules as the REST API and the playground. The projects the caller may read:
 
 - an **API key** reaches the projects of its list its owner may still use; a key without a list (created before lists were required) reaches every project its owner may use;
 - a mapped **Entra system caller** reaches its configured projects, restricted or not;
@@ -20,7 +20,7 @@ Project resolution is **stateless**: it is computed per call, with no session me
 
 **What a caller may do in a project** follows its project role there, as in the playground: the catalog tools (`get_context`, `search`, `get_documentation`, `get_query_context`) need Read, while the SQL-carrying tools (`ask`, `query`, `dry_run`) and `feedback` work ad hoc in the project and need Query. An Editor or above in it. A Viewer (a Viewer member of a restricted project, or a caller whose global role is Viewer) reads the catalog but runs no SQL there: such a call answers "Access denied: you may read project N but not run ad-hoc queries in it." and is audited, and an `ask` or `query` refused this way records its signal like any other failed call.
 
-**No MCP caller curates grounding.** Curating (reviewing learned patterns, applying documentation patches, verifying relationships, editing or regenerating documentation) needs [Curate](/features/authorization/#project-roles), which Beacon grants only to a signed-in user's session (a project admin member of the project, or an Admin): never to an MCP caller, user or system, whatever its scope, and never to an API key. Golden examples are an Admin's alone. Over MCP, `feedback` records a verdict and curates nothing by itself (see [Who curates grounding](/features/knowledge-base/#who-curates-grounding)).
+**No MCP caller curates grounding.** Curating (reviewing learned patterns, applying documentation patches, verifying relationships, editing or regenerating documentation) needs [Curate](/security/authorization/#project-roles), which Beacon grants only to a signed-in user's session (a project admin member of the project, or an Admin): never to an MCP caller, user or system, whatever its scope, and never to an API key. Golden examples are an Admin's alone. Over MCP, `feedback` records a verdict and curates nothing by itself (see [Who curates grounding](/mcp/knowledge-base/#who-curates-grounding)).
 
 A membership revoked, a project restricted or a user disabled takes effect on the caller's next call, in the same session. Saved-query tools are visible only in the caller's projects where it may run saved SQL (`Run`), and host endpoint tools only when the caller may read the host's project. A tool call that names a project the caller does not reach answers "Access denied: you do not have access to project N."; one that names none when the caller reaches no project answers "No projects are available to you." Both are audited.
 
@@ -40,7 +40,7 @@ A membership revoked, a project restricted or a user disabled takes effect on th
 Go to **API Keys** (`/beacon/api-keys`) and choose **Generate key**:
 
 - Choose the **scope** `Execute`. The MCP endpoint requires it, because its tools can run SQL; `Read` keys reach only the read-only REST API. Creating an `Execute` key needs the Editor role or above.
-- Pick the **projects** the key may use; at least one is required. The key reaches them only while you, its owner, still have access to them (see [Project restrictions](/features/api-keys/#project-restrictions)).
+- Pick the **projects** the key may use; at least one is required. The key reaches them only while you, its owner, still have access to them (see [Project restrictions](/security/api-keys/#project-restrictions)).
 - Copy the key (`sk-sem_…`). It is shown once; Beacon stores only its SHA-256 hash.
 
 ### 2. Connect a client
@@ -67,7 +67,7 @@ or from the command line:
 claude mcp add --transport http beacon https://<host>/beacon/mcp --header "Authorization: Bearer sk-sem_…"
 ```
 
-Other clients, Entra sign-in and manual JSON-RPC calls are covered in [Integrate → MCP](/integrate/mcp/).
+Other clients, Entra sign-in and manual JSON-RPC calls are covered in [Connect AI clients](/mcp/connect/).
 
 ### 3. Try it
 
@@ -85,7 +85,7 @@ When your key reaches more than one project, the client must pass `project_id` o
 |----------|-------|
 | **Endpoint** | `/beacon/mcp` |
 | **Transport** | Streamable HTTP + JSON-RPC 2.0 (via `ModelContextProtocol.AspNetCore`) |
-| **Authentication** | Required: `Authorization: Bearer sk-sem_…` (an API key with the `Execute` scope) or a mapped [Entra ID](/features/mcp-entra-callers/) bearer token |
+| **Authentication** | Required: `Authorization: Bearer sk-sem_…` (an API key with the `Execute` scope) or a mapped [Entra ID](/mcp/entra-callers/) bearer token |
 | **Sessions** | Hybrid: stateless-protocol clients need no session; initialize-handshake clients get an `Mcp-Session-Id` (idle timeout 30 minutes) |
 
 Map the server with `app.MapBeaconMcp()`, which mounts `/beacon/mcp` behind the Execute-scope policy (registered by `AddBeaconApiAuthorization()`): an API key or mapped Entra caller without the `Execute` scope gets `403`. Do not map it with `app.MapMcp("/beacon/mcp").RequireAuthorization()`, because the default policy admits any authenticated caller. The MCP layer also refuses a caller that lacks the `Execute` scope and a caller that is not authenticated, over HTTP or over a transport without an HTTP request (such as stdio). A host that maps the route with a weaker policy therefore still fails closed, but it loses the `403` at the door. A tool call answers a tool error (no tool runs, and the refusal is audited like any tool call), and every other request except `initialize` and `ping` (`tools/list`, resources, prompts, completions) answers a JSON-RPC error. Clients exchange JSON-RPC messages with the single `/beacon/mcp` endpoint over the Streamable HTTP transport; the server streams responses back on the same connection.
@@ -106,9 +106,9 @@ Remote MCP clients that connect by URL need one URL:
 https://<host>/beacon/mcp
 ```
 
-Authentication is a bearer token in the `Authorization` header: a Beacon API key with the `Execute` scope (`Read` keys cannot reach the MCP tools), for clients that let you set a header. Clients that sign in with OAuth find the discovery documents below; Beacon does not run an OAuth server, so those clients sign users in with Microsoft Entra ID (see [Connect Claude](/features/mcp-entra-callers/#connect-claude-claudeai--claude-desktop-custom-connector)).
+Authentication is a bearer token in the `Authorization` header: a Beacon API key with the `Execute` scope (`Read` keys cannot reach the MCP tools), for clients that let you set a header. Clients that sign in with OAuth find the discovery documents below; Beacon does not run an OAuth server, so those clients sign users in with Microsoft Entra ID (see [Connect Claude](/mcp/entra-callers/#connect-claude-claudeai--claude-desktop-custom-connector)).
 
-Agent platforms can instead call with **Microsoft Entra ID tokens**, either on behalf of a user or as a system identity. Beacon configuration decides their projects and scope. See [Entra ID callers on MCP](/features/mcp-entra-callers/).
+Agent platforms can instead call with **Microsoft Entra ID tokens**, either on behalf of a user or as a system identity. Beacon configuration decides their projects and scope. See [Entra ID callers on MCP](/mcp/entra-callers/).
 
 ### Discovery endpoints
 
@@ -116,7 +116,7 @@ Beacon publishes anonymous, read-only discovery metadata so remote clients can b
 
 | Endpoint | What it serves |
 |----------|----------------|
-| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier (the canonical `/beacon/mcp` URL), `scopes_supported`, bearer-header auth. By default `scopes_supported` is `["Execute"]` and, when SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it. A host whose callers sign in with Microsoft Entra ID publishes the Entra issuer and scopes instead through `Beacon:Mcp:ProtectedResource`. See [Connect Claude](/features/mcp-entra-callers/#connect-claude-claudeai--claude-desktop-custom-connector) |
+| `/.well-known/oauth-protected-resource` | [RFC 9728](https://datatracker.ietf.org/doc/rfc9728/) protected-resource metadata: the resource identifier (the canonical `/beacon/mcp` URL), `scopes_supported`, bearer-header auth. By default `scopes_supported` is `["Execute"]` and, when SSO is enabled (`Beacon:Authentication:Oidc`), `authorization_servers` lists the configured OIDC authority; API-key-only deployments omit it. A host whose callers sign in with Microsoft Entra ID publishes the Entra issuer and scopes instead through `Beacon:Mcp:ProtectedResource`. See [Connect Claude](/mcp/entra-callers/#connect-claude-claudeai--claude-desktop-custom-connector) |
 | `/.well-known/oauth-protected-resource/beacon/mcp` | The same document at the RFC 9728 path-inserted variant clients derive from the `/beacon/mcp` resource path |
 | `/.well-known/mcp/server-card.json` | A server card (per the draft SEP-2127 proposal): server name and version, transport (`streamable-http`), endpoint URL, auth summary, and the eight built-in tools with their titles (saved-query and host endpoint tools are not listed) |
 
@@ -145,8 +145,8 @@ Further tools appear next to them:
 
 | Tools | What they are | Above the limit |
 |---|---|---|
-| `q_<name>` | Approved saved queries a SecurityAdmin exposed; see [Saved Query Tools](/features/saved-query-tools/) | `search_saved_queries` + `run_saved_query` above 25 (`SavedQueryTools.NamedToolLimit`) |
-| `api_<name>` | Host endpoints the host marked as tools (read-only, or write tools behind an opt-in); see [Host Endpoint Tools](/features/host-endpoint-tools/) | `search_api` + `call_api` above 20 (`NamedToolLimit`) |
+| `q_<name>` | Approved saved queries a SecurityAdmin exposed; see [Saved Query Tools](/mcp/saved-query-tools/) | `search_saved_queries` + `run_saved_query` above 25 (`SavedQueryTools.NamedToolLimit`) |
+| `api_<name>` | Host endpoints the host marked as tools (read-only, or write tools behind an opt-in); see [Host Endpoint Tools](/mcp/host-endpoint-tools/) | `search_api` + `call_api` above 20 (`NamedToolLimit`) |
 
 ![MCP Playground](/img/screenshots/mcp-playground-dark.png)
 
@@ -157,7 +157,7 @@ Get an overview of the project: data sources, schemas, tables, quality scores, a
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_id` | integer | No | Specify project if your API key has access to multiple projects |
-| `format` | string | No | `overview` (default) or `agents_md`: a deterministic project brief for an agent workspace's `AGENTS.md` (see [Host Docs](/features/host-docs/#on-the-mcp-surface)) |
+| `format` | string | No | `overview` (default) or `agents_md`: a deterministic project brief for an agent workspace's `AGENTS.md` (see [Host Docs](/mcp/host-docs/#on-the-mcp-surface)) |
 
 **Example response** (markdown):
 ```markdown
@@ -279,7 +279,7 @@ Retrieve AI-generated documentation at three levels of detail.
 | `table_name` | string | No | Get detailed docs for a specific table or API endpoint |
 | `schema_name` | string | No | Schema name or API tag (optional qualifier for table_name) |
 | `response_format` | string | No | `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source, table and document level default to `detailed` |
-| `document` | string | No | Path (or exact title) of a [host-imported document](/features/host-docs/); returns it in full |
+| `document` | string | No | Path (or exact title) of a [host-imported document](/mcp/host-docs/); returns it in full |
 
 **Three levels:**
 
@@ -289,11 +289,11 @@ Retrieve AI-generated documentation at three levels of detail.
 
 Table documentation, code references and lineage come from the resolved project only: on a data source several projects share, another project's documentation and repositories never appear.
 
-When the host ships documents with [`ExposeDocs`](/features/host-docs/), the project-level response ends with an *Imported documents* listing (title + path) and `document: "<path>"` returns one of them.
+When the host ships documents with [`ExposeDocs`](/mcp/host-docs/), the project-level response ends with an *Imported documents* listing (title + path) and `document: "<path>"` returns one of them.
 
 ### `search`
 
-Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a [local embedder](/features/knowledge-base/#local-embeddings) is configured; without one, search falls back to keyword-only rather than failing.
+Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a [local embedder](/mcp/knowledge-base/#local-embeddings) is configured; without one, search falls back to keyword-only rather than failing.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -302,14 +302,14 @@ Search tables, columns, and documentation across all data sources in the project
 | `max_results` | integer | No | `20` | Maximum results to return (max: 50) |
 | `offset` | integer | No | `0` | Result offset for paging, max `200`. Use it with `max_results` to page through large result sets |
 
-Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`, or `[IMPORTED_DOC]` with the document path for [host-imported documents](/features/host-docs/)), the data source and schema-qualified table (plus the column name for column hits), and the description, ordered by relevance. When more matches exist beyond the current page, the response ends with an explicit note giving the `offset` to request next.
+Each result line includes the item type (`[TABLE]`, `[COLUMN]`, `[DOC]`, or `[IMPORTED_DOC]` with the document path for [host-imported documents](/mcp/host-docs/)), the data source and schema-qualified table (plus the column name for column hits), and the description, ordered by relevance. When more matches exist beyond the current page, the response ends with an explicit note giving the `offset` to request next.
 
 ### `feedback`
 
 Record whether a previous `ask` answer was correct. The verdict is recorded on the answer's signal with the user who recorded it, and it does this:
 
 - An `incorrect` verdict keeps the answer out of the common-query and join patterns Beacon learns.
-- A `correct` verdict puts the answer on the [golden candidates](/features/knowledge-base/#how-cases-are-created) list (the **Golden candidates** tab of the MCP Learning page), where an Admin may promote it to a verified example (golden pair) that grounds future SQL generation for the same data source; feedback never promotes it by itself. A `correct` verdict counts in [pattern mining](/features/knowledge-base/#from-signal-to-injected-lesson) only when a curator recorded it from an interactive session (a project admin member, or an Admin, signed in); a verdict through this tool, an MCP caller or an API key, is attributed to the user it acts for but never counts as a curator's, whatever that user's roles, and neither does the asker's own.
+- A `correct` verdict puts the answer on the [golden candidates](/mcp/knowledge-base/#how-cases-are-created) list (the **Golden candidates** tab of the MCP Learning page), where an Admin may promote it to a verified example (golden pair) that grounds future SQL generation for the same data source; feedback never promotes it by itself. A `correct` verdict counts in [pattern mining](/mcp/knowledge-base/#from-signal-to-injected-lesson) only when a curator recorded it from an interactive session (a project admin member, or an Admin, signed in); a verdict through this tool, an MCP caller or an API key, is attributed to the user it acts for but never counts as a curator's, whatever that user's roles, and neither does the asker's own.
 
 The tool's description, its answer, the server instructions and the playground's feedback form all say so.
 
@@ -326,7 +326,7 @@ A signal is rated only in its own project: the signal must belong to a project, 
 
 The verdict is always recorded, with the user who recorded it. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow the feedback tool to store question and SQL text** setting. See [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
 
-`corrected_sql` is checked before it is stored, in the dialect of the data source the rated answer ran on: its comments are removed, and it must pass the same read-only gate and catalog check a saved query step passes (a single read-only statement, columns that exist in Beacon's metadata; a data source Beacon holds no metadata for refuses it). Nothing runs. Comment characters inside a string literal are kept when the dialect reads them as part of it; a comment that cannot be removed safely, or characters a reviewer cannot see, refuse the SQL (see [the grounding SQL check](/features/knowledge-base/#who-curates-grounding)). Corrected SQL that cannot be kept never refuses the call: the verdict is recorded and only the SQL is dropped. This covers SQL the check refuses, SQL on a signal without a single data source (a cross-source or knowledge answer: there is no dialect to check it in), and SQL the project's retention setting does not keep. The log records the signal id only.
+`corrected_sql` is checked before it is stored, in the dialect of the data source the rated answer ran on: its comments are removed, and it must pass the same read-only gate and catalog check a saved query step passes (a single read-only statement, columns that exist in Beacon's metadata; a data source Beacon holds no metadata for refuses it). Nothing runs. Comment characters inside a string literal are kept when the dialect reads them as part of it; a comment that cannot be removed safely, or characters a reviewer cannot see, refuse the SQL (see [the grounding SQL check](/mcp/knowledge-base/#who-curates-grounding)). Corrected SQL that cannot be kept never refuses the call: the verdict is recorded and only the SQL is dropped. This covers SQL the check refuses, SQL on a signal without a single data source (a cross-source or knowledge answer: there is no dialect to check it in), and SQL the project's retention setting does not keep. The log records the signal id only.
 
 **The answer** starts with "Feedback recorded for signal N.", says what the verdict does, and, when `corrected_sql` was given, whether it was kept: "The corrected SQL was kept with the verdict, without its comments.", or "The corrected SQL was not kept:" with the reason (the project does not retain query content; the answer did not run on a single data source; it did not pass the SQL check, with the check's reason). `POST /beacon/api/eval/feedback` answers the same as `correctedSqlRecorded` (true when corrected SQL was given and kept) and `correctedSqlNotRecordedReason` (null when it was kept or none was given); the playground's feedback form shows the reason.
 
@@ -346,15 +346,15 @@ The MCP server enforces several safety measures:
 | **Plan cost** | On a PostgreSQL data source, each statement `query`, `ask` and the saved-query tools run is first planned with `EXPLAIN (FORMAT JSON)` (never `ANALYZE`; the same read-only, single-statement path and statement timeout as the statement, with its parameters) and refused before it runs when the planner's estimated total cost exceeds the project's **Max EXPLAIN cost**, with a message naming the estimate and the limit; the refusal is audited. An estimate that fails fails the call as the statement would. Other engines ignore the setting | No limit |
 | **Result size** | The text and the structured result of `query`, `ask` and the saved-query tools are held together to the project's **Max result size**: the structured result takes at most half, the text (heading, markdown table and notes) the rest. A larger result returns fewer rows, marked as truncated by size (`truncated` plus `rows_omitted_for_size`, `rowsOmittedForSize` on saved-query tools, and a note in the text) | 262,144 bytes |
 | **Concurrent queries** | One credential (an API key, else a mapped caller, else a Beacon user) may run up to the project's **Max concurrent queries per API key** `query`, `ask`, `dry_run` and saved-query calls at once on each Beacon instance; another call is refused at once with *Too many concurrent queries for this credential; retry shortly.* and audited | 4 |
-| **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters (see [MCP observability and audit](/features/mcp-observability-and-audit/)) | Always on |
+| **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters (see [MCP observability and audit](/mcp/observability-and-audit/)) | Always on |
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
 | **Content retention** | Whether questions, SQL, and error text are persisted at all, per project, lockable deployment-wide | Retained |
 
-**Database names.** `ask`, `query`, `dry_run` and the saved-query tools refuse SQL that names another database than the data source's own (`database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery) with the gate code `cross_database`, also when read-only enforcement is off. The allowed database is the one the data source's connection configures; a source without one, or whose connection settings cannot be read, accepts no database qualifier. Unqualified and schema-qualified names always pass. The same always-on stage refuses `dblink…`, `lo_…`, `xp_…`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `EXTERNAL_QUERY` and the other functions that reach other servers, files or storage (on Databricks also `http_request`, `read_kafka` and the other stream readers, `reflect` and `java_method`), the PostgreSQL extension functions that run SQL text (`pg_background_…`, pgRouting's `pgr_…`), PostgreSQL `COPY … TO/FROM PROGRAM` and `COPY` to or from a server file, Databricks file paths and SQL Server four-part names, so turning read-only enforcement off never opens them. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+**Database names.** `ask`, `query`, `dry_run` and the saved-query tools refuse SQL that names another database than the data source's own (`database.schema.table` on SQL Server, Azure Synapse, PostgreSQL and Snowflake, `database.table` on MySQL, `catalog.schema.table` on Databricks, `project.dataset.table` on BigQuery) with the gate code `cross_database`, also when read-only enforcement is off. The allowed database is the one the data source's connection configures; a source without one, or whose connection settings cannot be read, accepts no database qualifier. Unqualified and schema-qualified names always pass. The same always-on stage refuses `dblink…`, `lo_…`, `xp_…`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `EXTERNAL_QUERY` and the other functions that reach other servers, files or storage (on Databricks also `http_request`, `read_kafka` and the other stream readers, `reflect` and `java_method`), the PostgreSQL extension functions that run SQL text (`pg_background_…`, pgRouting's `pgr_…`), PostgreSQL `COPY … TO/FROM PROGRAM` and `COPY` to or from a server file, Databricks file paths and SQL Server four-part names, so turning read-only enforcement off never opens them. See [Database names in SQL](/security/authorization/#database-names-in-sql).
 
 **System catalog.** The same tools refuse SQL that reads the engine's catalog, statistics or query history (`information_schema`, `pg_catalog` and `pg_…` relations, `sys`, Snowflake `QUERY_HISTORY` and `RESULT_SCAN`, BigQuery `INFORMATION_SCHEMA`, …) with the gate code `system_catalog`, also when read-only enforcement is off. `get_context` and `get_query_context` describe a source's tables and columns from Beacon's metadata.
 
-**Shared data sources.** The guardrails a tool applies are the data source's: when several live projects link it, read-only enforcement and PII detection are on if any of them turns them on, value grounding and sample values are off if any of them turns them off, all their custom PII patterns apply, and the lowest row limit and value-grounding probe budget win, whichever project the caller works in. The execution settings (statement timeout, result size, plan-cost limit) resolve to the lowest value the same way. `ask` applies them over every data source it routes to, and grounding (`ask`, `get_query_context`) applies the value-grounding, sample-value and PII settings. A metadata refresh, which no project asks for, collects sample values while collection is on in the effective settings of every live project that links the source (each project's override, else the global value); the global value alone decides only for a source no live project links. See [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
+**Shared data sources.** The guardrails a tool applies are the data source's: when several live projects link it, read-only enforcement and PII detection are on if any of them turns them on, value grounding and sample values are off if any of them turns them off, all their custom PII patterns apply, and the lowest row limit and value-grounding probe budget win, whichever project the caller works in. The execution settings (statement timeout, result size, plan-cost limit) resolve to the lowest value the same way. `ask` applies them over every data source it routes to, and grounding (`ask`, `get_query_context`) applies the value-grounding, sample-value and PII settings. A metadata refresh, which no project asks for, collects sample values while collection is on in the effective settings of every live project that links the source (each project's override, else the global value); the global value alone decides only for a source no live project links. See [Guardrails of shared data sources](/security/authorization/#guardrails-of-shared-data-sources).
 
 | Setting | Strictest among the linking projects |
 |---------|--------------------------------------|
@@ -382,7 +382,7 @@ Switch **Retain question and SQL text in signals and audit** off for a project a
 
 An audit row is still written for **every** tool call, success or failure. The lock changes what the row contains, never whether it exists.
 
-While content is retained, the audit keeps the SQL of **every statement** a call ran (an `ask`'s first execution, repairs, self-consistency candidates, value-grounding probes and dry runs) beside the question; see [The statements a call ran](/features/mcp-observability-and-audit/#the-statements-a-call-ran). A deployment that must keep this evidence pins retention on with `Beacon:Mcp:Audit:RequireContent` (see [Keeping audit content](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock)).
+While content is retained, the audit keeps the SQL of **every statement** a call ran (an `ask`'s first execution, repairs, self-consistency candidates, value-grounding probes and dry runs) beside the question; see [The statements a call ran](/mcp/observability-and-audit/#the-statements-a-call-ran). A deployment that must keep this evidence pins retention on with `Beacon:Mcp:Audit:RequireContent` (see [Keeping audit content](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock)).
 
 **Error classes.** Instead of the provider's message, Beacon stores one of nine values: `schema`, `syntax`, `permission`, `timeout`, `not_found`, `validation`, `execution`, `cancelled`, `unknown`. You keep the ability to chart failure modes without keeping text that may quote customer data.
 
@@ -406,7 +406,7 @@ Retention is **not retro-active**: rows written before you turned the lock on ke
 
 Natural-language questions through the `ask` tool don't go through a naive prompt-to-SQL pipe. Every generated query passes a layered accuracy stack:
 
-1. **Grounded context**: before generation, Beacon assembles an M-Schema rendering (column name, type, nullability, description), *with real sample values and value matches* when a project turns sample-value collection and value grounding on (both off by default; see [What reaches the LLM provider](#what-reaches-the-llm-provider)), so filters match actual data formats (`'shipped'` vs `'SHIPPED'`), plus curated join paths, matching business-glossary terms, human-verified query examples, and lessons mined from past usage. See the [Knowledge Base guide](/features/knowledge-base/) for what goes in and how you curate it.
+1. **Grounded context**: before generation, Beacon assembles an M-Schema rendering (column name, type, nullability, description), *with real sample values and value matches* when a project turns sample-value collection and value grounding on (both off by default; see [What reaches the LLM provider](#what-reaches-the-llm-provider)), so filters match actual data formats (`'shipped'` vs `'SHIPPED'`), plus curated join paths, matching business-glossary terms, human-verified query examples, and lessons mined from past usage. See the [Knowledge Base guide](/mcp/knowledge-base/) for what goes in and how you curate it.
 2. **AST read-only validation**: generated SQL is parsed into an abstract syntax tree in the data source's own dialect (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks); SQL for a source whose dialect is unknown is refused. DML/DDL statements, stacked queries, comment-hidden writes, row-locking clauses, functions that read files, reach other servers or sleep, linked-server (four-part) names and file path references are rejected before anything reaches your database. This is defense-in-depth beyond the regex guardrail.
 3. **Database read-only backstop**: on PostgreSQL and MySQL, MCP-executed SQL additionally runs inside a `READ ONLY` transaction (on PostgreSQL as a batch of exactly one command, which the driver and the server refuse to split into several statements; on MySQL also with a read-only session default and statement batches turned off), so a write that somehow slipped past both parsers is still refused by the database itself. This is defence in depth, not a replacement for a read-only login. BigQuery and Databricks have no read-only session: their connectors refuse, on the read-only path, anything their own dialect's parser does not read as a single `SELECT` in the configured project or catalog, and BigQuery additionally runs only what a dry run reports as a `SELECT`. SQL Server, Azure Synapse and Snowflake rely on the parser gates (SQL Server also runs the statement in a transaction that is always rolled back, and fails the run when the statement ends that transaction itself). On all five, the read-only login you connect with is the database-level boundary; on PostgreSQL and MySQL it is still required.
 
@@ -432,11 +432,11 @@ Two things are worth knowing about how patterns get promoted:
 - A candidate pattern is not trusted on a confidence score alone. Before promotion, Beacon **replays the project's golden cases** with and without the candidate injected, and keeps it only if it flips at least one case from failing to passing.
 - `dry_run` signals are recorded for analytics but **excluded from mining**: their "question" is SQL, not natural language, and gate rejections would skew the failure statistics.
 
-Review the queue on the **MCP Learning** page (`/beacon/mcp-learning`), where pending patterns can be approved or rejected, and any stored documentation patch applied or rejected. The full mechanics (lesson extraction, decay, retention, and every setting) are in the [Knowledge Base guide](/features/knowledge-base/#the-learning-loop).
+Review the queue on the **MCP Learning** page (`/beacon/mcp-learning`), where pending patterns can be approved or rejected, and any stored documentation patch applied or rejected. The full mechanics (lesson extraction, decay, retention, and every setting) are in the [Knowledge Base guide](/mcp/knowledge-base/#the-learning-loop).
 
 ## Configuration
 
-Admins and SecurityAdmins customize the MCP server at **MCP Settings** (`/beacon/mcp-settings`); Auditors read it. The routes: `GET /beacon/api/mcp/settings` and `GET /beacon/api/mcp/projects/{projectId}/settings` for an Auditor or a SecurityAdmin, the `PUT`s for a SecurityAdmin (Admins hold both; see [Functional permissions](/features/authorization/#functional-permissions)).
+Admins and SecurityAdmins customize the MCP server at **MCP Settings** (`/beacon/mcp-settings`); Auditors read it. The routes: `GET /beacon/api/mcp/settings` and `GET /beacon/api/mcp/projects/{projectId}/settings` for an Auditor or a SecurityAdmin, the `PUT`s for a SecurityAdmin (Admins hold both; see [Functional permissions](/security/authorization/#functional-permissions)).
 
 **Global defaults or per project.** A scope selector at the top of the page switches between the global defaults and any single project. In project scope each field gets an **Override** checkbox: leave it unchecked and the project inherits the global value (shown greyed out); check it and the project keeps its own. Prompts and tool descriptions stay global by design: `tools/list` is answered before any project is known.
 
@@ -491,7 +491,7 @@ Some settings must be non-negotiable no matter what an administrator clicks. The
 - `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section, read-only enforcement and PII detection are locked on, content retention and row data to the LLM are not locked, there are no deployment-set ceilings, and these two length caps hold.
 - Settings resolve as **lock → project override → global value → built-in default**, then ceilings are applied.
 - Saving the global page never bakes a locked or clamped value into the stored row, so lifting a lock or raising a ceiling restores what was configured underneath.
-- **Every change is recorded.** Each setting a save changes, globally or for a project, is written to the settings history the [Admin Settings](/features/admin-settings/) page keeps: key `Mcp.{Setting}` or `Mcp.Project.{projectId}.{Setting}`, the value before and after (an empty override is "inherit"; a long prompt or description is cut to 2,000 characters), when, and who (the caller's Beacon user id). The log notes the change by setting name and ids only.
+- **Every change is recorded.** Each setting a save changes, globally or for a project, is written to the settings history the [Admin Settings](/security/admin-settings/) page keeps: key `Mcp.{Setting}` or `Mcp.Project.{projectId}.{Setting}`, the value before and after (an empty override is "inherit"; a long prompt or description is cut to 2,000 characters), when, and who (the caller's Beacon user id). The log notes the change by setting name and ids only.
 
 :::caution[Upgrading]
 Read-only enforcement and PII detection can no longer be turned off at runtime unless the deployment unlocks them. A
@@ -503,7 +503,7 @@ statement refused only because the lock turned read-only enforcement on names `B
 
 ### What reaches the LLM provider
 
-Beacon sends prompts to the LLM provider configured in [Admin Settings](/features/admin-settings/). Besides the question,
+Beacon sends prompts to the LLM provider configured in [Admin Settings](/security/admin-settings/). Besides the question,
 the schema (table and column names, types, descriptions, join paths) and your curated knowledge (glossary, documentation,
 verified examples, learned patterns), a prompt can carry data read from your data sources. Each kind is off by default
 or screened, and each is logged:
@@ -534,7 +534,7 @@ or screened, and each is logged:
   `eval-run`; documentation generation the user who asked for it), and `unknown` when the caller cannot be resolved
   (which never fails the request). A `get_query_context` response carrying sample values or value matches is recorded
   under the same event as returned to the MCP client. Never a value or prompt text; no table is written. See
-  [MCP observability](/features/mcp-observability-and-audit/#row-data-sent-to-the-llm-provider).
+  [MCP observability](/mcp/observability-and-audit/#row-data-sent-to-the-llm-provider).
 - **Where the data goes.** OpenAI and Anthropic are called on their public API endpoints; there is no base-URL or proxy
   setting for them. Azure OpenAI takes your resource's endpoint (choose its region for residency) and Bedrock your AWS
   region, both in the LLM connection settings.
@@ -606,19 +606,19 @@ exceptions it wraps and the method that threw it (`PostgresException (error code
 
 The per-project settings have their own endpoints: `GET /beacon/api/mcp/projects/{projectId}/settings` (Auditor or SecurityAdmin) and `PUT` on the same route (SecurityAdmin). The `GET` returns the project's overrides, the resolved effective values, and the names of any locked or clamped fields.
 
-Changes take effect without a restart. These settings are part of [Admin Settings](/features/admin-settings/); the retrieval, exemplar, and eval knobs that aren't on this page are settable through `PUT /beacon/api/mcp/settings` and documented in the [Knowledge Base guide](/features/knowledge-base/#settings-reference).
+Changes take effect without a restart. These settings are part of [Admin Settings](/security/admin-settings/); the retrieval, exemplar, and eval knobs that aren't on this page are settable through `PUT /beacon/api/mcp/settings` and documented in the [Knowledge Base guide](/mcp/knowledge-base/#settings-reference).
 
 ## MCP Playground
 
 You do not need to wire up an external MCP client to try the server. The UI ships an **MCP Playground** (`/beacon/mcp-playground`) where you select a project and ask questions interactively. It uses the same tools, routing, guardrails, and audit trail as a real MCP session. Use it to validate documentation quality and tune the system prompt before pointing Claude or Cursor at your data.
 
-The playground runs as the signed-in user and checks their [project access](/features/authorization/#project-access) on every call: the catalog tools (`get_context`, `get_documentation`, `search`, `get_query_context`) need Read in the selected project, and `ask`, `query`, `dry_run` and `feedback` need Query. A restricted project the user is not a member of, or a project outside an API key's list, is refused before any tool runs; a call without a signed-in request is refused outright. Tool calls over `/beacon/mcp` decide the caller's projects by the same rules (see [Overview](#overview)).
+The playground runs as the signed-in user and checks their [project access](/security/authorization/#project-access) on every call: the catalog tools (`get_context`, `get_documentation`, `search`, `get_query_context`) need Read in the selected project, and `ask`, `query`, `dry_run` and `feedback` need Query. A restricted project the user is not a member of, or a project outside an API key's list, is refused before any tool runs; a call without a signed-in request is refused outright. Tool calls over `/beacon/mcp` decide the caller's projects by the same rules (see [Overview](#overview)).
 
 The companion **MCP Learning** page (`/beacon/mcp-learning`) shows the learning loop at work: usage signals, success rate, and learned schema patterns awaiting approval. Any stored documentation patch can also be applied or rejected there.
 
 ## Calling the endpoint directly
 
-A client without native Streamable HTTP support can POST JSON-RPC messages to `/beacon/mcp` with the `Authorization: Bearer` header on every request. The request shapes, headers and session handling are in [Integrate → MCP](/integrate/mcp/).
+A client without native Streamable HTTP support can POST JSON-RPC messages to `/beacon/mcp` with the `Authorization: Bearer` header on every request. The request shapes, headers and session handling are in [Connect AI clients](/mcp/connect/).
 
 ## Troubleshooting
 
@@ -638,14 +638,14 @@ A client without native Streamable HTTP support can POST JSON-RPC messages to `/
 
 **"Permission denied: this credential does not have the Execute scope"**. The key (or Entra caller) has only `Read`, or it has `Execute` but its owner no longer has the Editor role or above. Use an `Execute` key of a user with write permission.
 
-**Answers miss obvious joins or misread a business term**. The model can only use what it was given. Check the [Knowledge Base guide](/features/knowledge-base/): register the join path, add the glossary term, or promote a correct answer to a golden example.
+**Answers miss obvious joins or misread a business term**. The model can only use what it was given. Check the [Knowledge Base guide](/mcp/knowledge-base/): register the join path, add the glossary term, or promote a correct answer to a golden example.
 
 ## Upgrading from 4.5: project access
 
-MCP now uses the same [project access](/features/authorization/#project-access) as the REST API and the playground, decided on every call (see [Overview](#overview) and the full [upgrade notes](/features/authorization/#upgrading-from-45-project-access)):
+MCP now uses the same [project access](/security/authorization/#project-access) as the REST API and the playground, decided on every call (see [Overview](#overview) and the full [upgrade notes](/security/authorization/#upgrading-from-45-project-access)):
 
 - **API keys without a project list** now reach their owner's projects on MCP; before, they reached no project there. This widens what such keys can do over MCP. Re-issue them with a project list to confine them. Keys with a list reach only the listed projects their owner may still use.
-- **Mapped Entra user callers** reach a restricted project only while their Beacon user is a member of it, and nothing while their user is disabled or archived; a user caller without a Beacon user reaches its configured open projects only. System callers keep their configured projects. See [Entra ID callers on MCP](/features/mcp-entra-callers/).
+- **Mapped Entra user callers** reach a restricted project only while their Beacon user is a member of it, and nothing while their user is disabled or archived; a user caller without a Beacon user reaches its configured open projects only. System callers keep their configured projects. See [Entra ID callers on MCP](/mcp/entra-callers/).
 - **Saved-query tools** are listed only in projects where the caller may run saved SQL, and each run is re-checked right before its SQL: when a data source the version reads is no longer linked to the project, or the caller may no longer run saved SQL there, the call fails without running anything. **Host endpoint tools** need the caller to read the host's project.
 - **A call without an authenticated caller is refused**, over HTTP or over a transport without an HTTP request (such as a host-wired stdio transport), and such a call reaches no project. Browser sessions are refused on `/beacon/mcp`: the route and the MCP layer take an API key or a mapped bearer token only. A refusal at the route answers `403` before any MCP request is read, so it leaves no audit row; a `tools/call` refused inside the MCP layer is audited.
 - **The SQL-carrying tools need Query in the project**, as in the playground: `ask`, `query` and `dry_run` (and `feedback`) answer "Access denied: you may read project N but not run ad-hoc queries in it." to a caller that is only a Viewer there, while the catalog tools still answer it. Mapped or provisioned Entra users keep the default `Viewer` role (`Beacon:Mcp:Callers:Users:DefaultRoleName`) and so read the catalog only: give them the Editor role (and, in a restricted project, an Editor membership) to run SQL tools. API keys are already capped by their owner's role.
@@ -660,8 +660,8 @@ MCP now uses the same [project access](/features/authorization/#project-access) 
 
 ## See also
 
-- [Knowledge Base & Grounding](/features/knowledge-base/): what grounds generated SQL, and how to curate it
-- [API Keys](/features/api-keys/): scopes, project restrictions, and rotation
-- [Entra ID callers on MCP](/features/mcp-entra-callers/): user and system JWT callers, their projects, scope and audit
-- [Admin Settings](/features/admin-settings/): LLM provider configuration
+- [Knowledge Base & Grounding](/mcp/knowledge-base/): what grounds generated SQL, and how to curate it
+- [API Keys](/security/api-keys/): scopes, project restrictions, and rotation
+- [Entra ID callers on MCP](/mcp/entra-callers/): user and system JWT callers, their projects, scope and audit
+- [Admin Settings](/security/admin-settings/): LLM provider configuration
 - [AI Integration](/features/ai-integration/): documentation generation that feeds the MCP catalog tools

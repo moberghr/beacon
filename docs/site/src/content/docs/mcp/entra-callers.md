@@ -3,7 +3,7 @@ title: Entra ID callers on MCP
 description: Let an agent platform call Beacon's MCP endpoint with Microsoft Entra ID tokens, either on behalf of a user or as a system identity, with projects and scope decided by Beacon configuration.
 ---
 
-Besides [API keys](/features/api-keys/), the [MCP server](/features/mcp-server/) at `/beacon/mcp` accepts **Microsoft Entra ID bearer tokens**. This is how an agent platform calls a Beacon that is embedded in a host application. It supports two modes, and both are first-class:
+Besides [API keys](/security/api-keys/), the [MCP server](/mcp/server/) at `/beacon/mcp` accepts **Microsoft Entra ID bearer tokens**. This is how an agent platform calls a Beacon that is embedded in a host application. It supports two modes, and both are first-class:
 
 | Mode | Token | Identified by |
 |------|-------|---------------|
@@ -35,11 +35,11 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
 
-The mapped principal carries `auth_method=mcp_caller`, so the Execute-scope rules for scoped callers apply to it as they do to API keys. A browser session (cookie or SSO, Beacon's or the host's) is not a scoped caller and is refused on `/beacon/mcp` with `403`; browsers use the [MCP Playground](/features/mcp-server/#mcp-playground).
+The mapped principal carries `auth_method=mcp_caller`, so the Execute-scope rules for scoped callers apply to it as they do to API keys. A browser session (cookie or SSO, Beacon's or the host's) is not a scoped caller and is refused on `/beacon/mcp` with `403`; browsers use the [MCP Playground](/mcp/server/#mcp-playground).
 
 ### What a caller reaches
 
-The configured projects are what a caller is mapped to. What it reaches in them is decided on every call by Beacon's [project access](/features/authorization/#project-access), as for API keys and signed-in users:
+The configured projects are what a caller is mapped to. What it reaches in them is decided on every call by Beacon's [project access](/security/authorization/#project-access), as for API keys and signed-in users:
 
 | Caller | Reaches |
 |--------|---------|
@@ -179,7 +179,7 @@ Entra leaves out the `groups` claim when a user belongs to more than about 200 g
 Claude's custom connectors connect by URL and sign the user in with OAuth. Beacon does not run an OAuth server here:
 Claude gets a delegated **Entra** token for the user and calls `/beacon/mcp` with it, and Beacon validates the token
 and maps the user like any other [user-mode caller](#how-a-call-is-resolved). Claude learns where to sign in from
-Beacon's [discovery documents](/features/mcp-server/#discovery-endpoints):
+Beacon's [discovery documents](/mcp/server/#discovery-endpoints):
 
 1. `POST /beacon/mcp` without a token answers `401` with `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"`.
 2. That document names the authorization server (`authorization_servers[0]`, the Entra v2 issuer), the scopes to request

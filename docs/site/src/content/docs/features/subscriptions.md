@@ -134,7 +134,7 @@ Beacon user management is on, a caller without a Beacon user (a host principal, 
 cannot create a subscription (`403`).
 
 A subscription belongs to the projects that hold its query's data sources: it, its runs and their stored results are
-visible only through such a project you may use ([Project access](/features/authorization/#project-access)). One you may
+visible only through such a project you may use ([Project access](/security/authorization/#project-access)). One you may
 not read answers `404`.
 
 ### Scheduled runs run as the owner
@@ -156,7 +156,7 @@ The subscription page shows a banner until an Admin or UserAdmin assigns an owne
 an owner (created before owners were recorded) runs only while every data source of its query is openly reachable;
 otherwise it is skipped, and with `Beacon:Authorization:RequireProjectMembership: true` it is always skipped.
 
-Runs are also **Skipped** when, with the [approval workflow](/features/approvals/) on, the query's stored SQL is not its
+Runs are also **Skipped** when, with the [approval workflow](/security/approvals/) on, the query's stored SQL is not its
 approved active version (the page shows "The last run was skipped" with the remedy; see
 [Queries → Approval workflow](/features/queries/#approval-workflow)), and when every recipient is waiting for approval of
 where it delivers (see [Notifications](/features/notifications/#approval-of-new-and-changed-destinations)).
@@ -177,10 +177,10 @@ A subscription also records who **created** it (the signed-in creator; for one a
 and who **changed it last**, and when: an edit, adding or removing recipients, a new SLA or owner, archiving and
 reactivating it, and archiving its query. Like the owner, these are taken from the caller, never from the request, and
 subscriptions created before this was recorded show neither. They are not shown on the subscription page; an Auditor or a
-UserAdmin finds a user's subscriptions under [Owned resources](/features/user-management/#owned-resources).
+UserAdmin finds a user's subscriptions under [Owned resources](/security/user-management/#owned-resources).
 
 Creating, editing, archiving and reactivating a subscription, adding and removing its recipients, changing its SLA and
-changing its owner are recorded in the [security audit trail](/features/security-audit/#event-catalogue)
+changing its owner are recorded in the [security audit trail](/security/audit-trail/#event-catalogue)
 (`delivery.subscription_*`, `ownership.owner_changed`), by ids, never a recipient's destination.
 
 ## What a run reads and delivers

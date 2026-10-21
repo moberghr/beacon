@@ -3,8 +3,8 @@ title: MCP observability and audit
 description: Every MCP tool call is auditable, correlated to a W3C trace, and optionally exported through OpenTelemetry, without Beacon choosing your telemetry backend.
 ---
 
-Every tool call through the [MCP server](/features/mcp-server/) (the built-in tools, saved-query tools and
-[host endpoint tools](/features/host-endpoint-tools/)) writes one `McpAuditLog` row and emits one structured log
+Every tool call through the [MCP server](/mcp/server/) (the built-in tools, saved-query tools and
+[host endpoint tools](/mcp/host-endpoint-tools/)) writes one `McpAuditLog` row and emits one structured log
 event. That includes calls that fail: a tool's own validation errors (an unresolvable `project_id`, a bad `format`,
 an `offset` out of range), project-access refusals, calls refused for a missing `Execute` scope (audited by the scope
 filter, before any tool runs) and calls whose project access could not be determined. An unknown `q_<name>` is
@@ -55,7 +55,7 @@ project's retention decision) parameters/error:
 | `McpSessionId` | The `Mcp-Session-Id` transport header. `null` for stateless clients. |
 | `UpstreamRequestId` | The header named by `Beacon:Mcp:Audit:RequestIdHeader`, accepted only when it is at most 128 characters of `[A-Za-z0-9._:-]`; anything else is dropped, which blocks log injection. |
 | `ApiKeyId` | The `api_key_id` claim of an API-key caller. No foreign key: the audit must outlive a deleted key. |
-| `CallerKind` / `CallerHash` | Set for a mapped [Entra ID caller](/features/mcp-entra-callers/); `null` for API keys and cookie sessions. |
+| `CallerKind` / `CallerHash` | Set for a mapped [Entra ID caller](/mcp/entra-callers/); `null` for API keys and cookie sessions. |
 | `ContentHash` | A keyed hash of the call's parameters as received, written **whether or not** the parameters themselves are kept, so calls with the same input can be matched (and a disclosed input checked against the trail) without keeping it. See [Keyed hashes](#keyed-hashes). |
 | `DataSourceId`, `ResultRowCount` | For `ask`: the data source and final row count of a single-source answer; `null` for a cross-source answer, whose sources and row counts are on its statements. |
 
@@ -113,7 +113,7 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool: the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
 
-The same category carries the [security audit trail](/features/security-audit/#shipping-to-a-siem)'s events 9104 to 9110: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, and the checkpoints of its scheduled verification.
+The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9110: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, and the checkpoints of its scheduled verification.
 
 ### Row data sent to the LLM provider
 
@@ -133,7 +133,7 @@ glossary sections, which can list discovered values). `CallerId` is the caller's
 itself: `learning-aggregation`, `documentation-indexing`, `pattern-replay`, an eval run's starting user or `eval-run`,
 documentation generation's requesting user; and a caller that cannot be resolved is `unknown` (the lookup failure is
 logged as a Warning by type, and never fails the request). See
-[What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
+[What reaches the LLM provider](/mcp/server/#what-reaches-the-llm-provider).
 
 ## Span attributes and metrics
 
@@ -157,7 +157,7 @@ On the `Beacon` meter:
 | `beacon.mcp.tool.calls` | Counter | `gen_ai.tool.name`, `beacon.outcome` (`success`\|`error`), `error.type`, `beacon.caller.kind` |
 | `beacon.mcp.tool.rows` | Histogram | `gen_ai.tool.name` |
 | `beacon.mcp.audit.write_failures` | Counter | `gen_ai.tool.name` |
-| `beacon.error_redaction.fallbacks` | Counter | none: a database error that could not be [screened](/features/mcp-server/#database-errors) in time and was replaced as a whole |
+| `beacon.error_redaction.fallbacks` | Counter | none: a database error that could not be [screened](/mcp/server/#database-errors) in time and was replaced as a whole |
 
 Duration is not duplicated on a Beacon instrument; the SDK's own `mcp.server.operation.duration` already covers it.
 
@@ -301,7 +301,7 @@ withheld error, and log the same 9101 event, under the same conditions.
 ## Keeping audit content: the RequireContent lock
 
 Whether the audit keeps question and SQL text follows each project's content retention (`RetainQueryContent`, see
-[Content retention](/features/mcp-server/#content-retention)), which an Admin or SecurityAdmin can switch off on the MCP
+[Content retention](/mcp/server/#content-retention)), which an Admin or SecurityAdmin can switch off on the MCP
 Settings page. A deployment that must keep that evidence sets `Beacon:Mcp:Audit:RequireContent: true`: it pins
 `RetainQueryContent` on, globally and for every project, like the other
 [deployment locks](/getting-started/configuration/#deployment-locks).
@@ -322,7 +322,7 @@ is audited structurally, as before.
 
 The audit rows and their statements are **evidence, not sealed records**: they carry keyed hashes of their content
 (`ContentHash`, `SqlHash`) but no signature over the row, so an edit made at the database is not detected the way the
-[security audit trail](/features/security-audit/#what-the-trail-does-and-does-not-prove) detects one. Ship the
+[security audit trail](/security/audit-trail/#what-the-trail-does-and-does-not-prove) detects one. Ship the
 `Beacon.Audit` events to a store you control for a copy the database cannot change.
 
 ## Retention
@@ -347,11 +347,11 @@ or by calling `IMcpAuditRetentionService.PurgeExpiredAsync(cancellationToken)` f
 ## Reading the audit
 
 `GET /beacon/api/mcp/audit` is a paged JSON export for an Auditor or an Admin (the
-[Auditor permission](/features/authorization/#functional-permissions)). Rows come back exactly as stored; any retention
+[Auditor permission](/security/authorization/#functional-permissions)). Rows come back exactly as stored; any retention
 redaction was already applied at write time, so this endpoint never re-reads or reconstructs content. The rows are not
 filtered by project membership: an Auditor reads every project's tool calls, including the SQL and question text the
 retention settings keep, though the Auditor role grants no other project data. Reading the audit is itself audited:
-each read is recorded first in the [security audit trail](/features/security-audit/) (`audit.mcp_audit_read`, with the
+each read is recorded first in the [security audit trail](/security/audit-trail/) (`audit.mcp_audit_read`, with the
 filters' shape and the page; an identical read by the same actor within 60 seconds once), and fails when that record
 cannot be written; 9103 (above) follows on the log stream.
 
@@ -366,7 +366,8 @@ Each row carries its `contentHash` and its `statements` (`id`, `purpose`, `dataS
 `errorClass`, `sqlHash`, and `sql`, which is `null` unless the call's project retained query content), in the order they
 ran.
 
-Any other caller gets `403`. An invalid range or paging parameter gets `400`. There is no UI page for this endpoint;
-the generated TypeScript client exposes it as `getMcpAuditLogs`. It is an operational export, not a product surface.
+Any other caller gets `403`. An invalid range or paging parameter gets `400`. The **MCP Audit** page
+(`/beacon/mcp-audit`, shown to Auditors and Admins) reads it, and the generated TypeScript client exposes it as
+`getMcpAuditLogs`.
 Security-relevant actions other than tool calls (sign-ins, users, keys, settings and the rest) are in the separate
-[security audit trail](/features/security-audit/).
+[security audit trail](/security/audit-trail/).

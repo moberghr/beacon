@@ -1,11 +1,16 @@
 ---
 title: Overview
-description: What Beacon is, who it is for, the two ways to run it, and what you need before you start.
+description: What Beacon is, who it is for, the ways to run it, and what you need before you start.
 ---
 
 Beacon watches your databases and tells people when something is wrong. You write SQL against the databases you care about, schedule it, and Beacon delivers the rows to email, Microsoft Teams, Slack, Jira or a webhook. The same governed access to your data is offered to AI assistants through a built-in [MCP](https://modelcontextprotocol.io) server.
 
-Beacon is a set of .NET 10 libraries with a React UI. You either run the sample host from the repository, or embed the NuGet packages in your own ASP.NET Core application.
+Beacon is a set of .NET 10 libraries with a React UI. You either run the sample host from the repository, or embed the NuGet packages in your own ASP.NET Core application. Since 5.0, Beacon can also be the [MCP gateway](/mcp/gateway/) of your own application: AI clients act as your users through your own endpoints, with no data sources at all ([what's new](/getting-started/whats-new/)).
+
+:::tip[Working with a coding agent?]
+[Build with AI](/getting-started/with-ai/) has a ready prompt for each goal, the one-file documentation bundles and the
+Claude Code plugin. The [cookbooks](/cookbooks/) take one task at a time from start to a verified result.
+:::
 
 ## What it does
 
@@ -14,7 +19,8 @@ Beacon is a set of .NET 10 libraries with a React UI. You either run the sample 
 | Database monitoring | Queries with one or more steps across nine connectors: PostgreSQL, SQL Server, MySQL, Azure Synapse, Snowflake, BigQuery, Databricks, AWS CloudWatch and REST APIs (OpenAPI). |
 | Alerting | Cron-scheduled subscriptions, notification triggers, tasks that stay open while a problem lasts, anomaly detection, data contracts, and a Control Tower view of their health. |
 | Data movement | Data migration jobs that copy data into a database an Admin marked as a write target. Off unless the deployment turns it on. |
-| Governed MCP server | `/beacon/mcp` for Claude, Cursor, VS Code and other MCP clients: eight built-in tools, saved queries published as tools, and optionally your own HTTP endpoints. SQL runs read-only, every call is scoped to the caller's projects and audited. |
+| Governed MCP server | `/beacon/mcp` for Claude, Cursor, VS Code and other MCP clients: eight built-in tools, saved queries published as tools, and optionally your own HTTP endpoints. SQL runs read-only, every call is scoped to the caller's projects and audited. See [MCP](/mcp/). |
+| MCP gateway | `Moberg.Beacon.Gateway` makes your own application an MCP server: your users sign in with Entra, your endpoints become tools that run as them, your documents ground the answers. |
 
 ## Who it is for
 
@@ -22,12 +28,13 @@ Beacon is a set of .NET 10 libraries with a React UI. You either run the sample 
 - **Teams in regulated environments** who need read-only execution, project-level access control, four-eyes approvals and an audit trail.
 - **.NET teams** who want to give AI assistants access to their data through one governed endpoint instead of database credentials.
 
-## Two ways to run Beacon
+## Three ways to run Beacon
 
 | Path | Use it when | Start here |
 |---|---|---|
 | Run the sample host | You want to evaluate Beacon, or contribute to it. Clone the repository and run `Beacon.SampleProject`. | [Quick start](/getting-started/quick-start/) |
 | Embed the packages | You run Beacon for real. Add the `Moberg.Beacon.*` packages to your own ASP.NET Core application, with your sign-in, job runner and deployment. | [Integrate Beacon](/integrate/) |
+| MCP gateway | You want AI clients to use your own application, not your databases. One package and about thirty lines of `Program.cs`. | [MCP gateway for your application](/mcp/gateway/) |
 
 The sample host is a reference composition, not a product. Production deployments embed Beacon in their own host.
 
@@ -78,6 +85,9 @@ flowchart LR
 
 ## Where next
 
+- [Build with AI](/getting-started/with-ai/): prompts, bundles and the Claude Code plugin.
+- [Cookbooks](/cookbooks/): recipes for one task each, start to finish.
+- [What's new in 5.0](/getting-started/whats-new/): the gateway, and the upgrade checklist from 4.x.
 - [Core concepts](/getting-started/concepts/): data sources, projects, queries, subscriptions and the rest of the model.
 - [Quick start](/getting-started/quick-start/): run the sample host and send your first alert.
 - [Run the sample host](/getting-started/installation/): what the sample includes and how to configure it.

@@ -55,7 +55,7 @@ by display name, or "User {id}" without one.
 
 An actor belongs to the projects that link its data source: the actor, its plans and its think cycles are visible only
 through such a project the caller may use, and refining it or running it on demand needs Query there (see
-[Project access](/features/authorization/#project-access)). To anyone but an Admin, an actor or plan that does not exist
+[Project access](/security/authorization/#project-access)). To anyone but an Admin, an actor or plan that does not exist
 is refused (`403`) like one that is not theirs. An actor created without a recorded creator can be changed or run only
 by an Admin until an Admin sets its creator.
 
@@ -153,7 +153,7 @@ Plan statuses: `PendingApproval`, `Executing`, `Executed`, `Rejected`, `Expired`
 `PendingApproval` plan accepts a decision; the decision is a conditional update from that status, so a plan already
 decided (or decided by someone else at the same moment) answers `409`.
 
-The creator or an Admin decides a plan. While the [approval workflow](/features/approvals/) is enabled, approving takes
+The creator or an Admin decides a plan. While the [approval workflow](/security/approvals/) is enabled, approving takes
 a second person: an Approver (an Admin holds the permission) with write access to the data source, other than the
 creator and anyone who asked for a revision of the plan, unless the host allows self-approval
 (`ApprovalWorkflow.AllowSelfApproval`).
@@ -192,4 +192,4 @@ actions are proposed has none. Start cycles with `POST /beacon/api/ai-actors/{id
 - [AI Integration](/features/ai-integration/): provider configuration and what reaches the provider
 - [Queries](/features/queries/): the query and versioning model
 - [Subscriptions](/features/subscriptions/): scheduling and delivery
-- [Approvals](/features/approvals/): the approval workflow
+- [Approvals](/security/approvals/): the approval workflow

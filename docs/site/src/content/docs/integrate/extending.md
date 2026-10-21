@@ -7,9 +7,9 @@ An embedded Beacon can know your application, not only your databases. Three hos
 
 | Extension | You get | Page |
 |---|---|---|
-| `ExposeDbContext<TContext>` | Your EF Core model as a read-only data source, with a table allow-list and column masking | [Host DbContext](/features/host-dbcontext/) |
-| `ExposeDocs` | Your Markdown documentation imported as grounding for `ask`, `search` and `get_documentation` | [Host docs](/features/host-docs/) |
-| `AddHostEndpointTools` | Your HTTP endpoints as MCP tools `api_<name>`, dispatched in-process through your own authorization | [Host endpoint tools](/features/host-endpoint-tools/) |
+| `ExposeDbContext<TContext>` | Your EF Core model as a read-only data source, with a table allow-list and column masking | [Host DbContext](/mcp/host-dbcontext/) |
+| `ExposeDocs` | Your Markdown documentation imported as grounding for `ask`, `search` and `get_documentation` | [Host docs](/mcp/host-docs/) |
+| `AddHostEndpointTools` | Your HTTP endpoints as MCP tools `api_<name>`, dispatched in-process through your own authorization | [Host endpoint tools](/mcp/host-endpoint-tools/) |
 
 ## Your DbContext as a data source
 
@@ -83,12 +83,12 @@ Or on a controller action, or on a handler class whose framework copies class at
 - Only mapped Entra callers (users or systems) of the host project can call them; API-key callers cannot.
 - Write tools (`ReadOnly = false`) need `AllowWriteTools`, are offered to **user** callers only and are audited as `api_<name>:write`.
 - Above 20 tools (`NamedToolLimit`), clients see `search_api` + `call_api` instead of one tool per endpoint.
-- An argument that is the caller's own id in your application is bound from the caller with `x.BindFromCaller("userId", "<claim type>")`: it leaves the tool's schema and the call carries the caller's value. See [Arguments the caller fills](/features/host-endpoint-tools/#arguments-the-caller-fills).
+- An argument that is the caller's own id in your application is bound from the caller with `x.BindFromCaller("userId", "<claim type>")`: it leaves the tool's schema and the call carries the caller's value. See [Arguments the caller fills](/mcp/host-endpoint-tools/#arguments-the-caller-fills).
 - An exception your endpoint throws runs your `IExceptionHandler`s, so a refusal reaches the agent as the status and problem a browser would get.
 
 ## Saved queries as tools without code
 
-A SecurityAdmin can publish an approved saved query as an MCP tool `q_<name>` from the query's page. See [Saved query tools](/features/saved-query-tools/).
+A SecurityAdmin can publish an approved saved query as an MCP tool `q_<name>` from the query's page. See [Saved query tools](/mcp/saved-query-tools/).
 
 ## Replaceable services
 

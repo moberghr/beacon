@@ -43,7 +43,7 @@ const JOBS = [
 	},
 	{
 		num: '03', name: 'Serve AI', tag: 'governed MCP', link: '/explore/ai-and-mcp/', more: 'Explore AI and MCP',
-		desc: 'Claude, Cursor, VS Code and other MCP clients ask questions in natural language. Beacon grounds and validates the SQL, runs it read-only, masks sensitive values and records the call.',
+		desc: 'Claude, Cursor, VS Code and other MCP clients ask questions in natural language. Beacon grounds and validates the SQL, runs it read-only, masks sensitive values and records the call. The gateway does the same for your own application’s endpoints.',
 		code: 'ask("Which orders have been\n     pending for over a day?")',
 	},
 	{
@@ -70,31 +70,31 @@ const GOVERNANCE = [
 		icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/>',
 		title: 'Projects define access',
 		desc: 'Data sources are available through the projects that link them. New projects are restricted, with the creator as project admin. Users outside a project receive a 404 response.',
-		link: '/features/authorization/',
+		link: '/security/authorization/',
 	},
 	{
 		icon: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.3 2.5-5.5 5.5-5.5s5.5 2.2 5.5 5.5"/><path d="M16 6.5h5M16 10.5h5M17.5 14.5h3.5"/>',
 		title: 'Separation of duties',
 		desc: 'Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin and MigrationOperator divide the Admin role. None of these permissions grants access to project data.',
-		link: '/features/authorization/',
+		link: '/security/authorization/',
 	},
 	{
 		icon: '<path d="M9 11l2.5 2.5L16 9"/><circle cx="12" cy="12" r="9"/>',
 		title: 'Four-eyes approvals',
 		desc: 'When enabled, changes to queries, migration jobs, Custom SQL rules and notification destinations take effect only after a second person approves the exact content.',
-		link: '/features/approvals/',
+		link: '/security/approvals/',
 	},
 	{
 		icon: '<rect x="4" y="10.5" width="16" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
 		title: 'Protected secrets',
 		desc: 'Connection strings are encrypted with AES-256-GCM, API keys are stored as SHA-256 hashes and shown once, and Data Protection keys are encrypted at rest outside Development.',
-		link: '/features/security-model/',
+		link: '/security/',
 	},
 	{
 		icon: '<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/><path d="M20.2 18.2L22 20"/>',
 		title: 'Signed audit trail',
 		desc: 'Sign-ins and changes to access, keys, data sources, settings and approvals are recorded as append-only, signed events that an Auditor verifies. Every MCP call is recorded too, with the statements it ran.',
-		link: '/features/security-audit/',
+		link: '/security/audit-trail/',
 	},
 	{
 		icon: '<path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4z"/><path d="M9.5 12h5"/>',
@@ -104,26 +104,64 @@ const GOVERNANCE = [
 	},
 ];
 
-// ── 03 · Integrate with Claude ──────────────────────────────────────────
-const PROMPT = `Integrate Beacon into this ASP.NET Core app.
+// ── 03 · Build with AI ──────────────────────────────────────────────
+const GOALS = [
+	{
+		id: 'gateway', label: 'Gateway for your app',
+		note: 'Claude acts as your signed-in users, through your own endpoints. No data sources, no SQL.',
+		prompt: `Add an MCP gateway to this ASP.NET Core app with Beacon.
+Read ${site}/llms-gateway.txt first and follow it step by step.
+Ask me before every decision it marks as one.`,
+	},
+	{
+		id: 'embed', label: 'Embed Beacon',
+		note: 'Monitoring, alerts, data movement and an MCP server over your databases, inside your host.',
+		prompt: `Integrate Beacon into this ASP.NET Core app.
 Read ${site}/llms-integrate.txt first and follow its checklist step by step.
 Use PostgreSQL for Beacon's metadata database and our existing sign-in.
-Ask me before every decision the guide marks as one.`;
+Ask me before every decision the guide marks as one.`,
+	},
+	{
+		id: 'connect', label: 'Connect a client',
+		note: 'Claude Code, Cursor or VS Code on a Beacon that is already running.',
+		prompt: `Connect this project's AI tooling to our Beacon at https://beacon.example.com/beacon/mcp.
+Read ${site}/cookbooks/connect-coding-agent.md and follow it.
+Read the API key from BEACON_MCP_API_KEY; never write it into a file.`,
+	},
+	{
+		id: 'task', label: 'One task',
+		note: 'Single sign-on, a saved query as a tool, Slack alerts, a data contract, audit to a SIEM …',
+		prompt: `Read ${site}/llms-cookbooks.txt, pick the recipe for: <your goal>,
+tell me which one you picked, then follow it step by step
+and show me each "Check it works" result.`,
+	},
+];
 
 const CLAUDE_SESSION = `<span class="k-dim">~/src/acme-portal</span> <span class="k-green">❯</span> claude
 <span class="k-purple">✻</span> <span class="k-mute">Welcome to</span> <span class="k-blue">Claude Code</span>
 
-<span class="k-green">&gt;</span> Integrate Beacon into this ASP.NET Core app. Read
-  ${site}/llms-integrate.txt …
+<span class="k-green">&gt;</span> Add an MCP gateway so our people can use this app from Claude.
 
-<span class="k-purple">●</span> Fetch(llms-integrate.txt)  <span class="k-dim">13 pages · integration checklist</span>
-<span class="k-purple">●</span> Bash(dotnet add package Moberg.Beacon.Core.PostgreSql …)
-<span class="k-purple">●</span> Update(Program.cs)  <span class="k-dim">AddBeaconServices · UsePostgreSql · MapBeaconApi</span>
-<span class="k-purple">●</span> Write(Jobs/BeaconScheduler.cs)  <span class="k-dim">IBeaconScheduler on Warp</span>
-<span class="k-purple">●</span> Bash(dotnet user-secrets set Beacon:EncryptionKey …)
+<span class="k-purple">●</span> Skill(beacon-gateway)
+<span class="k-purple">●</span> Fetch(llms-gateway.txt)  <span class="k-dim">gateway recipe · endpoint tools · docs</span>
+<span class="k-purple">●</span> Read(Program.cs, Data/Users.cs)  <span class="k-dim">Entra sign-in · users.object_id</span>
+<span class="k-purple">●</span> Bash(dotnet add package Moberg.Beacon.Gateway …)
+<span class="k-purple">●</span> Write(Mcp/AppMcpUsers.cs)  <span class="k-dim">IMcpHostUserResolver by oid</span>
+<span class="k-purple">●</span> Update(Endpoints/Orders.cs)  <span class="k-dim">WithBeaconTool("my_orders")</span>
+<span class="k-purple">●</span> Write(Tests/McpToolTests.cs)  <span class="k-dim">Moberg.Beacon.Testing</span>
 
-<span class="k-yellow">?</span> Decision required: keep the existing OIDC provider, or enable
-  Beacon's local login with a break-glass account?`;
+<span class="k-yellow">?</span> Decision required: may a tool call do what the person can do
+  in the browser, or only read and change their own records?`;
+
+// ── 04 · Cookbooks ──────────────────────────────────────────────────────
+const RECIPES = [
+	{ group: 'Connect AI', title: 'Connect Claude Code, Cursor or VS Code', time: '10 min', link: '/cookbooks/connect-coding-agent/' },
+	{ group: 'Connect AI', title: 'Add Beacon to claude.ai with Entra sign-in', time: '45 min', link: '/cookbooks/claude-connector-entra/' },
+	{ group: 'Your app', title: 'Expose an endpoint as an MCP tool, and test it', time: '30 min', link: '/cookbooks/endpoint-as-tool/' },
+	{ group: 'Your app', title: 'Ground AI answers in your own docs', time: '25 min', link: '/cookbooks/ground-with-your-docs/' },
+	{ group: 'Embed', title: 'Embed Beacon with PostgreSQL and Warp', time: '45 min', link: '/cookbooks/embed-postgresql-warp/' },
+	{ group: 'Monitor', title: 'Alert Slack or Teams when a check fails', time: '20 min', link: '/cookbooks/alert-on-failed-check/' },
+];
 
 // ── 04 · Product tour ───────────────────────────────────────────────────
 const TOUR = [
@@ -155,7 +193,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</svg>
 		<div class="wrap heroGrid">
 			<div class="heroLeft">
-				<div class="eyebrow"><span class="eyebrowDot"></span>Beacon by Moberg</div>
+				<a class="eyebrow eyebrowLink" href={href('/getting-started/whats-new/')}><span class="eyebrowDot"></span>Beacon 5.0 <span class="eyebrowNew">MCP gateway for your own app →</span></a>
 				<h1 class="heroTitle">Monitor your databases.<br />Give AI <em>governed</em> access.</h1>
 				<p class="heroSub">
 					Beacon runs scheduled SQL checks, notifies the right people and provides AI assistants
@@ -163,18 +201,18 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 					It runs as a standalone application or inside your ASP.NET Core host.
 				</p>
 				<div class="heroActions">
-					<a class="btnPrimary" href={href('/integrate/')}>
-						Integrate Beacon
+					<a class="btnPrimary" href={href('/getting-started/with-ai/')}>
+						Start with AI
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
 					</a>
-					<a class="btnSecondary" href={href('/getting-started/quick-start/')}>Run locally</a>
+					<a class="btnSecondary" href={href('/cookbooks/')}>Cookbooks</a>
 					<a class="btnGhost" href={repo}>
 						<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.75 5.48.75 11.75c0 5 3.24 9.24 7.73 10.74.57.1.78-.25.78-.55v-1.93c-3.14.68-3.81-1.51-3.81-1.51-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.73.39-1.22.71-1.5-2.51-.29-5.15-1.25-5.15-5.57 0-1.23.44-2.23 1.16-3.02-.12-.29-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.45 3.1-1.15 3.1-1.15.61 1.55.23 2.69.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.33-2.64 5.28-5.16 5.56.4.35.76 1.04.76 2.1v3.11c0 .3.2.66.79.55 4.49-1.5 7.73-5.74 7.73-10.74C23.25 5.48 18.27.5 12 .5Z" /></svg>
 						GitHub
 					</a>
 				</div>
 				<ul class="heroStats">
-					<li>.NET 10</li><li>9 engines</li><li>8 MCP tools</li><li>PostgreSQL or SQL Server</li><li>AGPL-3.0 or commercial</li>
+					<li>.NET 10</li><li>9 engines</li><li>8 MCP tools</li><li>MCP gateway</li><li>PostgreSQL or SQL Server</li><li>AGPL-3.0 or commercial</li>
 				</ul>
 			</div>
 			<div class="heroRight">
@@ -268,30 +306,49 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</div>
 	</section>
 
-	<!-- ── 03 · Integrate with Claude ──────────────────────────────────── -->
+	<!-- ── 03 · Build with AI ─────────────────────────────────────────── -->
 	<section class="section">
 		<div class="wrap">
-			<div class="secHead"><span class="secNum">03</span>Integrate with Claude</div>
+			<div class="secHead"><span class="secNum">03</span>Build with AI</div>
 			<div class="claudeGrid">
 				<div>
-					<h2 class="h2">Let your coding agent perform the integration.</h2>
+					<h2 class="h2">Pick a goal. Hand it to your coding agent.</h2>
 					<p class="lede">
-						The integration guide is written for developers and coding agents alike. It provides an
-						ordered checklist, every option with its default, and the decisions that require your input.
-						It is also published as a single Markdown file that Claude Code can read in one request.
+						Every guide is written for developers and coding agents alike: an ordered checklist, every
+						option with its default, and the decisions that need you. Each one is published as a single
+						Markdown file that an agent reads in one request.
 					</p>
-					<div class="promptBox">
-						<div class="promptHead">
-							<span>Paste into Claude Code</span>
-							<button type="button" class="copyBtn" data-copy-target="claude-prompt">Copy</button>
+					<div class="goals" data-tour>
+						<div class="tourTabs" role="tablist" aria-label="Goals">
+							{GOALS.map((g, i) => (
+								<button type="button" role="tab" id={`tab-goal-${g.id}`} aria-controls={`panel-goal-${g.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1} data-tab={g.id}>{g.label}</button>
+							))}
 						</div>
-						<pre id="claude-prompt">{PROMPT}</pre>
+						{GOALS.map((g, i) => (
+							<div role="tabpanel" id={`panel-goal-${g.id}`} aria-labelledby={`tab-goal-${g.id}`} hidden={i !== 0}>
+								<p class="goalNote">{g.note}</p>
+								<div class="promptBox">
+									<div class="promptHead">
+										<span>Paste into your coding agent</span>
+										<button type="button" class="copyBtn" data-copy-target={`prompt-${g.id}`}>Copy</button>
+									</div>
+									<pre id={`prompt-${g.id}`}>{g.prompt}</pre>
+								</div>
+							</div>
+						))}
+					</div>
+					<div class="pluginBox">
+						<span class="pluginLabel">Claude Code plugin</span>
+						<code>/plugin marketplace add moberghr/beacon</code>
+						<code>/plugin install beacon@moberg-beacon</code>
 					</div>
 					<div class="llmsLinks">
+						<a href={href('/llms-gateway.txt')}><code>llms-gateway.txt</code><span>MCP gateway guide, one file</span></a>
 						<a href={href('/llms-integrate.txt')}><code>llms-integrate.txt</code><span>integration guide, one file</span></a>
-						<a href={href('/llms.txt')}><code>llms.txt</code><span>index of every page</span></a>
-						<a href={href('/llms-full.txt')}><code>llms-full.txt</code><span>the whole documentation</span></a>
+						<a href={href('/llms-cookbooks.txt')}><code>llms-cookbooks.txt</code><span>every recipe and the prompt library</span></a>
+						<a href={href('/llms.txt')}><code>llms.txt</code><span>index of every page and bundle</span></a>
 					</div>
+					<a class="moreLink" href={href('/getting-started/with-ai/')}>Build with AI →</a>
 				</div>
 				<div class="terminal">
 					<div class="terminalBar"><i></i><i></i><i></i><span class="terminalLabel">terminal</span></div>
@@ -301,10 +358,31 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</div>
 	</section>
 
-	<!-- ── 04 · The product ────────────────────────────────────────────── -->
+	<!-- ── 04 · Cookbooks ──────────────────────────────────────────────── -->
 	<section class="section sectionAlt">
 		<div class="wrap">
-			<div class="secHead"><span class="secNum">04</span>The product</div>
+			<div class="secHead"><span class="secNum">04</span>Cookbooks</div>
+			<h2 class="h2">Recipes that end with “it works”.</h2>
+			<p class="lede">
+				Each recipe takes one goal from nothing to a verified result, with a prompt you can hand to your
+				agent and a table of what to do when something goes wrong.
+			</p>
+			<div class="grid3">
+				{RECIPES.map((r) => (
+					<a class="feature recipe" href={href(r.link)}>
+						<span class="recipeMeta"><span class="badge">{r.group}</span><span class="recipeTime">{r.time}</span></span>
+						<h3 class="featureTitle">{r.title}</h3>
+					</a>
+				))}
+			</div>
+			<a class="moreLink" href={href('/cookbooks/')}>All recipes and the prompt library →</a>
+		</div>
+	</section>
+
+	<!-- ── 04 · The product ────────────────────────────────────────────── -->
+	<section class="section">
+		<div class="wrap">
+			<div class="secHead"><span class="secNum">05</span>The product</div>
 			<h2 class="h2">A complete interface for data owners.</h2>
 			<p class="lede">
 				A web application with light and dark themes for projects and members, data sources, the
@@ -336,12 +414,12 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 		</div>
 	</section>
 
-	<!-- ── 05 · Get started ────────────────────────────────────────────── -->
-	<section class="section">
+	<!-- ── 06 · Get started ────────────────────────────────────────────── -->
+	<section class="section sectionAlt">
 		<div class="wrap">
-			<div class="secHead"><span class="secNum">05</span>Get started</div>
-			<h2 class="h2">Two ways to start.</h2>
-			<div class="paths">
+			<div class="secHead"><span class="secNum">06</span>Get started</div>
+			<h2 class="h2">Three ways to start.</h2>
+			<div class="paths paths3">
 				<a class="path" href={href('/getting-started/quick-start/')}>
 					<span class="pathKicker">A · Run the sample host</span>
 					<h3>Clone, configure two secrets and run.</h3>
@@ -358,12 +436,20 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 <span class="k-dim">$</span> dotnet add package Moberg.Beacon.UI</pre>
 					<span class="pathCta">Integration guide →</span>
 				</a>
+				<a class="path" href={href('/mcp/gateway/')}>
+					<span class="pathKicker">C · MCP gateway for your app</span>
+					<h3>Let Claude act as your users.</h3>
+					<p>Your users sign in with Microsoft Entra, your endpoints become tools that run as them, your docs ground the answers. No data sources.</p>
+					<pre><span class="k-dim">$</span> dotnet add package Moberg.Beacon.Gateway
+<span class="k-dim">$</span> dotnet tool install -g Moberg.Beacon.Doctor</pre>
+					<span class="pathCta">Gateway recipe →</span>
+				</a>
 			</div>
 		</div>
 	</section>
 
 	<!-- ── Callout ─────────────────────────────────────────────────────── -->
-	<section class="section sectionAlt">
+	<section class="section">
 		<div class="wrap">
 			<div class="callout">
 				<h2>Governed data access for your team and your AI assistants.</h2>
@@ -547,6 +633,19 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 
 	/* 05 paths */
 	.paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+	.paths3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	.eyebrowLink { text-decoration: none; }
+	.eyebrowLink:hover .eyebrowNew { color: var(--bx-accent); }
+	.eyebrowNew { letter-spacing: 0.5px; text-transform: none; font-weight: 600; font-size: 12px; color: var(--bx-text-muted); }
+	.goalNote { font-size: 14px; color: var(--bx-text-muted); line-height: 1.6; margin: 0 0 12px; }
+	.pluginBox { display: grid; justify-items: start; gap: 6px; margin: 0 0 18px; }
+	.pluginLabel { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--bx-text-dim); }
+	.pluginBox code { max-width: 100%; overflow-wrap: anywhere; font-family: var(--sl-font-mono); font-size: 12.5px; padding: 3px 8px; border-radius: 6px; background: var(--bx-surface2); color: var(--bx-text); border: 1px solid var(--bx-border); }
+	.moreLink { display: inline-block; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--bx-accent); text-decoration: none; }
+	.recipe { display: flex; flex-direction: column; gap: 10px; }
+	.recipeMeta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+	.recipeMeta .badge { margin-bottom: 0; }
+	.recipeTime { font-size: 12px; color: var(--bx-text-dim); font-family: var(--sl-font-mono); }
 	.path { display: flex; flex-direction: column; text-decoration: none; padding: 28px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-surface); transition: border-color .15s; }
 	.path:hover { border-color: var(--bx-accent); }
 	.pathKicker { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--bx-accent); margin-bottom: 10px; }
@@ -581,7 +680,7 @@ const marqueeItems = [...MARQUEE, ...MARQUEE];
 	}
 	@media (max-width: 900px) {
 		.grid3 { grid-template-columns: repeat(2, 1fr); }
-		.paths { grid-template-columns: minmax(0, 1fr); }
+		.paths, .paths3 { grid-template-columns: minmax(0, 1fr); }
 	}
 	@media (max-width: 640px) {
 		.hero { padding: 56px 0 52px; }

@@ -6,7 +6,7 @@ description: Ship the host application's markdown documentation with it and impo
 A host application often keeps its own documentation next to the code: a `docs/wiki/` folder of generated markdown
 pages, runbooks, conventions. `ExposeDocs` imports those documents into a Beacon project at startup
 so MCP agents can `search` them and read them with `get_documentation`, alongside the host's data
-([Host DbContext](/features/host-dbcontext/)). It works with `UseAI = false`: no LLM and no embedder is needed.
+([Host DbContext](/mcp/host-dbcontext/)). It works with `UseAI = false`: no LLM and no embedder is needed.
 
 ## Quick start
 
@@ -147,7 +147,7 @@ The documents belong to one project and are only ever visible to callers authori
 
 The REST API exposes the same documents: `GET /beacon/api/projects/{id}/imported-documents` (listing) and
 `GET /beacon/api/projects/{id}/imported-documents/{documentId}` (one document with its content). Both need Read in
-the project under [project access](/features/authorization/#project-access), for sessions and API keys alike; a
+the project under [project access](/security/authorization/#project-access), for sessions and API keys alike; a
 project the caller cannot read answers `404`.
 
 ## Example: data and docs in one project

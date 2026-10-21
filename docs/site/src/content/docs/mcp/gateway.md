@@ -13,7 +13,7 @@ With Claude Code, install Beacon's plugin: `/plugin marketplace add moberghr/bea
 `/plugin install beacon@moberg-beacon`. Its skills (`beacon-gateway`, `beacon-tool`, `beacon-entra`) follow this guide.
 With any agent, point it at this guide in one file:
 
-```text
+```text wrap
 Add an MCP gateway to this ASP.NET Core app with Beacon.
 Read https://moberghr.github.io/beacon/llms-gateway.txt first and follow it step by step.
 Ask me before every decision it marks as one.
@@ -124,7 +124,7 @@ What you get, and what you do not have to write:
   `api://<ClientId>/mcp.access` plus `offline_access` (so clients refresh instead of re-prompting hourly).
 - **The host project** is synced the first time it is needed; the `beacon-mcp-gateway` health check reports Degraded until
   then. No hosted service, no startup step.
-- **Admin UI** at `/beacon`: the MCP audit, the settings, the learning views and your project's documents, for holders of
+- **Admin UI** at `/beacon`: the MCP audit, the MCP settings, the learning views and your project, for holders of
   `HostPolicy`, signed in with your own sign-in. Every other Beacon endpoint answers 404.
 
 ## 4. Migrations

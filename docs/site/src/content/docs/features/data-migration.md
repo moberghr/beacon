@@ -81,7 +81,7 @@ See [Data Sources](/features/data-sources/) for the data source side.
 ## Who can use it
 
 Data migration needs the **MigrationOperator** permission (an Admin holds every permission; see
-[Security model](/features/security-model/)). Listing jobs, opening one, creating, running and deleting jobs and reading
+[Security model](/security/)). Listing jobs, opening one, creating, running and deleting jobs and reading
 the run history all need it. The **Data Migration** entry is hidden from other users.
 
 A MigrationOperator gets no bypass of project access. A job reads its declared source and the data source of every step
@@ -247,7 +247,7 @@ kept.
 
 ## Approval of new jobs
 
-The [approval workflow](/features/approvals/) is off by default; a host turns it on in code with
+The [approval workflow](/security/approvals/) is off by default; a host turns it on in code with
 `options.EnableApprovalWorkflow(...)`. While it is on, its `CoversMigrationJobs` switch (on by default) makes every new
 job wait for a second person's approval before it writes anything:
 
@@ -325,5 +325,5 @@ MigrationOperator permission.
 
 - [Data Sources](/features/data-sources/): connections and the write-target flag
 - [Queries](/features/queries/): how a source query is read
-- [Approvals](/features/approvals/): the change approval workflow
+- [Approvals](/security/approvals/): the change approval workflow
 - [Configuration](/getting-started/configuration/#data-migration): `Beacon:Migrations`

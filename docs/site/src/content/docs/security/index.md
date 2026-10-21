@@ -49,7 +49,7 @@ One component, the project access evaluator, decides every access, for the UI, t
 - **Scheduled work runs as its recorded owner**, re-checked right before every SQL statement or LLM call. If the owner may no longer do it, the run is recorded as skipped and is never run as the system.
 - **Grounding is project-scoped:** glossary terms, verified examples, learned patterns and evaluation cases of one project never reach another project's prompts, even when the projects share a data source.
 
-Every MediatR request declares how it is authorized, and tests fail when a new request does not. → [Authorization](/features/authorization/)
+Every MediatR request declares how it is authorized, and tests fail when a new request does not. → [Authorization](/security/authorization/)
 
 ## 4. Separated duties
 
@@ -57,7 +57,7 @@ The Admin role's duties are split into six **functional permissions** (Approver,
 
 ## 5. Four-eyes approvals
 
-With the approval workflow on (opt-in), changes that decide what SQL runs or where data goes take effect only after a **second person** approves exactly what they reviewed: query changes, migration jobs, Custom SQL rules and notification destinations. Approvals are bound to a content hash, the requester cannot approve, and scheduled runs execute only reviewed SQL. → [Approvals](/features/approvals/)
+With the approval workflow on (opt-in), changes that decide what SQL runs or where data goes take effect only after a **second person** approves exactly what they reviewed: query changes, migration jobs, Custom SQL rules and notification destinations. Approvals are bound to a content hash, the requester cannot approve, and scheduled runs execute only reviewed SQL. → [Approvals](/security/approvals/)
 
 ## 6. The SQL execution gate
 
@@ -136,7 +136,7 @@ Every MCP setting change is recorded in the settings history with who changed it
 | **Settings history**: admin settings, MCP settings, migration write-target changes, with old and new value (secrets as `***`) | `AppSettingHistory` table | Auditors and SecurityAdmins |
 | **Security log events**: structured log events 7101 to 7123 with ids only, no personal data | Your log pipeline. The log events themselves are not stored; the actions most of them report are also recorded in the security audit trail. Refused and hidden reads (7108, 7109), skipped scheduled work (7111), read-only transaction ends (7116), key-ring and re-encryption notices (7121, 7122) and row data sent to the LLM (7123) are on the log only | Your SIEM |
 
-Queries, subscriptions, recipients, data contracts and migration jobs also record who created them and who changed them last; an Auditor or a UserAdmin lists what a user owns, created or changed last. → [Security audit trail](/features/security-audit/)
+Queries, subscriptions, recipients, data contracts and migration jobs also record who created them and who changed them last; an Auditor or a UserAdmin lists what a user owns, created or changed last. → [Security audit trail](/security/audit-trail/)
 
 | Event | Id | Event | Id |
 |---|---|---|---|
@@ -153,7 +153,7 @@ Queries, subscriptions, recipients, data contracts and migration jobs also recor
 | ScheduledWorkSkipped | 7111 | RowDataSentToLlm | 7123 |
 | ProjectCreatedOpen | 7112 | | |
 
-Alert at least on 7119 (break-glass), 7113/7114 (role changes, new users), 7115 (write targets) and 7116 (a statement tried to end SQL Server's read-only transaction), and on any increment of the counters `beacon.security_audit.write_failures` (a security audit event was not stored) and `beacon.security_audit.verification_failures` (stored events failed verification). → [MCP observability & audit](/features/mcp-observability-and-audit/)
+Alert at least on 7119 (break-glass), 7113/7114 (role changes, new users), 7115 (write targets) and 7116 (a statement tried to end SQL Server's read-only transaction), and on any increment of the counters `beacon.security_audit.write_failures` (a security audit event was not stored) and `beacon.security_audit.verification_failures` (stored events failed verification). → [MCP observability & audit](/mcp/observability-and-audit/)
 
 ## Your part
 

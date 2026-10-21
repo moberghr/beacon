@@ -44,7 +44,7 @@ For Bedrock, the authentication mode decides the credentials: the IAM role mode 
 credentials (an IAM role, environment variables), the access key mode an access key id and secret access key, and the
 temporary credentials mode those keys with a session token. An `ApiKey` that holds a pair as `accessKey:secretKey`, from
 an older install, is still used when the key fields are empty; in the IAM role mode a warning is logged when it is (see
-[Admin Settings](/features/admin-settings/)).
+[Admin Settings](/security/admin-settings/)).
 
 ## Configuration
 
@@ -55,7 +55,7 @@ pick a provider card, fill in the fields it shows, use **Test connection**, then
 the connection (provider, endpoint, region, credentials); a SecurityAdmin can change the models and the other settings
 and test the stored connection. Secrets are stored encrypted. The REST routes are `GET /beacon/api/admin-settings`
 (Auditor or SecurityAdmin), `PUT /beacon/api/admin-settings` and `POST /beacon/api/admin-settings/test-llm`
-(SecurityAdmin). See [Admin Settings](/features/admin-settings/).
+(SecurityAdmin). See [Admin Settings](/security/admin-settings/).
 
 A save swaps the provider in place: every caller injects `ILlmProvider`, registered as `DelegatingLlmProvider`, which
 forwards to the provider `LlmProviderManager` currently holds. When the new configuration cannot build a provider, the
@@ -82,13 +82,13 @@ requests per minute, monthly budget) and the **Fast model** are recorded and sho
 
 | Feature | Where it is described |
 |---|---|
-| The MCP `ask` tool and knowledge answers: routing, SQL generation and repair | [MCP Server](/features/mcp-server/#ask) |
-| The learning loop's lesson extraction, the optional eval judge and contextual-retrieval blurbs | [Knowledge Base & Grounding](/features/knowledge-base/) |
+| The MCP `ask` tool and knowledge answers: routing, SQL generation and repair | [MCP Server](/mcp/server/#ask) |
+| The learning loop's lesson extraction, the optional eval judge and contextual-retrieval blurbs | [Knowledge Base & Grounding](/mcp/knowledge-base/) |
 | Project documentation | [below](#project-documentation) |
 | AI actors | [AI Actors](/features/ai-actors/) |
 
 Local embeddings for semantic search do not use the LLM provider: they run in-process from an ONNX model (see
-[Local embeddings](/features/knowledge-base/#local-embeddings)).
+[Local embeddings](/mcp/knowledge-base/#local-embeddings)).
 
 ## Project documentation
 
@@ -105,13 +105,13 @@ data sources) and Glossary.
 | Ask the LLM to rewrite a section (returns the new text, saves nothing) | `POST /beacon/api/projects/documentation-sections/{id}/instruct` | Query in the project |
 | Export as Markdown, or HTML with `asHtml=true` | `GET /beacon/api/projects/documentation/{id}/export` | Read in the project |
 
-Curate is held by project admin members and Admins (see [Who curates grounding](/features/knowledge-base/#who-curates-grounding)).
+Curate is held by project admin members and Admins (see [Who curates grounding](/mcp/knowledge-base/#who-curates-grounding)).
 In the UI, the **Documentation** tab of a project (`/beacon/projects/{id}`) shows the latest documentation and lets a
 curator edit its sections.
 
 The documentation is also grounding: it is chunked, optionally embedded, and retrieved when an agent asks a question
 over MCP, so a better table description improves generated SQL (see
-[Documentation chunking](/features/knowledge-base/#documentation-chunking)).
+[Documentation chunking](/mcp/knowledge-base/#documentation-chunking)).
 
 **Column values.** Generation lists distinct values of enum-like columns only while sample-value collection is on for
 the project and every project sharing the data source (off by default), never from PII or secret-like columns, and
@@ -125,13 +125,13 @@ knowledge (documentation, glossary, verified examples, learned patterns). Row da
 discovered column values, eval-judge rows, database errors) is off by default or screened, and every prompt that
 carries it is logged as event `7123` (`RowDataSentToLlm`, category `Beacon.AI.Services.LlmProviders.LlmRowDataEgress`)
 with identifiers only. The full table, and the lock `Beacon:Mcp:ForbidRowDataToLlm` that keeps all row data from the
-provider, are in [What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider).
+provider, are in [What reaches the LLM provider](/mcp/server/#what-reaches-the-llm-provider).
 
 Everything Beacon sends about a data source is read through the caller's authorized project: schema context,
 documentation, code references, glossary, golden examples, learned patterns and value matches. The AI services take
 that project as a parameter (`projectId` on `IKnowledgeGraphService` and `IValueGroundingService`), read a data source
 only through a project that links it, and never mix in another project's material from a shared data source. See
-[Project isolation](/features/knowledge-base/#project-isolation).
+[Project isolation](/mcp/knowledge-base/#project-isolation).
 
 ## Usage and cost records
 
@@ -173,8 +173,8 @@ provider.
 ## Related features
 
 - [Integrate → AI](/integrate/ai/): host configuration of the provider
-- [Admin Settings](/features/admin-settings/): the runtime provider configuration
-- [Knowledge Base & Grounding](/features/knowledge-base/): how documentation, join paths and glossary terms ground SQL generation
-- [MCP Server](/features/mcp-server/): the tools that use the provider
+- [Admin Settings](/security/admin-settings/): the runtime provider configuration
+- [Knowledge Base & Grounding](/mcp/knowledge-base/): how documentation, join paths and glossary terms ground SQL generation
+- [MCP Server](/mcp/server/): the tools that use the provider
 - [AI Actors](/features/ai-actors/): LLM-driven monitoring agents
 - [Anomaly Detection](/features/anomaly-detection/): statistical detection, without an LLM

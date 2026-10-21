@@ -8,7 +8,7 @@ Go through this list before the first real user signs in. Each line links to whe
 ## Secrets and keys
 
 - [ ] `Beacon:EncryptionKey` comes from a secret store or environment variable, never a file in source control; its backup is stored separately from database backups. → [Configuration](/getting-started/configuration/)
-- [ ] You know how to **rotate** it: move the old key to `Beacon:PreviousEncryptionKeys:0`, set the new one, set `Beacon:Mcp:CallerHashKey` to the old key first if you want MCP caller hashes to stay comparable, run the re-encryption job, then remove the old key. Set `Beacon:Audit:IntegrityKey` before the first rotation: while it is unset, security audit events are signed under a key derived from the caller hash key or the encryption key, and verify as *unknown key* once that secret leaves the configuration. → [Keys and rotation](/features/security-audit/#keys-and-rotation)
+- [ ] You know how to **rotate** it: move the old key to `Beacon:PreviousEncryptionKeys:0`, set the new one, set `Beacon:Mcp:CallerHashKey` to the old key first if you want MCP caller hashes to stay comparable, run the re-encryption job, then remove the old key. Set `Beacon:Audit:IntegrityKey` before the first rotation: while it is unset, security audit events are signed under a key derived from the caller hash key or the encryption key, and verify as *unknown key* once that secret leaves the configuration. → [Keys and rotation](/security/audit-trail/#keys-and-rotation)
 - [ ] `Beacon:DataProtection:ApplicationName` is set (one value per environment), and the key ring is **encrypted at rest** (`ProtectKeysWithCertificate` / `ProtectKeysWithAzureKeyVault`), otherwise the host does not start outside `Development`. → [Host wiring](/integrate/host-setup/#data-protection)
 - [ ] OIDC client secrets, LLM API keys and SMTP passwords come from the secret store.
 - [ ] `Beacon:UserManagement:SetupToken` is set for multi-instance first runs, and removed afterwards.
@@ -25,7 +25,7 @@ forwarded.KnownProxies.Add(IPAddress.Parse("10.0.0.5"));
 app.UseForwardedHeaders(forwarded);
 ```
 
-- [ ] `Beacon:PublicBaseUrl` is the public origin (e.g. `https://beacon.example.com`), so MCP discovery documents do not echo the client's `Host` header. → [MCP & AI clients](/integrate/mcp/#public-url-and-discovery)
+- [ ] `Beacon:PublicBaseUrl` is the public origin (e.g. `https://beacon.example.com`), so MCP discovery documents do not echo the client's `Host` header. → [Connect AI clients](/mcp/connect/#public-url-and-discovery)
 - [ ] `options.BaseUrl` (or **Admin settings → Base URL**) is the public UI URL **including `/beacon`**, so notification links work.
 - [ ] HTTPS redirection applies to `/beacon/mcp` too, because API keys travel in headers.
 - [ ] Proxy and Kestrel timeouts allow long requests (AI documentation, `ask`): the reference host uses 5 minutes.
@@ -37,7 +37,7 @@ app.UseForwardedHeaders(forwarded);
 - [ ] Local passwords off once SSO works, with one break-glass account in a vault; alert on event 7119 `BreakGlassSignIn`.
 - [ ] `Beacon:Authorization:RequireProjectMembership: true`; projects planned; data sources linked only where needed. → [Access control](/integrate/access-control/)
 - [ ] Few Admins; duties given as functional permissions; `SeparationOfDuties` on if your auditors expect it.
-- [ ] Approval workflow on with at least two Approvers, `RequireApprovedVersionToRun` for regulated data. → [Approvals](/features/approvals/)
+- [ ] Approval workflow on with at least two Approvers, `RequireApprovedVersionToRun` for regulated data. → [Approvals](/security/approvals/)
 - [ ] API keys: decide `Beacon:ApiKeys:MaxLifetimeDays` and `MaxOwnerInactivityDays`.
 
 ## Data and SQL
@@ -51,14 +51,14 @@ app.UseForwardedHeaders(forwarded);
 
 ## Audit and observability
 
-- [ ] `Beacon:Mcp:Audit:RetentionDays` set to your retention policy and the purge job scheduled; `Audit:Required: true` if a tool result must never be returned without its audit row. → [MCP observability & audit](/features/mcp-observability-and-audit/)
-- [ ] Security log events (structured log events 7101 to 7123: membership, roles, sessions, break-glass, access refused, row data to LLM) are shipped to your log pipeline and alerted on. The log events themselves are not stored in Beacon's database; the actions most of them report are also recorded in the security audit trail. → [Security model](/features/security-model/#12-audit-and-security-events)
-- [ ] Security audit trail: `Beacon:Audit:IntegrityKey` set from a secret store (before you change the encryption key or the caller hash key), the verification job (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly) and the retention purge (`ISecurityAuditRetentionService.PurgeExpiredAsync`) scheduled, `Beacon:Audit:RetentionDays` set to your retention policy (at least 365; events are kept forever while it is unset), the `Beacon.Audit` events 9104 to 9110 shipped to your SIEM, and alerts on any increment of `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures`. → [Security audit trail](/features/security-audit/)
-- [ ] To make the trail append-only at the database as well, Beacon's connection uses a role that cannot update or delete `security_audit_events` rows other than through the purge, or triggers do the same. → [What the trail does and does not prove](/features/security-audit/#what-the-trail-does-and-does-not-prove)
-- [ ] Where MCP audit content is retained, the SQL of every statement a call ran is stored with it: reviewed against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins retention on if the evidence must be kept. → [MCP observability & audit](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock)
+- [ ] `Beacon:Mcp:Audit:RetentionDays` set to your retention policy and the purge job scheduled; `Audit:Required: true` if a tool result must never be returned without its audit row. → [MCP observability & audit](/mcp/observability-and-audit/)
+- [ ] Security log events (structured log events 7101 to 7123: membership, roles, sessions, break-glass, access refused, row data to LLM) are shipped to your log pipeline and alerted on. The log events themselves are not stored in Beacon's database; the actions most of them report are also recorded in the security audit trail. → [Security model](/security/#12-audit-and-security-events)
+- [ ] Security audit trail: `Beacon:Audit:IntegrityKey` set from a secret store (before you change the encryption key or the caller hash key), the verification job (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly) and the retention purge (`ISecurityAuditRetentionService.PurgeExpiredAsync`) scheduled, `Beacon:Audit:RetentionDays` set to your retention policy (at least 365; events are kept forever while it is unset), the `Beacon.Audit` events 9104 to 9110 shipped to your SIEM, and alerts on any increment of `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures`. → [Security audit trail](/security/audit-trail/)
+- [ ] To make the trail append-only at the database as well, Beacon's connection uses a role that cannot update or delete `security_audit_events` rows other than through the purge, or triggers do the same. → [What the trail does and does not prove](/security/audit-trail/#what-the-trail-does-and-does-not-prove)
+- [ ] Where MCP audit content is retained, the SQL of every statement a call ran is stored with it: reviewed against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins retention on if the evidence must be kept. → [MCP observability & audit](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock)
 - [ ] Structured JSON console logs (`Logging:Console:FormatterName=json`, `IncludeScopes=true`) if your platform correlates by trace id.
 - [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers; you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
-- [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. On a brand-new deployment with user management on, it redirects to `/beacon/setup` until the first administrator exists. Complete setup before the probe goes live.
+- [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. It answers before the first administrator exists too, so a brand-new deployment passes the probe while setup is still pending.
 
 ## Scaling
 

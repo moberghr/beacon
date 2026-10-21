@@ -1,9 +1,9 @@
 ---
-title: MCP & AI clients
+title: Connect AI clients
 description: Expose Beacon's MCP server from your host, decide how AI clients authenticate (API keys or Entra ID callers), publish discovery metadata, and connect Claude Code, Claude, Cursor and VS Code.
 ---
 
-Beacon's MCP server lets AI assistants explore and query your data through eight tools, always project-scoped, read-only, masked and audited. This page wires it into your host and connects clients. The tools themselves are described on [MCP server](/features/mcp-server/).
+Beacon's MCP server lets AI assistants explore and query your data through eight tools, always project-scoped, read-only, masked and audited. This page wires it into your host and connects clients. The tools themselves are described on [MCP server](/mcp/server/).
 
 ## Wiring
 
@@ -134,7 +134,7 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 | `Users:AutoProvision` / `DefaultRoleName` | `true` / `Viewer` | Create a Beacon user on first call, with this role (never Admin or a functional role). |
 | `Systems[]` | None | `Name`, exactly one of `ClientId` (app-only token) or `ObjectId` (service principal), `ProjectIds`, `Scope`, `HostClaims`. |
 
-An absent `Callers` section admits no JWT caller on MCP; it fails closed. Startup validates the section, including that bearer JWT validation is on with explicit issuers and audiences. Audit rows identify Entra callers by a keyed hash (`Beacon:Mcp:CallerHashKey`, else derived from the encryption key). Full reference: [Entra ID callers](/features/mcp-entra-callers/).
+An absent `Callers` section admits no JWT caller on MCP; it fails closed. Startup validates the section, including that bearer JWT validation is on with explicit issuers and audiences. Audit rows identify Entra callers by a keyed hash (`Beacon:Mcp:CallerHashKey`, else derived from the encryption key). Full reference: [Entra ID callers](/mcp/entra-callers/).
 
 ## Connect a client
 
@@ -195,7 +195,7 @@ Or share it with your team in the repository's `.mcp.json` (Claude Code expands 
 
 ### Claude (claude.ai and Claude Desktop)
 
-Add Beacon as a **custom connector** with the URL `https://beacon.example.com/beacon/mcp`. Connectors authenticate with OAuth, so this path needs Option B: publish your Entra authorization server and scope through `Beacon:Mcp:ProtectedResource`, register the client's redirect URI in your Entra app, and map users with `Beacon:Mcp:Callers:Users`. The step-by-step Entra setup is on [Entra ID callers](/features/mcp-entra-callers/).
+Add Beacon as a **custom connector** with the URL `https://beacon.example.com/beacon/mcp`. Connectors authenticate with OAuth, so this path needs Option B: publish your Entra authorization server and scope through `Beacon:Mcp:ProtectedResource`, register the client's redirect URI in your Entra app, and map users with `Beacon:Mcp:Callers:Users`. The step-by-step Entra setup is on [Entra ID callers](/mcp/entra-callers/).
 
 Client configuration formats change; if a snippet does not work, check the client's own documentation. The endpoint, header and transport above are what Beacon needs.
 
@@ -236,9 +236,9 @@ Then ask the assistant something like *"Use Beacon's get_context to describe my 
 
 ## Add your own tools
 
-- Publish an approved saved query as an MCP tool `q_<name>` without code: [Saved query tools](/features/saved-query-tools/).
+- Publish an approved saved query as an MCP tool `q_<name>` without code: [Saved query tools](/mcp/saved-query-tools/).
 - Expose endpoints of your own API as `api_<name>` tools: [Extending Beacon](/integrate/extending/#your-endpoints-as-mcp-tools).
 
 ## Governing MCP
 
-Per-project MCP settings (row limits, read-only, PII detection, content retention, learning) live on **MCP settings** (`/beacon/mcp-settings`), editable by a SecurityAdmin and readable by an Auditor. Deployment locks (`Beacon:Mcp:ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm`) and ceilings (`Beacon:Mcp:Ceilings`) bind them from configuration. Every call is audited; see [MCP observability & audit](/features/mcp-observability-and-audit/).
+Per-project MCP settings (row limits, read-only, PII detection, content retention, learning) live on **MCP settings** (`/beacon/mcp-settings`), editable by a SecurityAdmin and readable by an Auditor. Deployment locks (`Beacon:Mcp:ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm`) and ceilings (`Beacon:Mcp:Ceilings`) bind them from configuration. Every call is audited; see [MCP observability & audit](/mcp/observability-and-audit/).

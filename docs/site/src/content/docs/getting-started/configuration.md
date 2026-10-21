@@ -122,7 +122,7 @@ Set in the `AddBeaconServices` lambda. None of these are read from configuration
 | `AddEmailAdapter<T>()` | none | Your `IEmailAdapter`; Beacon ships no email implementation (see [Email adapter](#email-adapter)) |
 | `BaseUrl` | `null` | The address put in notification links: `{BaseUrl}/notifications/{id}`. Include the `/beacon` path (`https://beacon.example.com/beacon`). Not read from configuration by Beacon; the sample host reads `Beacon:BaseUrl` into it. Admin settings can replace it at runtime (see [Base URL](#base-url-configuration)) |
 | `UseAI` | `false` | Turns on the AI features; with `false` they are registered as stand-ins that report AI as unavailable |
-| `Authorization.Enabled` | `false` | Enforces global roles on `/beacon/api` (see [Authorization](/features/authorization/)) |
+| `Authorization.Enabled` | `false` | Enforces global roles on `/beacon/api` (see [Authorization](/security/authorization/)) |
 | `AddAuthorizationProvider<T>()` | `DefaultAuthorizationProvider` (allows all); `DatabaseAuthorizationProvider` with user management | The global-permission provider |
 | `Authentication.EnableLoginForm` | `false` | The login form and the login redirect |
 | `AddAuthenticationProvider<T>()` | none | How a login-form password is checked (`DatabaseAuthenticationProvider`, `JwtExternalApiAuthenticationProvider`, `HybridAuthenticationProvider` or your own) |
@@ -190,7 +190,7 @@ The forwarded-headers keys are read by the **sample host** only. A host embeddin
 { "Beacon": { "BaseUrl": "https://beacon.example.com/beacon" } }
 ```
 
-At startup the base URL is what the host's code sets (`options.BaseUrl`). Saving **Base URL** in [Admin settings](/features/admin-settings/) replaces it in the running process at once; after a restart the startup value applies again until the settings are saved. Keep the two in step.
+At startup the base URL is what the host's code sets (`options.BaseUrl`). Saving **Base URL** in [Admin settings](/security/admin-settings/) replaces it in the running process at once; after a restart the startup value applies again until the settings are saved. Keep the two in step.
 
 ## Encryption key configuration (required)
 
@@ -260,7 +260,7 @@ UPDATE beacon.Users SET SecurityStamp = LOWER(REPLACE(CONVERT(nvarchar(36), NEWI
 
 ## Authentication
 
-Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding). There is no default account: [first-run setup](/features/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
+Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
 
 ```csharp
 builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beacon/login
@@ -304,7 +304,7 @@ Bound from `Beacon:UserManagement:LocalLogin`, validated at startup.
 | `Enabled` | bool | `true` | Password sign-in through the login form. `false`: `POST /beacon/api/auth/login` is not mapped (unless a break-glass account is listed), password providers refuse every account, and the login page shows no password form. Startup fails when nobody could sign in (no OIDC, no `BeaconApiOptions.ExternalLogin` (a host-owned login page), no break-glass account) |
 | `BreakGlassUserNames` | string[] | empty | Up to 3 stored user names (exact, case-sensitive) that may still sign in with a password while `Enabled` is `false`, at `/beacon/login?local=1`. A blank entry or more than 3 fail startup; a name no enabled internal user has gets a startup Warning |
 
-See [User management → Local password sign-in](/features/user-management/#local-password-sign-in).
+See [User management → Local password sign-in](/security/user-management/#local-password-sign-in).
 
 ### Optional: OIDC / SSO
 
@@ -344,7 +344,7 @@ Bound by `builder.Services.AddBeaconOidcAuthentication(builder.Configuration)` f
 | `AcceptedAcrValues` | string[] | empty | `acr` values that count as MFA |
 | `McpJwksEndpoint` | string (URL) | None | Sample host: with SSO enabled, turns on bearer JWT with issuer = `Authority`, audience = `ClientId` and this JWKS URL. Not read by the Beacon libraries |
 
-Admission runs before anything is provisioned: tenant, then guest, then required role or group. See [User management → Single sign-on admission](/features/user-management/#single-sign-on-admission).
+Admission runs before anything is provisioned: tenant, then guest, then required role or group. See [User management → Single sign-on admission](/security/user-management/#single-sign-on-admission).
 
 ### JWT bearer
 
@@ -371,7 +371,7 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 | `Validation.ValidateLifetime`, `ValidateIssuer`, `ValidateAudience` | `true` | Must stay `true` |
 | `ClaimsMapping.*` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims hold the user id, user name, e-mail, roles and display name |
 
-With bearer or external login on, a missing key, issuer or audience, a validation flag turned off, or a skew above 5 minutes stops the host. A token must be an access token and name an existing, enabled, external Beacon user; see [User management](/features/user-management/#jwtexternalapiauthenticationprovider). Entra callers on `/beacon/mcp` are configured separately (below).
+With bearer or external login on, a missing key, issuer or audience, a validation flag turned off, or a skew above 5 minutes stops the host. A token must be an access token and name an existing, enabled, external Beacon user; see [User management](/security/user-management/#jwtexternalapiauthenticationprovider). Entra callers on `/beacon/mcp` are configured separately (below).
 
 ### MCP callers from Entra ID (`Beacon:Mcp:Callers`)
 
@@ -392,7 +392,7 @@ Validated at startup. Without the section, no JWT caller is admitted on `/beacon
 | `Systems[i]:ClientId` or `ObjectId` | string | Required | Exactly one: an app-only token's client, or a service user's `oid` |
 | `Systems[i]:ProjectIds`, `Scope`, `HostClaims[]` | | `Execute` | The system caller's projects, scope and host-endpoint claims |
 
-See [Entra ID callers](/features/mcp-entra-callers/).
+See [Entra ID callers](/mcp/entra-callers/).
 
 ## Data-source transport security
 
@@ -424,7 +424,7 @@ local databases without TLS sets `AllowInsecure` in its Development configuratio
 
 ## Authorization
 
-Bound from `Beacon:Authorization`, validated at startup. Whether authorization is on at all is code-only (`options.Authorization.Enabled`). See [Authorization](/features/authorization/).
+Bound from `Beacon:Authorization`, validated at startup. Whether authorization is on at all is code-only (`options.Authorization.Enabled`). See [Authorization](/security/authorization/).
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
@@ -473,7 +473,7 @@ Login attempts are throttled at 10 per 60 seconds per client address; the first-
 
 ## API keys
 
-Bound from `Beacon:ApiKeys`, validated at startup. See [API keys](/features/api-keys/).
+Bound from `Beacon:ApiKeys`, validated at startup. See [API keys](/security/api-keys/).
 
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
@@ -511,7 +511,7 @@ See [Data migration](/features/data-migration/).
 
 ## Approval workflow
 
-The four-eyes workflow is **off** unless the host turns it on, in code. See [Approvals](/features/approvals/) for what it governs.
+The four-eyes workflow is **off** unless the host turns it on, in code. See [Approvals](/security/approvals/) for what it governs.
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options =>
@@ -537,7 +537,7 @@ The `Covers…` switches apply only while `Enabled` is on. Turning a switch, or 
 
 ## Security audit trail
 
-Beacon records sign-ins and changes to identities, keys, access, data sources, delivery, settings, approvals, ownership, tasks, curation, data quality and migrations in an append-only, signed trail an Auditor reads (see [Security audit trail](/features/security-audit/)). It needs no configuration; these settings tune it:
+Beacon records sign-ins and changes to identities, keys, access, data sources, delivery, settings, approvals, ownership, tasks, curation, data quality and migrations in an append-only, signed trail an Auditor reads (see [Security audit trail](/security/audit-trail/)). It needs no configuration; these settings tune it:
 
 ```json
 {
@@ -555,11 +555,11 @@ Beacon records sign-ins and changes to identities, keys, access, data sources, d
 |---|---|---|---|
 | `Beacon:Audit:IntegrityKey` | string | derived | The secret events are signed with: at least 32 characters, supplied like the encryption key (a secret store, or `Beacon__Audit__IntegrityKey`), never committed. Unset, Beacon derives a key for this purpose from `Beacon:Mcp:CallerHashKey`, else from `Beacon:EncryptionKey`. Set it before you change the encryption key |
 | `Beacon:Audit:PreviousIntegrityKeys` | string[] | empty | Integrity keys used earlier, as a list (`Beacon__Audit__PreviousIntegrityKeys__0`, ...): accepted when verifying events, never used to sign. Move the old key here when you set a new one |
-| `Beacon:Audit:RetentionDays` | int | none (keep forever) | Days events are kept: between `365` and `36500`. The purge must be scheduled; the sample host runs it daily as the Warp job `security-audit-retention` (see [Retention](/features/security-audit/#retention)) |
+| `Beacon:Audit:RetentionDays` | int | none (keep forever) | Days events are kept: between `365` and `36500`. The purge must be scheduled; the sample host runs it daily as the Warp job `security-audit-retention` (see [Retention](/security/audit-trail/#retention)) |
 
 An integrity key shorter than 32 characters or containing `${`, or a retention outside the range, stops the host at startup with a message that never contains a key. At startup the host logs the id of the key events are sealed under and where it comes from (never the key), with a Warning while `IntegrityKey` is unset.
 
-Two jobs keep the trail checked and bounded; neither runs unless the host schedules it. The sample host schedules both as Warp recurring jobs: `security-audit-verify` (hourly at `:15`), which verifies the events written since its last run and writes a checkpoint to the `Beacon.Audit` log stream, and `security-audit-retention` (daily), the purge. A host embedding Beacon schedules `ISecurityAuditVerificationService.VerifyNewEventsAsync` and `ISecurityAuditRetentionService.PurgeExpiredAsync` itself (see [Scheduled verification](/features/security-audit/#scheduled-verification)). Alert on the counters `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero.
+Two jobs keep the trail checked and bounded; neither runs unless the host schedules it. The sample host schedules both as Warp recurring jobs: `security-audit-verify` (hourly at `:15`), which verifies the events written since its last run and writes a checkpoint to the `Beacon.Audit` log stream, and `security-audit-retention` (daily), the purge. A host embedding Beacon schedules `ISecurityAuditVerificationService.VerifyNewEventsAsync` and `ISecurityAuditRetentionService.PurgeExpiredAsync` itself (see [Scheduled verification](/security/audit-trail/#scheduled-verification)). Alert on the counters `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero.
 
 ## AI / LLM
 
@@ -595,7 +595,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 export Beacon__LLM__ApiKey="<provider key>"
 ```
 
-At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [Admin settings](/features/admin-settings/) swaps it immediately, without a restart; after a restart `Beacon:LLM` applies again until the settings are saved. Keep `Beacon:LLM` in step with Admin settings, or save them again after a restart. See [AI providers](/integrate/ai/).
+At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [Admin settings](/security/admin-settings/) swaps it immediately, without a restart; after a restart `Beacon:LLM` applies again until the settings are saved. Keep `Beacon:LLM` in step with Admin settings, or save them again after a restart. See [AI providers](/integrate/ai/).
 
 ### Local embeddings (`Beacon:Embeddings`)
 
@@ -655,7 +655,7 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 | `Beacon:Mcp:ForceReadOnly` | **`true`** | MCP read-only enforcement on, globally and per project; the SQL gate judges every statement read-only whatever it is asked. `false` logs a startup Warning |
 | `Beacon:Mcp:ForcePiiDetection` | **`true`** | PII detection on. `false` logs a startup Warning |
 | `Beacon:Mcp:ForceNoContentRetention` | `false` | Content retention off: questions, SQL and free-text errors are never persisted |
-| `Beacon:Mcp:Audit:RequireContent` | `false` | Content retention on, globally and per project, so the MCP audit keeps the question and the SQL of every statement a call ran. Cannot be combined with `ForceNoContentRetention`: with both on the host fails to start. See [Keeping audit content](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock) |
+| `Beacon:Mcp:Audit:RequireContent` | `false` | Content retention on, globally and per project, so the MCP audit keeps the question and the SQL of every statement a call ran. Cannot be combined with `ForceNoContentRetention`: with both on the host fails to start. See [Keeping audit content](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock) |
 | `Beacon:Mcp:ForbidRowDataToLlm` | `false` | Sample-value collection, value grounding and the eval judge off: no value read from a data source goes to the LLM provider |
 | `Beacon:Mcp:Ceilings:*` | none | Cap the MCP row limit and the SQL and question lengths; the other ceilings clamp recorded settings (see [MCP](#mcp-beaconmcp)) |
 | `Beacon:Mcp:Audit:Required` | `false` | Withhold an MCP tool result whose audit row could not be written |
@@ -663,7 +663,7 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 
 A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
-Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/features/admin-settings/).
+Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
 
 ## MCP (`Beacon:Mcp`)
 
@@ -698,7 +698,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `Audit:RequireContent` | bool | `false` | See [Deployment locks](#deployment-locks) |
 | `CallerHashKey` | string | derived from `Beacon:EncryptionKey` | See [Encryption key](#encryption-key-configuration-required) |
 
-The MCP settings page's own built-in defaults (row limit 1000, PII detection on, content retention on, sample values and value grounding off) are runtime settings, not configuration. See [MCP server](/features/mcp-server/) and [MCP observability and audit](/features/mcp-observability-and-audit/).
+The MCP settings page's own built-in defaults (row limit 1000, PII detection on, content retention on, sample values and value grounding off) are runtime settings, not configuration. See [MCP server](/mcp/server/) and [MCP observability and audit](/mcp/observability-and-audit/).
 
 ### MCP discovery (`Beacon:Mcp:ProtectedResource`)
 
@@ -774,7 +774,7 @@ Register a connector per engine on the builder: `.AddPostgreSqlConnector()`, `.A
 }
 ```
 
-Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/features/security-audit/#shipping-to-a-siem) event (9104 to 9110).
+Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9110).
 
 ## Complete example
 
@@ -818,4 +818,4 @@ Supply `Beacon__EncryptionKey`, `Beacon__Authentication__Oidc__ClientSecret`, `B
 
 - [Host wiring](/integrate/host-setup/): registration and middleware in context
 - [Production checklist](/integrate/production/)
-- [Security model](/features/security-model/)
+- [Security model](/security/)

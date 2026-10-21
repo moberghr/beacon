@@ -2,7 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
-import { sidebar } from './src/sidebar.mjs';
+import { MOVED, sidebar } from './src/sidebar.mjs';
 
 const BASE = '/beacon';
 
@@ -40,6 +40,8 @@ export default defineConfig({
   site: 'https://moberghr.github.io',
   base: BASE,
   trailingSlash: 'ignore',
+  // Pages that moved when MCP and Security became their own sections keep their old URLs working.
+  redirects: Object.fromEntries(Object.entries(MOVED).map(([from, to]) => [`/${from}`, `${BASE}/${to}/`])),
   markdown: {
     rehypePlugins: [rehypeBasePaths],
   },

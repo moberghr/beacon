@@ -43,7 +43,7 @@ Only registered engines appear in **New data source**. Data sources themselves (
 | CloudWatch | Log fields | n/a (Logs Insights queries, no SQL) | n/a | No |
 | REST API | OpenAPI endpoints | n/a (HTTP requests, no SQL) | n/a | No |
 
-Every SQL engine goes through the same [execution gate](/features/security-model/#6-the-sql-execution-gate) before anything runs: length and character checks, a guardrail, a dialect-aware AST validator, the cross-database rule, the refusal of the engine's catalog, statistics and query history, a row cap written into the SQL and a statement timeout. Where the database cannot refuse a write itself, the data source shows a badge and Beacon logs a warning at startup and on save.
+Every SQL engine goes through the same [execution gate](/security/#6-the-sql-execution-gate) before anything runs: length and character checks, a guardrail, a dialect-aware AST validator, the cross-database rule, the refusal of the engine's catalog, statistics and query history, a row cap written into the SQL and a statement timeout. Where the database cannot refuse a write itself, the data source shows a badge and Beacon logs a warning at startup and on save.
 
 :::caution[Always use a read-only login]
 The gate is the main defence; database-level read-only is defence in depth. Give every data source a login that **can only read**, on every engine, including PostgreSQL and MySQL. A data-migration write target is the one exception, and it is a separate, Admin-marked data source.

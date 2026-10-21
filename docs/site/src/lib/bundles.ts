@@ -48,11 +48,15 @@ export async function llmsIndex(): Promise<string> {
 		'',
 		'> Beacon is a .NET 10 platform for database monitoring, alerting and data movement, with a governed Model Context Protocol (MCP) server that gives AI assistants read-only, project-scoped, masked and audited access to your databases. It runs standalone or is embedded in an ASP.NET Core application through the Moberg.Beacon.* NuGet packages.',
 		'',
-		'To integrate Beacon into an application, read the integration bundle first:',
+		'Pick the one-file bundle that matches the goal, read it first, then follow it:',
 		'',
+		`- [Cookbooks (one file)](${SITE_URL}/llms-cookbooks.txt): task-shaped recipes, each start to finish with a check that it works (connect an AI client, publish a saved query as a tool, expose an endpoint as a tool, embed Beacon, single sign-on, alerting, data contracts, audit to a SIEM), and a prompt library`,
 		`- [MCP gateway guide (one file)](${SITE_URL}/llms-gateway.txt): an MCP server for your own ASP.NET Core application: your users, your endpoints as tools, your docs as grounding, no data sources`,
-		`- [Integration guide (all integration pages, one file)](${SITE_URL}/llms-integrate.txt): everything needed to embed Beacon in an ASP.NET Core host`,
+		`- [MCP server (one file)](${SITE_URL}/llms-mcp.txt): the MCP section: tools, guardrails, connecting clients with API keys or Entra, gateway mode, saved-query and endpoint tools, grounding, audit`,
+		`- [Integration guide (one file)](${SITE_URL}/llms-integrate.txt): everything needed to embed Beacon's data product in an ASP.NET Core host, in checklist order`,
 		`- [Full documentation (one file)](${SITE_URL}/llms-full.txt): every page of these docs`,
+		'',
+		'Every page is also served as Markdown at its URL with `.md` appended (for example /mcp/gateway.md).',
 		'',
 	];
 	for (const section of SECTIONS.filter((x) => x.agents !== false)) {

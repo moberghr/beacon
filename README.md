@@ -12,14 +12,15 @@ project-scoped, read-only, masked and audited access to your data.
 [![Docs](https://img.shields.io/badge/docs-moberghr.github.io%2Fbeacon-430cda)](https://moberghr.github.io/beacon)
 [![NuGet](https://img.shields.io/nuget/v/Moberg.Beacon.Core?color=430cda&label=NuGet)](https://www.nuget.org/packages/Moberg.Beacon.Core)
 [![.NET](https://img.shields.io/badge/.NET-10-430cda)](https://dotnet.microsoft.com/)
-[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-430cda)](https://moberghr.github.io/beacon/features/mcp-server/)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-430cda)](https://moberghr.github.io/beacon/mcp/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20or%20commercial-430cda)](LICENSING.md)
 
 [Documentation](https://moberghr.github.io/beacon) ·
+[Cookbooks](https://moberghr.github.io/beacon/cookbooks/) ·
+[MCP](https://moberghr.github.io/beacon/mcp/) ·
 [Integrate](https://moberghr.github.io/beacon/integrate/) ·
-[Quick start](https://moberghr.github.io/beacon/getting-started/quick-start/) ·
-[Security model](https://moberghr.github.io/beacon/features/security-model/) ·
-[MCP server](https://moberghr.github.io/beacon/features/mcp-server/)
+[Security](https://moberghr.github.io/beacon/security/) ·
+[What's new in 5.0](https://moberghr.github.io/beacon/getting-started/whats-new/)
 
 <br/>
 
@@ -41,6 +42,48 @@ Beacon is an operations layer for your databases, your team and your AI assistan
 - **Data movement:** when enabled, audited Insert, Upsert and Truncate-Load jobs write into data sources that an Admin has designated as write targets.
 
 Beacon runs as a self-hosted reference application or inside your own ASP.NET Core application through the `Moberg.Beacon.*` NuGet packages, using your sign-in, job runner and deployment.
+
+> **New in 5.0: the MCP gateway.** `Moberg.Beacon.Gateway` turns your own ASP.NET Core application into an MCP server:
+> people connect Claude, sign in with Microsoft Entra, and Claude calls your endpoints as them, through your own
+> authorization, with every call audited. See [What's new in 5.0](https://moberghr.github.io/beacon/getting-started/whats-new/).
+
+## Choose your path
+
+| You want | Start with | Hand it to your AI |
+|---|---|---|
+| AI clients acting as **your own application's users**, through your endpoints | [MCP gateway recipe](https://moberghr.github.io/beacon/mcp/gateway/) | [`llms-gateway.txt`](https://moberghr.github.io/beacon/llms-gateway.txt) |
+| **Beacon's data product** in your application: monitoring, alerts, data movement, MCP over your databases | [Integrate Beacon](https://moberghr.github.io/beacon/integrate/) | [`llms-integrate.txt`](https://moberghr.github.io/beacon/llms-integrate.txt) |
+| **Claude Code, Cursor or VS Code** on a Beacon that is already running | [Connect a coding agent](https://moberghr.github.io/beacon/cookbooks/connect-coding-agent/) | [`connect-coding-agent.md`](https://moberghr.github.io/beacon/cookbooks/connect-coding-agent.md) |
+| One specific task: single sign-on, a saved query as a tool, Slack alerts, … | [Cookbooks](https://moberghr.github.io/beacon/cookbooks/) | [`llms-cookbooks.txt`](https://moberghr.github.io/beacon/llms-cookbooks.txt) |
+| To see it first | [Run it locally](#running-locally) or browse the [screenshots](#screenshots) | |
+
+## Start with AI
+
+Most integrations are done with a coding agent, and the docs are written for that. Paste the prompt for your goal into
+Claude Code, Cursor or any coding agent working in your repository:
+
+```text
+Add an MCP gateway to this ASP.NET Core app with Beacon.
+Read https://moberghr.github.io/beacon/llms-gateway.txt first and follow it step by step.
+Ask me before every decision it marks as one.
+```
+
+```text
+Integrate Beacon into this ASP.NET Core app.
+Read https://moberghr.github.io/beacon/llms-integrate.txt first and follow its checklist step by step.
+Ask me before every decision the guide marks as one.
+```
+
+With **Claude Code**, install Beacon's plugin and just ask: its skills (`beacon-integrate`, `beacon-gateway`,
+`beacon-tool`, `beacon-entra`) fetch the current guides and follow them.
+
+```text
+/plugin marketplace add moberghr/beacon
+/plugin install beacon@moberg-beacon
+```
+
+More prompts, including the ones you say to Claude once it is connected to your data, are in the
+[prompt library](https://moberghr.github.io/beacon/cookbooks/prompts/). See [Build with AI](https://moberghr.github.io/beacon/getting-started/with-ai/).
 
 ## Security and governance
 
@@ -77,19 +120,11 @@ Every SQL statement that Beacon runs, whether from an MCP tool, a scheduled chec
 | **Protected secrets** | Connection strings are encrypted with AES-256-GCM, API keys are stored as SHA-256 hashes and shown once, Data Protection keys are encrypted at rest outside Development, and sessions are validated on the server with a 12-hour absolute lifetime. |
 | **Per-engine enforcement** | PostgreSQL and MySQL enforce read-only access at the database level. Other engines rely on the gate and a read-only login, and the data source is marked accordingly. |
 
-Read the full [security model](https://moberghr.github.io/beacon/features/security-model/).
+Read the full [security model](https://moberghr.github.io/beacon/security/).
 
 ## Integration
 
-The integration guide is written for developers and coding agents alike and is published as a single Markdown file. To have Claude Code perform the integration:
-
-```text
-Integrate Beacon into this ASP.NET Core app.
-Read https://moberghr.github.io/beacon/llms-integrate.txt first and follow its checklist step by step.
-Ask me before every decision the guide marks as one.
-```
-
-The core registration in an embedded host:
+The core registration in a host that embeds Beacon's data product (the [gateway](https://moberghr.github.io/beacon/mcp/gateway/) needs far less):
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options =>
@@ -194,6 +229,10 @@ See the [quick start](https://moberghr.github.io/beacon/getting-started/quick-st
 
 ## The MCP server
 
+MCP has its own README: **[src/Beacon.MCP/README.md](src/Beacon.MCP/README.md)**, and its own section in the docs:
+**[MCP](https://moberghr.github.io/beacon/mcp/)**. The gateway mode is described in
+[src/Beacon.Gateway/README.md](src/Beacon.Gateway/README.md).
+
 The MCP server uses Streamable HTTP at `/beacon/mcp`. Clients authenticate with `Authorization: Bearer sk-sem_…` (an API key with the Execute scope, limited to its projects) or with a Microsoft Entra access token mapped to an MCP caller.
 
 | Tool | What it does |
@@ -214,7 +253,7 @@ claude mcp add --transport http beacon https://beacon.example.com/beacon/mcp \
   --header "Authorization: Bearer $BEACON_MCP_API_KEY"
 ```
 
-See [MCP server](https://moberghr.github.io/beacon/features/mcp-server/) and [connecting AI clients](https://moberghr.github.io/beacon/integrate/mcp/).
+See [Server & tools](https://moberghr.github.io/beacon/mcp/server/), [Connect AI clients](https://moberghr.github.io/beacon/mcp/connect/) and the [cookbooks](https://moberghr.github.io/beacon/cookbooks/).
 
 ## Architecture
 
@@ -251,11 +290,15 @@ All project references point to `Beacon.Core`. One MediatR handler backs each RE
 | `Beacon.AI.Bedrock` | Optional AWS Bedrock LLM provider |
 | `Beacon.AI.Embeddings.Onnx` | Optional local ONNX embeddings for semantic retrieval |
 | `Beacon.MCP` | MCP server, tools, filters, discovery documents, host endpoint tools |
+| `Beacon.Gateway` | Beacon as the MCP gateway of a host application: host users as callers, endpoints as tools, no data sources |
+| `Beacon.Testing` | Test tokens, test users and an MCP client for a gateway host's tests |
+| `Beacon.Doctor` | `beacon-doctor`, a .NET tool that checks a deployed MCP endpoint the way a client sees it |
 | `Beacon.Connector.*` | PostgreSQL, SQL Server, MySQL, Synapse, Snowflake, BigQuery, Databricks, CloudWatch, REST API |
 | `Beacon.SampleProject` | The reference host (never shipped): Warp jobs, OIDC, OpenTelemetry |
+| `Beacon.SampleGateway` | The reference gateway host (never shipped): an orders application whose customers ask an AI client about their own orders |
 | `Beacon.Tests` | NUnit 4, Moq, FluentAssertions; EF translation tests and SQL goldens |
 
-**Stack:** .NET 10 · C# 14 · ASP.NET Core · EF Core 10 (dual provider) · Dapper · MediatR · ModelContextProtocol · React 18 · Vite · TypeScript · Tailwind CSS · Vitest · about 7,000 backend test cases.
+**Stack:** .NET 10 · C# 14 · ASP.NET Core · EF Core 10 (dual provider) · Dapper · MediatR · ModelContextProtocol · React 18 · Vite · TypeScript · Tailwind CSS · Vitest · more than 9,000 backend test cases.
 
 ## Requirements
 
@@ -269,11 +312,14 @@ All project references point to `Beacon.Core`. One MediatR handler backs each RE
 
 | File | Content |
 |---|---|
-| [`llms.txt`](https://moberghr.github.io/beacon/llms.txt) | Index of every page |
+| [`llms.txt`](https://moberghr.github.io/beacon/llms.txt) | Index of every page and bundle |
+| [`llms-gateway.txt`](https://moberghr.github.io/beacon/llms-gateway.txt) | The MCP gateway guide in one file |
 | [`llms-integrate.txt`](https://moberghr.github.io/beacon/llms-integrate.txt) | The integration guide in one file |
+| [`llms-mcp.txt`](https://moberghr.github.io/beacon/llms-mcp.txt) | The MCP section in one file |
+| [`llms-cookbooks.txt`](https://moberghr.github.io/beacon/llms-cookbooks.txt) | Every recipe and the prompt library |
 | [`llms-full.txt`](https://moberghr.github.io/beacon/llms-full.txt) | The whole documentation |
 
-Every page is also served as Markdown: append `.md` to its URL.
+Every page is also served as Markdown: append `.md` to its URL. The Claude Code plugin lives in [`plugins/beacon`](plugins/beacon).
 
 ## Contributing and support
 

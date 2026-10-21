@@ -5,7 +5,7 @@ description: "How Beacon decides access: projects as the boundary, global and pr
 
 Beacon authorizes in two layers. A caller's **global role** (read, write) comes from a pluggable `IBeaconAuthorizationProvider`. Its **project access** (which projects, and through them which data sources, it may use, and which action it may take there) comes from one evaluator, `IProjectAccessEvaluator`. On top of both, the Admin role's duties are split into six **functional permissions** that grant no project data.
 
-This page is the reference for those rules. For accounts, sign-in and sessions see [User management](/features/user-management/); for how the controls fit together see [Security model](/features/security-model/).
+This page is the reference for those rules. For accounts, sign-in and sessions see [User management](/security/user-management/); for how the controls fit together see [Security model](/security/).
 
 ## Overview
 
@@ -28,7 +28,7 @@ The building blocks:
 
 ## Enabling authorization
 
-With Beacon's [user management](/features/user-management/), roles come from Beacon's database and `DatabaseAuthorizationProvider` is registered for you:
+With Beacon's [user management](/security/user-management/), roles come from Beacon's database and `DatabaseAuthorizationProvider` is registered for you:
 
 ```csharp
 builder.Services.AddBeaconServices(builder.Configuration, options =>
@@ -116,7 +116,7 @@ A member holds one role per project. A global Viewer is a Viewer in every projec
 
 The recorded owner is a data contract's or subscription's owner, an AI actor's creator and a query's lock holder. Owner rules on tasks, contracts and AI actors apply on top: both the project action and the owner rule must pass. A UserAdmin also manages the members of every project and restricts any project without being its member; a DataSourceAdmin links data sources no open project holds (see [Functional permissions](#functional-permissions)).
 
-**ManageMembers and Curate are membership-only.** An open project never grants them, and they are never granted to an API key (Read or Execute scope), an MCP caller (user or system) or the owner of scheduled work. Curation that records who decided (reviewing a learned pattern, verifying a relationship) also needs a signed-in Beacon user (`403` otherwise). A data source's shared grounding (relationships, documentation patches to descriptions) needs Curate in **every** live project linking the source, or the DataSourceAdmin permission; a relationship someone without Curate creates or relabels is stored unverified until a curator verifies it. Golden examples and the glossary stay Admin-only. See [Knowledge base → Who curates grounding](/features/knowledge-base/#who-curates-grounding).
+**ManageMembers and Curate are membership-only.** An open project never grants them, and they are never granted to an API key (Read or Execute scope), an MCP caller (user or system) or the owner of scheduled work. Curation that records who decided (reviewing a learned pattern, verifying a relationship) also needs a signed-in Beacon user (`403` otherwise). A data source's shared grounding (relationships, documentation patches to descriptions) needs Curate in **every** live project linking the source, or the DataSourceAdmin permission; a relationship someone without Curate creates or relabels is stored unverified until a curator verifies it. Golden examples and the glossary stay Admin-only. See [Knowledge base → Who curates grounding](/mcp/knowledge-base/#who-curates-grounding).
 
 ### Data sources follow their projects
 
@@ -139,7 +139,7 @@ SQL that Beacon runs against a data source may name objects of that source's own
 - **Objects in the source's own database** (views, synonyms, foreign tables, procedures) are allowed by name and read with the login's grants. Grant the login only what the data source should expose.
 - **Where:** every statement Beacon runs on a data source passes the same execution gate: the MCP tools, saving a query or step (also by an AI actor), previews, subscription and test-delivery runs, AI actor checks, data-migration reads, Custom SQL rules, documentation enum discovery and value-grounding probes. The in-memory join of a multi-step query reaches no database and is not checked. `IDataSourceProvider.Execute*` called directly by a host, and the metadata extractors (fixed catalog SQL), are not checked.
 
-See [Security model](/features/security-model/) for the full execution gate.
+See [Security model](/security/) for the full execution gate.
 
 ### Guardrails of shared data sources
 
@@ -165,7 +165,7 @@ Read-only enforcement, PII detection and the row limit apply to the MCP tools th
 | Other work without a request, in a scope marked as system work | the system, unrestricted |
 | Work without a request, in an unmarked scope | nothing (fail closed, a warning is logged) |
 
-See [API keys](/features/api-keys/#project-restrictions), [MCP server](/features/mcp-server/) and [Entra ID callers](/features/mcp-entra-callers/) for their own rules.
+See [API keys](/security/api-keys/#project-restrictions), [MCP server](/mcp/server/) and [Entra ID callers](/mcp/entra-callers/) for their own rules.
 
 ### How it is enforced: 404 versus 403
 
@@ -218,8 +218,8 @@ The Admin role's duties are split into six functional permissions. An Admin hold
 
 | Permission | The duty |
 |---|---|
-| **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own; reads every project's approval requests. See [Approvals](/features/approvals/) |
-| **Auditor** | Reads and verifies the [security audit trail](/features/security-audit/); reads the MCP audit, the MCP and project settings, the admin settings (secrets masked), every user's API keys and what a user owns, created or changed last |
+| **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own; reads every project's approval requests. See [Approvals](/security/approvals/) |
+| **Auditor** | Reads and verifies the [security audit trail](/security/audit-trail/); reads the MCP audit, the MCP and project settings, the admin settings (secrets masked), every user's API keys and what a user owns, created or changed last |
 | **SecurityAdmin** | Changes the MCP settings and the admin settings except the LLM connection and base URL; manages recipients; publishes saved queries as MCP tools; sets repository access tokens |
 | **UserAdmin** | Manages users (external users only) and their roles and sessions, sees what a user owns, created or changed last, revokes any user's API keys, changes the owner of scheduled work, manages the members of any project, restricts projects |
 | **DataSourceAdmin** | Creates, tests, edits (replacing the connection), disables, enables and deletes data sources; links a data source no open project holds into a project it administers, when it can read the source; changes shared data-source state; forces a metadata refresh without the cooldown |
@@ -263,7 +263,7 @@ The complete route list is on [Routes & endpoints](/reference/routes/).
 - **Permissions are read live.** Each route carries the policy `BeaconApi.{Permission}`, which admits the Admin role or the permission's role among the session's claims; the permission filter then admits the caller only if they hold the permission **now** (`IBeaconPermissionAccessor`). A user whose role was removed gets `403` although their session still carries the claim. The `BeaconApi.` policy-name prefix is reserved for Beacon.
 - **API keys hold none.** A key carries no role and no functional permission, whatever its owner holds. A key refused on such a route is told: *"API keys cannot use administrative routes; sign in as a user with the X permission."*
 - **A UserAdmin cannot raise anyone, itself included.** A UserAdmin who is not an Admin never assigns or removes the Admin role or a functional role, never changes their own account, roles or project membership, and never touches a **protected user**: an Admin, a super admin, or a holder of any level-0 system role (other UserAdmins included). A UserAdmin cannot create an **internal** (password) user nor change a user's user name or e-mail address (`403`), so it cannot make an account it can sign in to. No route sets another user's password. A UserAdmin restricts projects but does not open one, and never makes themselves an owner of scheduled work.
-- **What a UserAdmin can do, and how to watch it.** A UserAdmin creates external users, gives them Viewer or Editor, and adds unprotected users to any project. The identity provider and its [admission rules](/features/user-management/#single-sign-on-admission) bound what an external user reaches. To review these changes, alert on events **7114** (`UserCreated`), **7101** (`MemberAdded`) and **7113** (`UserRolesChanged`) whose actor holds UserAdmin.
+- **What a UserAdmin can do, and how to watch it.** A UserAdmin creates external users, gives them Viewer or Editor, and adds unprotected users to any project. The identity provider and its [admission rules](/security/user-management/#single-sign-on-admission) bound what an external user reaches. To review these changes, alert on events **7114** (`UserCreated`), **7101** (`MemberAdded`) and **7113** (`UserRolesChanged`) whose actor holds UserAdmin.
 - **A MigrationOperator has no bypass.** Creating, running and deleting a job need Query on the declared source and on every step's data source and Write on the destination, and the destination may not be more widely reachable than its sources. See [Data migration](/features/data-migration/).
 - **A DataSourceAdmin links without gaining access.** Linking gives no membership of other projects; the DataSourceAdmin still needs the project admin role in the target project. A source it cannot read is linked only by someone who can (in practice an Admin).
 - **A SecurityAdmin tightens, an Admin loosens.** A SecurityAdmin turns read-only enforcement and PII detection on, globally and per project; turning either off is an Admin's (`403`), and nobody's while the deployment locks them (`409`). Changing where a recipient delivers is refused (`403`) when the recipient is attached to work the SecurityAdmin cannot read.
@@ -292,13 +292,13 @@ With it on, also: an `IdpRoles:Map` that maps onto both permissions of a pair fa
 
 ### Sessions and the realtime hub
 
-With user management on, a `Beacon.Auth` session's role claims are replaced by the stored roles at every revalidation (`Beacon:Authentication:Session:RevalidateMinutes`, default 5), and a role change renews the user's security stamp, so their sessions end. See [User management → Sign-in sessions](/features/user-management/#sign-in-sessions).
+With user management on, a `Beacon.Auth` session's role claims are replaced by the stored roles at every revalidation (`Beacon:Authentication:Session:RevalidateMinutes`, default 5), and a role change renews the user's security stamp, so their sessions end. See [User management → Sign-in sessions](/security/user-management/#sign-in-sessions).
 
 The realtime hub (`/beacon/api/hub`) admits a signed-in caller with read permission, or one holding **Approver** or **MigrationOperator** (their pages refresh from hub events). Other functional-only users get `403` at negotiation and `GET /beacon/api/auth/me` reports `realtimeEnabled: false`. API keys get no hub connection.
 
 ## MCP safety locks
 
-Read-only enforcement and PII detection are MCP settings, globally and per project, but by default the deployment pins both on: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` default to `true`. Two more locks are off by default: `ForceNoContentRetention` (questions, SQL and free-text errors never persisted) and `ForbidRowDataToLlm` (no value read from a data source reaches the LLM provider). `Beacon:Mcp:Audit:RequireContent` (off by default) pins content retention **on**, so the MCP audit keeps question and SQL text; it cannot be combined with `ForceNoContentRetention` (the host does not start with both on), see [Keeping audit content](/features/mcp-observability-and-audit/#keeping-audit-content-the-requirecontent-lock). While a lock is on, nobody can change the setting it pins, an Admin included (`409`, `/errors/setting-locked`); `GET /beacon/api/mcp/settings/locks` lists the pinned settings, and the MCP settings page shows them disabled. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Only host configuration lifts a lock; see [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks).
+Read-only enforcement and PII detection are MCP settings, globally and per project, but by default the deployment pins both on: `Beacon:Mcp:ForceReadOnly` and `Beacon:Mcp:ForcePiiDetection` default to `true`. Two more locks are off by default: `ForceNoContentRetention` (questions, SQL and free-text errors never persisted) and `ForbidRowDataToLlm` (no value read from a data source reaches the LLM provider). `Beacon:Mcp:Audit:RequireContent` (off by default) pins content retention **on**, so the MCP audit keeps question and SQL text; it cannot be combined with `ForceNoContentRetention` (the host does not start with both on), see [Keeping audit content](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock). While a lock is on, nobody can change the setting it pins, an Admin included (`409`, `/errors/setting-locked`); `GET /beacon/api/mcp/settings/locks` lists the pinned settings, and the MCP settings page shows them disabled. Stored values a lock overrides are kept, have no effect, and are listed in one startup warning. Only host configuration lifts a lock; see [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks).
 
 ## Host seams
 
@@ -351,9 +351,9 @@ Bound from `Beacon:Authorization` and validated at startup: `RequireProjectMembe
 
 ## Audit and security events
 
-Security-relevant actions (sign-ins, users and roles, API keys, project access, data sources, delivery, settings, approvals, ownership, alert tasks, curation, data contracts and migration jobs) are recorded in the append-only, signed [security audit trail](/features/security-audit/), which an Auditor reads and verifies. Beacon also keeps `McpAuditLog` (every MCP tool call and the statements it ran, read by Auditors) and `AppSettingHistory` (admin settings, MCP settings and migration-write-target changes), and writes security-relevant actions as structured log events 7101–7123 with identifiers only; those log events are not stored by Beacon, so route them through your log pipeline. See [MCP observability and audit](/features/mcp-observability-and-audit/) and [Security model](/features/security-model/).
+Security-relevant actions (sign-ins, users and roles, API keys, project access, data sources, delivery, settings, approvals, ownership, alert tasks, curation, data contracts and migration jobs) are recorded in the append-only, signed [security audit trail](/security/audit-trail/), which an Auditor reads and verifies. Beacon also keeps `McpAuditLog` (every MCP tool call and the statements it ran, read by Auditors) and `AppSettingHistory` (admin settings, MCP settings and migration-write-target changes), and writes security-relevant actions as structured log events 7101–7123 with identifiers only; those log events are not stored by Beacon, so route them through your log pipeline. See [MCP observability and audit](/mcp/observability-and-audit/) and [Security model](/security/).
 
-Queries, subscriptions, recipients, data contracts and migration jobs also record who created them and who changed them last. They implement `IAttributedEntity` (`Beacon.Core.Data.Entities.Base`: `CreatedByUserId` and `ModifiedByUserId`, the `Users.ExternalId` of the creator and of the last to change it, and `ModifiedTime`). Beacon sets them from the request's caller (`BeaconActor.UserId`, with `Attribution.RecordChangeBy`), never from a request body; they are null for resources created or changed before they were recorded. An Auditor or a UserAdmin lists a user's resources with `GET /beacon/api/users/{id}/owned-resources` (see [User management: Owned resources](/features/user-management/#owned-resources)).
+Queries, subscriptions, recipients, data contracts and migration jobs also record who created them and who changed them last. They implement `IAttributedEntity` (`Beacon.Core.Data.Entities.Base`: `CreatedByUserId` and `ModifiedByUserId`, the `Users.ExternalId` of the creator and of the last to change it, and `ModifiedTime`). Beacon sets them from the request's caller (`BeaconActor.UserId`, with `Attribution.RecordChangeBy`), never from a request body; they are null for resources created or changed before they were recorded. An Auditor or a UserAdmin lists a user's resources with `GET /beacon/api/users/{id}/owned-resources` (see [User management: Owned resources](/security/user-management/#owned-resources)).
 
 ## Troubleshooting
 
@@ -375,7 +375,7 @@ Queries, subscriptions, recipients, data contracts and migration jobs also recor
 4. Behind a reverse proxy, configure forwarded headers so the per-IP login and setup throttles see the client, not the proxy.
 5. Alert on `AccessRefused` (7108) spikes and on the UserAdmin events above.
 6. Keep `RevalidateMinutes` short and `AbsoluteLifetimeHours` to a working day; use **Sign out everywhere** when an account may be compromised.
-7. With single sign-on, turn local password sign-in off and keep a break-glass account ([Local password sign-in](/features/user-management/#local-password-sign-in)).
+7. With single sign-on, turn local password sign-in off and keep a break-glass account ([Local password sign-in](/security/user-management/#local-password-sign-in)).
 8. Restrict sensitive projects (new ones already are), give each data source a login that sees only what its projects should, and configure its database in the connection.
 9. Turn on separation of duties where one person must not hold both sides of a pair.
 
@@ -412,7 +412,7 @@ Existing Admins are unchanged: they hold every permission, and the new roles are
 - The `AddUserSecurityStamp` migration adds `users.security_stamp` and `must_change_password`. Password changes, disabling, role changes and **sign out everywhere** end the user's other sessions.
 - `AddBeaconCookieAuthentication` no longer configures Data Protection: call `AddBeaconDataProtection(configuration, environment)` or configure your own; outside Development set `Beacon:DataProtection:ApplicationName` and encrypt the key ring. Everyone signs in again once.
 - `Beacon:EncryptionKey` is checked in every environment; list a replaced key in `Beacon:PreviousEncryptionKeys`.
-- See [User management → Upgrading from 4.5](/features/user-management/#upgrading-from-45) for sign-in changes (local login, break-glass, forced password change, `RequireMfa`).
+- See [User management → Upgrading from 4.5](/security/user-management/#upgrading-from-45) for sign-in changes (local login, break-glass, forced password change, `RequireMfa`).
 
 ### Upgrading: data minimisation
 
@@ -423,15 +423,15 @@ Existing Admins are unchanged: they hold every permission, and the new roles are
 
 ### Upgrading: change governance
 
-The approval workflow became a four-eyes control bound to reviewed content, and was extended to migration jobs, Custom SQL rules and recipient destinations. It stays opt-in. Pending requests made before the upgrade can only be rejected and resubmitted. Apply the `AddQueryChangeIntegrity` and `AddChangeApprovalRequests` migrations. See [Approvals](/features/approvals/).
+The approval workflow became a four-eyes control bound to reviewed content, and was extended to migration jobs, Custom SQL rules and recipient destinations. It stays opt-in. Pending requests made before the upgrade can only be rejected and resubmitted. Apply the `AddQueryChangeIntegrity` and `AddChangeApprovalRequests` migrations. See [Approvals](/security/approvals/).
 
 ### Upgrading: grounding integrity
 
-Feedback no longer creates golden examples (an Admin promotes candidates), curation needs the project admin role, every curation binds to the content reviewed, and grounding SQL is checked before it is stored. Apply the `AddGroundingAttribution` and `AddGroundingProvenance` migrations, review existing golden cases that record no promoting user, and add a project admin to each project whose grounding someone other than an Admin should curate. See [Knowledge base](/features/knowledge-base/#who-curates-grounding).
+Feedback no longer creates golden examples (an Admin promotes candidates), curation needs the project admin role, every curation binds to the content reviewed, and grounding SQL is checked before it is stored. Apply the `AddGroundingAttribution` and `AddGroundingProvenance` migrations, review existing golden cases that record no promoting user, and add a project admin to each project whose grounding someone other than an Admin should curate. See [Knowledge base](/mcp/knowledge-base/#who-curates-grounding).
 
 ### Upgrading: security audit trail
 
-Security-relevant actions are recorded in an append-only, signed trail an Auditor reads and verifies, governed resources record who created and last changed them, and the MCP audit keeps the statements each call ran. Apply the `AddSecurityAuditTrail` migration (additive; nothing is backfilled). See [Security audit trail: Upgrading](/features/security-audit/#upgrading) for the schema, public API and REST changes.
+Security-relevant actions are recorded in an append-only, signed trail an Auditor reads and verifies, governed resources record who created and last changed them, and the MCP audit keeps the statements each call ran. Apply the `AddSecurityAuditTrail` migration (additive; nothing is backfilled). See [Security audit trail: Upgrading](/security/audit-trail/#upgrading) for the schema, public API and REST changes.
 
 - **Events and attribution start at the upgrade.** Existing resources record no creator or last modifier until they are next changed.
 - **Set `Beacon:Audit:IntegrityKey`** before you change the encryption key or the caller hash key; otherwise events signed under the old derived key verify as *unknown key* once that secret leaves the configuration.
@@ -448,8 +448,8 @@ SQL that reads the engine's catalog, statistics or query history (`information_s
 
 ## See also
 
-- [User management](/features/user-management/): accounts, sign-in, sessions, functional roles on the Users page
-- [API keys](/features/api-keys/): scopes, project lists, expiry
-- [Approvals](/features/approvals/): the four-eyes workflow
-- [Security model](/features/security-model/): the controls end to end
+- [User management](/security/user-management/): accounts, sign-in, sessions, functional roles on the Users page
+- [API keys](/security/api-keys/): scopes, project lists, expiry
+- [Approvals](/security/approvals/): the four-eyes workflow
+- [Security model](/security/): the controls end to end
 - [Configuration](/getting-started/configuration/): every key

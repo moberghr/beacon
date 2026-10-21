@@ -15,4 +15,4 @@ dotnet run
 ```
 
 Then `/signin?customer=1` opens the admin UI at `/beacon` (customer 1 holds the gateway admin policy), and an MCP client
-connects to `/beacon/mcp`. See the gateway guide: https://moberghr.github.io/beacon/integrate/gateway/
+connects to `/beacon/mcp`. See the gateway guide: https://moberghr.github.io/beacon/mcp/gateway/

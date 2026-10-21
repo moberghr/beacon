@@ -54,9 +54,9 @@ The dialog blocks accidental dismissal (backdrop click and Escape are disabled) 
 
 ### Project restrictions
 
-Every new key names the projects it may use: `allowedProjectIds` on the create request (`POST /beacon/api/api-keys`) must list at least one project (`400` otherwise), and each must be a project the creator can read **without the Admin bypass**. An open project, or a restricted one they are a member of (`404` otherwise). An Admin's key cannot name a restricted project the Admin is not a member of. The dialog's project picker lists only these projects (`GET /beacon/api/projects?forApiKey=true`). A key never exceeds its owner: on every request it reaches the projects in its list **where its owner still has access**, at most at the owner's role there, capped by the lower of the key's scope and the owner's global role (a `Read` key reads and runs saved SQL only; a key whose owner may neither read nor write reaches nothing). A key never gets the Admin bypass, even when its owner is an Admin, and never manages project members. See [Project access](/features/authorization/#project-access).
+Every new key names the projects it may use: `allowedProjectIds` on the create request (`POST /beacon/api/api-keys`) must list at least one project (`400` otherwise), and each must be a project the creator can read **without the Admin bypass**. An open project, or a restricted one they are a member of (`404` otherwise). An Admin's key cannot name a restricted project the Admin is not a member of. The dialog's project picker lists only these projects (`GET /beacon/api/projects?forApiKey=true`). A key never exceeds its owner: on every request it reaches the projects in its list **where its owner still has access**, at most at the owner's role there, capped by the lower of the key's scope and the owner's global role (a `Read` key reads and runs saved SQL only; a key whose owner may neither read nor write reaches nothing). A key never gets the Admin bypass, even when its owner is an Admin, and never manages project members. See [Project access](/security/authorization/#project-access).
 
-The list is enforced on every REST route and on the [MCP Server](/features/mcp-server/), by the same project access rules on both, fail-closed: a malformed restriction claim denies every project rather than falling open.
+The list is enforced on every REST route and on the [MCP Server](/mcp/server/), by the same project access rules on both, fail-closed: a malformed restriction claim denies every project rather than falling open.
 
 **Keys created without a list** (before lists were required) act with their owner's project access, over REST and on MCP: they reach every project their owner may use. Re-issue them with a project list to confine them.
 
@@ -72,9 +72,9 @@ The list is enforced on every REST route and on the [MCP Server](/features/mcp-s
 - For a key, every `/beacon/api` request that is not `GET`, `HEAD` or `OPTIONS` needs the `Execute` scope: creating or editing queries, subscriptions and recipients, running previews, evaluating data contracts, triggering scans, documentation generation, AI actors and so on. The few `GET` routes that run SQL or dial a data source (for example `GET /beacon/api/data-sources/{id}/metadata`, which scans the data source when no metadata is stored yet) need `Execute` too. Everything else a `Read` key may call is a read-only `GET`.
 - This is enforced on every request, whether or not `Authorization.Enabled` or `UserManagement.Enabled` is set. When either is set, the owner's role is checked as well: the scope is a ceiling, not a grant.
 - **`Execute` follows the owner.** A key keeps the `Execute` scope only while its owner has write permission (the Editor role or above, or super admin, and the authorization provider's consent), checked on every request from the owner's current roles and the provider's current answer. When the owner loses it, the key acts as a `Read` key (and a warning naming the key id is logged once per process); when the owner regains it, so does the key. This holds whatever `Authorization.Enabled` says.
-- The **MCP endpoint** `/beacon/mcp` requires the `Execute` scope as a whole, because its tools can run SQL. A `Read` key cannot open an MCP session when the host maps the endpoint with `app.MapBeaconMcp()`, and inside the MCP layer every request from it is refused either way. See the [MCP Server guide](/features/mcp-server/).
+- The **MCP endpoint** `/beacon/mcp` requires the `Execute` scope as a whole, because its tools can run SQL. A `Read` key cannot open an MCP session when the host maps the endpoint with `app.MapBeaconMcp()`, and inside the MCP layer every request from it is refused either way. See the [MCP Server guide](/mcp/server/).
 - The **real-time hub** (`/beacon/api/hub`) accepts browser sessions only; no key reaches it.
-- Routes that require the Admin role or a [functional permission](/features/authorization/#functional-permissions) (user management, settings, data-source administration, the key administration below) are never reachable with a key: keys carry no role and no functional permission, whatever their owner holds. A key refused on a route that requires a permission gets `403` with the detail *"API keys cannot use administrative routes; sign in as a user with the X permission."* Automate administrative work as a signed-in user.
+- Routes that require the Admin role or a [functional permission](/security/authorization/#functional-permissions) (user management, settings, data-source administration, the key administration below) are never reachable with a key: keys carry no role and no functional permission, whatever their owner holds. A key refused on a route that requires a permission gets `403` with the detail *"API keys cannot use administrative routes; sign in as a user with the X permission."* Automate administrative work as a signed-in user.
 - Scopes are attached to the request as claims by the API-key authentication middleware. Interactive browser sessions (cookie/OIDC) carry no scope claims and are not scope-gated. They are governed by user roles instead. Scopes constrain **API keys and Entra callers on MCP only**.
 - Requests authenticated with an API key or a bearer token in the `Authorization` header need no antiforgery token, and `GET /beacon/api/csrf` does not issue one to them (it answers `400`). Browser sessions keep sending the token as before.
 
@@ -110,7 +110,7 @@ Admins, Auditors and UserAdmins see a second table on the same page, **All API k
 | `GET` | `/beacon/api/api-keys/admin?userId={id}` | Every key, newest first, or only the keys of user `id`; paged and sortable like other lists | Admin, Auditor, UserAdmin |
 | `DELETE` | `/beacon/api/api-keys/admin/{id}` | Revokes key `id`, whoever owns it (a UserAdmin who is not an Admin: not the key of an Admin, a super admin or a functional role holder, `403`) | Admin, UserAdmin |
 
-Besides the route's policy, the caller must hold the role in the user store at the time of the request (enabled; super admin, the Admin role, or the [functional permission](/features/authorization/#functional-permissions)). A session whose user has since been demoted or disabled is refused with `403`. API keys never reach them.
+Besides the route's policy, the caller must hold the role in the user store at the time of the request (enabled; super admin, the Admin role, or the [functional permission](/security/authorization/#functional-permissions)). A session whose user has since been demoted or disabled is refused with `403`. API keys never reach them.
 
 ### When the owner leaves
 
@@ -127,7 +127,7 @@ A key works only while its owner can sign in:
 
 Creating a key (`keys.api_key_created`: its owner, scopes, projects and expiry, never the key or its hash), revoking
 your own (`keys.api_key_revoked`) and revoking someone else's (`keys.api_key_revoked_by_administrator`) are recorded in
-the [security audit trail](/features/security-audit/), as are the keys revoked when their owner is disabled, re-enabled
+the [security audit trail](/security/audit-trail/), as are the keys revoked when their owner is disabled, re-enabled
 or archived (counted on the user's event). Every other event recorded while a request used a key names the key
 (`ApiKeyId`) and its owner (`ActorUserId`), with the actor kind `api_key`. An Auditor reads them on the **Security Audit**
 page.
@@ -168,7 +168,7 @@ The full endpoint surface is described by the OpenAPI document at `/openapi/v1.j
 
 ### With the MCP Server
 
-API keys are the authentication mechanism for the [MCP Server](/features/mcp-server/) at `/beacon/mcp`. Use an `Execute` key and add it to your MCP client configuration:
+API keys are the authentication mechanism for the [MCP Server](/mcp/server/) at `/beacon/mcp`. Use an `Execute` key and add it to your MCP client configuration:
 
 ```json
 {
@@ -183,7 +183,7 @@ API keys are the authentication mechanism for the [MCP Server](/features/mcp-ser
 }
 ```
 
-If the key is restricted to a single project, all MCP tools resolve that project automatically. If it has access to multiple projects, pass `project_id` in tool calls. See [MCP Server](/features/mcp-server/) for the full tool reference.
+If the key is restricted to a single project, all MCP tools resolve that project automatically. If it has access to multiple projects, pass `project_id` in tool calls. See [MCP Server](/mcp/server/) for the full tool reference.
 
 ## How Validation Works
 
