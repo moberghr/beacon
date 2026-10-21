@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Dapper;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -26,6 +27,10 @@ namespace Beacon.Tests.Unit;
 public class InMemoryDatabaseManagerTests
 {
     // Counts to 100M one row at a time — tens of seconds of CPU, far past every deadline below.
+    private const int TimeoutSeconds = 30;
+
+    private const int MaxRows = 1000;
+
     private const string RunawayQuery = "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100000000) SELECT COUNT(*) FROM r";
 
     // A nested block comment, which SqlParserCS and SQLite end in different places. The AST gate refuses it, and the
@@ -42,7 +47,7 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
 
-        var act = () => manager.ExecuteQueryAsync("ATTACH DATABASE ':memory:' AS x");
+        var act = () => manager.ExecuteQueryAsync("ATTACH DATABASE ':memory:' AS x", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         await act.Should().ThrowAsync<SqliteException>()
             .Where(x => x.SqliteErrorCode == raw.SQLITE_AUTH, "the read-only authorizer refuses ATTACH while it compiles");
@@ -61,7 +66,7 @@ public class InMemoryDatabaseManagerTests
             using var manager = await ManagerWithPeople();
             Run(manager, sql).Should().Be(raw.SQLITE_AUTH, "the load authorizer refuses it (VACUUM INTO asks when it runs)");
 
-            var act = () => manager.ExecuteQueryAsync(sql);
+            var act = () => manager.ExecuteQueryAsync(sql, TimeoutSeconds, MaxRows, CancellationToken.None);
             await act.Should().ThrowAsync<SqliteException>()
                 .Where(x => x.SqliteErrorCode == raw.SQLITE_AUTH, "the read-only authorizer refuses it");
 
@@ -89,7 +94,7 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = await ManagerWithPeople();
 
-        var act = () => manager.ExecuteQueryAsync(NestedCommentSmuggle);
+        var act = () => manager.ExecuteQueryAsync(NestedCommentSmuggle, TimeoutSeconds, MaxRows, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Nested block comments*");
@@ -105,6 +110,7 @@ public class InMemoryDatabaseManagerTests
             NestedCommentSmuggle,
             new Paging(),
             x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            TimeoutSeconds,
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
@@ -117,7 +123,7 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = await ManagerWithPeople();
 
-        var act = () => manager.ExecuteQueryAsync("SELECT * FROM [result1]; CREATE TABLE smuggled(x)");
+        var act = () => manager.ExecuteQueryAsync("SELECT * FROM [result1]; CREATE TABLE smuggled(x)", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*single SQL statement*");
@@ -129,7 +135,7 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
 
-        var act = () => manager.ExecuteQueryAsync("SELECT 1; SELECT 2");
+        var act = () => manager.ExecuteQueryAsync("SELECT 1; SELECT 2", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*single SQL statement*");
@@ -145,6 +151,7 @@ public class InMemoryDatabaseManagerTests
             "SELECT * FROM [result1]; CREATE TABLE smuggled(x)",
             new Paging(),
             _ => null,
+            TimeoutSeconds,
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
@@ -157,7 +164,7 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
 
-        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT 41 + 1 AS answer; -- the answer\n /* done */ ;");
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT 41 + 1 AS answer; -- the answer\n /* done */ ;", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         results.Should().ContainSingle()
             .Which["answer"].Should().Be(42L);
@@ -171,7 +178,7 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = await ManagerWithPeople();
 
-        var act = () => manager.ExecuteQueryAsync(sql);
+        var act = () => manager.ExecuteQueryAsync(sql, TimeoutSeconds, MaxRows, CancellationToken.None);
 
         await act.Should().ThrowAsync<SqliteException>()
             .Where(x => x.SqliteErrorCode == raw.SQLITE_AUTH);
@@ -183,7 +190,7 @@ public class InMemoryDatabaseManagerTests
     public async Task CreateTableFromResults_AfterAQueryRan_IsRefused()
     {
         using var manager = await ManagerWithPeople();
-        await manager.ExecuteQueryAsync("SELECT 1");
+        await manager.ExecuteQueryAsync("SELECT 1", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         var act = () => manager.CreateTableFromResults("result2", People(), Project());
 
@@ -210,7 +217,7 @@ public class InMemoryDatabaseManagerTests
             FROM [result1] p
             JOIN totals t ON t.person_id = p.id
             ORDER BY position
-            """);
+            """, TimeoutSeconds, MaxRows, CancellationToken.None);
 
         results.Select(x => (x["id"], x["total"], x["position"])).Should().Equal((2L, 40L, 1L), (1L, 25L, 2L));
 
@@ -229,6 +236,7 @@ public class InMemoryDatabaseManagerTests
             "WITH ranked AS (SELECT id, ROW_NUMBER() OVER (ORDER BY id DESC) AS position FROM [result1]) SELECT id, position FROM ranked",
             new Paging { PageSize = 2, Sort = "id" },
             x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            TimeoutSeconds,
             CancellationToken.None);
 
         page.TotalCount.Should().Be(3);
@@ -256,6 +264,7 @@ public class InMemoryDatabaseManagerTests
             "CREATE TABLE t(x)",
             new Paging(),
             x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            TimeoutSeconds,
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
@@ -282,6 +291,7 @@ public class InMemoryDatabaseManagerTests
                 validated.Add(x);
                 return Validator.Validate(x, nameof(DatabaseEngineType.SQLite));
             },
+            TimeoutSeconds,
             CancellationToken.None);
 
         validated[0].Should().Be("SELECT id FROM people", "the original statement is gated before anything runs");
@@ -296,7 +306,7 @@ public class InMemoryDatabaseManagerTests
         using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
         var stopwatch = Stopwatch.StartNew();
 
-        var (results, _, timedOut) = await manager.ExecuteQueryAsync(RunawayQuery, timeoutSeconds: 1);
+        var (results, _, timedOut) = await manager.ExecuteQueryAsync(RunawayQuery, timeoutSeconds: 1, MaxRows, CancellationToken.None);
 
         timedOut.Should().BeTrue();
         results.Should().BeEmpty();
@@ -310,17 +320,135 @@ public class InMemoryDatabaseManagerTests
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         var stopwatch = Stopwatch.StartNew();
 
-        var act = () => manager.ExecuteQueryAsync(RunawayQuery, timeoutSeconds: 30, cancellationToken: cts.Token);
+        var act = () => manager.ExecuteQueryAsync(RunawayQuery, timeoutSeconds: 30, MaxRows, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
         stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
 
-        var (results, _, timedOut) = await manager.ExecuteQueryAsync("SELECT 41 + 1 AS answer", timeoutSeconds: 5);
+        var (results, _, timedOut) = await manager.ExecuteQueryAsync("SELECT 41 + 1 AS answer", timeoutSeconds: 5, MaxRows, CancellationToken.None);
 
         timedOut.Should().BeFalse();
         results.Should().ContainSingle()
             .Which["answer"].Should().Be(42L);
     }
+
+    [Test]
+    public async Task ExecuteQueryAsync_ResultAboveTheRowCap_StopsReadingAtTheCap()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+        var stopwatch = Stopwatch.StartNew();
+
+        // Produces rows without end: only the reader's cap stops it.
+        var (results, _, timedOut) = await manager.ExecuteQueryAsync(
+            "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT i FROM r",
+            timeoutSeconds: 30,
+            maxRows: 6,
+            CancellationToken.None);
+
+        timedOut.Should().BeFalse();
+        results.Select(x => x["i"]).Should().Equal(1L, 2L, 3L, 4L, 5L, 6L);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task ExecutePagedAsync_RunawayQuery_TimesOutAtTheDeadline()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+        var stopwatch = Stopwatch.StartNew();
+
+        var act = () => manager.ExecutePagedAsync(
+            RunawayQuery,
+            new Paging(),
+            x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            timeoutSeconds: 1,
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task ExecutePagedAsync_CallerCancels_ThrowsAndConnectionStaysUsable()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var stopwatch = Stopwatch.StartNew();
+
+        var act = () => manager.ExecutePagedAsync(
+            RunawayQuery,
+            new Paging(),
+            x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            timeoutSeconds: 30,
+            cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+
+        var page = await manager.ExecutePagedAsync(
+            "SELECT 41 + 1 AS answer",
+            new Paging(),
+            x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            TimeoutSeconds,
+            CancellationToken.None);
+
+        page.Rows.Should().ContainSingle()
+            .Which["answer"].Should().Be(42L);
+    }
+
+    // The page and count statements run one after the other under one deadline. A deadline that passes while neither runs
+    // interrupts nothing, so the next statement must refuse to start on the cancelled token instead of running unbounded.
+    [Test]
+    public async Task ExecutePagedAsync_TokenCancelledBeforeAStatementStarts_StopsIt()
+    {
+        using var manager = await ManagerWithPeople();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var act = () => manager.ExecutePagedAsync(
+            "SELECT * FROM [result1]",
+            new Paging { PageSize = 2, Sort = "id" },
+            x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            TimeoutSeconds,
+            cancelled.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+
+        // What the store relies on: Microsoft.Data.Sqlite refuses to start a command on a cancelled token by itself, with
+        // no interrupt involved.
+        await using var plain = new SqliteConnection("Data Source=:memory:");
+        await plain.OpenAsync();
+        var start = () => plain.QueryAsync(new CommandDefinition("SELECT 1", cancellationToken: cancelled.Token));
+        await start.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+#pragma warning disable CS0618 // The obsolete overloads stay for hosts built against the earlier signatures.
+    [Test]
+    public async Task ExecuteQueryAsync_ObsoleteOverload_RunsWithTheDefaultTimeout()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+
+        var (results, _, timedOut) = await manager.ExecuteQueryAsync("SELECT 41 + 1 AS answer");
+
+        timedOut.Should().BeFalse();
+        results.Should().ContainSingle()
+            .Which["answer"].Should().Be(42L);
+    }
+
+    [Test]
+    public async Task ExecutePagedAsync_ObsoleteOverload_PagesWithTheDefaultTimeout()
+    {
+        using var manager = await ManagerWithPeople();
+
+        var page = await manager.ExecutePagedAsync(
+            "SELECT id FROM [result1]",
+            new Paging { PageSize = 2, Sort = "id" },
+            x => Validator.Validate(x, nameof(DatabaseEngineType.SQLite)),
+            CancellationToken.None);
+
+        page.TotalCount.Should().Be(3);
+        page.Rows.Should().HaveCount(2);
+    }
+#pragma warning restore CS0618
 
     // Result-column names are caller-controlled — the aliases of step, source or LLM-written SQL — and each of these
     // closes one SQLite quoting style and appends a statement. The reviewer's reproduction appended
@@ -338,7 +466,7 @@ public class InMemoryDatabaseManagerTests
             "result1",
             [new Dictionary<string, object?> { ["id"] = 1L, [columnName] = "loaded" }],
             Project());
-        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]");
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         results.Should().ContainSingle();
         results[0].Keys.Should().Equal(["id", columnName], "the column keeps its exact name");
@@ -356,7 +484,7 @@ public class InMemoryDatabaseManagerTests
         using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
 
         await manager.CreateTableFromResults("result1", [new Dictionary<string, object?> { [columnName] = "kept" }], Project());
-        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]");
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         results.Should().ContainSingle().Which.Should().Equal(new Dictionary<string, object?> { [columnName] = "kept" });
         UserVersion(manager).Should().Be(0);
@@ -374,7 +502,7 @@ public class InMemoryDatabaseManagerTests
             "result1",
             [new Dictionary<string, object?> { [quotes] = 1L, [brackets] = 2L, [long1] = 3L }],
             Project());
-        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]");
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         results.Should().ContainSingle();
         results[0].Keys.Should().Equal([quotes, brackets, long1]);
@@ -415,11 +543,14 @@ public class InMemoryDatabaseManagerTests
         // Each value differs from its column name: a quoted name SQLite failed to resolve would come back as a string
         // literal, never as the loaded value.
         var (byName, _, _) = await manager.ExecuteQueryAsync(
-            "SELECT \"weird] \"\"col\"\" name\" AS a, [naïve 名前 ✓] AS b, \"tab\tand\nnewline\" AS c, \"@p1\" AS d, \"{=p0}\" AS e FROM [result1]");
+            "SELECT \"weird] \"\"col\"\" name\" AS a, [naïve 名前 ✓] AS b, \"tab\tand\nnewline\" AS c, \"@p1\" AS d, \"{=p0}\" AS e FROM [result1]",
+            TimeoutSeconds,
+            MaxRows,
+            CancellationToken.None);
         byName.Should().ContainSingle();
         byName[0].Values.Should().Equal("brackets and quotes", "unicode", "control characters", "parameter look-alike", "literal-token look-alike");
 
-        var (all, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]");
+        var (all, _, _) = await manager.ExecuteQueryAsync("SELECT * FROM [result1]", TimeoutSeconds, MaxRows, CancellationToken.None);
         all.Should().ContainSingle()
             .Which.Should().Equal(row);
     }
@@ -473,12 +604,12 @@ public class InMemoryDatabaseManagerTests
     {
         using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
 
-        var act = () => manager.ExecuteQueryAsync("SELECT length(randomblob(100000000)) AS size");
+        var act = () => manager.ExecuteQueryAsync("SELECT length(randomblob(100000000)) AS size", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         await act.Should().ThrowAsync<SqliteException>()
             .Where(x => x.SqliteErrorCode == raw.SQLITE_TOOBIG);
 
-        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT length(randomblob(1000)) AS size");
+        var (results, _, _) = await manager.ExecuteQueryAsync("SELECT length(randomblob(1000)) AS size", TimeoutSeconds, MaxRows, CancellationToken.None);
 
         results.Should().ContainSingle()
             .Which["size"].Should().Be(1000L);

@@ -398,6 +398,7 @@ internal partial class QueryService
             finalQuery,
             x => gate.Evaluate(JoinGateRequest(x, pii, rowCeiling)),
             inMemoryDbLogger,
+            ceiling + 1,
             cancellationToken);
 
         if (result.TimedOut)

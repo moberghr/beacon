@@ -180,56 +180,51 @@ public class InMemoryDatabaseManager : IDisposable
         };
     }
 
+    /// <summary>
+    /// Runs <paramref name="sql"/>, one read-only statement, on the store. The statement stops when
+    /// <paramref name="timeoutSeconds"/> passes or <paramref name="cancellationToken"/> fires (SQLite is interrupted), and
+    /// reading stops once <paramref name="maxRows"/> rows are held, so a result that holds exactly
+    /// <paramref name="maxRows"/> rows may have had more. A timeout returns no rows and <c>TimedOut</c>, never a short
+    /// result; the caller's cancellation throws.
+    /// </summary>
+    /// <param name="timeoutSeconds">How long the statement may run; a value below 1 means
+    /// <see cref="Constants.Query.StatementTimeoutSeconds"/>, never no limit.</param>
+    /// <param name="maxRows">The most rows read, at least 1.</param>
     public async Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
         string sql,
-        int? timeoutSeconds = null,
-        CancellationToken cancellationToken = default)
+        int timeoutSeconds,
+        int maxRows,
+        CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxRows, 1);
         RejectNestedBlockComment(sql);
         EnterReadOnlyModeAndRequireSingleStatement(sql);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-        using var timeoutCts = timeoutSeconds.HasValue
-            ? new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds.Value))
-            : new CancellationTokenSource();
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
-
-        // Microsoft.Data.Sqlite checks the token only before a statement starts and ignores CommandTimeout for a
-        // running one, so a fired token interrupts the statement on the connection instead.
-        using var interruptRegistration = linkedCts.Token.Register(() => raw.sqlite3_interrupt(_connection.Handle));
-
         try
         {
-            var commandDefinition = new CommandDefinition(
-                commandText: sql,
-                commandTimeout: timeoutSeconds,
-                cancellationToken: linkedCts.Token
-            );
-
-            var dapperRows = await _connection.QueryAsync(commandDefinition);
+            var results = await RunInterruptibleAsync(
+                timeoutSeconds,
+                x => ReadRowsAsync(sql, maxRows, x),
+                cancellationToken);
 
             stopwatch.Stop();
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
-
-            var results = dapperRows.Select(x => (IDictionary<string, object?>)x).ToList();
 
             _logger.LogDebug("Executed SQLite query in {ExecutionTimeMs}ms, returned {ResultCount} rows",
                 executionTimeMs, results.Count);
 
             return (results, executionTimeMs, false);
         }
-        catch (Exception ex) when (IsCancellation(ex) && linkedCts.IsCancellationRequested)
+        catch (InMemoryJoinTimeoutException)
         {
             stopwatch.Stop();
-            cancellationToken.ThrowIfCancellationRequested();
-
             var executionTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
             _logger.LogWarning("SQLite query timed out after {ExecutionTimeMs}ms", executionTimeMs);
             return (new List<IDictionary<string, object?>>(), executionTimeMs, true);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             stopwatch.Stop();
 
@@ -241,7 +236,21 @@ public class InMemoryDatabaseManager : IDisposable
         }
     }
 
-    /// <summary>One page of <paramref name="sql"/> and its total row count, via the SQLite paging plan.</summary>
+    /// <summary>
+    /// <see cref="ExecuteQueryAsync(string, int, int, CancellationToken)"/> within <paramref name="timeoutSeconds"/>, or
+    /// <see cref="Constants.Query.StatementTimeoutSeconds"/> when null, reading every row the statement returns.
+    /// </summary>
+    [Obsolete("Pass the statement timeout and the row cap: ExecuteQueryAsync(sql, timeoutSeconds, maxRows, cancellationToken).")]
+    public Task<(List<IDictionary<string, object?>> Results, double ExecutionTimeMs, bool TimedOut)> ExecuteQueryAsync(
+        string sql,
+        int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default) =>
+        ExecuteQueryAsync(sql, timeoutSeconds ?? Constants.Query.StatementTimeoutSeconds, int.MaxValue, cancellationToken);
+
+    /// <summary>One page of <paramref name="sql"/> and its total row count, via the SQLite paging plan, every statement
+    /// within <paramref name="timeoutSeconds"/> together (as <see cref="ExecuteQueryAsync(string, int, int, CancellationToken)"/>).
+    /// A timeout throws a <see cref="TimeoutException"/>; the caller's cancellation throws
+    /// <see cref="OperationCanceledException"/>.</summary>
     /// <param name="validate">The read-only gate: null when a statement may run, the rejection reason otherwise.
     /// <paramref name="sql"/> itself must pass — a rejection throws before anything runs, because the page executor
     /// falls back to streaming the original when it rejects a rewrite. The page and count rewrites pass it too,
@@ -250,6 +259,7 @@ public class InMemoryDatabaseManager : IDisposable
         string sql,
         Helpers.ListRequest paging,
         Func<string, string?> validate,
+        int timeoutSeconds,
         CancellationToken cancellationToken)
     {
         // Before the gate parses it: its parser and SQLite disagree on where a nested block comment ends.
@@ -263,16 +273,39 @@ public class InMemoryDatabaseManager : IDisposable
 
         EnterReadOnlyModeAndRequireSingleStatement(sql);
 
-        return await SqlPageExecutor.ExecuteAsync(
-            _connection,
-            sql,
-            null,
-            nameof(DatabaseEngineType.SQLite),
-            paging,
-            x => validate(x) == null && !HasTrailingStatement(x),
-            null,
-            cancellationToken);
+        try
+        {
+            return await RunInterruptibleAsync(
+                timeoutSeconds,
+                x => SqlPageExecutor.ExecuteAsync(
+                    _connection,
+                    sql,
+                    null,
+                    nameof(DatabaseEngineType.SQLite),
+                    paging,
+                    y => validate(y) == null && !HasTrailingStatement(y),
+                    null,
+                    x),
+                cancellationToken);
+        }
+        catch (InMemoryJoinTimeoutException)
+        {
+            _logger.LogWarning("SQLite paged query timed out after {TimeoutSeconds}s", EffectiveTimeoutSeconds(timeoutSeconds));
+            throw;
+        }
     }
+
+    /// <summary>
+    /// <see cref="ExecutePagedAsync(string, Helpers.ListRequest, Func{string, string?}, int, CancellationToken)"/> within
+    /// <see cref="Constants.Query.StatementTimeoutSeconds"/>.
+    /// </summary>
+    [Obsolete("Pass the statement timeout: ExecutePagedAsync(sql, paging, validate, timeoutSeconds, cancellationToken).")]
+    public Task<SqlResultPage> ExecutePagedAsync(
+        string sql,
+        Helpers.ListRequest paging,
+        Func<string, string?> validate,
+        CancellationToken cancellationToken) =>
+        ExecutePagedAsync(sql, paging, validate, Constants.Query.StatementTimeoutSeconds, cancellationToken);
 
     /// <summary>
     /// True when a <c>/*</c> opens inside a block comment that is still open. SQLite ends a block comment at its
@@ -497,6 +530,49 @@ public class InMemoryDatabaseManager : IDisposable
     private static string PositionalParameter(int index) =>
         "@p" + index.ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Runs <paramref name="run"/> under the statement timeout and the caller's token. Microsoft.Data.Sqlite checks a token
+    /// only before a statement starts and ignores CommandTimeout for a running one, so a fired token interrupts the
+    /// statement on the connection. A stop the timeout caused throws <see cref="InMemoryJoinTimeoutException"/>, and only
+    /// that: an exception <paramref name="run"/> throws itself passes through unchanged.
+    /// </summary>
+    private async Task<T> RunInterruptibleAsync<T>(int timeoutSeconds, Func<CancellationToken, Task<T>> run, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(EffectiveTimeoutSeconds(timeoutSeconds)));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+        using var interruptRegistration = linkedCts.Token.Register(() => raw.sqlite3_interrupt(_connection.Handle));
+
+        try
+        {
+            return await run(linkedCts.Token);
+        }
+        catch (Exception ex) when (IsCancellation(ex) && linkedCts.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            throw new InMemoryJoinTimeoutException();
+        }
+    }
+
+    /// <summary>Reads at most <paramref name="maxRows"/> rows; the reader is disposed (the statement reset) at the cap.</summary>
+    private async Task<List<IDictionary<string, object?>>> ReadRowsAsync(string sql, int maxRows, CancellationToken cancellationToken)
+    {
+        var rows = new List<IDictionary<string, object?>>();
+        await foreach (var row in _connection.QueryUnbufferedAsync(sql).WithCancellation(cancellationToken))
+        {
+            rows.Add((IDictionary<string, object?>)row);
+            if (rows.Count >= maxRows)
+            {
+                break;
+            }
+        }
+
+        return rows;
+    }
+
+    private static int EffectiveTimeoutSeconds(int timeoutSeconds) =>
+        timeoutSeconds > 0 ? timeoutSeconds : Constants.Query.StatementTimeoutSeconds;
+
     private static bool IsSchemaTable(utf8z table) =>
         table.utf8_to_string() is "sqlite_master" or "sqlite_schema";
 
@@ -519,3 +595,10 @@ public class InMemoryTableInfo
     public string SourceProject { get; set; } = null!;
     public string SourceDatabaseEngine { get; set; } = null!;
 }
+
+/// <summary>
+/// The in-memory join store's statement timeout fired (never the caller's cancellation, never an exception a statement
+/// raised itself). A <see cref="TimeoutException"/>, so the documented contract of
+/// <see cref="InMemoryDatabaseManager.ExecutePagedAsync(string, Helpers.ListRequest, Func{string, string?}, int, CancellationToken)"/> holds.
+/// </summary>
+internal sealed class InMemoryJoinTimeoutException() : TimeoutException("The in-memory join query timed out.");

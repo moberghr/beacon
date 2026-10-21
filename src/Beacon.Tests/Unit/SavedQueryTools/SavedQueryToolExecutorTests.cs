@@ -34,6 +34,12 @@ public class SavedQueryToolExecutorTests
 {
     private const int ProjectId = 1;
 
+    // Counts to a billion one row at a time: far past every deadline in these tests.
+    private const string LongRunningFinalQuery = "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r";
+
+    // Never stops producing rows on its own.
+    private const string EndlessRowsFinalQuery = "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT i FROM r";
+
     private SavedQueryTestData _data = null!;
     private Mock<IDataSourceProvider> _provider = null!;
     private List<(string Sql, Dictionary<string, object?> Parameters)> _executed = null!;
@@ -573,6 +579,50 @@ public class SavedQueryToolExecutorTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout cancelled the step, not the 30 s default");
+    }
+
+    // The final query runs on the in-memory join within the resolved StatementTimeoutSeconds: running out of time fails the
+    // call, never an empty success.
+    [Test]
+    public async Task AFinalQuery_PastTheResolvedStatementTimeout_FailsTheCall()
+    {
+        _results.Enqueue([Row(("id", 1L))]);
+        var tool = Tool("slow_join", [Step(1, 10, "SELECT id FROM loans")], [ProjectId], finalQuery: LongRunningFinalQuery);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var result = await Executor(new McpSettingsData { StatementTimeoutSeconds = 1 }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("timed out");
+        result.Rows.Should().BeEmpty();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout stopped the join");
+    }
+
+    [Test]
+    public async Task AFinalQuery_StopsWhenTheCallerCancels()
+    {
+        _results.Enqueue([Row(("id", 1L))]);
+        var tool = Tool("slow_join", [Step(1, 10, "SELECT id FROM loans")], [ProjectId], finalQuery: LongRunningFinalQuery);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => Executor(new McpSettingsData { StatementTimeoutSeconds = 30 }).ExecuteAsync(tool, ProjectId, Args(), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the caller's token stopped the join, not the 30 s timeout");
+    }
+
+    [Test]
+    public async Task AFinalQueryResult_IsReadToOneRowPastTheRowLimit_AndMarkedTruncated()
+    {
+        _results.Enqueue([Row(("id", 1L))]);
+        var tool = Tool("numbers", [Step(1, 10, "SELECT id FROM loans")], [ProjectId], finalQuery: EndlessRowsFinalQuery);
+
+        var result = await Executor(new McpSettingsData { MaxRowLimit = 5 }).ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Rows.Should().HaveCount(5);
+        result.Truncated.Should().BeTrue();
     }
 
     [Test]

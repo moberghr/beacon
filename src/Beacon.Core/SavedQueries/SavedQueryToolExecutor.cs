@@ -221,7 +221,7 @@ internal sealed class SavedQueryToolExecutor(
             return Complete(stepResults[^1].Rows, maxRows, tablesUsed, firstDataSourceId);
         }
 
-        return await ExecuteFinalQueryAsync(tool, stepResults, joinPiiColumns, settings, maxRows, tablesUsed, firstDataSourceId);
+        return await ExecuteFinalQueryAsync(tool, stepResults, joinPiiColumns, settings, maxRows, tablesUsed, firstDataSourceId, cancellationToken);
     }
 
     private async Task<SavedQueryToolExecution> ExecuteFinalQueryAsync(
@@ -231,7 +231,8 @@ internal sealed class SavedQueryToolExecutor(
         Models.McpSettingsData settings,
         int maxRows,
         List<string> tablesUsed,
-        int? firstDataSourceId)
+        int? firstDataSourceId,
+        CancellationToken cancellationToken)
     {
         using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>());
         foreach (var (stepOrder, dataSource, rows) in stepResults)
@@ -261,7 +262,7 @@ internal sealed class SavedQueryToolExecutor(
             return SavedQueryToolExecution.Failed($"The final query failed validation: {report.BlockReason ?? "the SQL was rejected."}", tablesUsed, firstDataSourceId);
         }
 
-        var (results, _, timedOut) = await memDb.ExecuteQueryAsync(report.FinalSql, settings.StatementTimeoutSeconds);
+        var (results, _, timedOut) = await memDb.ExecuteQueryAsync(report.FinalSql, settings.StatementTimeoutSeconds, maxRows + 1, cancellationToken);
         if (timedOut)
         {
             return SavedQueryToolExecution.Failed("The final query timed out.", tablesUsed, firstDataSourceId);

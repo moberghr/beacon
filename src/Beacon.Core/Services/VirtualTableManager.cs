@@ -42,14 +42,15 @@ public class VirtualTableManager : IDisposable
     /// The final query of a multi-step run on the in-memory SQLite store. <paramref name="gate"/> judges the statement as it
     /// runs (after <c>@resultN</c> translation) before any table is loaded — a blocked statement throws, so a statement like
     /// ATTACH never reaches SQLite (it would create files on the host) — and its <see cref="SqlGateReport.FinalSql"/> (the
-    /// row cap the gate placed) is what runs, within <see cref="Constants.Query.StatementTimeoutSeconds"/> and the caller's
-    /// cancellation. A statement that runs out of time is reported with <see cref="QueryResult.TimedOut"/> and no rows —
-    /// never a result to act on.
+    /// row cap the gate placed) is what runs, within <see cref="StatementTimeoutSeconds"/> and the caller's cancellation,
+    /// reading at most <paramref name="maxRows"/> rows (a result holding exactly that many may have had more). A statement
+    /// that runs out of time is reported with <see cref="QueryResult.TimedOut"/> and no rows — never a result to act on.
     /// </summary>
     public async Task<QueryResult> ExecuteFinalQueryWithInMemoryDatabase(
         string finalQuery,
         Func<string, SqlGateReport> gate,
         ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
+        int maxRows,
         CancellationToken cancellationToken)
     {
         using var inMemoryDb = new InMemoryDatabaseManager(inMemoryDbLogger);
@@ -81,6 +82,7 @@ public class VirtualTableManager : IDisposable
         var (results, executionTimeMs, timedOut) = await inMemoryDb.ExecuteQueryAsync(
             report.FinalSql,
             StatementTimeoutSeconds,
+            maxRows,
             cancellationToken);
 
         // Log database analysis
@@ -105,9 +107,22 @@ public class VirtualTableManager : IDisposable
     }
 
     /// <summary>
+    /// <see cref="ExecuteFinalQueryWithInMemoryDatabase(string, Func{string, SqlGateReport}, ILogger{InMemoryDatabaseManager}, int, CancellationToken)"/>
+    /// reading every row the final query returns.
+    /// </summary>
+    [Obsolete("Pass the row cap: ExecuteFinalQueryWithInMemoryDatabase(finalQuery, gate, inMemoryDbLogger, maxRows, cancellationToken).")]
+    public Task<QueryResult> ExecuteFinalQueryWithInMemoryDatabase(
+        string finalQuery,
+        Func<string, SqlGateReport> gate,
+        ILogger<InMemoryDatabaseManager> inMemoryDbLogger,
+        CancellationToken cancellationToken) =>
+        ExecuteFinalQueryWithInMemoryDatabase(finalQuery, gate, inMemoryDbLogger, int.MaxValue, cancellationToken);
+
+    /// <summary>
     /// The final query of a multi-step preview, one page at a time: gated and loaded into SQLite as for
-    /// <see cref="ExecuteFinalQueryWithInMemoryDatabase"/>, then only the page is read back. The page and count
-    /// rewrites pass the same gate.
+    /// <see cref="ExecuteFinalQueryWithInMemoryDatabase"/>, then only the page is read back, the page and count statements
+    /// within <see cref="StatementTimeoutSeconds"/> and the caller's cancellation together. The page and count rewrites
+    /// pass the same gate. A final query that runs out of time throws <see cref="TimeoutException"/>.
     /// </summary>
     public async Task<SqlResultPage> ExecuteFinalQueryPagedAsync(
         string finalQuery,
@@ -136,6 +151,7 @@ public class VirtualTableManager : IDisposable
             translatedQuery,
             paging,
             x => Rejection(gate, x),
+            StatementTimeoutSeconds,
             cancellationToken);
     }
 

@@ -315,6 +315,7 @@ public class StoredQueryExecutionGateTests
 
     // A final query that runs out of time has no rows; it fails the run instead of reading as an empty success to a
     // subscription, a query check, the AI actor or a migration about to write.
+    [TestCase("paged query preview")]
     [TestCase("query check")]
     [TestCase("subscription")]
     public async Task AFinalQueryThatTimesOut_FailsTheRun(string entryPoint)
@@ -325,11 +326,33 @@ public class StoredQueryExecutionGateTests
             finalQuery: "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100000000) SELECT COUNT(*) AS n FROM r",
             finalQueryTimeoutSeconds: 1);
 
-        Func<Task> act = entryPoint == "subscription"
-            ? () => service.ExecuteQuery(SubscriptionId, CancellationToken.None)
-            : () => service.ExecuteQueryAdvanced(QueryId, cancellationToken: CancellationToken.None);
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        Func<Task> act = entryPoint switch
+        {
+            "subscription" => () => service.ExecuteQuery(SubscriptionId, CancellationToken.None),
+            "paged query preview" => () => service.PreviewQuery(QueryId, null, new Paging { Page = 0, PageSize = 20 }, CancellationToken.None),
+            _ => () => service.ExecuteQueryAdvanced(QueryId, cancellationToken: CancellationToken.None)
+        };
 
         await act.Should().ThrowAsync<BeaconException>().WithMessage("The final query timed out.");
+        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the one-second timeout stopped the final query");
+    }
+
+    [Test]
+    public async Task PagedQueryPreview_AFinalQuery_StopsWhenTheCallerCancels()
+    {
+        Connect(new RecordingDbConnection { Columns = [("id", x => x + 1)], RowCount = 2 });
+        var service = BuildService(
+            "SELECT id FROM accounts",
+            finalQuery: "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r",
+            finalQueryTimeoutSeconds: 30);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => service.PreviewQuery(QueryId, null, new Paging { Page = 0, PageSize = 20 }, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the caller's token stopped the final query, not the 30 s timeout");
     }
 
     [Test]
