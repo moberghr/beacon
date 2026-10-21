@@ -158,10 +158,11 @@ describe('AdminSettingsPage API key', () => {
     const sent = serve(settings({ llmApiKeySet: false }));
     renderWithProviders(<AdminSettingsPage />);
 
-    fireEvent.change(await screen.findByPlaceholderText('https://beacon.example.com'), {
+    // The budget field appears once the stored settings loaded, so the form reset cannot overwrite the base URL edit.
+    await changeBudget();
+    fireEvent.change(screen.getByPlaceholderText('https://beacon.example.com'), {
       target: { value: 'https://beacon.example.org' },
     });
-    await changeBudget();
     await save();
 
     await waitFor(() => expect(sent.saves).toHaveLength(1));
