@@ -99,8 +99,9 @@ function AdminSettingsForm() {
     if (!canEdit) return;
     // Only an Admin supplies credentials. Switching to a provider that needs a key takes a typed one (the stored key
     // belongs to the previous provider); keeping the provider never asks, so other settings save without an LLM key.
+    // Compared with the form's default, so a picker left on it while no provider is stored is not a switch.
     const nextProvider = values.llmProvider as AiProvider;
-    const providerChanged = nextProvider !== settings?.llmProvider;
+    const providerChanged = nextProvider !== defaults.llmProvider;
     const apiKeyMissing = !connectionLocked
       && providerChanged
       && providerRequiresApiKey(providerCatalog, nextProvider)

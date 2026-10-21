@@ -169,6 +169,18 @@ describe('AdminSettingsPage API key', () => {
     expect(screen.queryByText('This provider needs an API key.')).not.toBeInTheDocument();
   });
 
+  it('saves other settings while no provider is stored and the picker is left on its default', async () => {
+    const sent = serve(settings({ llmProvider: null, llmApiKeySet: false }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await changeBudget();
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.OpenAI, llmApiKey: null, llmMonthlyBudget: 75 });
+    expect(screen.queryByText('This provider needs an API key.')).not.toBeInTheDocument();
+  });
+
   it('saves with the stored key when the provider is kept', async () => {
     const sent = serve();
     renderWithProviders(<AdminSettingsPage />);
