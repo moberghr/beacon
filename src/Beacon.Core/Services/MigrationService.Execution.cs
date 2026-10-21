@@ -1,8 +1,6 @@
 using System.Data.Common;
-using System.Dynamic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.DataMigration;
@@ -105,46 +103,24 @@ internal partial class MigrationService
             var sourceDataDict = sourceData.Select(d => d.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)).ToList();
             var transformedData = ApplyTransformation(sourceDataDict, migrationJob.TransformationScript);
 
-            // Execute destination insert based on migration mode
-            var (rowsWritten, rowsSkipped, rowsFailed, errorDetails) = await ExecuteDestinationOperation(
+            // Every row is written in one transaction: the run either completes or fails as a whole, so no row is skipped or
+            // failed on its own.
+            var rowsWritten = await ExecuteDestinationOperation(
                 destinationDataSource,
                 migrationJob.DestinationTable,
                 transformedData,
                 migrationJob.Mode,
                 cancellationToken);
 
-            var status = rowsFailed > 0 ? MigrationStatus.PartialSuccess : MigrationStatus.Completed;
-
-            // Build error message for partial success scenarios
-            string? errorMessage = null;
-            if (status == MigrationStatus.PartialSuccess)
-            {
-                var successSummary = $"Successfully processed {rowsWritten} of {sourceRowsRead} rows";
-                if (rowsSkipped > 0)
-                    successSummary += $", skipped {rowsSkipped} rows";
-
-                var failureSummary = $"Failed to process {rowsFailed} rows";
-
-                var detailedErrors = errorDetails.Any()
-                    ? $"\n\nDetailed errors:\n{string.Join("\n", errorDetails)}"
-                    : "";
-
-                errorMessage = $"{successSummary}. {failureSummary}.{detailedErrors}";
-            }
-
-            logger.LogInformation("Migration execution completed: {SourceRows} read, {DestinationRows} written, {Skipped} skipped, {Failed} failed",
-                sourceRowsRead, rowsWritten, rowsSkipped, rowsFailed);
+            logger.LogInformation("Migration execution completed: {SourceRows} read, {DestinationRows} written", sourceRowsRead, rowsWritten);
 
             return new ExecuteMigrationJobResponse(
                 execution.Id,
-                status,
+                MigrationStatus.Completed,
                 sourceRowsRead,
                 rowsWritten,
-                rowsSkipped,
-                rowsFailed,
-                TimeSpan.FromMilliseconds(queryResult.TotalExecutionTimeMs),
-                errorMessage,
-                warnings
+                ExecutionDuration: TimeSpan.FromMilliseconds(queryResult.TotalExecutionTimeMs),
+                Warnings: warnings
             );
         }
         catch (Exception ex)
@@ -168,7 +144,7 @@ internal partial class MigrationService
             "Migration transformation scripts are not yet supported. Leave the transformation script empty.");
     }
 
-    private async Task<(int rowsWritten, int rowsSkipped, int rowsFailed, List<string> errorDetails)> ExecuteDestinationOperation(
+    private async Task<int> ExecuteDestinationOperation(
         Data.Entities.DataSource destinationDataSource,
         string destinationTable,
         List<Dictionary<string, object?>> data,
@@ -181,12 +157,8 @@ internal partial class MigrationService
         var databaseEngineType = destinationDataSource.DatabaseEngineType.Value;
 
         // Before anything decrypts the destination's credentials: the engine's writer must be registered by its connector
-        // package (MySQL still writes through its bulk provider).
-        var writer = databaseEngineType == DatabaseEngineType.MySQL ? null : writers.Require(databaseEngineType);
-        if (writer == null)
-        {
-            bulkContextFactory.EnsureAvailable(databaseEngineType);
-        }
+        // package.
+        var writer = writers.Require(databaseEngineType);
 
         // Every identifier is validated before the destination is connected to (§1.10).
         var (schema, table) = ParseSchemaAndTableName(destinationTable);
@@ -221,11 +193,6 @@ internal partial class MigrationService
             // Start transaction for data consistency
             transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-            var rowsWritten = 0;
-            var rowsSkipped = 0;
-            var rowsFailed = 0;
-            var errorDetails = new List<string>();
-
             try
             {
                 // Upsert matches rows by the table's primary key, read inside the run's transaction; a table without one,
@@ -235,41 +202,15 @@ internal partial class MigrationService
                     ? await RequirePrimaryKey(connection, transaction, schema, table, rows, databaseEngineType, cancellationToken)
                     : [];
 
-                if (writer != null)
-                {
-                    var target = new MigrationWriteTarget(connection, transaction, schema, table, Constants.Migration.BulkCopyTimeoutSeconds);
-                    rowsWritten = await WriteThroughAsync(writer, target, rows, mode, keyColumns, cancellationToken);
-                }
-                else
-                {
-                    switch (mode)
-                    {
-                        case MigrationMode.Truncate:
-                            await ExecuteTruncate(connection, transaction, destinationTable, databaseEngineType);
-                            (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
-                            break;
-
-                        case MigrationMode.Insert:
-                            (rowsWritten, rowsFailed, errorDetails) = await ExecuteInserts(connection, transaction, destinationTable, data, databaseEngineType);
-                            break;
-
-                        case MigrationMode.Upsert:
-                            (rowsWritten, rowsFailed, errorDetails) = await ExecuteUpserts(connection, transaction, destinationTable, data, keyColumns, databaseEngineType);
-                            break;
-                    }
-                }
+                var target = new MigrationWriteTarget(connection, transaction, schema, table, Constants.Migration.BulkCopyTimeoutSeconds);
+                var rowsWritten = await WriteThroughAsync(writer, target, rows, mode, keyColumns, cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
 
-                logger.LogInformation("Destination operation completed for table {Table}: {Mode} mode, {Written} written, {Skipped} skipped, {Failed} failed",
-                    destinationTable, mode, rowsWritten, rowsSkipped, rowsFailed);
+                logger.LogInformation("Destination operation completed for table {Table}: {Mode} mode, {Written} written",
+                    destinationTable, mode, rowsWritten);
 
-                if (errorDetails.Any())
-                {
-                    logger.LogWarning("Migration completed with errors: {Errors}", string.Join("; ", errorDetails));
-                }
-
-                return (rowsWritten, rowsSkipped, rowsFailed, errorDetails);
+                return rowsWritten;
             }
             catch (Exception ex)
             {

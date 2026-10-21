@@ -1,3 +1,4 @@
+using Beacon.Connector.MySql;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
 using Beacon.Core;
@@ -58,7 +59,25 @@ public class MigrationWriterRegistrationTests
     }
 
     [Test]
-    public void BothConnectors_EachServeTheirOwnEngine()
+    public void AddMySqlConnector_RegistersOneMySqlWriter_EvenWhenAddedTwice()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var builder = new BeaconBuilder(services, new ConfigurationBuilder().Build());
+
+        builder.AddMySqlConnector();
+        builder.AddMySqlConnector();
+        using var provider = services.BuildServiceProvider();
+
+        var writers = provider.GetServices<IMigrationBulkWriter>().ToList();
+        writers.Should().ContainSingle()
+            .Which.Engine.Should().Be(DatabaseEngineType.MySQL);
+        writers[0].GetType().Assembly.GetName().Name.Should().Be("Beacon.Connector.MySql");
+        new MigrationBulkWriters(writers).Require(DatabaseEngineType.MySQL).Should().BeSameAs(writers[0]);
+    }
+
+    [Test]
+    public void EveryConnector_ServesItsOwnEngine()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -66,16 +85,18 @@ public class MigrationWriterRegistrationTests
 
         builder.AddPostgreSqlConnector();
         builder.AddSqlServerConnector();
+        builder.AddMySqlConnector();
         using var provider = services.BuildServiceProvider();
 
         var writers = new MigrationBulkWriters(provider.GetServices<IMigrationBulkWriter>());
         writers.Require(DatabaseEngineType.PostgreSQL).GetType().Assembly.GetName().Name.Should().Be("Beacon.Connector.PostgreSql");
         writers.Require(DatabaseEngineType.MSSQL).GetType().Assembly.GetName().Name.Should().Be("Beacon.Connector.SqlServer");
+        writers.Require(DatabaseEngineType.MySQL).GetType().Assembly.GetName().Name.Should().Be("Beacon.Connector.MySql");
     }
 
-    // The host's container builds MigrationService with the writers both connectors registered.
+    // The host's container builds MigrationService with the writers its connectors registered.
     [Test]
-    public void AHostWithBothConnectors_ResolvesMigrationService_WithEachEnginesWriter()
+    public void AHostWithEveryConnector_ResolvesMigrationService_WithEachEnginesWriter()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -87,6 +108,7 @@ public class MigrationWriterRegistrationTests
         var builder = services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
         builder.AddPostgreSqlConnector();
         builder.AddSqlServerConnector();
+        builder.AddMySqlConnector();
         builder.UseSqlServer("Server=localhost;Database=unused;Trusted_Connection=True;TrustServerCertificate=True");
         services.AddScoped(_ => Mock.Of<IBeaconUserContext>());
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
@@ -96,7 +118,8 @@ public class MigrationWriterRegistrationTests
         var writers = provider.GetRequiredService<MigrationBulkWriters>();
         writers.Require(DatabaseEngineType.PostgreSQL).Engine.Should().Be(DatabaseEngineType.PostgreSQL);
         writers.Require(DatabaseEngineType.MSSQL).Engine.Should().Be(DatabaseEngineType.MSSQL);
-        provider.GetServices<IMigrationBulkWriter>().Should().HaveCount(2);
+        writers.Require(DatabaseEngineType.MySQL).Engine.Should().Be(DatabaseEngineType.MySQL);
+        provider.GetServices<IMigrationBulkWriter>().Should().HaveCount(3);
     }
 
     [TestCase(DatabaseEngineType.PostgreSQL, "*Moberg.Beacon.Connector.PostgreSql*AddPostgreSqlConnector()*")]

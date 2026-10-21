@@ -46,13 +46,9 @@ public static class Constants
         public const int BulkInsertBatchSize = 10_000;
 
         /// <summary>
-        /// Number of rows to process per batch during upsert operations.
+        /// The most rows one multi-row INSERT command carries where a migration writer sends them as statement parameters
+        /// (MySQL).
         /// </summary>
         public const int UpsertBatchSize = 1_000;
-
-        /// <summary>
-        /// Maximum number of individual row failures before stopping insertion.
-        /// </summary>
-        public const int MaxFailedRowsBeforeStop = 100;
     }
 }

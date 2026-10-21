@@ -164,7 +164,6 @@ public class MigrationServiceWriterIntegrationTests
             Mock.Of<IQueryService>(),
             _preview.Object,
             Mock.Of<IBeaconUserContext>(),
-            new MigrationBulkContextFactory([]),
             MigrationTestWriters.Of(writer),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = true }),

@@ -38,19 +38,18 @@ const MODES = [
 		label: 'Insert only',
 		what: 'Inserts every source row. A row that violates a key or constraint fails the write.',
 		needs: 'Needs INSERT on the destination table.',
-		status: { tone: 'warn', text: 'Partial (MySQL)' },
+		status: { tone: 'crit', text: 'Failed' },
 		after: [
 			{ id: '1001', country: 'HR', value: '1,240.00' },
 			{ id: '1002', country: 'SI', value: '380.50', mark: 'failed' },
 			{ id: '1003', country: 'AT', value: '2,915.10' },
-			{ id: '1004', country: 'HR', value: '96.20', mark: 'new' },
 		] as Row[],
-		foot: 'Row 1002 already exists. On PostgreSQL and SQL Server the write fails and the run is Failed. On MySQL Beacon falls back to inserting row by row: 1004 is written, 1002 is counted and listed in the run\'s error, and the run ends as Partial.',
+		foot: 'Row 1002 already exists, so the write fails and the run is Failed. The run writes in one transaction on every engine (on MySQL, in a transactional table such as InnoDB): it rolls back, and 1004 is not written either.',
 	},
 	{
 		label: 'Insert or update',
-		what: 'Stages the rows in a temporary table, then inserts new rows and updates existing ones by primary key.',
-		needs: 'A primary key on the destination, and every key column in each source row. Without a primary key the job inserts, as in Insert only.',
+		what: 'Inserts new rows and updates existing ones by primary key.',
+		needs: 'A primary key on the destination, and every key column in each source row. Without a primary key the run fails.',
 		status: { tone: 'ok', text: 'Completed' },
 		after: [
 			{ id: '1001', country: 'HR', value: '1,240.00', mark: 'kept' },
@@ -231,7 +230,7 @@ const RUNS = [
 					<tbody>
 						<tr><td>PostgreSQL</td><td><code>COPY … FROM STDIN (FORMAT BINARY)</code></td><td><code>COPY</code> into a temporary table, then <code>INSERT … ON CONFLICT</code></td></tr>
 						<tr><td>SQL Server</td><td>bulk copy</td><td>bulk merge, staged in a session temporary table</td></tr>
-						<tr><td>MySQL</td><td>bulk insert; if it fails, row by row</td><td>bulk insert into a temporary table, then <code>INSERT … ON DUPLICATE KEY UPDATE</code></td></tr>
+						<tr><td>MySQL</td><td>multi-row parameterised <code>INSERT … VALUES</code></td><td>the same, with <code>ON DUPLICATE KEY UPDATE</code></td></tr>
 					</tbody>
 				</table>
 			</div>
@@ -314,7 +313,7 @@ const RUNS = [
 			<div class="statuses">
 				<div><span class="badge neutral">Running</span><span>The run has started.</span></div>
 				<div><span class="badge ok">Completed</span><span>Every row was written.</span></div>
-				<div><span class="badge warn">Partial</span><span>Some rows failed (MySQL row-by-row fallback).</span></div>
+				<div><span class="badge warn">Partial</span><span>Recorded by earlier versions only; runs no longer end in it.</span></div>
 				<div><span class="badge crit">Failed</span><span>The read or the write failed, or the run was refused. The error says why.</span></div>
 			</div>
 		</div>
