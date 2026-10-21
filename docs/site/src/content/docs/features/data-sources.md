@@ -27,7 +27,7 @@ Beacon connects (see [Configuration](/getting-started/configuration/#encryption-
 ## Create a data source
 
 Creating, testing a connection for and deleting a data source are a **DataSourceAdmin**'s (an Admin holds the
-permission). See [Functional permissions](/features/authorization/#functional-permissions).
+permission). See [Functional permissions](/security/authorization/#functional-permissions).
 
 1. Open **Data Sources** (`/beacon/data-sources`) and click **New data source**.
 2. **Type.** Pick the **Data source type**.
@@ -71,7 +71,7 @@ Each example authenticates the server over TLS, which Beacon requires: see [Tran
 Set the database in the connection: `Database` (or `Initial Catalog`) on SQL Server, Azure Synapse, PostgreSQL and
 MySQL, `db` on Snowflake, the **Catalog** on Databricks, the **Project id** on BigQuery. SQL against the data source may
 name only that database (catalog, project) in a qualifier such as `database.schema.table`; without one configured, no
-database qualifier is accepted. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+database qualifier is accepted. See [Database names in SQL](/security/authorization/#database-names-in-sql).
 :::
 
 If **Test connection** fails, check that the host can reach the server (firewall, VPN, private endpoint), that the
@@ -180,9 +180,9 @@ that is left out or `null` keeps the stored value, and an empty schema list clea
 - **Caches.** Every edit evicts the cached metadata and relationship graph and restarts the forced-refresh cooldown.
 - **Audit.** A change of connection is recorded as `data_sources.credentials_rotated`, any other edit as
   `data_sources.data_source_updated`; each names the fields that changed and whether the target changed, never a value
-  (see [Security audit trail](/features/security-audit/)).
+  (see [Security audit trail](/security/audit-trail/)).
 
-A data source the host registered (a [host DbContext](/features/host-dbcontext/) source) cannot be edited here
+A data source the host registered (a [host DbContext](/mcp/host-dbcontext/) source) cannot be edited here
 (`400`): the host rotates its credentials in its own configuration. A rotation takes effect at once; it needs no second
 person's approval.
 
@@ -222,7 +222,7 @@ cannot be disabled here (`400`).
 
 **Delete** (`DELETE /beacon/api/data-sources/{id}`) archives the data source (soft delete). It is refused while a live
 query or migration job still uses it, the message names them, and a data source the host registered (a
-[host DbContext](/features/host-dbcontext/) source) cannot be deleted.
+[host DbContext](/mcp/host-dbcontext/) source) cannot be deleted.
 
 Archiving evicts the cached metadata and relationship graph; reading or refreshing an archived data source's metadata
 answers `404`. It also clears the column [sample values](#sample-values) stored for it (archived tables included), so
@@ -291,7 +291,7 @@ row data, so:
   source (the project's own override, else the global value) so turning it on for a project is enough even while the
   global value is off, and one linking project that has it off keeps the source unsampled. The global value decides
   alone only for a data source no live project links. The deployment lock `Beacon:Mcp:ForbidRowDataToLlm` turns it off
-  everywhere (see [MCP Server → What reaches the LLM provider](/features/mcp-server/#what-reaches-the-llm-provider)).
+  everywhere (see [MCP Server → What reaches the LLM provider](/mcp/server/#what-reaches-the-llm-provider)).
 - **Columns never read.** The refresh reads only the columns whose values may describe them; its sampling statement
   names those columns, and a table with none is not queried. A column is left out when its name is PII (the built-in
   pattern, including the banking identifiers `iban`, `oib` and `jmbg` as a whole name segment: `customer_iban`,
@@ -337,19 +337,19 @@ and click **Relationships** (`/beacon/data-sources/{id}/relationships`) to revie
 - **Inferred** relationships are proposed from column naming with a confidence score. Click **Discover** to preview
   proposals without saving, then accept the ones that are correct.
 - **Manual** relationships are declared by hand. One is verified only when its creator may
-  [curate](/features/knowledge-base/#who-curates-grounding) the data source's shared grounding; otherwise it waits,
+  [curate](/mcp/knowledge-base/#who-curates-grounding) the data source's shared grounding; otherwise it waits,
   unverified, for a curator, and a verified relationship that someone else relabels or gives another cardinality goes
   back to unverified.
 
 Only verified relationships are presented to the SQL generator as authoritative join paths; unverified ones are passed
 separately and flagged. The page opens with a **schema health** panel (table and relationship counts, how many are
 unverified, connected groups, isolated tables and detected junction tables) which shows which parts of a schema an AI
-assistant cannot reach. See the [Knowledge Base guide](/features/knowledge-base/#schema-relationships).
+assistant cannot reach. See the [Knowledge Base guide](/mcp/knowledge-base/#schema-relationships).
 
 ## Projects and access
 
 A data source is reached through the projects that link it
-([Project access](/features/authorization/#data-sources-follow-their-projects)): a caller uses it only through a project
+([Project access](/security/authorization/#data-sources-follow-their-projects)): a caller uses it only through a project
 they may use, and a query that reads several data sources only through one project that links all of them. Lists are
 filtered in the database by the same rule.
 
@@ -358,7 +358,7 @@ filtered in the database by the same rule.
   project's admin role or Admin. Anyone but an Admin or a DataSourceAdmin may link only data sources already linked to a
   live open project; a DataSourceAdmin who is the project's admin links any existing data source, and gains no
   membership of the projects that already link it. A data source registered by the host for a host project (a
-  [host DbContext](/features/host-dbcontext/) source) links only into the project the host declares for it, for Admins
+  [host DbContext](/mcp/host-dbcontext/) source) links only into the project the host declares for it, for Admins
   too. An unreadable or missing data source answers `404`, a readable one that may not be linked `403`. Each link
   records who created it.
 - **Unlinking.** An Admin unlinks a data source from a project
@@ -377,11 +377,11 @@ filtered in the database by the same rule.
   needs Write (or Manage) only in a project it acts through. Curating that state (verifying a relationship, deleting a
   verified one, applying or rejecting a documentation patch that writes a description) needs the project admin role in
   every live project that links the data source, the DataSourceAdmin permission, or an Admin (see
-  [Who curates grounding](/features/knowledge-base/#who-curates-grounding)).
+  [Who curates grounding](/mcp/knowledge-base/#who-curates-grounding)).
 - **Shared guardrails.** A data source several live projects link runs MCP SQL, and is grounded and sampled, with the
   strictest guardrails among those projects (read-only enforcement, PII detection and patterns, row limits, value
   grounding and its probe budget, sample-value collection); an Admin sees them per source on the project page. See
-  [Guardrails of shared data sources](/features/authorization/#guardrails-of-shared-data-sources).
+  [Guardrails of shared data sources](/security/authorization/#guardrails-of-shared-data-sources).
 - **One database login per boundary.** Project access decides who may run SQL through Beacon, not what the login can
   read. Use a login per data source that sees only what its projects should see, rather than one broad login shared by
   several boundaries: Beacon refuses names in another database, but a view, synonym or function in the source's own
@@ -516,5 +516,5 @@ WHERE grantee = 'beacon_readonly';
 
 - [Queries](/features/queries/): run SQL against a data source
 - [Data Migration](/features/data-migration/): copy data into a migration write target
-- [Knowledge Base & Grounding](/features/knowledge-base/): what Beacon builds from this metadata
+- [Knowledge Base & Grounding](/mcp/knowledge-base/): what Beacon builds from this metadata
 - [Data-source connectors](/integrate/connectors/): registering connectors in the host

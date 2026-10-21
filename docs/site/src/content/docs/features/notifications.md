@@ -52,7 +52,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 });
 ```
 
-An Admin can change it at runtime under **Admin Settings** → **Base URL** (see [Admin Settings](/features/admin-settings/)).
+An Admin can change it at runtime under **Admin Settings** → **Base URL** (see [Admin Settings](/security/admin-settings/)).
 
 ## Recipients
 
@@ -111,7 +111,7 @@ server log.
 
 ### Approval of new and changed destinations
 
-This applies only while the [approval workflow](/features/approvals/) is on (it is off by default; a host turns it on in
+This applies only while the [approval workflow](/security/approvals/) is on (it is off by default; a host turns it on in
 code with `options.EnableApprovalWorkflow(...)`) and covers recipients (`CoversRecipientDestinations`, on by default
 once the workflow is on). Then where a recipient delivers is a reviewed change:
 
@@ -400,7 +400,7 @@ page.
 ## Related
 
 - [Subscriptions](/features/subscriptions/): which runs notify and what they carry
-- [Approvals](/features/approvals/): the change-review workflow
+- [Approvals](/security/approvals/): the change-review workflow
 - [Configuration → Notification Destinations](/getting-started/configuration/#notification-destinations-optional): the
   `Beacon:Notifications` settings
 - [Data Quality](/features/data-quality/): contract alerts use the same recipients

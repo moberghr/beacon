@@ -24,7 +24,7 @@ cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `a
    whoever requested or approved that one. With the workflow off nobody approves a change, and enabling is not checked
    against approvals.
 
-The same through the API (the SecurityAdmin policy, see [Functional permissions](/features/authorization/#functional-permissions); anyone but an Admin publishes only a query they can read, `404` otherwise):
+The same through the API (the SecurityAdmin policy, see [Functional permissions](/security/authorization/#functional-permissions); anyone but an Admin publishes only a query they can read, `404` otherwise):
 
 ```http
 PUT /beacon/api/queries/42/mcp-tool
@@ -72,7 +72,7 @@ A query with no runnable version is **not listed** as a tool at all, even when e
 approved version's **snapshot** (its stored steps and final query), not the live step rows, so an unreviewed change
 to the live query can never change what the tool runs. In practice: enable the approval workflow on hosts that use
 saved-query tools. It is off by default; turn it on in code with `options.EnableApprovalWorkflow(...)` in
-`AddBeaconServices` (see [Approvals](/features/approvals/)). With the workflow on, a version restore is
+`AddBeaconServices` (see [Approvals](/security/approvals/)). With the workflow on, a version restore is
 submitted for approval like an edit, so restoring an older version never makes it callable without a new approval.
 Subscriptions follow the same rule in the workflow's strict mode
 (`ApprovalWorkflow.RequireApprovedVersionToRun`, see [Queries → Approval workflow](/features/queries/#approval-workflow)).
@@ -124,7 +124,7 @@ Configure the limit in `AddBeaconServices(..., options => options.SavedQueryTool
 The project brief (`get_context` with `format: "agents_md"`) lists the project's saved-query tools with their
 parameters, so an agent workspace's `AGENTS.md` knows they exist.
 
-The tools coexist with the built-in tools and with [host endpoint tools](/features/host-endpoint-tools/)
+The tools coexist with the built-in tools and with [host endpoint tools](/mcp/host-endpoint-tools/)
 (`api_<name>`): all three are served side by side.
 
 ## Using one from a routine
@@ -163,8 +163,8 @@ When the approved SQL changes, the routine picks up the new version on its next 
 
 - **Authorization is the caller's projects.** A tool is visible in a project only when that project contains
   **every** data source the approved version reads, and only in the caller's projects where its
-  [project access](/features/authorization/#project-access) lets it run saved SQL (`Run`; the projects an API key or
-  mapped caller reaches are described in the [MCP Server guide](/features/mcp-server/#overview)): a query over a
+  [project access](/security/authorization/#project-access) lets it run saved SQL (`Run`; the projects an API key or
+  mapped caller reaches are described in the [MCP Server guide](/mcp/server/#overview)): a query over a
   data source shared by projects A and B shows in both only if each contains all of its sources, and a caller of A
   never sees a query that needs a B-only source. A tool outside your projects answers exactly like one that does not
   exist. A caller with no project access sees no tools (fail closed). When your credentials reach the same tool
@@ -182,7 +182,7 @@ When the approved SQL changes, the routine picks up the new version on its next 
   in in-memory SQLite behind the same gate.
 - **Parameters, never interpolation.** Each `{placeholder}` is replaced by a generated database parameter
   (`@p0`, `@p1`, …) and the value is sent as a parameter; argument text never reaches the SQL.
-- **Host-managed sources.** When a step reads a [host DbContext](/features/host-dbcontext/) data source, the host's
+- **Host-managed sources.** When a step reads a [host DbContext](/mcp/host-dbcontext/) data source, the host's
   allow-list and column policy apply, in the gate and again in the provider, and masked columns come back masked.
 - **Row limits and PII.** The final result is capped at the project's MCP row limit. An intermediate step of a
   multi-step query may return at most 50,000 rows; past that the call fails instead of joining an incomplete set.

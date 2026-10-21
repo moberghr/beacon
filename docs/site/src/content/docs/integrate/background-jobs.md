@@ -31,13 +31,17 @@ public interface IBeaconScheduler
 
     // The members below have default bodies that throw NotImplementedException.
     // Implement them to enable the feature that calls them.
+    // EnqueueMetadataRefresh is the exception: its default returns null instead of throwing.
     Task AddOrUpdateDataQualityJob(int contractId, string contractName, string cron);   // data contracts
     Task RemoveDataQualityJob(int contractId, string contractName);
     Task<string> EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId); // AI documentation
     Task<string> EnqueueAiActorThinkCycle(int actorId, int subscriptionId);              // AI actors
     Task<string> EnqueueMcpEval(int runId);                                              // MCP evaluation runs
+    Task<string?> EnqueueMetadataRefresh(int dataSourceId);                              // metadata re-scan after a connection target change
 }
 ```
+
+`EnqueueMetadataRefresh` is optional. Beacon calls it after a data source's connection is pointed at another target, to re-scan its metadata in the background. Return the job id, or `null` (the default) when your host runs no such job; Beacon then logs that the old schema stays until a manual refresh.
 
 Register it with `options.AddBeaconScheduler<YourScheduler>()`. Without one, `AddBeaconServices` throws `Implementation of IBeaconScheduler is required.`
 
@@ -66,6 +70,8 @@ Register these yourself at startup (the reference host's schedule):
 | `mcp-learning-aggregate` | `0 */6 * * *` | `IJobService.AggregateLearnedPatterns` | Mine MCP usage signals into learned patterns. |
 | `mcp-learning-cleanup` | `0 3 * * *` | `IJobService.CleanupOldSignals` | Delete signals past their retention. |
 | `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset). |
+| `security-audit-retention` | `45 3 * * *` | `ISecurityAuditRetentionService.PurgeExpiredAsync` | Purge security audit events older than `Beacon:Audit:RetentionDays` (no-op when unset: events are kept forever). |
+| `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events written since the last run against their integrity hashes; failures are logged at Error. |
 | `mcp-embedding-reindex` | `0 */12 * * *` | `IJobService.ReindexEmbeddings` | Re-embed metadata and examples for semantic retrieval. |
 | `mcp-docchunk-reindex` | `0 */12 * * *` | `IJobService.ReindexDocChunks` | Re-chunk and re-embed project documentation. |
 
@@ -145,6 +151,8 @@ public static class BeaconWarpSetup
         await recurring.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *");
         await recurring.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *");
+        await recurring.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *");
+        await recurring.AddOrUpdateRecurringJob(new VerifySecurityAuditEventsJob(), "security-audit-verify", "15 * * * *");
         await recurring.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");
         await recurring.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
     }
@@ -172,6 +180,7 @@ public sealed class SystemWorkBehavior<TRequest, TResponse>(ISystemWorkScope sys
 **4. One job + handler per Beacon entry point:**
 
 ```csharp
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Worker;
 using Warp.Core.Handlers;
@@ -230,6 +239,20 @@ public sealed class PurgeExpiredMcpAuditLogsJobHandler(IMcpAuditRetentionService
 {
     public Task HandleAsync(PurgeExpiredMcpAuditLogsJob message, CancellationToken cancellationToken)
         => retention.PurgeExpiredAsync(cancellationToken);
+}
+
+public sealed class PurgeExpiredSecurityAuditEventsJob : IJob;
+public sealed class PurgeExpiredSecurityAuditEventsJobHandler(ISecurityAuditRetentionService retention) : IJobHandler<PurgeExpiredSecurityAuditEventsJob>
+{
+    public Task HandleAsync(PurgeExpiredSecurityAuditEventsJob message, CancellationToken cancellationToken)
+        => retention.PurgeExpiredAsync(cancellationToken);
+}
+
+public sealed class VerifySecurityAuditEventsJob : IJob;
+public sealed class VerifySecurityAuditEventsJobHandler(ISecurityAuditVerificationService verification) : IJobHandler<VerifySecurityAuditEventsJob>
+{
+    public Task HandleAsync(VerifySecurityAuditEventsJob message, CancellationToken cancellationToken)
+        => verification.VerifyNewEventsAsync(cancellationToken);
 }
 ```
 

@@ -41,7 +41,7 @@ contract already has changes nothing. Contract lists and details name the owner 
 (`hasOwner`, `ownerDisplayName`), never by user name or external id.
 
 A contract belongs to the projects that link its data source. It is listed, evaluated and changed only through such a
-project the caller may use (see [Security model](/features/security-model/)); in a restricted project an Editor deletes
+project the caller may use (see [Security model](/security/)); in a restricted project an Editor deletes
 only contracts they own. While Beacon user management is on, a caller without a Beacon user (a host principal, or a bearer
 token not bound to a user) cannot create a contract (`403`).
 
@@ -131,7 +131,7 @@ score.
 
 ### Approval of Custom SQL
 
-The [approval workflow](/features/approvals/) is off by default; a host turns it on in code with
+The [approval workflow](/security/approvals/) is off by default; a host turns it on in code with
 `options.EnableApprovalWorkflow(...)`. While it is on, its `CoversCustomSqlRules` switch (on by default) makes the SQL a
 Custom SQL rule runs a reviewed change:
 
@@ -250,7 +250,7 @@ schema and table). Beacon keeps the previous score and derives a trend:
 | **Stable** | Within ±1 point |
 | **Degrading** | New score more than 1 point below the previous |
 
-Table scores also appear in the MCP `get_documentation` output for the table (see [MCP server](/features/mcp-server/)).
+Table scores also appear in the MCP `get_documentation` output for the table (see [MCP server](/mcp/server/)).
 
 ## Alerting
 

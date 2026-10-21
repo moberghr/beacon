@@ -27,7 +27,7 @@ Typical uses:
 
 Creating a query needs no project; saving its steps needs Write on the query and on every data source the steps read.
 The query is then reached through the projects that hold all of its data sources (see
-[Project access](/features/authorization/#project-access)).
+[Project access](/security/authorization/#project-access)).
 
 With the [approval workflow](#approval-workflow) on, the steps you save are submitted for review and the new query runs
 nothing until a second person approves them.
@@ -105,7 +105,7 @@ The query page (`/beacon/queries/{id}`) shows the steps, the final query and run
 | **Lock** / **Unlock** | Locks the query against other people's changes. Locking needs Write; while a query is locked, changing, restoring or unlocking it needs Manage, except for the lock holder. |
 
 The tabs below list the query's **Subscriptions**, **Executions**, **Versions** and **Change history**. The **MCP tool**
-card shows whether the query is exposed as a [saved-query MCP tool](/features/saved-query-tools/); a SecurityAdmin (or an
+card shows whether the query is exposed as a [saved-query MCP tool](/mcp/saved-query-tools/); a SecurityAdmin (or an
 Admin) turns it on or off there.
 
 ### Edit a query
@@ -144,14 +144,14 @@ A query records who **created** it and who **changed it last**, and when, taken 
 an edit, restoring a version, archiving it, and, with the [approval workflow](#approval-workflow) on, the approval that
 makes a proposed version live (the reviewer is recorded as the last to change it). Queries created before this was
 recorded show neither. An Auditor or a UserAdmin finds the queries a user owns, created or changed last under
-[Owned resources](/features/user-management/#owned-resources). The submissions and decisions of the approval workflow are
-recorded in the [security audit trail](/features/security-audit/#event-catalogue) (`approvals.query_change_*`); creating
+[Owned resources](/security/user-management/#owned-resources). The submissions and decisions of the approval workflow are
+recorded in the [security audit trail](/security/audit-trail/#event-catalogue) (`approvals.query_change_*`); creating
 and editing a query outside the workflow is attributed on the query but not recorded there as an event.
 
 ## Approval workflow
 
 The approval workflow is **off by default**. A host turns it on in code (`options.EnableApprovalWorkflow(...)` in
-`AddBeaconServices`); see [Approvals](/features/approvals/) for the switches, the review rules, the Approvals page and
+`AddBeaconServices`); see [Approvals](/security/approvals/) for the switches, the review rules, the Approvals page and
 the endpoints. With it on, a change to what a query runs goes live only after a second person approves it.
 
 - **What counts as a change.** The query's executable content: its steps (added, removed, reordered), each step's name,
@@ -172,7 +172,7 @@ the endpoints. With it on, a change to what a query runs goes live only after a 
   creator is the requester (see [AI Actors](/features/ai-actors/#query-change-approvals)).
 
 **Runs execute reviewed SQL.** With the workflow on, a subscription run (scheduled, a test delivery, or one an AI actor
-created) and a [saved-query MCP tool](/features/saved-query-tools/#which-version-runs) execute only the content of the
+created) and a [saved-query MCP tool](/mcp/saved-query-tools/#which-version-runs) execute only the content of the
 query's active version. When the stored steps are not that content, nothing runs: the run is recorded as **Skipped** with
 "Skipped: query change not approved. Save the query to submit its SQL for approval, or restore a version and approve
 it.", the subscription page shows a banner, its Control Tower row reports `notApproved`, and a test delivery answers
@@ -199,7 +199,7 @@ A step's SQL may name objects of its own data source's database only. Unqualifie
 | Databricks | `catalog.schema.table` | the configured `Catalog` |
 | BigQuery | `project.dataset.table` (also inside one backtick-quoted name) | the configured `ProjectId` |
 
-Function and type names follow the same rule. A data source without a configured database accepts no database qualifier, and names resolved only at run time (`IDENTIFIER(...)`, Snowflake `TABLE('...')`) are refused. The engine's catalog, statistics and query history (`information_schema`, `pg_catalog` and `pg_…` relations, `sys`, Snowflake `QUERY_HISTORY` and `RESULT_SCAN`, BigQuery `INFORMATION_SCHEMA`, …) are refused too, also inside the source's own database. The final query of a multi-step query runs on the in-memory step results and is not affected. See [Database names in SQL](/features/authorization/#database-names-in-sql).
+Function and type names follow the same rule. A data source without a configured database accepts no database qualifier, and names resolved only at run time (`IDENTIFIER(...)`, Snowflake `TABLE('...')`) are refused. The engine's catalog, statistics and query history (`information_schema`, `pg_catalog` and `pg_…` relations, `sys`, Snowflake `QUERY_HISTORY` and `RESULT_SCAN`, BigQuery `INFORMATION_SCHEMA`, …) are refused too, also inside the source's own database. The final query of a multi-step query runs on the in-memory step results and is not affected. See [Database names in SQL](/security/authorization/#database-names-in-sql).
 
 ## How a query runs
 
@@ -245,6 +245,6 @@ Save the query to submit it, or restore a version and have it approved.
 ## Related
 
 - [Subscriptions](/features/subscriptions/): schedule a query and deliver its results
-- [Approvals](/features/approvals/): the change-review workflow
-- [Saved query tools](/features/saved-query-tools/): expose a query to MCP clients
+- [Approvals](/security/approvals/): the change-review workflow
+- [Saved query tools](/mcp/saved-query-tools/): expose a query to MCP clients
 - [Data Sources](/features/data-sources/): connections and read-only guarantees

@@ -29,7 +29,7 @@ builder.Services.AddBeaconMcp()
 
 `ProjectName` names the **host project**, the same one `ExposeDbContext` and `ExposeDocs` use. Beacon finds it by
 its host key (`Project.HostManagedKey = host:{name, lower-cased}`), never by its display name, so a project a Beacon
-user creates with the same name never gets the tools (see [Host documentation](/features/host-docs/#the-host-project)).
+user creates with the same name never gets the tools (see [Host documentation](/mcp/host-docs/#the-host-project)).
 The tools appear once the host has run `SyncBeaconHostAsync` and the project exists.
 
 Mark a controller action:
@@ -217,9 +217,9 @@ interface keeps compiling and behaves as `false` for both.
 ## Who the call runs as
 
 Endpoint tools need a **mapped MCP caller**, an Entra user or system identity from
-[Entra ID callers](/features/mcp-entra-callers/), configured for the tools' project and allowed to read it by its
-[project access](/features/authorization/#project-access): a user caller reaches a restricted project only while its
-Beacon user is a member (see [What a caller reaches](/features/mcp-entra-callers/#what-a-caller-reaches)). API-key
+[Entra ID callers](/mcp/entra-callers/), configured for the tools' project and allowed to read it by its
+[project access](/security/authorization/#project-access): a user caller reaches a restricted project only while its
+Beacon user is a member (see [What a caller reaches](/mcp/entra-callers/#what-a-caller-reaches)). API-key
 callers and callers outside the project neither see nor can call them (fail closed); neither can anyone while the
 project does not exist.
 
@@ -382,7 +382,7 @@ name `api_<name>` (or `search_api`), the project, the duration, the caller kind 
 it was refused) so writes can be filtered in the audit log (`tool=api_book_leave:write`) without a schema change.
 Metrics still bucket it under `api_*`. The
 arguments are stored only as the project's content-retention settings allow: under the
-[retention lock](/features/mcp-server/) they are reduced to their size. Argument values and response bodies are
+[retention lock](/mcp/server/) they are reduced to their size. Argument values and response bodies are
 never written to logs.
 
 `get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line);

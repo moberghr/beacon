@@ -264,5 +264,5 @@ You have a working alert. Before you leave it running, click **Archive** on the 
 - [Core concepts](/getting-started/concepts/): how projects, queries and subscriptions fit together.
 - [Run the sample host](/getting-started/installation/): everything else the sample host can do.
 - [Queries](/features/queries/): multi-step queries and parameters.
-- [MCP server](/features/mcp-server/): connect an AI assistant to the same data.
+- [MCP server](/mcp/server/): connect an AI assistant to the same data.
 - [Integrate Beacon](/integrate/): run Beacon inside your own application.

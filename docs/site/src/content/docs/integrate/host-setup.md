@@ -161,7 +161,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 | `Authentication.CookieExpirationHours` / `RememberMeExpirationDays` | `24` / `30` | Requested cookie lifetime; always capped by the session's absolute lifetime (12 h by default). |
 | `Authentication.LoginRedirectPath` | `/beacon/home` | Where the login page sends a user after sign-in. |
 | `EnableUserManagement(x => …)` | off | Beacon's user store: users, roles, first-run setup, password policy (`MinimumPasswordLength` 8, `RequirePasswordComplexity` true, `AllowInternalUsers` true). |
-| `EnableApprovalWorkflow(x => …)` | off | Four-eyes review of query changes and, by default, migration jobs, Custom SQL rules and recipient destinations. See [Approvals](/features/approvals/). |
+| `EnableApprovalWorkflow(x => …)` | off | Four-eyes review of query changes and, by default, migration jobs, Custom SQL rules and recipient destinations. See [Approvals](/security/approvals/). |
 | `AddEmailAdapter<T>()` | none | Your `IEmailAdapter`. Without one there is no email channel. |
 | `SavedQueryTools.NamedToolLimit` | `25` | Above this many published saved queries, MCP lists two generic tools instead of one tool per query. |
 
@@ -225,7 +225,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 9 | `BeaconCookieAuthMiddleware` | Fills `HttpContext.User` from the `Beacon.Auth` cookie **before** authorization evaluates policies. |
 | 10 | `UseAuthorization` | Endpoint policies. |
 | 11 | `LoginFormAuthMiddleware` | Redirects signed-out browsers to `/beacon/login` (only when `EnableLoginForm`). |
-| 12 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects Beacon's requests (`/beacon/api/health` included) to `/beacon/setup` (only with user management). |
+| 12 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects Beacon's requests to `/beacon/setup`, except the health check `/beacon/api/health` and the MCP discovery documents (only with user management). |
 | 13 | `UseAntiforgery` | After authentication, so tokens are issued for the signed-in user. |
 
 Steps 6, 7, 9, 11 and 12 act on `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: a Beacon API key, bearer token or `Beacon.Auth` cookie never authenticates another route of your application, and your routes are never redirected to Beacon's login or setup page. Beacon's cookie scheme refuses the session on those other routes as well, so a host whose default scheme is the cookie still never has its own routes authenticated by it. List `/warp` there when you serve the Warp dashboard with Beacon's admin check: a host upgraded from a version without path scoping must add it, or the dashboard refuses every request. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).

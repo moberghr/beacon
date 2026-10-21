@@ -25,7 +25,7 @@ Beacon recognises five kinds of caller. You can combine them.
 With several replicas, each one generates its own console token. Set `Beacon:UserManagement:SetupToken` from your secret store for multi-instance deployments, and remove it once setup is done.
 :::
 
-Until the first administrator exists, SSO and MCP sign-ins cannot provision other users, and every request except setup (`/beacon/api/health` included) is redirected to `/beacon/setup`.
+Until the first administrator exists, SSO and MCP sign-ins cannot provision other users, and every request except setup, the health check (`/beacon/api/health`) and the MCP discovery documents is redirected to `/beacon/setup`.
 
 ### Headless first run (scripts and CI)
 
@@ -113,8 +113,7 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
         "AllowedTenants": [ "<tenant-id>" ],
         "RequiredGroups": [ "<group-object-id>" ],
         "DefaultRoleName": "Viewer",
-        "RequireMfa": true,
-        "DisplayName": "Sign in with Microsoft"
+        "RequireMfa": true
       }
     }
   }
@@ -135,7 +134,7 @@ builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 | `RequireMfa` | `false` | Refuse sign-ins whose ID token has no `amr` containing `mfa` and no `acr` listed in `AcceptedAcrValues`. |
 | `AcceptedAcrValues` | None | `acr` values that count as MFA. |
 | `EnableFrontChannelLogout` | `false` | Serve `/signout-oidc` for identity-provider-initiated logout. |
-| `DisplayName` | `SSO` | Label of the SSO button. |
+| `DisplayName` | `SSO` | Not used. The login page shows a fixed "Continue with single sign-on" button, and the SSO config endpoint returns only `enabled` and `localLoginEnabled`. |
 
 Admission runs **before** any user lookup: tenant → guest block → required group or role. MFA covers the interactive SSO sign-in only. It does not apply to bearer tokens, API keys, MCP callers or break-glass passwords.
 
@@ -167,7 +166,7 @@ app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMi
 | `ClaimsMapping` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims carry the user id, user name, email, roles and display name. |
 | `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint. |
 
-A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user, so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`). See [MCP & AI clients](/integrate/mcp/#option-b-entra-id-callers).
+A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user, so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`). See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers).
 
 ## API keys
 
@@ -180,7 +179,7 @@ Users create API keys under **API keys** (`/beacon/api-keys`). A key:
 - acts as its owner, capped by the lower of its scope and the owner's current role, never with the Admin bypass and never with a functional permission;
 - stops working when its owner is disabled or archived.
 
-Send it as `Authorization: Bearer sk-sem_…`. Details: [API keys](/features/api-keys/).
+Send it as `Authorization: Bearer sk-sem_…`. Details: [API keys](/security/api-keys/).
 
 ## Sessions
 

@@ -22,8 +22,11 @@ interface Item {
 }
 const ITEMS: Item[] = [
 	{ label: 'Get started', path: '/getting-started/', match: (p) => p.startsWith('/getting-started/') && !p.startsWith('/getting-started/configuration') },
+	{ label: 'Cookbooks', path: '/cookbooks/', match: (p) => p.startsWith('/cookbooks/') },
+	{ label: 'MCP', path: '/mcp/', match: (p) => p.startsWith('/mcp/') },
 	{ label: 'Integrate', path: '/integrate/', match: (p) => p.startsWith('/integrate/') },
 	{ label: 'Features', path: '/features/', match: (p) => p.startsWith('/features/') },
+	{ label: 'Security', path: '/security/', match: (p) => p.startsWith('/security/') },
 	{ label: 'Reference', path: '/getting-started/configuration/', match: (p) => p.startsWith('/reference/') || p.startsWith('/getting-started/configuration') },
 ];
 const exploreActive = current.startsWith('/explore/');

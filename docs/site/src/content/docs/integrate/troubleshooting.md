@@ -18,7 +18,7 @@ description: "Startup failures, empty pages, 401s and 404s, jobs that do nothing
 | `Beacon:UserManagement:SetupToken must be at least 32 characters` | Short setup token. | Use a longer one or unset it. |
 | Local login off and "nobody could sign in" | `LocalLogin:Enabled=false` without SSO, external login or a break-glass name. | Enable OIDC, configure `ExternalLogin`, or add a break-glass name. |
 | OIDC: missing Authority/ClientId/ClientSecret or admission rule | `Oidc:Enabled` without required values or without `AllowedTenants` (or `AllowAnyTenant`). | Complete the section. |
-| `Beacon:Mcp:Callers` validation errors | Callers configured without `AllowedTenants`, without bearer JWT validation, or with both `ClientId` and `ObjectId`. | See [MCP & AI clients](/integrate/mcp/#option-b-entra-id-callers). |
+| `Beacon:Mcp:Callers` validation errors | Callers configured without `AllowedTenants`, without bearer JWT validation, or with both `ClientId` and `ObjectId`. | See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers). |
 | `Beacon host endpoint tools are misconfigured:` | A `[BeaconTool]` endpoint without `ReadOnly`, without authorization metadata, with an untrusted auth scheme, or a write tool without `AllowWriteTools`. | Fix each listed endpoint. |
 | `AddHostEndpointTools can only be called once.` | Called twice. | Call it once, after `AddBeaconMcp()`. |
 | Options validation for `Beacon:Query`, `Beacon:Mcp`, `Beacon:ApiKeys`, `Beacon:Notifications`, `Beacon:Authorization`… | A value is out of range or malformed. | The message names the key; see [Configuration](/getting-started/configuration/). |
@@ -40,7 +40,7 @@ description: "Startup failures, empty pages, 401s and 404s, jobs that do nothing
 | 404 at `/` | The UI lives at `/beacon`. | Open `/beacon`, or redirect `/` to it yourself. |
 | 404 for `/beacon` or blank page; asset 404s | `MapBeaconUi()` or `UseStaticFiles()` missing; or, building from source, the React app was not built (`Debug` builds skip it). | Add both calls; build `Release`, or `-p:BuildReactInDebug=true`. |
 | Endless redirect to `/login` (not `/beacon/login`) | `AddBeaconCookieAuthentication("/")`. | Pass `"/beacon"`. |
-| Always redirected to `/beacon/setup`, even `/beacon/api/health` | User management on and no administrator yet. | Complete first-run setup with the setup token (printed once to the console, or `Beacon:UserManagement:SetupToken`). |
+| Always redirected to `/beacon/setup` (the health check and the MCP discovery documents still answer) | User management on and no administrator yet. | Complete first-run setup with the setup token (printed once to the console, or `Beacon:UserManagement:SetupToken`). |
 | Signed in, but every API call answers 401 | Middleware order: `BeaconCookieAuthMiddleware` must run before `UseAuthorization`. | Follow the [pipeline order](/integrate/host-setup/#the-middleware-pipeline). |
 | Saves fail with 400 "antiforgery" | No `AddAntiforgery`/`UseAntiforgery`, or a different header name without the SPA header. | Configure antiforgery with `HeaderName = "X-XSRF-TOKEN"`. |
 | An error shows as "Internal server error" in the UI | Business-rule exceptions are not mapped to problem+json. | Add the [error handler](/integrate/host-setup/#error-responses). |

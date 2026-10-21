@@ -3,7 +3,7 @@ title: User Management
 description: "Built-in users and roles: internal password and external identity-provider users, first-run setup, functional roles, sessions, local and single sign-on, and the sign-in routes."
 ---
 
-Beacon has a built-in user store: internal users who sign in with a password stored in Beacon, external users who sign in through your identity provider, global roles, the six functional roles, and server-checked sessions. It is **off by default**. Who may do what once a user exists is described on [Authorization](/features/authorization/).
+Beacon has a built-in user store: internal users who sign in with a password stored in Beacon, external users who sign in through your identity provider, global roles, the six functional roles, and server-checked sessions. It is **off by default**. Who may do what once a user exists is described on [Authorization](/security/authorization/).
 
 ## Overview
 
@@ -87,7 +87,7 @@ An Admin or a UserAdmin manages users on **Users** (`/beacon/users`):
 - **Add user** creates an internal or an external user with roles. Internal users are an Admin's to create; a UserAdmin creates external users only. A password an Admin sets must be replaced at first sign-in (see [Passwords set by an administrator](#passwords-set-by-an-administrator)).
 - **Edit user** changes the display name, enabled state and roles. The user name and e-mail address are an Admin's to change.
 - **Sign out everywhere** ends every session of the user.
-- Disabling or archiving a user revokes their [API keys](/features/api-keys/#when-the-owner-leaves); re-enabling revokes any key still active instead of restoring one.
+- Disabling or archiving a user revokes their [API keys](/security/api-keys/#when-the-owner-leaves); re-enabling revokes any key still active instead of restoring one.
 
 Set a **display name** for everyone who should be added to projects: project member search matches display names only, and other users see people by display name (or "User {id}"), never by user name or e-mail address.
 
@@ -102,17 +102,17 @@ Set a **display name** for everyone who should be added to projects: project mem
 
 A **super admin** (`IsSuperAdmin`, the first-run account) passes every check.
 
-The global role is a ceiling, not a grant: [project access](/features/authorization/#project-access) decides where a user may use it. Deleting and archiving are the project action **Manage**, which a project admin holds, an Editor holds in an open project, and the recorded owner of a resource holds. A Viewer reads and runs saved SQL only in projects they may use.
+The global role is a ceiling, not a grant: [project access](/security/authorization/#project-access) decides where a user may use it. Deleting and archiving are the project action **Manage**, which a project admin holds, an Editor holds in an open project, and the recorded owner of a resource holds. A Viewer reads and runs saved SQL only in projects they may use.
 
 Some resources belong to a person: an alert task is worked by its assignee, a data contract is changed by its owner, an AI actor by its creator. Only an Admin or a UserAdmin gives a subscription, data contract or AI actor a new owner.
 
 ### Functional roles
 
-Each functional role grants one [functional permission](/features/authorization/#functional-permissions) and **no project data**: it is a level-0 role with neither read nor write. A user who should also use projects needs a Viewer or Editor role beside it. Admins hold every permission.
+Each functional role grants one [functional permission](/security/authorization/#functional-permissions) and **no project data**: it is a level-0 role with neither read nor write. A user who should also use projects needs a Viewer or Editor role beside it. Admins hold every permission.
 
 | Role | The duty |
 |---|---|
-| **Approver** | Approves and rejects changes under the [approval workflow](/features/approvals/); reads every project's approval requests |
+| **Approver** | Approves and rejects changes under the [approval workflow](/security/approvals/); reads every project's approval requests |
 | **Auditor** | Reads the MCP audit, the MCP and admin settings (secrets masked) and every user's API keys |
 | **SecurityAdmin** | Changes the MCP and admin settings (not the LLM connection or base URL), recipients, MCP tool publishing and repository tokens |
 | **UserAdmin** | Manages users (external users only), their roles, sessions and API keys, resource owners and the members of any project; restricts projects |
@@ -123,7 +123,7 @@ Each functional role grants one [functional permission](/features/authorization/
 
 **On the Users page** the dialogs list roles in two groups, **Global roles** and **Functional roles**. For a UserAdmin who is not an Admin, **Add user** offers external users only, the user name and e-mail address are read-only, the Admin and functional roles are disabled, and the dialog opens read-only for their own account and for protected users (Admins, super admins and functional role holders).
 
-**What a UserAdmin cannot do** (`403`): assign or remove the Admin role or a functional role; create an internal user or change a user name or e-mail address; change their own account, roles or project membership; touch a protected user's account, roles, memberships or API keys; open a restricted project; make themselves the owner of scheduled work. Every user created logs `UserCreated` (7114) and every role change `UserRolesChanged` (7113), with ids only. See [Authorization → Rules](/features/authorization/#rules) for what a UserAdmin can do and how to watch it.
+**What a UserAdmin cannot do** (`403`): assign or remove the Admin role or a functional role; create an internal user or change a user name or e-mail address; change their own account, roles or project membership; touch a protected user's account, roles, memberships or API keys; open a restricted project; make themselves the owner of scheduled work. Every user created logs `UserCreated` (7114) and every role change `UserRolesChanged` (7113), with ids only. See [Authorization → Rules](/security/authorization/#rules) for what a UserAdmin can do and how to watch it.
 
 **From the identity provider.** With `Beacon:Authorization:IdpRoles:Enabled`, app roles mapped in `IdpRoles:Map` add their permission to an SSO session at sign-in. They are not stored, count for `IdpRoles:ClaimLifetimeMinutes` (default 60), do not show on the Users page and never reach an API key.
 
@@ -131,7 +131,7 @@ Each functional role grants one [functional permission](/features/authorization/
 
 ### Project roles and membership
 
-The global role caps what a user may do; [project access](/features/authorization/#project-access) decides where. **New projects are created restricted**, with their creator as project admin, when Beacon manages membership; projects that existed before project access stay open until restricted. An open project is used by everyone with a role; a restricted one only by its members and Admins.
+The global role caps what a user may do; [project access](/security/authorization/#project-access) decides where. **New projects are created restricted**, with their creator as project admin, when Beacon manages membership; projects that existed before project access stay open until restricted. An open project is used by everyone with a role; a restricted one only by its members and Admins.
 
 | Project role | In the project |
 |---|---|
@@ -141,7 +141,7 @@ The global role caps what a user may do; [project access](/features/authorizatio
 
 A global Viewer is a Viewer in every project, whatever their membership; Editors and Admins act with their membership role (and in an open project with the higher of that and their global role). Project admins, UserAdmins and Admins manage members on the project page's **Members** tab. An Admin or a UserAdmin restricts a project; only an Admin opens a restricted one. A disabled or archived user keeps their membership rows, which grant nothing.
 
-Memberships live in Beacon's database while user management is on. A host can supply its own `IProjectMembershipSource` (for example from identity-provider groups); Beacon's membership routes then answer `409` and the UI hides the Members tab. See [Authorization → Host seams](/features/authorization/#host-seams).
+Memberships live in Beacon's database while user management is on. A host can supply its own `IProjectMembershipSource` (for example from identity-provider groups); Beacon's membership routes then answer `409` and the UI hides the Members tab. See [Authorization → Host seams](/security/authorization/#host-seams).
 
 ## Authentication providers
 
@@ -322,7 +322,7 @@ The same list is `GET /beacon/api/users/{id}/owned-resources?kind={kind}` (paged
 first; `404` for an unknown user). `kind` is a number: `0` queries, `1` subscriptions, `2` data contracts, `3`
 recipients, `4` migration jobs. Each item carries `id`, `kind`, `name`, `isOwner`, `isCreator`, `isLastModifier`,
 `nameWithheld`, `createdTime` and `modifiedTime`. Who created or last changed a resource is recorded from the version that
-added the [security audit trail](/features/security-audit/#who-created-and-changed-what) on; resources from before show
+added the [security audit trail](/security/audit-trail/#who-created-and-changed-what) on; resources from before show
 neither.
 
 The list crosses projects, so names follow what the caller may read: an Auditor sees every name; a UserAdmin sees the
@@ -336,7 +336,7 @@ page) and fails when that record cannot be written.
 Sign-ins (password, single sign-on and break-glass, successful, failed and refused), sign-outs, sessions Beacon ended,
 first-run setup (the super admin, and setup tokens refused), users created, provisioned, updated, enabled, disabled and
 archived, passwords changed or set by an administrator, and role changes are recorded in the
-[security audit trail](/features/security-audit/#event-catalogue), by user id, never by name, e-mail address, the
+[security audit trail](/security/audit-trail/#event-catalogue), by user id, never by name, e-mail address, the
 sign-in name typed or an external id. A failed password sign-in names the user the sign-in name resolved to, when it
 did, and the attempt by a keyed hash of the name typed, so many attempts on one name can be told from attempts spread
 over many names without the name being stored. A right password refused because an administrator set it and the user
@@ -423,7 +423,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 - **Sign-out** is `POST /beacon/api/auth/logout` with the antiforgery token; `GET /beacon/api/auth/signout` was removed, and the OIDC front-channel sign-out path is served only with `EnableFrontChannelLogout: true`.
 - **Disabling, re-enabling and archiving revoke API keys.**
 - **Sessions are checked on the server** and end 12 hours after sign-in by default; "remember me" no longer outlasts the absolute lifetime. The `AddUserSecurityStamp` migration adds `security_stamp` and `must_change_password`.
-- **New projects are restricted**, and a stored user is an Admin by current roles only. See [Authorization → Upgrading](/features/authorization/#upgrading-from-45-project-access).
+- **New projects are restricted**, and a stored user is an Admin by current roles only. See [Authorization → Upgrading](/security/authorization/#upgrading-from-45-project-access).
 - **The encryption key is checked in every environment**, and **Data Protection is the host's** (call `AddBeaconDataProtection` or configure your own; everyone signs in again once).
 - **Local login stays on** by default; with SSO, turn it off and list a break-glass account.
 - **Passwords an Admin sets must be replaced at first sign-in**; a custom login client must handle `passwordChangeRequired` and send `newPassword`.
@@ -432,7 +432,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 
 ## See also
 
-- [Authorization](/features/authorization/): project access and functional permissions
-- [API keys](/features/api-keys/)
-- [Admin settings](/features/admin-settings/)
+- [Authorization](/security/authorization/): project access and functional permissions
+- [API keys](/security/api-keys/)
+- [Admin settings](/security/admin-settings/)
 - [Configuration](/getting-started/configuration/): every sign-in key

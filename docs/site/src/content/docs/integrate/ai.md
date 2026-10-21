@@ -113,4 +113,4 @@ Set the deployment lock `Beacon:Mcp:ForbidRowDataToLlm: true` to pin all three s
 
 The MCP `query`, `dry_run`, `search`, `get_context` and `get_documentation` tools work without an LLM provider.
 
-More: [AI integration](/features/ai-integration/) · [Knowledge base & grounding](/features/knowledge-base/) · [AI actors](/features/ai-actors/).
+More: [AI integration](/features/ai-integration/) · [Knowledge base & grounding](/mcp/knowledge-base/) · [AI actors](/features/ai-actors/).

@@ -70,7 +70,7 @@ These answer without a session. Everything else requires one, an API key or a be
 | `/signin-oidc` | OIDC callback | When OIDC is enabled. Path set by `CallbackPath`. |
 | `GET /signout-oidc` | Front-channel sign-out | Only with `EnableFrontChannelLogout`. |
 
-Until the first admin exists, the anonymous API routes above, the health check included, answer with a redirect to `/beacon/setup`. Only the setup routes and the MCP discovery documents answer normally.
+Until the first admin exists, the anonymous API routes above answer with a redirect to `/beacon/setup`. Only the setup routes, the health check and the MCP discovery documents answer normally.
 
 ## REST API
 
@@ -153,7 +153,7 @@ A host turns the hub off with `AddBeaconApiServices(x => x.Realtime = false)`.
 |---|---|
 | `/beacon/mcp` | MCP over Streamable HTTP. Needs the Execute scope: an API key (`Authorization: Bearer sk-sem_…`) or a mapped Entra bearer token. A `401` carries `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`. |
 
-The discovery documents are listed under [Anonymous routes](#anonymous-routes). Set `Beacon:PublicBaseUrl` so they advertise your public origin. See [MCP server](/features/mcp-server/).
+The discovery documents are listed under [Anonymous routes](#anonymous-routes). Set `Beacon:PublicBaseUrl` so they advertise your public origin. See [MCP server](/mcp/server/).
 
 ## Host-mapped routes
 

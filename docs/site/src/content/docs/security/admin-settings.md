@@ -7,7 +7,7 @@ description: "The Admin settings page: the base URL and the LLM provider, change
 
 ## Who may do what
 
-The page is open to Admins and to two [functional permissions](/features/authorization/#functional-permissions): an **Auditor** reads it, a **SecurityAdmin** reads and changes it. The LLM connection and the base URL stay an Admin's.
+The page is open to Admins and to two [functional permissions](/security/authorization/#functional-permissions): an **Auditor** reads it, a **SecurityAdmin** reads and changes it. The LLM connection and the base URL stay an Admin's.
 
 | Action | Route | Admin | SecurityAdmin | Auditor |
 |---|---|---|---|---|
@@ -79,7 +79,7 @@ Settings are cached in memory for one hour; a save clears the cache.
 | `Mcp.{Setting}`, `Mcp.Project.{projectId}.{Setting}` | an MCP setting changes, globally or for a project |
 | `DataSource.{id}.AllowMigrationWrites` | an Admin marks or unmarks a data source as a [migration write target](/features/data-migration/) |
 
-Every save that changes settings is also recorded in the [security audit trail](/features/security-audit/) (`settings.admin_settings_changed`, `settings.mcp_settings_changed`, `settings.mcp_project_settings_changed`), naming the keys that changed and the history rows that hold their values, with a keyed digest of each value before and after; the values themselves stay in the history. Security-relevant actions outside settings (sign-ins, role changes, membership changes and the rest) are recorded in the security audit trail, not as history rows; see [Security model](/features/security-model/#12-audit-and-security-events).
+Every save that changes settings is also recorded in the [security audit trail](/security/audit-trail/) (`settings.admin_settings_changed`, `settings.mcp_settings_changed`, `settings.mcp_project_settings_changed`), naming the keys that changed and the history rows that hold their values, with a keyed digest of each value before and after; the values themselves stay in the history. Security-relevant actions outside settings (sign-ins, role changes, membership changes and the rest) are recorded in the security audit trail, not as history rows; see [Security model](/security/#12-audit-and-security-events).
 
 ## Programmatic access
 
@@ -115,11 +115,11 @@ The deployment can pin settings no one can change at runtime, through `Beacon:Mc
 | `ForceNoContentRetention` | `false` | content retention off (questions, SQL and free-text errors never persisted) |
 | `ForbidRowDataToLlm` | `false` | sample-value collection, value grounding and the eval judge off |
 
-On the global settings a locked switch is shown **disabled** with a lock and a note naming the configuration key; in a project's scope locked fields are not offered and a banner names them. A write that contradicts a lock answers `409`, an Admin's included; `GET /beacon/api/mcp/settings/locks` lists the pinned settings. `Beacon:Mcp:Ceilings` clamp numeric settings downward: `MaxRowLimit` caps the row limit the MCP tools apply, and `MaxSqlChars` and `MaxQuestionChars` are always-on length limits; the other ceilings clamp the setting of the same name shown on this page. Every MCP settings change is recorded in the history above. See [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks) and [MCP server](/features/mcp-server/).
+On the global settings a locked switch is shown **disabled** with a lock and a note naming the configuration key; in a project's scope locked fields are not offered and a banner names them. A write that contradicts a lock answers `409`, an Admin's included; `GET /beacon/api/mcp/settings/locks` lists the pinned settings. `Beacon:Mcp:Ceilings` clamp numeric settings downward: `MaxRowLimit` caps the row limit the MCP tools apply, and `MaxSqlChars` and `MaxQuestionChars` are always-on length limits; the other ceilings clamp the setting of the same name shown on this page. Every MCP settings change is recorded in the history above. See [Configuration → Deployment locks](/getting-started/configuration/#deployment-locks) and [MCP server](/mcp/server/).
 
 ## See also
 
 - [AI integration](/features/ai-integration/): the features that use the LLM connection
-- [MCP server](/features/mcp-server/): MCP settings and guardrails
-- [Authorization](/features/authorization/#functional-permissions): Auditor and SecurityAdmin
+- [MCP server](/mcp/server/): MCP settings and guardrails
+- [Authorization](/security/authorization/#functional-permissions): Auditor and SecurityAdmin
 - [Configuration](/getting-started/configuration/): `Beacon:LLM` and the startup values

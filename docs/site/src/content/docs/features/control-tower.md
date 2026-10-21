@@ -99,7 +99,7 @@ Click a row to open its detail panel:
 
 - the query name and the cron schedule, with **Open subscription** and, when tasks are open, a link to them;
 - a **Not approved** notice when the last run was skipped because the query's change is not approved (save the query to
-  submit its SQL for approval, or restore a version and approve it; see [Approvals](/features/approvals/));
+  submit its SQL for approval, or restore a version and approve it; see [Approvals](/security/approvals/));
 - an **Owner not authorized** notice when scheduled runs are skipped because of the owner; an Admin or a UserAdmin
   assigns another owner on the subscription page (see [Subscriptions](/features/subscriptions/));
 - **recent executions**: the last 20 runs with outcome, time, row count, execution time and, for failed runs, the

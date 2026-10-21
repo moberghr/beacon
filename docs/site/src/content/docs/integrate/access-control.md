@@ -57,7 +57,7 @@ Administrative duties are split out of the Admin role. Each is held through a **
 | Permission | Grants |
 |---|---|
 | **Approver** | Approve or reject query changes and change requests (migration jobs, Custom SQL rules, recipient destinations). |
-| **Auditor** | Read and verify the [security audit trail](/features/security-audit/); read the MCP audit log, MCP settings, admin settings, every API key and what a user owns, created or changed last. |
+| **Auditor** | Read and verify the [security audit trail](/security/audit-trail/); read the MCP audit log, MCP settings, admin settings, every API key and what a user owns, created or changed last. |
 | **SecurityAdmin** | Change MCP and admin settings (not the LLM connection or base URL, which are Admin only), manage notification recipients, publish saved queries as MCP tools, set repository tokens. |
 | **UserAdmin** | Manage users and their non-privileged roles, end sessions, see what a user owns, created or changed last, revoke API keys, change owners of scheduled work, manage project members, restrict projects. |
 | **DataSourceAdmin** | Create, test and delete data sources; link them to projects they can read. |
@@ -106,7 +106,7 @@ options.EnableApprovalWorkflow(x =>
 });
 ```
 
-Make sure at least two people hold Approver (Admins count). Full rules: [Approvals](/features/approvals/).
+Make sure at least two people hold Approver (Admins count). Full rules: [Approvals](/security/approvals/).
 
 ## 5. Deployment locks
 
@@ -122,7 +122,7 @@ Some guarantees should not depend on an individual Admin's actions. These keys c
 | `Beacon:Mcp:Ceilings:MaxRowLimit` | none | Upper bound for every project's MCP row limit. |
 | `Beacon:Migrations:Enabled` | `false` | The only write path. Off: no migration endpoints, no jobs, for anyone. |
 
-See [Security model](/features/security-model/) for how these fit together, and [Authorization](/features/authorization/) for the full reference.
+See [Security model](/security/) for how these fit together, and [Authorization](/security/authorization/) for the full reference.
 
 ## A starting configuration
 

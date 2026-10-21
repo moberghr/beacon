@@ -10,8 +10,8 @@ says who acted, what they did, how it ended and what it concerned, carries a key
 copied to the `Beacon.Audit` log stream once it is committed, so a SIEM holds a copy outside Beacon's database.
 
 The trail is read by an **Auditor** (an Admin holds the permission too, see
-[Functional permissions](/features/authorization/#functional-permissions)) on the **Security Audit** page or through
-the API. It is separate from the [MCP audit](/features/mcp-observability-and-audit/), which records every MCP tool call
+[Functional permissions](/security/authorization/#functional-permissions)) on the **Security Audit** page or through
+the API. It is separate from the [MCP audit](/mcp/observability-and-audit/), which records every MCP tool call
 and the statements it ran.
 
 **The database is the source of truth.** The `SecurityAuditEvents` table is the trail; the log-stream copy is a
@@ -174,7 +174,7 @@ row counts, or `refused` before it started, with the reason: `not_approved`, `wr
 checked; the scheduled verification's also with its checkpoint id and the ids it passed as never committed),
 `audit.purged` (every retention purge, with the number of events it verified, deleted and left for the next purge;
 `refused`, deleting nothing, when an event it would delete fails verification) and
-`audit.mcp_audit_read` (every read of the [MCP audit](/features/mcp-observability-and-audit/#reading-the-audit)
+`audit.mcp_audit_read` (every read of the [MCP audit](/mcp/observability-and-audit/#reading-the-audit)
 export, with the filters' shape and the page).
 
 ## How events are written
@@ -359,7 +359,7 @@ while `RetentionDays` is unset:
 
 The sample host schedules it as the Warp recurring job `security-audit-retention` (`45 3 * * *`,
 `PurgeExpiredSecurityAuditEventsJob` in `Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs`). **A host embedding
-Beacon schedules it itself**, like the [MCP audit purge](/features/mcp-observability-and-audit/#retention), for example
+Beacon schedules it itself**, like the [MCP audit purge](/mcp/observability-and-audit/#retention), for example
 with a Warp job of its own like the sample's:
 
 ```csharp
@@ -372,7 +372,7 @@ or by calling `ISecurityAuditRetentionService.PurgeExpiredAsync(cancellationToke
 
 Every event is logged at category **`Beacon.Audit`** once the transaction that wrote it has committed; an event whose
 change rolled back is never logged. Point your log shipping at this category (JSON console logs into CloudWatch, a
-collector, a SIEM agent; see [CloudWatch and collectors](/features/mcp-observability-and-audit/#cloudwatch-and-collectors))
+collector, a SIEM agent; see [CloudWatch and collectors](/mcp/observability-and-audit/#cloudwatch-and-collectors))
 to keep a copy Beacon's database cannot change.
 
 | EventId | Name | Level | When | Fields |
@@ -409,7 +409,7 @@ disagree.
   the table append-only at the database itself, give Beacon's connection a role that may not update or delete
   `SecurityAuditEvents` rows other than through the purge, or add triggers; that is the host's to configure. A chain of
   signatures across events, which would make a deletion visible inside the trail, is not part of this version.
-- **MCP audit rows are evidence, not sealed.** The [MCP audit](/features/mcp-observability-and-audit/) rows and their
+- **MCP audit rows are evidence, not sealed.** The [MCP audit](/mcp/observability-and-audit/) rows and their
   statements carry keyed hashes of their content, but no signature over the row: they record what a call ran, and an
   edit at the database is not detected. The security audit trail records who read that export.
 
@@ -427,7 +427,7 @@ them last**, and when (`CreatedByUserId`, `ModifiedByUserId`, `ModifiedTime`; th
 resource's owner, never a value from the request). An Auditor or a UserAdmin lists the resources a user owns, created or
 changed last (for handing them over when the user leaves) in the user dialog or with
 `GET /beacon/api/users/{id}/owned-resources` (see
-[User Management → Owned resources](/features/user-management/#owned-resources)). Each read is recorded first
+[User Management → Owned resources](/security/user-management/#owned-resources)). Each read is recorded first
 (`identity.owned_resources_read`); a UserAdmin sees the names only of the resources its projects reach, the others by id
 and kind.
 
@@ -437,7 +437,7 @@ This version records security-relevant actions in an append-only, signed trail a
 new events on a schedule, records who created and last changed queries, subscriptions, recipients, data contracts and
 migration jobs, records every read of audit data, keeps the statements every audited MCP call ran on a data source, and
 lets a deployment pin the MCP audit's content on. See
-[MCP observability and audit](/features/mcp-observability-and-audit/).
+[MCP observability and audit](/mcp/observability-and-audit/).
 
 - **Events start at the upgrade.** Nothing is backfilled: the trail holds the actions taken after the upgrade only.
   Earlier actions are only in the logs you kept (the project-access events 7101 onwards, the `Beacon.Audit` events 9100

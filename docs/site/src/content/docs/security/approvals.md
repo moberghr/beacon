@@ -28,7 +28,7 @@ The per-kind switches apply only while the workflow is enabled. Configuration is
 
 ## Who approves
 
-Decisions need the **Approver** [functional permission](/features/authorization/). Admins hold it too.
+Decisions need the **Approver** [functional permission](/security/authorization/). Admins hold it too.
 
 - The **requester never approves their own change**, however either of them signed in, and neither does anyone else who shaped it (for an AI actor's change: the plan's reviewer and whoever asked for its revisions). Admins are no exception.
 - Four eyes binds per Beacon user. Do not give one person two accounts that can approve.
@@ -59,7 +59,7 @@ The decision, the move of the query to the new version and the version statuses 
 
 ## Runs execute reviewed SQL
 
-With the workflow on, runs that happen without the person who wrote the SQL (scheduled subscription runs, test deliveries, subscriptions an AI actor creates, and [saved-query MCP tools](/features/saved-query-tools/)) execute only reviewed content:
+With the workflow on, runs that happen without the person who wrote the SQL (scheduled subscription runs, test deliveries, subscriptions an AI actor creates, and [saved-query MCP tools](/mcp/saved-query-tools/)) execute only reviewed content:
 
 - A subscription run executes the stored steps only when they are the content of the query's active version. Otherwise the run is recorded as **Skipped** ("query change not approved"), the subscription and its Control Tower row show **Not approved**, and a test delivery answers `409`.
 - A query stored before the workflow was on and never versioned since runs as stored outside strict mode, logging a warning each time; Beacon counts such queries at startup. Save the query to submit it.
@@ -87,7 +87,7 @@ Resources stored before Beacon reviewed their kind, or last saved while the swit
 
 ## Publishing a query as an MCP tool
 
-While the workflow is on, whoever requested or approved the version a saved-query tool runs cannot be the one who enables the tool (unless `AllowSelfApproval`). See [Saved query tools](/features/saved-query-tools/).
+While the workflow is on, whoever requested or approved the version a saved-query tool runs cannot be the one who enables the tool (unless `AllowSelfApproval`). See [Saved query tools](/mcp/saved-query-tools/).
 
 ## API
 
@@ -104,7 +104,7 @@ While the workflow is on, whoever requested or approved the version a saved-quer
 
 The reviewer is always the signed-in caller, never an id in the request. Decisions push an `ApprovalUpdated` event to the requester and reviewer over the realtime hub.
 
-Every submission and decision is recorded in the [security audit trail](/features/security-audit/#event-catalogue): `approvals.query_change_*` for query versions, `approvals.change_*` for change requests (with the kind, the resource id and the requests a submission supersedes) and `approvals.ai_plan_*` for AI actor plans. The reviewer is the event's actor, and a decision commits together with its event; a decision on a query change or a change request also names its requester by user id. Neither the proposed content nor a comment is stored in the event.
+Every submission and decision is recorded in the [security audit trail](/security/audit-trail/#event-catalogue): `approvals.query_change_*` for query versions, `approvals.change_*` for change requests (with the kind, the resource id and the requests a submission supersedes) and `approvals.ai_plan_*` for AI actor plans. The reviewer is the event's actor, and a decision commits together with its event; a decision on a query change or a change request also names its requester by user id. Neither the proposed content nor a comment is stored in the event.
 
 ## Turning it on in an existing installation
 

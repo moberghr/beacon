@@ -10,7 +10,7 @@ This section is the complete integration guide. This page is the checklist; each
 :::tip[Using Claude Code or another coding agent?]
 Point it at the whole guide in one file (for an MCP gateway of your own application, use `llms-gateway.txt` instead):
 
-```text
+```text wrap
 Integrate Beacon into this ASP.NET Core app.
 Read https://moberghr.github.io/beacon/llms-integrate.txt first and follow its checklist step by step.
 Ask me before every decision the guide marks as one.
@@ -23,8 +23,8 @@ Every page of these docs is also available as Markdown: add `.md` to the page UR
 
 | You want | Follow |
 |---|---|
-| An MCP server for **your own application**: AI clients act as your signed-in users through your own endpoints and read your docs. No data sources, no SQL. | [MCP gateway for your application](/integrate/gateway/), one page, `llms-gateway.txt` |
-| **Beacon's data product** in your application: monitored databases, queries, alerts, data movement, and an MCP server over them. | This checklist |
+| An MCP server for **your own application**: AI clients act as your signed-in users through your own endpoints and read your docs. No data sources, no SQL. | [MCP gateway for your application](/mcp/gateway/), one page, `llms-gateway.txt` |
+| **Beacon's data product** in your application: monitored databases, queries, alerts, data movement, and an MCP server over them. | This checklist, or the shorter recipe [Embed Beacon (PostgreSQL + Warp)](/cookbooks/embed-postgresql-warp/) |
 
 The two combine (a gateway host can add data sources later), but start with the one you need: the gateway path leaves out
 most of this checklist (scheduler, connectors, login form, first-run setup) on purpose.
@@ -79,7 +79,7 @@ These choices shape the wiring. An agent should ask, not guess.
 
 11. **Optional, AI (required for MCP):** set `UseAI = true`, call `AddBeaconAI`, configure the LLM provider and, optionally, local embeddings. → [AI providers](/integrate/ai/)
 
-12. **Optional, MCP (needs step 11):** expose `/beacon/mcp`, set `Beacon:PublicBaseUrl`, issue API keys or map Entra callers, connect Claude, Cursor or VS Code. → [MCP & AI clients](/integrate/mcp/)
+12. **Optional, MCP (needs step 11):** expose `/beacon/mcp`, set `Beacon:PublicBaseUrl`, issue API keys or map Entra callers, connect Claude, Cursor or VS Code. → [Connect AI clients](/mcp/connect/) (in the [MCP](/mcp/) section)
 
 13. **Optional, extend:** expose your own EF Core `DbContext`, your Markdown docs, or your own HTTP endpoints as MCP tools. → [Extending Beacon](/integrate/extending/)
 
@@ -88,10 +88,10 @@ These choices shape the wiring. An agent should ask, not guess.
 15. **Verify.** Start the app and check, in this order:
     - The console prints `Beacon first-run setup token (enter it on the setup page): …` (user management on, empty database).
     - `/beacon/setup` creates the first administrator, in the browser, or [headless](/integrate/authentication/#headless-first-run-scripts-and-ci).
-    - `GET /beacon/api/health` answers `200` (until the first admin exists it redirects to `/beacon/setup`).
+    - `GET /beacon/api/health` answers `200`, also before the first admin exists (`503` means Beacon cannot reach its database).
     - You can sign in and see **Home** at `/beacon/home`.
     - `GET /.well-known/mcp/server-card.json` lists the eight MCP tools (if you mapped MCP).
-    - An API key with the Execute scope can list the MCP tools. See [Check it works](/integrate/mcp/#check-it-works).
+    - An API key with the Execute scope can list the MCP tools. See [Check it works](/mcp/connect/#check-it-works).
 
     If something fails, see [Troubleshooting](/integrate/troubleshooting/).
 
