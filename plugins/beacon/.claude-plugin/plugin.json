@@ -1,0 +1,10 @@
+{
+  "name": "beacon",
+  "version": "1.0.0",
+  "description": "Skills for embedding Moberg Beacon as the MCP gateway of an ASP.NET Core application: wire the gateway, mark endpoints as tools, set up the Entra registration and verify a deployment.",
+  "author": {
+    "name": "Moberg"
+  },
+  "homepage": "https://moberghr.github.io/beacon/integrate/gateway/",
+  "repository": "https://github.com/moberghr/beacon"
+}

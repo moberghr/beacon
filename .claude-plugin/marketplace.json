@@ -1,0 +1,13 @@
+{
+  "name": "moberg-beacon",
+  "owner": {
+    "name": "Moberg"
+  },
+  "plugins": [
+    {
+      "name": "beacon",
+      "source": "./plugins/beacon",
+      "description": "Add a Beacon MCP gateway to an ASP.NET Core application, mark its endpoints as tools, and set up the Entra registration: Claude follows Beacon's gateway guide, its test package and beacon-doctor."
+    }
+  ]
+}
