@@ -567,7 +567,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
-| `Provider` | `OpenAI` \| `Claude` \| `AzureOpenAI` \| `Bedrock` | `OpenAI` | The provider (`Claude` is Anthropic) |
+| `Provider` | `OpenAI` \| `Claude` \| `AzureOpenAI` \| `Bedrock` | `OpenAI` | The provider (`Claude` is Anthropic). `Bedrock` needs `Moberg.Beacon.AI.Bedrock` + `AddBeaconBedrock()` |
 | `ApiKey` | string | `""` | The provider key. Bedrock: a legacy `accessKey:secretKey` pair, used when `AwsAccessKeyId` and `AwsSecretAccessKey` are both empty (under `IamRole` with a logged warning) |
 | `BedrockAuthMode` | `IamRole` \| `AccessKey` \| `TemporaryCredentials` | `IamRole` | Bedrock credentials: the default AWS credential chain, the access key pair, or the pair with `SessionToken` |
 | `AwsAccessKeyId`, `AwsSecretAccessKey` | string | None | The Bedrock access key pair for `AccessKey` and `TemporaryCredentials`; one without the other fails |

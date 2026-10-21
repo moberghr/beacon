@@ -53,6 +53,15 @@ function serve(stored = settings()) {
 const apiKeyInput = () => screen.getByPlaceholderText('Set — leave blank to keep');
 const providerButton = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}`) });
 
+/** Saves once Save is enabled: it waits for the installed providers to load. */
+async function save() {
+  const button = screen.getByRole('button', { name: 'Save changes' });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+}
+
+const llmProviders = (resolver: Parameters<typeof http.get>[1]) => http.get('*/beacon/api/admin-settings/llm-providers', resolver);
+
 describe('AdminSettingsPage permissions', () => {
   beforeEach(() => {
     mswServer.use(permissionsForRoles(['Admin']));
@@ -83,7 +92,7 @@ describe('AdminSettingsPage permissions', () => {
     // The base URL is an Admin's too: a SecurityAdmin saves the stored one back.
     expect(screen.getByPlaceholderText('https://beacon.example.com')).toBeDisabled();
     fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await save();
 
     await waitFor(() => expect(sent.saves).toHaveLength(1));
     expect(sent.saves[0]).toMatchObject({
@@ -133,6 +142,172 @@ describe('AdminSettingsPage permissions', () => {
     expect(screen.getByRole('combobox', { name: /^model/i })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Test connection' })).not.toBeInTheDocument();
+    expect(sent.saves).toHaveLength(0);
+  });
+});
+
+describe('AdminSettingsPage API key', () => {
+  beforeEach(() => {
+    mswServer.use(permissionsForRoles(['Admin']));
+  });
+
+  const changeBudget = async () =>
+    fireEvent.change(await screen.findByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+
+  it('saves other settings while no API key is stored for the kept provider', async () => {
+    const sent = serve(settings({ llmApiKeySet: false }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    // The budget field appears once the stored settings loaded, so the form reset cannot overwrite the base URL edit.
+    await changeBudget();
+    fireEvent.change(screen.getByPlaceholderText('https://beacon.example.com'), {
+      target: { value: 'https://beacon.example.org' },
+    });
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ baseUrl: 'https://beacon.example.org', llmApiKey: null, llmMonthlyBudget: 75 });
+    expect(screen.queryByText('This provider needs an API key.')).not.toBeInTheDocument();
+  });
+
+  it('saves other settings while no provider is stored and the picker is left on its default', async () => {
+    const sent = serve(settings({ llmProvider: null, llmApiKeySet: false }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await changeBudget();
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.OpenAI, llmApiKey: null, llmMonthlyBudget: 75 });
+    expect(screen.queryByText('This provider needs an API key.')).not.toBeInTheDocument();
+  });
+
+  it('saves with the stored key when the provider is kept', async () => {
+    const sent = serve();
+    renderWithProviders(<AdminSettingsPage />);
+
+    await changeBudget();
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.OpenAI, llmApiKey: null, llmMonthlyBudget: 75 });
+  });
+
+  it('sends the key the Admin typed when none is stored', async () => {
+    const sent = serve(settings({ llmApiKeySet: false }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    fireEvent.change(await screen.findByPlaceholderText('sk-…'), { target: { value: 'sk-typed' } });
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.OpenAI, llmApiKey: 'sk-typed' });
+  });
+
+  it("does not hold a SecurityAdmin's save on the API key", async () => {
+    mswServer.use(permissionsHandler({ permissions: ['SecurityAdmin'] }));
+    const sent = serve(settings({ llmApiKeySet: false }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await changeBudget();
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.OpenAI, llmApiKey: null, llmMonthlyBudget: 75 });
+  });
+
+  it('asks for a new API key when the provider changes, though a key is stored for the previous one', async () => {
+    const sent = serve();
+    renderWithProviders(<AdminSettingsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Anthropic/ }));
+    await save();
+
+    expect(await screen.findByText('This provider needs an API key.')).toBeInTheDocument();
+    expect(sent.saves).toHaveLength(0);
+
+    fireEvent.change(screen.getByPlaceholderText('sk-ant-…'), { target: { value: 'sk-ant-typed' } });
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.Claude, llmApiKey: 'sk-ant-typed' });
+  });
+
+  it('saves a provider that needs no API key without one', async () => {
+    const sent = serve(settings({ llmProvider: AiProvider.Bedrock, llmApiKeySet: false, llmRegion: 'eu-west-1' }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await changeBudget();
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmProvider: AiProvider.Bedrock, llmApiKey: null });
+  });
+});
+
+describe('AdminSettingsPage installed providers', () => {
+  beforeEach(() => {
+    mswServer.use(permissionsForRoles(['Admin']));
+  });
+
+  it('shows a stored provider that is not installed disabled, and offers the installed ones', async () => {
+    mswServer.use(
+      llmProviders(() =>
+        HttpResponse.json({
+          aiEnabled: true,
+          providers: [
+            { provider: AiProvider.OpenAI, requiresApiKey: true },
+            { provider: AiProvider.Claude, requiresApiKey: true },
+            { provider: AiProvider.AzureOpenAI, requiresApiKey: true },
+          ],
+        }),
+      ),
+    );
+    serve(settings({ llmProvider: AiProvider.Bedrock, llmApiKeySet: false, llmRegion: 'eu-west-1' }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await waitFor(() => expect(providerButton('AWS Bedrock')).toBeDisabled());
+    expect(providerButton('AWS Bedrock')).toHaveTextContent('Package not installed');
+    expect(providerButton('Anthropic')).toBeEnabled();
+  });
+
+  it('holds Save until the installed providers are known, but not the connection test', async () => {
+    let release!: () => void;
+    const loaded = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    mswServer.use(
+      llmProviders(async () => {
+        await loaded;
+        return HttpResponse.json({ aiEnabled: true, providers: [{ provider: AiProvider.OpenAI, requiresApiKey: true }] });
+      }),
+    );
+    serve();
+    renderWithProviders(<AdminSettingsPage />);
+
+    fireEvent.change(await screen.findByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled();
+
+    release();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
+  });
+
+  it('warns when the installed providers cannot be loaded, offers every provider, and asks for a key on a switch', async () => {
+    mswServer.use(llmProviders(() => new HttpResponse(null, { status: 500 })));
+    const sent = serve(settings({ llmApiKeySet: false }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    expect(await screen.findByText('The installed providers could not be loaded')).toBeInTheDocument();
+    for (const name of ['OpenAI', 'Anthropic', 'Azure OpenAI', 'AWS Bedrock']) {
+      expect(providerButton(name)).toBeEnabled();
+    }
+
+    fireEvent.click(providerButton('Anthropic'));
+    await save();
+
+    expect(await screen.findByText('This provider needs an API key.')).toBeInTheDocument();
     expect(sent.saves).toHaveLength(0);
   });
 });

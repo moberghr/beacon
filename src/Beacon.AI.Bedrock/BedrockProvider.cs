@@ -93,6 +93,9 @@ public class BedrockProvider : ILlmProvider
     /// <summary>The static credentials the client was built with; null when it uses the default AWS credential chain.</summary>
     internal Amazon.Runtime.AWSCredentials? ExplicitCredentials => _explicitCredentials;
 
+    /// <summary>The model id the client was built for.</summary>
+    internal string ModelId => _modelId;
+
     private static AmazonBedrockRuntimeConfig CreateConfig(string region)
     {
         var regionEndpoint = RegionEndpoint.GetBySystemName(region)

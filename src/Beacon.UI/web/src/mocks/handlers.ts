@@ -41,7 +41,8 @@
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
  * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
- *   users/:id/owned-resources, security-audit, POST security-audit/verify (honest empties), admin-settings, user-settings
+ *   users/:id/owned-resources, security-audit, POST security-audit/verify (honest empties), admin-settings,
+ *   admin-settings/llm-providers, user-settings
  * - data-quality: overview, contracts
  * - catch-alls: 404 GET / 400 mutations / 503 hub negotiate
  */
@@ -49,6 +50,7 @@ import { http, HttpResponse } from 'msw';
 import {
   AiActorExecutionPhase,
   AiActorStatus,
+  AiProvider,
   AnomalyDetectionMethod,
   AnomalySensitivity,
   ApprovalStatus,
@@ -1507,6 +1509,18 @@ const adminHandlers = [
         llmMonthlyBudget: 0,
       },
       history: [],
+    })),
+
+  // The LLM providers the host installed: all four, as in the sample host (Bedrock needs no API key).
+  http.get('/beacon/api/admin-settings/llm-providers', () =>
+    HttpResponse.json({
+      aiEnabled: true,
+      providers: [
+        { provider: AiProvider.OpenAI, requiresApiKey: true },
+        { provider: AiProvider.Claude, requiresApiKey: true },
+        { provider: AiProvider.AzureOpenAI, requiresApiKey: true },
+        { provider: AiProvider.Bedrock, requiresApiKey: false },
+      ],
     })),
 
   // Current-user settings (profile self-service).

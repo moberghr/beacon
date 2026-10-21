@@ -33,6 +33,9 @@ public class ClaudeProvider : ILlmProvider
         _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
     }
 
+    /// <summary>The model the client was built for.</summary>
+    internal string Model => _model;
+
     public async Task<Beacon.Core.Models.Ai.LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
     {
         try

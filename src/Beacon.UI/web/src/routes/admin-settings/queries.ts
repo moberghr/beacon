@@ -87,7 +87,20 @@ export interface TestLlmConnectionResult {
   sample: string | null;
 }
 
+/** One LLM provider this host installed (its package is referenced and registered). */
+export interface LlmProviderInfo {
+  provider: AiProvider;
+  requiresApiKey: boolean;
+}
+
+/** `aiEnabled` false: AI is off on this host, every provider can be stored and none is listed. */
+export interface LlmProvidersResult {
+  aiEnabled: boolean;
+  providers: LlmProviderInfo[];
+}
+
 const ADMIN_SETTINGS_KEY = ['admin-settings'] as const;
+const LLM_PROVIDERS_KEY = ['admin-settings', 'llm-providers'] as const;
 
 export function useAdminSettingsQuery() {
   return useQuery({
@@ -95,6 +108,32 @@ export function useAdminSettingsQuery() {
     queryFn: async () =>
       unwrap<GetAdminSettingsResult>(await beaconApi().getAdminSettings()),
   });
+}
+
+export function useLlmProvidersQuery() {
+  return useQuery({
+    queryKey: LLM_PROVIDERS_KEY,
+    queryFn: async () =>
+      unwrap<LlmProvidersResult>(await beaconApi().getLlmProviders()),
+  });
+}
+
+/** Whether the host can build `provider`. Unknown (still loading) or AI off: every provider can be picked. */
+export function isProviderInstalled(catalog: LlmProvidersResult | undefined, provider: AiProvider): boolean {
+  if (!catalog || !catalog.aiEnabled) return true;
+  return catalog.providers.some(x => x.provider === provider);
+}
+
+/** The providers whose form has an API key field. */
+const API_KEY_FIELD_PROVIDERS: ReadonlySet<AiProvider> = new Set([AiProvider.OpenAI, AiProvider.Claude, AiProvider.AzureOpenAI]);
+
+/**
+ * Whether `provider` needs an API key, as the host reports it. AI off: not required. Unknown (the list could not be
+ * loaded, or the provider is not installed): required when its form has an API key field, the safer reading.
+ */
+export function providerRequiresApiKey(catalog: LlmProvidersResult | undefined, provider: AiProvider): boolean {
+  if (catalog && !catalog.aiEnabled) return false;
+  return catalog?.providers.find(x => x.provider === provider)?.requiresApiKey ?? API_KEY_FIELD_PROVIDERS.has(provider);
 }
 
 export function useUpdateAdminSettings() {

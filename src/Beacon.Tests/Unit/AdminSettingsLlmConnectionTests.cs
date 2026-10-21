@@ -23,6 +23,7 @@ public class AdminSettingsLlmConnectionTests
 {
     private Mock<IAppSettingsService> _settings = null!;
     private Mock<ILlmConnectionTester> _tester = null!;
+    private ILlmProviderCatalog _catalog = null!;
 
     [SetUp]
     public void SetUp()
@@ -44,6 +45,7 @@ public class AdminSettingsLlmConnectionTests
         _tester
             .Setup(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new LlmConnectionTestResult(true, 5, "gpt", null));
+        _catalog = Catalog(aiEnabled: true, AiProvider.OpenAI, AiProvider.Claude, AiProvider.AzureOpenAI, AiProvider.Bedrock);
     }
 
     [Test]
@@ -120,6 +122,93 @@ public class AdminSettingsLlmConnectionTests
         _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Endpoint == "https://other-endpoint.example"), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Test]
+    public async Task PickingAProviderThatIsNotInstalled_IsRefused_AndNothingIsSavedOrTested()
+    {
+        _catalog = Catalog(aiEnabled: true, AiProvider.OpenAI, AiProvider.AzureOpenAI);
+        var expected = "LLM provider Bedrock is not installed: reference Moberg.Beacon.AI.Bedrock and call AddBeaconBedrock().";
+
+        var update = () => Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
+        var test = () => Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Bedrock), CancellationToken.None);
+
+        await update.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(expected);
+        await test.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(expected);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task KeepingAStoredProviderThatIsNotInstalled_IsAllowed()
+    {
+        // The stored provider is Azure OpenAI; this host installs only OpenAI.
+        _catalog = Catalog(aiEnabled: true, AiProvider.OpenAI);
+
+        await Update(SecurityAdmin()).Handle(Command(model: "gpt-next"), CancellationToken.None);
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = null }, CancellationToken.None);
+        await Test(TestPermissions.Admin).Handle(TestCommand(null), CancellationToken.None);
+        await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.AzureOpenAI), CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Test]
+    public async Task WhileAiIsOff_AnyProviderCanBePrepared()
+    {
+        _catalog = Catalog(aiEnabled: false);
+
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
+        await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Bedrock), CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Provider == AiProvider.Bedrock), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task PickingAnInstalledProvider_IsAllowed()
+    {
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
+        await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Claude), CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Provider == AiProvider.Claude), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_PickingAProviderThatIsNotInstalled_IsForbiddenFirst()
+    {
+        _catalog = Catalog(aiEnabled: true, AiProvider.OpenAI);
+
+        var update = () => Update(SecurityAdmin()).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
+        var test = () => Test(SecurityAdmin()).Handle(TestCommand(AiProvider.Bedrock), CancellationToken.None);
+
+        // A SecurityAdmin changing the provider is refused for that first (403), whether or not it is installed.
+        await update.Should().ThrowAsync<BeaconForbiddenException>();
+        await test.Should().ThrowAsync<BeaconForbiddenException>();
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task WithNoStoredProvider_PickingOneThatIsNotInstalledIsRefused_AndAnInstalledOneIsSaved()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData { BaseUrl = "https://beacon.example", LlmProvider = null });
+        _catalog = Catalog(aiEnabled: true, AiProvider.OpenAI);
+
+        var notInstalled = () => Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
+        var notInstalledTest = () => Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Bedrock), CancellationToken.None);
+
+        await notInstalled.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmProviderInstallation.NotInstalledMessage(AiProvider.Bedrock));
+        await notInstalledTest.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmProviderInstallation.NotInstalledMessage(AiProvider.Bedrock));
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.OpenAI }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.OpenAI), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private UpdateAdminSettingsHandler Update(IBeaconPermissionAccessor permissions)
     {
         return new UpdateAdminSettingsHandler(
@@ -127,6 +216,7 @@ public class AdminSettingsLlmConnectionTests
             Mock.Of<IBeaconUserContext>(),
             TestProjectAccess.Actors(),
             permissions,
+            _catalog,
             NullLogger<UpdateAdminSettingsHandler>.Instance);
     }
 
@@ -137,7 +227,21 @@ public class AdminSettingsLlmConnectionTests
             _tester.Object,
             TestProjectAccess.Actors(),
             permissions,
+            _catalog,
             NullLogger<TestLlmConnectionHandler>.Instance);
+    }
+
+    private static TestLlmConnectionCommand TestCommand(AiProvider? provider)
+    {
+        return new TestLlmConnectionCommand(provider, "gpt", null, BedrockAuthMode.IamRole, null, null, null, null, null);
+    }
+
+    private static ILlmProviderCatalog Catalog(bool aiEnabled, params AiProvider[] installed)
+    {
+        var catalog = new Mock<ILlmProviderCatalog>();
+        catalog.SetupGet(x => x.AiEnabled).Returns(aiEnabled);
+        catalog.SetupGet(x => x.Registered).Returns(installed.Select(x => new LlmProviderInfo(x, x != AiProvider.Bedrock)).ToList());
+        return catalog.Object;
     }
 
     private static IBeaconPermissionAccessor SecurityAdmin() => TestPermissions.Holding(BeaconPermissions.SecurityAdmin);

@@ -51,6 +51,11 @@ public static class ServiceConfiguration
         // Connection tester for the admin settings "Test connection" button
         services.AddSingleton<ILlmConnectionTester, Handlers.AdminSettings.LlmConnectionTester>();
 
+        // The providers this package ships. Provider packages add theirs (Moberg.Beacon.AI.Bedrock: AddBeaconBedrock()).
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderRegistration, OpenAiProviderRegistration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderRegistration, ClaudeProviderRegistration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderRegistration, AzureOpenAiProviderRegistration>());
+
         // LLM Provider Factory — reads the CURRENT configuration from the manager on every
         // CreateProvider() call so hot-swapped settings are picked up. Falls back to the
         // bootstrap LlmConfiguration before the manager is constructed (first resolution).
@@ -63,8 +68,13 @@ public static class ServiceConfiguration
                     var manager = sp.GetService<LlmProviderManager>();
                     return manager is null ? bootstrap : manager.CurrentConfiguration;
                 },
+                sp.GetServices<ILlmProviderRegistration>(),
                 sp.GetService<ILogger<LlmProviderFactory>>());
         });
+
+        // The installed providers for the admin settings. Replace, not TryAdd: it removes Core's AI-off default when Core
+        // registered first, and Core's TryAdd adds nothing when this runs first.
+        services.Replace(ServiceDescriptor.Singleton<ILlmProviderCatalog, LlmProviderCatalog>());
 
         // LLM Provider — delegating proxy that always uses the latest provider and funnels
         // every completion through LlmRequestQueue.

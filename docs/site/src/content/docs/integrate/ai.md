@@ -21,7 +21,7 @@ Set both. `UseAI = false` registers stand-ins for the AI-only services; `UseAI =
 
 ## Choosing a provider
 
-Configure the provider in host configuration (`Beacon:LLM`). At startup Beacon builds the provider from that section. An Admin can also change the provider in **Admin settings** (`/beacon/admin-settings`): saving swaps the active provider immediately, without a restart, and keeps the previous one if the new configuration cannot be built.
+Configure the provider in host configuration (`Beacon:LLM`). At startup Beacon builds the provider from that section. An Admin can also change the provider in **Admin settings** (`/beacon/admin-settings`): saving swaps the active provider immediately, without a restart. If the new configuration cannot be built, no provider is active until it is fixed; the previous one is never kept.
 
 :::note
 The provider is built from `Beacon:LLM` each time the process starts. Keep that section in step with what you choose in Admin settings, or save the Admin settings again after a restart.
@@ -32,7 +32,7 @@ The provider is built from `Beacon:LLM` each time the process starts. Keep that 
 | `OpenAI` | `ApiKey`, `Model` | Calls the public OpenAI API. |
 | `Claude` (shown as **Anthropic** in the UI) | `ApiKey`, `Model` | Calls `https://api.anthropic.com`. |
 | `AzureOpenAI` | `Endpoint`, `ApiKey`, `Model` (the **deployment name**) | |
-| `Bedrock` | `Region`, `Model` (model id) | `BedrockAuthMode`: `IamRole` (default) → the default AWS credential chain (instance role, environment); `AccessKey` → `AwsAccessKeyId` and `AwsSecretAccessKey`; `TemporaryCredentials` → those plus `SessionToken`. A legacy `ApiKey` of `accessKey:secretKey` is used when both key fields are empty; under `IamRole` a warning is logged. |
+| `Bedrock` | `Region`, `Model` (model id) | Needs the `Moberg.Beacon.AI.Bedrock` package and `AddBeaconBedrock()`; without them a stored Bedrock setting leaves no active provider. `BedrockAuthMode`: `IamRole` (default) → the default AWS credential chain (instance role, environment); `AccessKey` → `AwsAccessKeyId` and `AwsSecretAccessKey`; `TemporaryCredentials` → those plus `SessionToken`. A legacy `ApiKey` of `accessKey:secretKey` is used when both key fields are empty; under `IamRole` a warning is logged. |
 
 ```json
 {

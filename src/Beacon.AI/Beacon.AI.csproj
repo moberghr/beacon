@@ -12,7 +12,7 @@
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
-		<PackageTags>beacon;ai;llm;openai;anthropic;bedrock;documentation;database</PackageTags>
+		<PackageTags>beacon;ai;llm;openai;anthropic;documentation;database</PackageTags>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<IsPackable>true</IsPackable>
 	</PropertyGroup>
@@ -33,7 +33,6 @@
 		<!-- LLM Provider packages -->
 		<PackageReference Include="Azure.AI.OpenAI" />
 		<PackageReference Include="OpenAI" />
-		<PackageReference Include="AWSSDK.BedrockRuntime" />
 
 		<!-- Document generation packages -->
 		<PackageReference Include="Markdig" />

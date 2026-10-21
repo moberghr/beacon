@@ -8,7 +8,8 @@ namespace Beacon.AI.Handlers.AdminSettings;
 /// AI-side implementation of <see cref="ILlmConnectionTester"/>. Builds an ephemeral provider
 /// from the supplied parameters and runs a single tiny prompt — never mutates the live provider.
 /// </summary>
-public sealed class LlmConnectionTester(LlmRequestQueue requestQueue) : ILlmConnectionTester
+public sealed class LlmConnectionTester(LlmRequestQueue requestQueue, IEnumerable<ILlmProviderRegistration> registrations)
+    : ILlmConnectionTester
 {
     private const string PingPrompt = "Respond with the single word OK.";
     private const int PingMaxTokens = 16;
@@ -28,7 +29,8 @@ public sealed class LlmConnectionTester(LlmRequestQueue requestQueue) : ILlmConn
             Model = parameters.Model,
         };
 
-        var factory = new LlmProviderFactory(() => config);
+        // A provider that is not installed fails here with the install message (no provider is built or called).
+        var factory = new LlmProviderFactory(() => config, registrations);
         ILlmProvider provider;
         try
         {

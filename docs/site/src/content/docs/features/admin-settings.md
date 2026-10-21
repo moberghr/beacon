@@ -12,6 +12,7 @@ The page is open to Admins and to two [functional permissions](/features/authori
 | Action | Route | Admin | SecurityAdmin | Auditor |
 |---|---|---|---|---|
 | Read the settings (secrets shown only as set or not set) and the change history | `GET /beacon/api/admin-settings` | ✓ | ✓ | ✓ |
+| List the LLM providers this host installed | `GET /beacon/api/admin-settings/llm-providers` | ✓ | ✓ | ✓ |
 | Change the models and the rate and budget values | `PUT /beacon/api/admin-settings` | ✓ | ✓ | – |
 | Change the **Base URL** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
 | Change the LLM **provider**, **endpoint**, **region**, Bedrock **authentication mode** or any **credential** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
@@ -38,6 +39,8 @@ Pick the provider; the page shows only the fields it needs.
 | **Anthropic** | `Claude` (1) | API key, Model, Fast model |
 | **Azure OpenAI** | `AzureOpenAI` (2) | Endpoint, API key, Deployment (model), Fast deployment |
 | **AWS Bedrock** | `Bedrock` (3) | Region, Credentials, Model, Fast model |
+
+AWS Bedrock is installed only when the host references `Moberg.Beacon.AI.Bedrock` and calls `AddBeaconBedrock()`. The page offers only the providers the host installed (a stored provider that is not installed shows as **Package not installed**); picking another one is refused with `400`.
 
 **Bedrock credentials.** The authentication mode under **Credentials** decides which credentials the client uses. **IAM role** (the default) uses the default AWS credential chain (instance role, environment). **Access key** uses the AWS access key id and secret access key, and **Temporary credentials** uses them with a session token. Both of these modes need both keys: one without the other fails instead of falling back to the default chain. On `PUT /beacon/api/admin-settings` the fields are `llmBedrockAuthMode`, `llmAwsAccessKeyId`, `llmAwsSecretAccessKey` and `llmSessionToken`; in configuration they are `Beacon:LLM:BedrockAuthMode`, `AwsAccessKeyId`, `AwsSecretAccessKey` and `SessionToken` (see [Configuration → LLM](/getting-started/configuration/#ai--llm)). The role or keys need the `bedrock:InvokeModel` permission for the chosen model.
 

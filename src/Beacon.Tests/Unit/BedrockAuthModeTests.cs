@@ -40,7 +40,7 @@ public class BedrockAuthModeTests
     {
         var config = Config(BedrockAuthMode.AccessKey) with { AwsAccessKeyId = id, AwsSecretAccessKey = secret };
 
-        var act = () => new LlmProviderFactory(() => config).CreateProvider();
+        var act = () => TestLlmProviderFactory.Create(() => config).CreateProvider();
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*access key id*secret access key*");
     }
@@ -92,7 +92,7 @@ public class BedrockAuthModeTests
     {
         var config = Config(BedrockAuthMode.AccessKey) with { AwsSecretAccessKey = null, ApiKey = "legacyid:legacysecret" };
 
-        var act = () => new LlmProviderFactory(() => config).CreateProvider();
+        var act = () => TestLlmProviderFactory.Create(() => config).CreateProvider();
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*access key id*secret access key*");
     }
@@ -103,7 +103,7 @@ public class BedrockAuthModeTests
     {
         var config = Config(BedrockAuthMode.AccessKey) with { AwsAccessKeyId = null, AwsSecretAccessKey = null, ApiKey = apiKey };
 
-        var act = () => new LlmProviderFactory(() => config).CreateProvider();
+        var act = () => TestLlmProviderFactory.Create(() => config).CreateProvider();
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*access key id*secret access key*");
     }
@@ -121,7 +121,7 @@ public class BedrockAuthModeTests
     [Test]
     public void TemporaryCredentialsMode_WithoutASessionToken_Throws()
     {
-        var act = () => new LlmProviderFactory(() => Config(BedrockAuthMode.TemporaryCredentials)).CreateProvider();
+        var act = () => TestLlmProviderFactory.Create(() => Config(BedrockAuthMode.TemporaryCredentials)).CreateProvider();
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*session token*");
     }
@@ -129,9 +129,9 @@ public class BedrockAuthModeTests
     [Test]
     public void IamRoleMode_UsesTheDefaultCredentialChain_EvenWhenKeysAreStored()
     {
-        var logger = new CapturingLogger<LlmProviderFactory>();
+        var logger = new CapturingLogger<BedrockRegistration>();
 
-        var provider = (BedrockProvider)new LlmProviderFactory(() => Config(BedrockAuthMode.IamRole), logger).CreateProvider();
+        var provider = (BedrockProvider)TestLlmProviderFactory.Create(() => Config(BedrockAuthMode.IamRole), logger).CreateProvider();
 
         provider.ExplicitCredentials.Should().BeNull();
         logger.Entries.Should().BeEmpty();
@@ -140,7 +140,7 @@ public class BedrockAuthModeTests
     [Test]
     public void IamRoleMode_StillHonoursTheLegacyApiKeyPair_AndWarnsWithoutKeyMaterial()
     {
-        var logger = new CapturingLogger<LlmProviderFactory>();
+        var logger = new CapturingLogger<BedrockRegistration>();
         var config = Config(BedrockAuthMode.IamRole) with
         {
             AwsAccessKeyId = null,
@@ -148,7 +148,7 @@ public class BedrockAuthModeTests
             ApiKey = "legacyid:legacysecret",
         };
 
-        var provider = (BedrockProvider)new LlmProviderFactory(() => config, logger).CreateProvider();
+        var provider = (BedrockProvider)TestLlmProviderFactory.Create(() => config, logger).CreateProvider();
 
         var credentials = provider.ExplicitCredentials.Should().BeOfType<BasicAWSCredentials>().Subject.GetCredentials();
         credentials.AccessKey.Should().Be("legacyid");
@@ -162,7 +162,7 @@ public class BedrockAuthModeTests
     [Test]
     public void UnknownMode_Throws()
     {
-        var act = () => new LlmProviderFactory(() => Config((BedrockAuthMode)99)).CreateProvider();
+        var act = () => TestLlmProviderFactory.Create(() => Config((BedrockAuthMode)99)).CreateProvider();
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*not supported*");
     }
@@ -171,7 +171,7 @@ public class BedrockAuthModeTests
     public void UpdateConfiguration_CarriesTheModeAndKeys_AndRebuildsTheProvider()
     {
         LlmProviderManager? manager = null;
-        var factory = new LlmProviderFactory(() => manager!.CurrentConfiguration);
+        var factory = TestLlmProviderFactory.Create(() => manager!.CurrentConfiguration);
         manager = new LlmProviderManager(
             new LlmConfiguration { Provider = AiProvider.Bedrock, Region = "eu-west-1", Model = "anthropic.claude-3-haiku" },
             factory,
@@ -198,7 +198,7 @@ public class BedrockAuthModeTests
     public void UpdateConfiguration_ThatCannotBuildAProvider_LeavesNoActiveProvider_NotThePreviousOne()
     {
         LlmProviderManager? manager = null;
-        var factory = new LlmProviderFactory(() => manager!.CurrentConfiguration);
+        var factory = TestLlmProviderFactory.Create(() => manager!.CurrentConfiguration);
         manager = new LlmProviderManager(
             new LlmConfiguration { Provider = AiProvider.Bedrock, Region = "eu-west-1", Model = "anthropic.claude-3-haiku" },
             factory,
@@ -232,7 +232,7 @@ public class BedrockAuthModeTests
     {
         LlmProviderManager? manager = null;
         var logger = new CapturingLogger<LlmProviderManager>();
-        var factory = new LlmProviderFactory(() => manager!.CurrentConfiguration);
+        var factory = TestLlmProviderFactory.Create(() => manager!.CurrentConfiguration);
         manager = new LlmProviderManager(
             new LlmConfiguration { Provider = AiProvider.Bedrock, Region = "eu-west-1", Model = "anthropic.claude-3-haiku" },
             factory,
@@ -271,7 +271,7 @@ public class BedrockAuthModeTests
     public void UpdateConfiguration_NonBedrockProviderWithAnEmptyApiKey_LeavesNoActiveProvider()
     {
         LlmProviderManager? manager = null;
-        var factory = new LlmProviderFactory(() => manager!.CurrentConfiguration);
+        var factory = TestLlmProviderFactory.Create(() => manager!.CurrentConfiguration);
         manager = new LlmProviderManager(
             new LlmConfiguration { Provider = AiProvider.OpenAI, Model = "gpt-4o-mini" },
             factory,
@@ -297,7 +297,7 @@ public class BedrockAuthModeTests
     [Test]
     public async Task ConnectionTest_InAccessKeyMode_WithoutKeys_FailsWithoutReachingAws()
     {
-        var tester = new LlmConnectionTester(new LlmRequestQueue(1, 0));
+        var tester = new LlmConnectionTester(new LlmRequestQueue(1, 0), TestLlmProviderFactory.AllRegistrations());
 
         var result = await tester.TestAsync(
             new LlmConnectionTestParameters(
@@ -318,7 +318,7 @@ public class BedrockAuthModeTests
 
     private static BedrockProvider Create(LlmConfiguration config)
     {
-        return (BedrockProvider)new LlmProviderFactory(() => config).CreateProvider();
+        return (BedrockProvider)TestLlmProviderFactory.Create(() => config).CreateProvider();
     }
 
     private static LlmConfiguration Config(BedrockAuthMode mode)

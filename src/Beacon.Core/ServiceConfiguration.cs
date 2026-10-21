@@ -436,6 +436,11 @@ public static class ServiceConfiguration
             services.TryAddTransient<IMcpEvalService, AiDisabledMcpEvalService>();
         }
 
+        // Registered whatever UseAI says. AddBeaconAI replaces it with the installed providers in either call order; a host
+        // that sets UseAI without calling AddBeaconAI keeps this one, so the catalog says AI is off and no provider pick
+        // is refused.
+        services.TryAddSingleton<ILlmProviderCatalog, AiDisabledLlmProviderCatalog>();
+
         // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
         services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
         services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();
