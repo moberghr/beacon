@@ -250,10 +250,16 @@ public class McpAuditCallToolFilterTests
             pipeline = options.Filters.Request.CallToolFilters[i](pipeline);
         }
 
-        // A signed-in session: the scope filter lets it through to the handler.
-        var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Beacon.Auth"));
+        // A mapped MCP caller with the Execute scope: the scope filter lets it through to the handler.
+        var caller = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, "7"),
+                new Claim(Beacon.Core.Mcp.McpCallerClaimTypes.AuthMethod, Beacon.Core.Mcp.McpCallerClaimTypes.McpCallerAuthMethod),
+                new Claim(Beacon.Core.Mcp.McpCallerClaimTypes.Scope, "Execute")
+            ],
+            "Bearer"));
         var failed = Services(required: true, new McpAuditOutcome { Failed = true }, []);
-        var withheld = await pipeline(Request(failed, session), CancellationToken.None);
+        var withheld = await pipeline(Request(failed, caller), CancellationToken.None);
 
         customRan.Should().BeTrue();
         withheld.IsError.Should().BeTrue();
@@ -261,7 +267,7 @@ public class McpAuditCallToolFilterTests
             .Which.Text.Should().Be(McpAuditCallToolFilter.WithheldMessage);
 
         var written = Services(required: true, new McpAuditOutcome { Written = true }, []);
-        var passed = await pipeline(Request(written, session), CancellationToken.None);
+        var passed = await pipeline(Request(written, caller), CancellationToken.None);
 
         passed.Should().BeSameAs(ToolResult);
     }

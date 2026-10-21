@@ -68,9 +68,9 @@ Beacon's claim types: `BeaconClaims.UserId` (`beacon:user_id`), `UserName` (`bea
 
 ### Admin role claim
 
-Admin-only routes (the `BeaconApiAdmin` policy) and the rules that let an Admin act on what another user owns read the standard `ClaimTypes.Role` claim with the value `Admin`; `beacon:role` alone is not enough. Beacon's own login and OIDC sign-in emit it from the user's roles. An API key never carries a role, so it is never an Admin.
+Admin-only routes (the `BeaconApiAdmin` policy) and the rules that let an Admin act on what another user owns ask who the caller is in Beacon. While user management is on, a stored user is an Admin by the roles stored **now**, not by any claim the session carries: a demoted Admin loses Admin routes and the Admin bypass on the next request, and a session without a stored user is never an Admin and reaches no project at all. So when a host signs people in (`HostOwnsSignIn`), a role claim its own sign-in adds, such as an Entra app role named `Admin`, never makes anyone Beacon's Admin.
 
-While user management is on, a stored user is an Admin by the roles stored **now**, not by the claim the session carries: a demoted Admin loses the Admin bypass on the next request, and a session without a stored user reaches no project at all. The session's `Admin` claim counts only on a host without Beacon user management, for a caller without a stored user.
+On a host without Beacon user management, the standard `ClaimTypes.Role` claim with the value `Admin` is Beacon's Admin; `beacon:role` alone is not enough. Beacon's own login and OIDC sign-in emit it from the user's roles. An API key never carries a role, so it is never an Admin.
 
 ## Global roles
 
@@ -159,7 +159,7 @@ Read-only enforcement, PII detection and the row limit apply to the MCP tools th
 | API key | its owner's access within its project list, capped by the lower of the key's scope and the owner's global role; never the Admin bypass, never ManageMembers or Curate. A key without a list (created before lists were required) has its owner's access |
 | Mapped Entra system caller on MCP | its configured projects, for reading, running saved SQL and ad-hoc queries |
 | Mapped Entra user caller on MCP | its configured projects within its Beacon user's access; without a Beacon user, its configured open projects |
-| Browser session on `/beacon/mcp` | nothing (browsers use the MCP playground) |
+| Browser session on `/beacon/mcp` | refused with `403` (browsers use the MCP playground) |
 | Scheduled work done for its owner | its owner's access at that run (see [Scheduled work runs as its owner](#scheduled-work-runs-as-its-owner)) |
 | Scheduled work without an owner (created before owners were recorded) | openly reachable data sources only; nothing with `RequireProjectMembership` |
 | Other work without a request, in a scope marked as system work | the system, unrestricted |

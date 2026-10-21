@@ -21,7 +21,8 @@ namespace Beacon.Tests.Unit.Authorization;
 /// The caller as the owner, creator and assignee of resources: an API key is its owner by Users.Id, every other
 /// principal is the user its NameIdentifier names by Users.ExternalId; a session without a stored user keeps its own
 /// id; nobody is resolved for a request that names no one, without reading the database; and only an enabled,
-/// signed-in user holding the Admin role claim is an Admin.
+/// signed-in user holding the Admin role claim is an Admin — while Beacon manages users, only one whose stored roles make
+/// it one, whatever role claims a host's sign-in added.
 /// </summary>
 [TestFixture]
 public class BeaconActorAccessorTests
@@ -380,6 +381,63 @@ public class BeaconActorAccessorTests
     }
 
     [Test]
+    public async Task WhileBeaconManagesUsers_AStoredUsersAdminStanding_IsItsLiveRoles_NotItsClaim()
+    {
+        _users[0].UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = RoleService.RoleNames.Admin, Level = RoleService.RoleLevels.Admin } });
+
+        var liveAdminWithoutTheClaim = await ResolveManaged(Interactive("ext-ana"));
+        var claimWithoutTheRole = await ResolveManaged(Interactive("ext-ben", RoleService.RoleNames.Admin));
+
+        liveAdminWithoutTheClaim.IsAdmin.Should().BeTrue();
+        claimWithoutTheRole.IsAdmin.Should().BeFalse("a host sign-in's Admin role claim makes no Beacon Admin while Beacon manages users");
+    }
+
+    [Test]
+    public async Task WhileBeaconManagesUsers_AnApiKeyOrMappedCallerOfAnAdmin_IsNoAdmin()
+    {
+        _users[0].UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = RoleService.RoleNames.Admin, Level = RoleService.RoleLevels.Admin } });
+        var mappedCaller = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, "1"), new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod)],
+            "Bearer"));
+
+        var apiKey = await ResolveManaged(ApiKey(nameIdentifier: "1", userName: "ana"));
+        var mapped = await ResolveManaged(mappedCaller);
+
+        apiKey.BeaconUserId.Should().Be(1);
+        apiKey.IsAdmin.Should().BeFalse("an API key never carries the Admin bypass, even when its owner is an Admin");
+        mapped.BeaconUserId.Should().Be(1);
+        mapped.IsAdmin.Should().BeFalse("neither does a mapped MCP caller");
+    }
+
+    [Test]
+    public async Task WhileBeaconManagesUsers_ASessionWithoutAStoredUser_IsNoAdmin_WhateverItsClaims()
+    {
+        var actor = await ResolveManaged(Interactive("ext-host-only", RoleService.RoleNames.Admin));
+
+        actor.UserId.Should().Be("ext-host-only");
+        actor.IsAdmin.Should().BeFalse();
+    }
+
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task TheAccessor_ReadsWhetherBeaconManagesUsers_FromItsConfiguration(bool userManagement, bool isAdmin)
+    {
+        var configuration = new Beacon.Core.BeaconConfiguration { UserManagement = new Beacon.Core.UserManagementOptions { Enabled = userManagement } };
+        var principal = TestRequestPrincipal.For(Interactive("ext-host-only", RoleService.RoleNames.Admin));
+        var accessor = new BeaconActorAccessor(
+            Factory(),
+            new SystemWorkScope(),
+            new RunAsScope(principal),
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
+            principal,
+            configuration);
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.IsAdmin.Should().Be(isAdmin);
+    }
+
+    [Test]
     public async Task AnApiKey_CarriesItsScopeAndProjectList()
     {
         var actor = await Resolve(ApiKey(nameIdentifier: "1", userName: "ana"));
@@ -589,6 +647,11 @@ public class BeaconActorAccessorTests
     private Task<BeaconActor> Resolve(ClaimsPrincipal principal)
     {
         return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None);
+    }
+
+    private Task<BeaconActor> ResolveManaged(ClaimsPrincipal principal)
+    {
+        return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None, beaconManagesUsers: true);
     }
 
     private IDbContextFactory<BeaconContext> Factory()

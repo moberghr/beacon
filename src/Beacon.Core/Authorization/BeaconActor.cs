@@ -10,9 +10,10 @@ namespace Beacon.Core.Authorization;
 /// contracts (owner) and AI actors (creator). Those resources store <see cref="UserId"/>, the caller's
 /// <c>Users.ExternalId</c>. A session with no stored user (a host without Beacon user management) keeps the
 /// <c>NameIdentifier</c> it presents; a disabled or archived user, an API key whose owner is not found, and an anonymous
-/// request have no <see cref="UserId"/>. <see cref="IsAdmin"/> is the <c>ClaimTypes.Role</c> Admin claim the
-/// <c>BeaconApiAdmin</c> policy requires, held by an enabled user (an API key carries no role). Resolved per request by
-/// <see cref="IBeaconActorAccessor"/>.
+/// request have no <see cref="UserId"/>. <see cref="IsAdmin"/> is what the <c>BeaconApiAdmin</c> policy requires: with
+/// Beacon user management on, the stored user's live Admin standing (a session without a stored user is never one, so a
+/// host sign-in's own role claims never make a Beacon Admin); without it, the <c>ClaimTypes.Role</c> Admin claim the host
+/// presents. An API key carries no role. Resolved per request by <see cref="IBeaconActorAccessor"/>.
 /// </summary>
 public sealed record BeaconActor(string? UserId, bool IsAdmin)
 {

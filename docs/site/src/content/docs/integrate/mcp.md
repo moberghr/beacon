@@ -31,7 +31,7 @@ app.MapMcpDiscovery();                           // anonymous discovery document
 `MapBeaconMcp()` maps the route with the Execute-scope policy, and two filters inside the MCP layer refuse any caller without Execute even if the route were mapped with a weaker policy. Do not map it yourself with `MapMcp(...)` and a bare `RequireAuthorization()`.
 
 :::note[Browser sessions]
-A signed-in browser session can authenticate to `/beacon/mcp` but reaches **no project** there. People try the tools in the UI instead: **MCP playground** (`/beacon/mcp-playground`).
+A signed-in browser session, Beacon's or your host's, is refused on `/beacon/mcp` with `403`: the route takes an API key or a mapped bearer token only. People try the tools in the UI instead: **MCP playground** (`/beacon/mcp-playground`).
 :::
 
 ## Public URL and discovery
@@ -226,9 +226,9 @@ Then ask the assistant something like *"Use Beacon's get_context to describe my 
 |---|---|
 | 400 "A new session can only be created by an initialize request" | The client sent a request without a session: start with `initialize` (or use the stateless `2026-07-28` revision). |
 | 401 with `resource_metadata` | No or invalid credential. |
-| 403 at the door | The key has the Read scope, or the JWT caller is not mapped. |
+| 403 at the door | The key has the Read scope, the JWT caller is not mapped, or a browser session is calling. |
 | "Permission denied: this credential does not have the Execute scope" | Same, reported as a tool error. |
-| "No projects are available to you." | The key or caller reaches no project, or a browser session is calling. |
+| "No projects are available to you." | The key or caller reaches no project. |
 | "Access denied: you may read project N but not run ad-hoc queries in it." | Viewer-level access: `query`/`ask` need Query (Editor). |
 
 ## Add your own tools

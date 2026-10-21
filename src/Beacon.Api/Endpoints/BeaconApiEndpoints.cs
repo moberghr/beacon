@@ -56,9 +56,11 @@ public static class BeaconApiEndpoints
                 .RequireAuthenticatedUser()
                 .Build());
 
+            // The caller's Admin standing as Beacon decides it (BeaconActor.IsAdmin), not a bare role claim: while Beacon
+            // manages users, a host sign-in's own Admin role claim opens no Admin route.
             options.AddPolicy(AdminPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
-                .RequireRole("Admin")
+                .RequireAssertion(IsBeaconAdminAsync)
                 .Build());
 
             // §1.4 — API keys and mapped MCP JWT callers carry scopes; enforce the Execute scope.
@@ -90,7 +92,7 @@ public static class BeaconApiEndpoints
                         : [];
                     options.AddPolicy(policy, new AuthorizationPolicyBuilder()
                         .RequireAuthenticatedUser()
-                        .RequireAssertion(x => HoldsAdminOrRole(x.User, roles))
+                        .RequireAssertion(async x => await IsBeaconAdminAsync(x) || HoldsMappedRole(x.User, roles))
                         .Build());
                 }
             });
@@ -126,14 +128,25 @@ public static class BeaconApiEndpoints
         return services;
     }
 
-    // The Admin role (exactly, as the Admin policy reads it), or one of the mapped roles, ignoring case.
-    private static bool HoldsAdminOrRole(ClaimsPrincipal user, IReadOnlyCollection<string> roles)
+    // The request's actor is an Admin (BeaconActor.IsAdmin: the stored user's live roles while Beacon manages users, the
+    // host's Admin role claim without user management). Without a request or without Beacon's core registered there is no
+    // actor to ask, and only the Admin role claim can answer.
+    private static async Task<bool> IsBeaconAdminAsync(AuthorizationHandlerContext context)
     {
-        if (user.IsInRole(RoleService.RoleNames.Admin))
+        if (context.Resource is not HttpContext httpContext
+            || httpContext.RequestServices.GetService<IBeaconActorAccessor>() is not { } accessor)
         {
-            return true;
+            return context.User.IsInRole(RoleService.RoleNames.Admin);
         }
 
+        var actor = await accessor.GetCurrentAsync(httpContext.RequestAborted);
+
+        return actor.IsAdmin;
+    }
+
+    // One of the mapped roles, ignoring case. The permission filter re-checks the permission live.
+    private static bool HoldsMappedRole(ClaimsPrincipal user, IReadOnlyCollection<string> roles)
+    {
         return roles.Count > 0
             && user.Identities
                 .Any(x => x
