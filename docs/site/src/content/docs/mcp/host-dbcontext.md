@@ -124,17 +124,24 @@ UI is refused; restart the host (or call the sync again) instead.
     PostgreSQL `@` operator is rejected; use `abs()`), and a statement never runs with a parameter unbound;
   - string-building functions take only bounded literals, so one call cannot build a huge value:
     - the count of `repeat` (`REPLICATE` on SQL Server) and the width of `lpad` / `rpad` must be a number literal of
-      at most 10,000 (a column, parameter or expression is rejected; a negative number passes, since it builds
-      nothing);
+      at most 10,000, optionally quoted (`'5'`) or with one cast straight over it to an integer or numeric type
+      (`'5'::int`, `CAST(5 AS bigint)`); a column, parameter, expression, a cast to another type or a cast of a cast is
+      rejected, and a negative number passes, since it builds nothing;
     - the string `repeat` / `REPLICATE` repeats must be a plain string literal of at most 100 characters, so a column
       or a nested call cannot multiply the length (`lpad` / `rpad` cut their string to the width, so theirs is free);
-    - PostgreSQL's `format()` needs a string-literal format string whose field widths add up to at most 10,000 (a `*`
-      width, taken from an argument, is rejected);
+    - PostgreSQL's `format()` needs a string-literal format string whose field widths add up to at most 10,000 and
+      that uses sequential specifiers only (`%s`, so each argument is used once; a positional `%1$s` and a `*` width,
+      taken from an argument, are rejected);
+    - a call that can lengthen its input many times — `repeat` / `REPLICATE`, `replace` / `REPLACE`, `regexp_replace`
+      and a `format()` that quotes (`%I` / `%L`) — may not appear anywhere inside an argument of another such call, so
+      lengths add up instead of multiplying (`replace(replace(…))` is rejected; one `replace(col, ',', ';')`, and
+      `lpad`, `left`, `substring` … around or inside it, pass);
     - SQL Server's `FORMAT` needs a string-literal format string with no number above 999 (a precision such as
       `N999999999` is rejected).
 
-    Other costly work (regular expressions, large joins and aggregates) is bounded by the statement timeout and the
-    row cap, not by the check;
+    Other costly work (regular expressions, large joins and aggregates, a value built up step by step through CTEs) is
+    bounded by the statement timeout, the row cap and the database's own limit on one value (1 GB on PostgreSQL), not
+    by the check — give the host login a server-side statement timeout too;
   - a masked column may appear **only** as a direct projection (optionally aliased, through CTEs, derived tables
     and `UNION ALL` the mask follows the value to its output key), inside `COUNT(col)`, or in `col IS NULL` /
     `col IS NOT NULL`. Any other use (`WHERE`, `JOIN … ON`/`USING`, `GROUP BY`, `ORDER BY` (by name, alias or

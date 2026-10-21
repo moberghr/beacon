@@ -100,6 +100,18 @@ internal static class HostSqlFunctions
         ["FORMAT"] = new(Format: 1)
     };
 
+    // Functions whose result can be many times longer than their input. A call to one may not take another's result as
+    // an argument, at any depth, so lengths add up instead of multiplying (format() joins them when it quotes).
+    private static readonly HashSet<string> PostgreSqlLengthMultipliers = new(StringComparer.Ordinal)
+    {
+        "repeat", "replace", "regexp_replace"
+    };
+
+    private static readonly HashSet<string> SqlServerLengthMultipliers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "REPLICATE", "REPLACE"
+    };
+
     // Never allowed, not even through AllowFunctions: they read files, settings, catalogs or other servers.
     private static readonly string[] HardDeniedPrefixes = ["pg_", "dblink", "lo_", "xp_", "sp_", "fn_"];
 
@@ -132,6 +144,12 @@ internal static class HostSqlFunctions
         var builders = engine == DatabaseEngineType.PostgreSQL ? PostgreSqlStringBuilders : SqlServerStringBuilders;
 
         return builders.GetValueOrDefault(name);
+    }
+
+    /// <summary>True for a function whose result can be many times longer than its input (<c>repeat</c>, <c>replace</c> …).</summary>
+    public static bool MultipliesLength(DatabaseEngineType engine, string name)
+    {
+        return (engine == DatabaseEngineType.PostgreSQL ? PostgreSqlLengthMultipliers : SqlServerLengthMultipliers).Contains(name);
     }
 
     /// <summary>True for the COUNT aggregates — the only function a masked column may feed.</summary>

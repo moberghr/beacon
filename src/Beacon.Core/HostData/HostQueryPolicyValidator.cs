@@ -108,8 +108,8 @@ internal static class HostQueryPolicyValidator
     private static readonly Regex PostgresParameterName = new("^p[0-9]{1,4}$", RegexOptions.CultureInvariant);
 
     // One conversion specifier of PostgreSQL's format(): %[position$][flags][width]type, where the width is digits, * or
-    // *position$ (both taking the width from an argument); %% is a literal percent sign.
-    private static readonly Regex FormatWidth = new(@"%(?:%|(?:[0-9]+\$)?-*(?<width>\*(?:[0-9]+\$)?|[0-9]+)?)", RegexOptions.CultureInvariant);
+    // *position$ (both taking the width from an argument) and the type s, I or L; %% is a literal percent sign.
+    private static readonly Regex FormatSpecifier = new(@"%(?:%|(?<position>[0-9]+\$)?-*(?<width>\*(?:[0-9]+\$)?|[0-9]+)?(?<type>[A-Za-z]?))", RegexOptions.CultureInvariant);
 
     // A number in SQL Server's FORMAT format string; a standard format's precision (N999) sets the result's length.
     private static readonly Regex FormatNumber = new("[0-9]+", RegexOptions.CultureInvariant);
@@ -296,6 +296,9 @@ internal static class HostQueryPolicyValidator
         // PostgreSQL only: every identifier of the statement by the name the server gives it (folded, shortened to 63
         // bytes), with the identifier as written — two different identifiers that share a name would be read as one.
         private readonly Dictionary<string, string> _serverNames = new(StringComparer.Ordinal);
+
+        // How many length-multiplying calls (repeat, replace …) enclose the node being walked.
+        private int _lengthMultipliers;
 
         public HostPolicyResult Run(Query query)
         {
@@ -1081,6 +1084,32 @@ internal static class HostQueryPolicyValidator
 
             CheckLengthArguments(nameParts[0].Value, name, args);
 
+            var multiplies = MultipliesLength(name, args);
+            if (multiplies && _lengthMultipliers > 0)
+            {
+                Error($"{nameParts[0].Value}() may not be used inside another call that lengthens its input (repeat, REPLICATE, replace, regexp_replace or a quoting format()) on host data sources — the lengths would multiply.");
+            }
+
+            _lengthMultipliers += multiplies ? 1 : 0;
+            try
+            {
+                WalkFunctionArguments(function, name, arguments, args, scope, ctes, depth);
+            }
+            finally
+            {
+                _lengthMultipliers -= multiplies ? 1 : 0;
+            }
+        }
+
+        private void WalkFunctionArguments(
+            Expression.Function function,
+            string name,
+            FunctionArgumentList? arguments,
+            List<FunctionArg> args,
+            Scope scope,
+            ImmutableDictionary<string, IReadOnlyList<OutputColumn>> ctes,
+            int depth)
+        {
             // COUNT(col) — not COUNT(DISTINCT col), which leaks cardinality — is the one aggregate a masked column may feed.
             if (HostSqlFunctions.IsCount(name)
                 && arguments is { DuplicateTreatment: not DuplicateTreatment.Distinct }
@@ -1149,12 +1178,26 @@ internal static class HostQueryPolicyValidator
                 return;
             }
 
-            if (!(_postgres ? FormatWidthsAreBounded(format) : FormatNumbersAreBounded(format)))
+            var formatError = _postgres ? PostgresFormatError(written, format) : SqlServerFormatError(written, format);
+            if (formatError != null)
             {
-                Error(_postgres
-                    ? $"The field widths in {written}() must be numbers written in the format string that add up to no more than {HostSqlFunctions.MaxLengthArgument} on host data sources."
-                    : $"The format string of {written}() may hold no number above {HostSqlFunctions.MaxFormatNumber} on host data sources.");
+                Error(formatError);
             }
+        }
+
+        // A call whose result can be many times longer than its input: repeat, replace … and a format() that quotes its
+        // values (%I / %L double every quote character in them).
+        private bool MultipliesLength(string name, List<FunctionArg> args)
+        {
+            if (HostSqlFunctions.MultipliesLength(policy.Engine, name))
+            {
+                return true;
+            }
+
+            return _postgres
+                && Argument(args, HostSqlFunctions.StringBuilderArguments(policy.Engine, name)?.Format) is { } formatArgument
+                && StringLiteral(formatArgument) is { } format
+                && FormatSpecifier.Matches(format).Any(x => x.Groups["type"].Value is "I" or "L");
         }
 
         // The expression passed at a bounded position; null when the function has no such argument or the call omits it
@@ -1424,19 +1467,37 @@ internal static class HostQueryPolicyValidator
                 : null;
         }
 
-        // The value of a number literal, optionally signed, parenthesised or cast ('100'::int); null for anything else.
+        // The value of a number literal ('5' included), optionally signed or parenthesised, or of ONE cast straight over
+        // such a literal to an integer or numeric type ('100'::int); null for anything else. A cast to another type, or a
+        // cast of a cast (CAST(CAST(-1 AS bit(29)) AS int)), can make the server read a different number.
         private static decimal? NumberLiteral(Expression expression)
+        {
+            return expression switch
+            {
+                Expression.Nested nested => NumberLiteral(nested.Expression),
+                Expression.UnaryOp { Op: UnaryOperator.Plus or UnaryOperator.Minus } => SignedLiteral(expression),
+                Expression.Cast cast when IsPlainNumberType(cast.DataType) => SignedLiteral(cast.Expression),
+                _ => SignedLiteral(expression)
+            };
+        }
+
+        private static decimal? SignedLiteral(Expression expression)
         {
             return expression switch
             {
                 Expression.LiteralValue { Value: Value.Number number } => ParseNumber(number.Value),
                 Expression.LiteralValue { Value: Value.SingleQuotedString text } => ParseNumber(text.Value),
-                Expression.Nested nested => NumberLiteral(nested.Expression),
-                Expression.Cast cast => NumberLiteral(cast.Expression),
-                Expression.UnaryOp { Op: UnaryOperator.Plus } plus => NumberLiteral(plus.Expression),
-                Expression.UnaryOp { Op: UnaryOperator.Minus } minus => -NumberLiteral(minus.Expression),
+                Expression.UnaryOp { Op: UnaryOperator.Plus, Expression: Expression.LiteralValue literal } => SignedLiteral(literal),
+                Expression.UnaryOp { Op: UnaryOperator.Minus, Expression: Expression.LiteralValue literal } => -SignedLiteral(literal),
+                Expression.UnaryOp { Op: UnaryOperator.Minus, Expression: Expression.Cast cast } => -NumberLiteral(cast),
                 _ => null
             };
+        }
+
+        private static bool IsPlainNumberType(DataType dataType)
+        {
+            return dataType is DataType.Int or DataType.Integer or DataType.Int2 or DataType.Int4 or DataType.Int8
+                or DataType.SmallInt or DataType.BigInt or DataType.TinyInt or DataType.Numeric or DataType.Decimal;
         }
 
         // The text of a plain string literal (optionally parenthesised); null for anything else.
@@ -1451,36 +1512,43 @@ internal static class HostQueryPolicyValidator
             };
         }
 
-        private static bool FormatWidthsAreBounded(string format)
+        // Sequential specifiers use each argument once, so the result grows with the query text; a positional one (%1$s)
+        // can repeat an argument any number of times.
+        private static string? PostgresFormatError(string written, string format)
         {
             var total = 0;
-            foreach (Match specifier in FormatWidth.Matches(format))
+            foreach (Match specifier in FormatSpecifier.Matches(format))
             {
+                if (specifier.Groups["position"].Success)
+                {
+                    return $"Positional references (%1$s) in {written}() are not allowed on host data sources — use sequential %s, so each argument is used once.";
+                }
+
                 var width = specifier.Groups["width"];
                 if (!width.Success)
                 {
                     continue;
                 }
 
-                if (width.Value.StartsWith('*') || width.Value.Length > 9)
-                {
-                    return false;
-                }
+                total += width.Value.StartsWith('*') || width.Value.Length > 9
+                    ? HostSqlFunctions.MaxLengthArgument + 1
+                    : int.Parse(width.Value, CultureInfo.InvariantCulture);
 
-                total += int.Parse(width.Value, CultureInfo.InvariantCulture);
                 if (total > HostSqlFunctions.MaxLengthArgument)
                 {
-                    return false;
+                    return $"The field widths in {written}() must be numbers written in the format string that add up to no more than {HostSqlFunctions.MaxLengthArgument} on host data sources.";
                 }
             }
 
-            return true;
+            return null;
         }
 
-        private static bool FormatNumbersAreBounded(string format)
+        private static string? SqlServerFormatError(string written, string format)
         {
-            return FormatNumber.Matches(format)
+            var bounded = FormatNumber.Matches(format)
                 .All(x => x.Value.Length <= 9 && int.Parse(x.Value, CultureInfo.InvariantCulture) <= HostSqlFunctions.MaxFormatNumber);
+
+            return bounded ? null : $"The format string of {written}() may hold no number above {HostSqlFunctions.MaxFormatNumber} on host data sources.";
         }
 
         private static decimal? ParseNumber(string value)

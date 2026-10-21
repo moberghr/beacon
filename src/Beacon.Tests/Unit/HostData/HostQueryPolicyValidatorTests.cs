@@ -419,7 +419,7 @@ public class HostQueryPolicyValidatorTests
     [TestCase("SELECT repeat('-', 20) AS c, rpad(\"Name\", 30) AS d FROM public.\"Customer\"")]
     [TestCase("SELECT lpad('x', 10000) AS c, repeat('x', -1) AS d")]
     [TestCase("SELECT format('%s-%s', \"Name\", \"Id\") AS c FROM public.\"Customer\"")]
-    [TestCase("SELECT format('%-10s|%2$s %%', \"Name\", \"Id\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%-10s|%s %%', \"Name\", \"Id\") AS c FROM public.\"Customer\"")]
     [TestCase("SELECT regexp_replace(\"Name\", '\\s+', ' ', 'g') AS c FROM public.\"Customer\"")]
     public void Validate_PostgresLengthArguments_WithinTheBound_Pass(string sql)
     {
@@ -607,6 +607,71 @@ public class HostQueryPolicyValidatorTests
         var result = HostQueryPolicyValidator.Validate("SELECT FORMAT(Id, 'N999999999') AS c FROM dbo.Customer", SqlServerPolicy);
 
         result.Error.Should().Contain("no number above 999");
+    }
+
+    [TestCase("SELECT repeat('x', CAST(CAST(-1 AS bit(29)) AS int)) AS c")]
+    [TestCase("SELECT lpad('x', CAST(CAST(-1 AS bit(29)) AS int)) AS c")]
+    [TestCase("SELECT rpad('x', (-1)::bit(29)::int) AS c")]
+    [TestCase("SELECT repeat('x', CAST(5 AS text)::int) AS c")]
+    [TestCase("SELECT repeat('x', '5'::int::int) AS c")]
+    [TestCase("SELECT repeat('x', CAST(5 AS float8)) AS c")]
+    [TestCase("SELECT lpad('x', CAST('5' AS text)) AS c")]
+    [TestCase("SELECT format('%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s', format('%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s', format('%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s', format('%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s', format('%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s%1$s', 'x'))))) AS c")]
+    [TestCase("SELECT format('%1$s', 'x') AS c")]
+    [TestCase("SELECT format('%2$s %1$s', 'a', 'b') AS c")]
+    [TestCase("SELECT replace(replace(repeat('x', 10000), 'x', 'xxxxxxxxxx'), 'x', 'xxxxxxxxxx') AS c")]
+    [TestCase("SELECT replace(replace(\"Name\", 'a', 'aaaaaaaaaa'), 'a', 'aaaaaaaaaa') AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT regexp_replace(replace(\"Name\", 'a', 'aa'), 'a', 'aaaaaaaa', 'g') AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT replace(lower(repeat('x', 10000)), 'x', 'xxxxxxxxxx') AS c")]
+    [TestCase("SELECT replace((SELECT repeat('x', 10000)), 'x', 'xxxxxxxxxx') AS c")]
+    [TestCase("SELECT format('%L', format('%L', \"Name\")) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT replace(format('%I', \"Name\"), '\"', '\"\"') AS c FROM public.\"Customer\"")]
+    public void Validate_PostgresMultiplyingStringBuilders_AreRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Allowed.Should().BeFalse();
+    }
+
+    [TestCase("SELECT repeat('x', '5'::int) AS c, lpad('x', 5::int) AS d, rpad('x', CAST('20' AS integer)) AS e")]
+    [TestCase("SELECT repeat('x', -CAST(5 AS bigint)) AS c, lpad('x', CAST(5 AS numeric)) AS d")]
+    [TestCase("SELECT replace(\"Name\", ',', ';') AS c, replace(\"Name\", '&', '&amp;') AS d FROM public.\"Customer\"")]
+    [TestCase("SELECT lpad(replace(\"Name\", ',', ';'), 20) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT replace(lpad(\"Name\", 20), ' ', '.') AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%s (%s)', format('%s-%s', \"Name\", \"Id\"), \"Id\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%L', \"Name\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%s', replace(\"Name\", ',', ';')) AS c FROM public.\"Customer\"")]
+    public void Validate_PostgresLinearStringBuilders_Pass(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT format('%1$s%1$s', 'x') AS c", "Positional references")]
+    [TestCase("SELECT replace(replace(\"Name\", 'a', 'aa'), 'a', 'aa') AS c FROM public.\"Customer\"", "the lengths would multiply")]
+    [TestCase("SELECT repeat('x', CAST(CAST(-1 AS bit(29)) AS int)) AS c", "must be a number literal")]
+    public void Validate_PostgresMultiplyingStringBuilderRejection_ExplainsWhy(string sql, string reason)
+    {
+        HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Error.Should().Contain(reason);
+    }
+
+    [TestCase("SELECT REPLICATE('x', CAST(CAST(5 AS varchar(10)) AS int)) AS c")]
+    [TestCase("SELECT REPLICATE('x', CAST(5 AS float)) AS c")]
+    [TestCase("SELECT REPLACE(REPLACE(Name, 'a', 'aaaaaaaaaa'), 'a', 'aaaaaaaaaa') AS c FROM dbo.Customer")]
+    [TestCase("SELECT REPLACE(REPLICATE('x', 10000), 'x', 'xxxxxxxxxx') AS c")]
+    [TestCase("SELECT REPLACE(UPPER(REPLACE(Name, 'a', 'aa')), 'A', 'AA') AS c FROM dbo.Customer")]
+    public void Validate_SqlServerMultiplyingStringBuilders_AreRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, SqlServerPolicy).Allowed.Should().BeFalse();
+    }
+
+    [TestCase("SELECT REPLACE(Name, ',', ';') AS c, REPLACE(Name, '&', '&amp;') AS d FROM dbo.Customer")]
+    [TestCase("SELECT LEFT(REPLACE(Name, ',', ';'), 10) AS c FROM dbo.Customer")]
+    [TestCase("SELECT REPLICATE('x', CAST('5' AS int)) AS c, REPLICATE('x', -CAST(5 AS tinyint)) AS d")]
+    public void Validate_SqlServerLinearStringBuilders_Pass(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, SqlServerPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
     }
 
     [Test]
