@@ -504,8 +504,8 @@ Bound from `Beacon:Subscriptions`, validated at startup.
 
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
-| `MinIntervalMinutes` | int | `5` | 1–1440 | The shortest time between two runs of a subscription's cron schedule (in UTC). Creating a subscription with a schedule that fires more often, or changing one to it, is refused; a subscription saved before keeps its schedule through other edits and a reactivation |
-| `MaxAttachmentBytes` | int | `10485760` (10 MB) | 65,536–104,857,600 | The largest file a subscription attaches to its email. A larger CSV or XLSX keeps only its first rows that fit (an XLSX file can keep a few fewer), and the email says how many of the rows it delivers the file holds; a first row larger than the limit leaves the column headers only. The email itself is about 1.33 times the attachment's size (base64 encoding), so keep the limit below your mail server's message limit |
+| `MinIntervalMinutes` | int | `5` | 1–1440 | The shortest time between two runs of a subscription's cron schedule (in UTC). Creating a subscription with a schedule that fires more often (an AI actor's included), or changing one to it, is refused; a subscription saved before keeps its schedule through other edits and a reactivation |
+| `MaxAttachmentBytes` | int | `10485760` (10 MB) | 65,536–104,857,600 | The largest file a subscription attaches to its email. A larger CSV or XLSX keeps only its first rows that fit (a CSV exactly as many; an XLSX file can keep somewhat fewer), and the email says how many of the rows it delivers the file holds; a first row larger than the limit leaves the column headers only, and headers larger than the limit leave no attachment. The email itself is about 1.33 times the attachment's size (base64 encoding), so keep the limit below your mail server's message limit |
 
 See [Subscriptions](/features/subscriptions/).
 

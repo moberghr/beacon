@@ -41,7 +41,7 @@ evaluated: write relative dates into the query's SQL instead.
 |---|---|---|
 | **Max rows** | default cap (10,000) | At least 1; empty or a stored 0 uses the default. The most rows that reach recipients: the inline table and the attachment. The run's record count is always the full count. |
 | **Timeout (seconds)** | the deployment's limit | How long each statement of a run may take, the in-memory final query included. Empty uses `Beacon:Query:StatementTimeoutSeconds` (default 120). A longer value than that limit is refused when you save. |
-| **Include results as attachment** | off | Attach the result to the notification as **CSV** or **XLSX** (**Attachment format**). Only email delivers attachments. A file larger than `Beacon:Subscriptions:MaxAttachmentBytes` (10 MB by default) keeps only its first rows that fit (an XLSX file can keep a few rows fewer than would fit), and the email says how many of the rows it delivers the attachment holds. When one row alone is larger than the limit, the file has the column headers only and the email says so. Email encoding makes the message about 1.33 times the attachment's size. |
+| **Include results as attachment** | off | Attach the result to the notification as **CSV** or **XLSX** (**Attachment format**). Only email delivers attachments. A file larger than `Beacon:Subscriptions:MaxAttachmentBytes` (10 MB by default) keeps only its first rows that fit (a CSV exactly as many as fit; an XLSX file, which compresses unevenly, can keep somewhat fewer), and the email says how many of the rows it delivers the attachment holds. When the first row alone is larger than the limit, the file has the column headers only; when even the headers are larger, nothing is attached. The email says which. Email encoding makes the message about 1.33 times the attachment's size. |
 | **Show query text in notification** | off | Include the SQL in the message. |
 | **Store result rows for later viewing** | off | Keep a preview of the result's first rows on the run's record, shown on the notification's page. |
 
@@ -84,7 +84,9 @@ fires more often, such as `* * * * *` or `0,1 9 * * *`, is refused with a messag
 the hour and across midnight too (`58,3 * * * *` runs 5 minutes apart at :58 and :03). The schedule is evaluated in UTC,
 as the job runner fires it. A subscription saved before the limit existed keeps its schedule: it still runs, an edit that
 keeps the schedule is accepted, and a reactivation puts it back on the scheduler unchanged. Only a change of the
-schedule is checked.
+schedule is checked. A subscription an [AI actor](/features/ai-actors/) creates is held to the same limit. The check
+covers the whole 400-year calendar cycle, so days that fall in a row only once in decades (28 and 29 February on a
+Friday and a Saturday) count too.
 
 | Expression | Runs |
 |---|---|

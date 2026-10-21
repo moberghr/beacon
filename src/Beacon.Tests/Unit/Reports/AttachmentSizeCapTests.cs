@@ -124,6 +124,85 @@ public class AttachmentSizeCapTests
         RowIds(type, file.Data).Should().BeEmpty();
     }
 
+    // One huge last row: the rows before it that fit are kept, not cut in proportion to the outlier.
+    [Test]
+    public async Task ACsvWithATrailingOutlier_KeepsEveryRowThatFits()
+    {
+        var rows = Enumerable.Range(FirstId, 9_999)
+            .Select(x => (IDictionary<string, object?>)new Dictionary<string, object?> { ["id"] = x, ["note"] = "x" })
+            .Append(new Dictionary<string, object?> { ["id"] = FirstId + 9_999, ["note"] = new string('x', 1024 * 1024) })
+            .ToList();
+
+        var file = await ExportProvider.GetReport(FileType.Csv, rows, Cap, CancellationToken.None);
+
+        file.Data.Length.Should().BeLessThanOrEqualTo(Cap);
+        file.RowCount.Should().BeGreaterThan(6_000);
+        (await CsvBuilder.GetReport(rows.Take(file.RowCount!.Value + 1).ToList())).Length.Should().BeGreaterThan(Cap);
+        RowIds(FileType.Csv, file.Data).Should().Equal(Enumerable.Range(FirstId, file.RowCount.Value));
+    }
+
+    [Test]
+    public async Task AnXlsxWithATrailingOutlier_KeepsNearlyEveryRowThatFits()
+    {
+        var columns = Enumerable.Range(1, 8).Select(x => $"c{x}").ToList();
+        var rows = Enumerable.Range(FirstId, 9_999)
+            .Select(x => Row(x, columns, _ => null))
+            .Append(Row(FirstId + 9_999, columns, _ => RandomText(32_000)))
+            .ToList();
+
+        var file = await ExportProvider.GetReport(FileType.Xlsx, rows, Cap, CancellationToken.None);
+
+        var largest = LargestFittingXlsxPrefix(rows);
+        file.Data.Length.Should().BeLessThanOrEqualTo(Cap);
+        file.RowCount.Should().BeLessThanOrEqualTo(largest).And.BeGreaterThanOrEqualTo((int)(largest * 0.9));
+        RowIds(FileType.Xlsx, file.Data).Should().Equal(Enumerable.Range(FirstId, file.RowCount!.Value));
+    }
+
+    // Column headers alone over the cap: no file is attached, and the e-mail says why.
+    [TestCaseSource(nameof(FileTypes))]
+    public async Task HeadersLargerThanTheCap_AttachNothing(FileType type)
+    {
+        var columns = Enumerable.Range(1, 400).Select(x => $"{x}_{RandomText(400)}").ToList();
+        var rows = new List<IDictionary<string, object?>> { Row(FirstId, columns, _ => 1) };
+
+        var file = await ExportProvider.GetReport(type, rows, Cap, CancellationToken.None);
+
+        file.Omitted.Should().BeTrue();
+        file.Data.Should().BeEmpty();
+        file.RowCount.Should().Be(0);
+        file.SourceRowCount.Should().Be(1);
+    }
+
+    [Test]
+    public async Task AnOmittedAttachment_IsNotSent_AndTheEmailSaysSo()
+    {
+        var mail = new Mock<IEmailAdapter>();
+        string? sentBody = null;
+        var attached = true;
+        mail
+            .Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>()))
+            .Callback<string, string, string, QueryResultFile?>((_, _, body, attachment) =>
+            {
+                sentBody = body;
+                attached = attachment != null;
+            })
+            .Returns(Task.CompletedTask);
+        var file = new QueryResultFile { Data = [], Name = "report.csv", ContentType = "text/csv", RowCount = 0, SourceRowCount = 7, Omitted = true };
+
+        await new EmailAdapter(mail.Object).SendNotificationAsync(
+            new RecipientQueryResult
+            {
+                RecipientDestination = "ops@bank.example",
+                RecipientNotificationType = NotificationType.Email,
+                QueryResult = Result(),
+                QueryResultFile = file
+            },
+            null);
+
+        attached.Should().BeFalse();
+        sentBody.Should().Contain("No attachment:").And.Contain("even the column headers of report.csv are larger than the attachment size limit");
+    }
+
     [Test]
     public void TheEmail_SaysTheAttachmentWasTruncated_InTermsOfTheRowsItDelivers()
     {
@@ -182,6 +261,38 @@ public class AttachmentSizeCapTests
         sentFile.Should().BeSameAs(file);
         sentBody.Should().NotBeNull();
         sentBody!.Contains("The attachment was truncated").Should().Be(noted);
+    }
+
+    private static IDictionary<string, object?> Row(int id, IEnumerable<string> columns, Func<string, object?> value)
+    {
+        var row = new Dictionary<string, object?> { ["id"] = id };
+        foreach (var column in columns)
+        {
+            row[column] = value(column);
+        }
+
+        return row;
+    }
+
+    private static int LargestFittingXlsxPrefix(List<IDictionary<string, object?>> rows)
+    {
+        var columns = rows[0].Keys.ToList();
+        var lo = 0;
+        var hi = rows.Count;
+        while (hi - lo > 1)
+        {
+            var mid = lo + (hi - lo) / 2;
+            if (XlsxBuilder.GetReport(rows.Take(mid).ToList(), columns, CancellationToken.None).Length <= Cap)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo;
     }
 
     private static QueryResultFile File(int rowCount, int sourceRowCount, string name = "report.csv") =>

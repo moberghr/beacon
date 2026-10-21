@@ -87,6 +87,28 @@ public class SubscriptionScheduleTests
         act.Should().NotThrow();
     }
 
+    // 28 and 29 February only on a Friday and a Saturday: in a row only in 2048, past any short search window.
+    [Test]
+    public void TwoFiringDaysInARow_YearsAway_Count()
+    {
+        var act = () => SubscriptionSchedule.EnsureAllowed("0,59 0,23 28,29 2 FRI,SAT", 5, Now);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*every 5 minutes*");
+    }
+
+    // The slowest schedules to judge: times near both ends of the day on days never in a row, searched over 400 years.
+    [TestCase("0,58 0,23 * * 1,3,5")]
+    [TestCase("0,58 0,23 */2 * 2")]
+    public void ASearchOverTheWholeCalendarCycle_IsFast(string cron)
+    {
+        SubscriptionSchedule.EnsureAllowed(cron, 5, Now);
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+        SubscriptionSchedule.EnsureAllowed(cron, 5, Now);
+
+        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
     [Test]
     public void TheMinimum_IsTheConfiguredOne()
     {

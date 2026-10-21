@@ -22,6 +22,8 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
 
         // The IEmailAdapter contract doesn't currently flow a CancellationToken into
         // the SMTP/Sendmail call — graceful shutdown is observed at this boundary.
-        await emailAdapter.SendEmailAsync(to, subject, htmlBody, recipientQueryResult.QueryResultFile);
+        // A file too large even for its headers is not attached; the body says so.
+        var attachment = recipientQueryResult.QueryResultFile is { Omitted: true } ? null : recipientQueryResult.QueryResultFile;
+        await emailAdapter.SendEmailAsync(to, subject, htmlBody, attachment);
     }
 }

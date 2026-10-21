@@ -9,8 +9,8 @@ namespace Beacon.Core.Helpers;
 /// </summary>
 internal static class SubscriptionSchedule
 {
-    // Eight years of firing days: covers leap days and day-of-month/weekday combinations that meet only now and then.
-    private const int DaysSearched = 8 * 366;
+    // The Gregorian calendar repeats after 400 years: 146,097 days, a whole number of weeks.
+    private const int GregorianCycleDays = 146_097;
 
     /// <summary>Refuses a schedule that is not a five-field cron expression, whatever its interval.</summary>
     public static void EnsureValid(string? cron)
@@ -21,8 +21,7 @@ internal static class SubscriptionSchedule
     public static void EnsureAllowed(string? cron, int minIntervalMinutes, DateTime nowUtc)
     {
         var expression = Parse(cron);
-        var shortest = ShortestInterval(expression, nowUtc);
-        if (shortest < TimeSpan.FromMinutes(minIntervalMinutes))
+        if (FiresCloserThan(expression, TimeSpan.FromMinutes(minIntervalMinutes), nowUtc))
         {
             throw new InvalidOperationException(
                 $"The schedule runs more often than every {minIntervalMinutes} minutes, the shortest interval this deployment allows ({SubscriptionOptions.SectionName}:{nameof(SubscriptionOptions.MinIntervalMinutes)}).");
@@ -30,44 +29,54 @@ internal static class SubscriptionSchedule
     }
 
     /// <summary>
-    /// The shortest time between two consecutive runs, in UTC, or null when the schedule fires at most once. A five-field
-    /// schedule fires at the same times of day on every day it fires (only which days differ), so the gaps are those
-    /// between one firing day's times and those from the last run of a firing day to the first of the next.
+    /// Whether two consecutive runs (in UTC, as the job runner fires them) are ever closer than <paramref name="minimum"/>
+    /// (at most a day). A five-field schedule fires at the same times of day on every day it fires (only which days
+    /// differ), so the gaps are those between one firing day's times, and — when two calendar days in a row both fire —
+    /// the one from the last time of a day to the first of the next. The calendar repeats every 400 years (146,097 days,
+    /// a whole number of weeks), so searching that span for two firing days in a row is exhaustive; it runs only when that
+    /// gap would be too short.
     /// </summary>
-    private static TimeSpan? ShortestInterval(CronExpression expression, DateTime fromUtc)
+    private static bool FiresCloserThan(CronExpression expression, TimeSpan minimum, DateTime fromUtc)
     {
         var day = DateTime.SpecifyKind(fromUtc.Date, DateTimeKind.Utc);
         var first = expression.GetNextOccurrence(day, inclusive: true);
         if (first == null)
         {
-            return null;
+            return false;
         }
 
-        TimeSpan? shortest = null;
         var last = first.Value;
         var next = expression.GetNextOccurrence(last);
         while (next != null && next.Value.Date == first.Value.Date)
         {
-            shortest = Shorter(shortest, next.Value - last);
+            if (next.Value - last < minimum)
+            {
+                return true;
+            }
+
             last = next.Value;
             next = expression.GetNextOccurrence(last);
         }
 
         var timesSpan = last - first.Value;
-        var end = day.AddDays(DaysSearched);
+        if (TimeSpan.FromDays(1) - timesSpan >= minimum)
+        {
+            return false;
+        }
+
+        var end = first.Value.Date.AddDays(GregorianCycleDays + 1);
         while (next != null && next.Value < end)
         {
-            shortest = Shorter(shortest, next.Value - last);
+            if (next.Value.Date == last.Date.AddDays(1))
+            {
+                return true;
+            }
+
             last = next.Value + timesSpan;
             next = expression.GetNextOccurrence(last);
         }
 
-        return shortest;
-    }
-
-    private static TimeSpan Shorter(TimeSpan? current, TimeSpan candidate)
-    {
-        return current is { } x && x < candidate ? x : candidate;
+        return false;
     }
 
     private static CronExpression Parse(string? cron)

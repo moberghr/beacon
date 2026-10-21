@@ -248,7 +248,14 @@ internal class JobService(
             // says so.
             var maxAttachmentBytes = (subscriptionOptions?.Value ?? new SubscriptionOptions()).MaxAttachmentBytes;
             resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords, maxAttachmentBytes, cancellationToken);
-            if (resultFile.Truncated)
+            if (resultFile.Omitted)
+            {
+                logger.LogWarning(
+                    "Subscription {SubscriptionId} attachment omitted: its column headers alone exceed {MaxAttachmentBytes} bytes",
+                    subscriptionId,
+                    maxAttachmentBytes);
+            }
+            else if (resultFile.Truncated)
             {
                 logger.LogWarning(
                     "Subscription {SubscriptionId} attachment truncated to {RowCount} of {SourceRowCount} rows to stay within {MaxAttachmentBytes} bytes",

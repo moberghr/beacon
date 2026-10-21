@@ -21,7 +21,9 @@ public static class Helpers
 
         var name = System.Net.WebUtility.HtmlEncode(attachment.Name);
         var delivered = System.Net.WebUtility.HtmlEncode(attachment.SourceRowCount.ToString());
-        var note = attachment.RowCount == 0
+        var note = attachment.Omitted
+            ? $"<p><strong>No attachment:</strong> even the column headers of {name} are larger than the attachment size limit, so none of the {delivered} rows this message delivers is attached.</p>"
+            : attachment.RowCount == 0
             ? $"<p><strong>The attachment holds no rows:</strong> one row of the {delivered} rows this message delivers is larger than the attachment size limit, so {name} has the column headers only.</p>"
             : $"<p><strong>The attachment was truncated:</strong> {name} holds the first {System.Net.WebUtility.HtmlEncode(attachment.RowCount.ToString())} of the {delivered} rows this message delivers, to stay within the attachment size limit.</p>";
         var end = content.LastIndexOf("</body>", StringComparison.Ordinal);

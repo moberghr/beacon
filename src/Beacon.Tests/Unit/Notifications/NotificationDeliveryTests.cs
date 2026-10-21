@@ -434,6 +434,29 @@ public class NotificationDeliveryTests
             .Which.Message.Should().Be($"Subscription 5 attachment truncated to {file.RowCount} of 5000 rows to stay within 65536 bytes");
     }
 
+    // Column headers alone over the cap: no file goes out, the recipient is still notified, and the run says so.
+    [Test]
+    public async Task ExecuteQuery_HeadersAboveTheCap_OmitsTheAttachmentAndSaysSo()
+    {
+        var store = new JobStore();
+        store.Subscriptions.Single().IncludeAttachment = true;
+        store.Subscriptions.Single().ResultAttachmentType = FileType.Csv;
+        var notifications = new Mock<INotificationService>();
+        var sent = new List<RecipientQueryResult>();
+        notifications
+            .Setup(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientQueryResult, int?, CancellationToken>((x, _, _) => sent.Add(x));
+        var row = Enumerable.Range(1, 200).ToDictionary(x => $"{x}_{new string('c', 400)}", x => (object?)x);
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [9], allRecords: [row], subscriptions: new SubscriptionOptions { MaxAttachmentBytes = 64 * 1024 })
+            .ExecuteQuery(5, CancellationToken.None);
+
+        sent.Should().ContainSingle().Which.QueryResultFile!.Omitted.Should().BeTrue();
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be("Subscription 5 attachment omitted: its column headers alone exceed 65536 bytes");
+    }
+
     // Without configured options the cap is the default, 10 MB.
     [Test]
     public async Task ExecuteQuery_WithoutSubscriptionOptions_CapsTheAttachmentAtTenMegabytes()

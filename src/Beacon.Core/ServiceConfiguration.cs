@@ -344,6 +344,7 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.SubscriptionOptions.SectionName))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SubscriptionOptions>, Configuration.SubscriptionOptionsValidator>());
+        services.TryAddSingleton<ISubscriptionScheduleCheck, SubscriptionScheduleCheck>();
 
         // Data-source transport (Beacon:DataSources:Transport): a connection must authenticate the server over TLS, as each
         // connector's inspector judges it; the options decide what happens to a stored source that does not.

@@ -79,4 +79,9 @@ public class QueryResultFile
 
     /// <summary>The file holds fewer rows than the run delivered: it was cut to stay within the attachment size limit.</summary>
     public bool Truncated => RowCount < SourceRowCount;
+
+    /// <summary>
+    /// No file is sent: even its column headers are larger than the attachment size limit. <see cref="Data"/> is empty.
+    /// </summary>
+    public bool Omitted { get; init; }
 }
