@@ -97,14 +97,14 @@ function AdminSettingsForm() {
 
   const onSubmit = handleSubmit(async values => {
     if (!canEdit) return;
-    // Only an Admin supplies credentials. A provider that needs a key gets one: typed when the provider changes (the
-    // stored key belongs to the previous provider), else stored or typed.
+    // Only an Admin supplies credentials. Switching to a provider that needs a key takes a typed one (the stored key
+    // belongs to the previous provider); keeping the provider never asks, so other settings save without an LLM key.
     const nextProvider = values.llmProvider as AiProvider;
     const providerChanged = nextProvider !== settings?.llmProvider;
     const apiKeyMissing = !connectionLocked
+      && providerChanged
       && providerRequiresApiKey(providerCatalog, nextProvider)
-      && !values.llmApiKey
-      && (providerChanged || !settings?.llmApiKeySet);
+      && !values.llmApiKey;
     if (apiKeyMissing) {
       setError('llmApiKey', { type: 'required', message: 'This provider needs an API key.' });
       return;

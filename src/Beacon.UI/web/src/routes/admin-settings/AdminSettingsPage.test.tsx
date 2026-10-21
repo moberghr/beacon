@@ -154,15 +154,19 @@ describe('AdminSettingsPage API key', () => {
   const changeBudget = async () =>
     fireEvent.change(await screen.findByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
 
-  it('asks for an API key when the provider needs one and none is stored', async () => {
+  it('saves other settings while no API key is stored for the kept provider', async () => {
     const sent = serve(settings({ llmApiKeySet: false }));
     renderWithProviders(<AdminSettingsPage />);
 
+    fireEvent.change(await screen.findByPlaceholderText('https://beacon.example.com'), {
+      target: { value: 'https://beacon.example.org' },
+    });
     await changeBudget();
     await save();
 
-    expect(await screen.findByText('This provider needs an API key.')).toBeInTheDocument();
-    expect(sent.saves).toHaveLength(0);
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ baseUrl: 'https://beacon.example.org', llmApiKey: null, llmMonthlyBudget: 75 });
+    expect(screen.queryByText('This provider needs an API key.')).not.toBeInTheDocument();
   });
 
   it('saves with the stored key when the provider is kept', async () => {
@@ -277,7 +281,7 @@ describe('AdminSettingsPage installed providers', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
   });
 
-  it('warns when the installed providers cannot be loaded, offers every provider, and asks for a key', async () => {
+  it('warns when the installed providers cannot be loaded, offers every provider, and asks for a key on a switch', async () => {
     mswServer.use(llmProviders(() => new HttpResponse(null, { status: 500 })));
     const sent = serve(settings({ llmApiKeySet: false }));
     renderWithProviders(<AdminSettingsPage />);
@@ -287,7 +291,7 @@ describe('AdminSettingsPage installed providers', () => {
       expect(providerButton(name)).toBeEnabled();
     }
 
-    fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+    fireEvent.click(providerButton('Anthropic'));
     await save();
 
     expect(await screen.findByText('This provider needs an API key.')).toBeInTheDocument();
