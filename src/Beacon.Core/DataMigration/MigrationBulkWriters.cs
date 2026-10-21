@@ -5,8 +5,8 @@ namespace Beacon.Core.DataMigration;
 
 /// <summary>
 /// The registered <see cref="IMigrationBulkWriter"/>s by engine. A connector package adds its engine's writer
-/// (<c>AddPostgreSqlConnector()</c>, <c>AddSqlServerConnector()</c>); a run into an engine without one fails before the
-/// destination's credentials are decrypted.
+/// (<c>AddPostgreSqlConnector()</c>, <c>AddSqlServerConnector()</c>, <c>AddMySqlConnector()</c>); a run into an engine
+/// without one fails before the destination's credentials are decrypted.
 /// </summary>
 internal sealed class MigrationBulkWriters(IEnumerable<IMigrationBulkWriter> writers)
 {

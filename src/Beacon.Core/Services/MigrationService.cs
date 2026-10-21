@@ -1,8 +1,6 @@
-using System.Data.Common;
 using System.Dynamic;
 using System.Text.Json;
 using Dapper;
-using EFCore.BulkExtensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,9 +13,7 @@ using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
-using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
-using Beacon.Core.Models.Queries;
 using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
@@ -46,7 +42,6 @@ internal partial class MigrationService(
     IQueryService queryService,
     IQueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
-    MigrationBulkContextFactory bulkContextFactory,
     DataMigration.MigrationBulkWriters writers,
     ILogger<MigrationService> logger,
     IOptions<MigrationOptions> migrationOptions,

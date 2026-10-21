@@ -259,14 +259,88 @@ public class MigrationServiceWriterTests
         _destination.Commits.Should().Be(1);
     }
 
-    // MySQL still writes through its bulk provider, but its upsert keeps the same key rules as the writers' engines.
+    // MySQL reads the key by schema and table name (parameters), inside the run's transaction, and writes through its own
+    // engine's writer.
+    [Test]
+    public async Task AMySqlUpsert_ReadsThePrimaryKeyInsideTheRunsTransaction_AndUpsertsThroughTheMySqlWriter()
+    {
+        var mySqlWriter = new RecordingMigrationWriter(DatabaseEngineType.MySQL);
+        var destination = MySqlDestination(new RecordingDbConnection
+        {
+            Scalar = _ => 1,
+            RowCount = 1,
+            ColumnsFor = x => x.Contains("KEY_COLUMN_USAGE", StringComparison.Ordinal) ? [("COLUMN_NAME", _ => "id")] : null
+        });
+        Job(MigrationMode.Upsert, "sales.orders");
+
+        var result = await Service(MigrationTestWriters.Of(_writer, mySqlWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        result.DestinationRowsWritten.Should().Be(2);
+        _writer.Calls.Should().BeEmpty();
+        var upsert = mySqlWriter.Calls.Single();
+        upsert.Operation.Should().Be("upsert");
+        upsert.KeyColumns.Should().Equal("id");
+        upsert.Target.Should().Match<MigrationWriteTarget>(x => x.Schema == "sales" && x.Table == "orders" && x.Connection == destination);
+        var lookup = destination.Executions.Single(x => x.CommandText.Contains("KEY_COLUMN_USAGE", StringComparison.Ordinal));
+        lookup.Transaction.Should().NotBeNull().And.BeSameAs(upsert.Target.Transaction);
+        lookup.Parameters.Select(x => (x.ParameterName, x.Value)).Should().Contain([("schema", (object?)"sales"), ("table", "orders")]);
+        destination.Commits.Should().Be(1);
+    }
+
+    [Test]
+    public async Task AMySqlTruncate_ClearsThenInserts_ThroughTheMySqlWriter_AndCommitsOnce()
+    {
+        var mySqlWriter = new RecordingMigrationWriter(DatabaseEngineType.MySQL);
+        var destination = MySqlDestination(new RecordingDbConnection { Scalar = _ => 1 });
+        Job(MigrationMode.Truncate);
+
+        var result = await Service(MigrationTestWriters.Of(mySqlWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        mySqlWriter.Operations.Should().Equal("clear", "insert");
+        mySqlWriter.Calls.Should().OnlyContain(x => x.Target.Connection == destination && x.Target.Transaction != null);
+        destination.Commits.Should().Be(1);
+        destination.Rollbacks.Should().Be(0);
+    }
+
+    [Test]
+    public async Task AMySqlWriterThatThrows_RollsTheRunBack_AndNothingIsCommitted()
+    {
+        var mySqlWriter = new RecordingMigrationWriter(DatabaseEngineType.MySQL) { FailWritingWith = new InvalidOperationException("row 2 failed") };
+        var destination = MySqlDestination(new RecordingDbConnection { Scalar = _ => 1 });
+        Job(MigrationMode.Truncate);
+
+        var result = await Service(MigrationTestWriters.Of(mySqlWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        mySqlWriter.Operations.Should().Equal("clear", "insert");
+        destination.Commits.Should().Be(0);
+        destination.Rollbacks.Should().Be(1);
+    }
+
+    [Test]
+    public async Task WithoutAMySqlWriter_TheRunFails_BeforeTheDestinationsCredentialsAreDecrypted()
+    {
+        var destination = MySqlDestination(new RecordingDbConnection { Scalar = _ => 1 });
+        Job(MigrationMode.Insert);
+
+        var result = await Service(MigrationTestWriters.Of(_writer)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Contain("Moberg.Beacon.Connector.MySql").And.Contain("AddMySqlConnector()");
+        _encryption.Verify(x => x.Decrypt(It.IsAny<string>()), Times.Never);
+        destination.Executions.Should().BeEmpty();
+    }
+
+    // MySQL upserts keep the same key rules as every other engine.
     [Test]
     public async Task AMySqlUpsertIntoATableWithoutAPrimaryKey_FailsTheRun()
     {
         var destination = MySqlDestination(new RecordingDbConnection { Scalar = _ => 1, RowCount = 0 });
         Job(MigrationMode.Upsert);
 
-        var result = await Service(bulkProviders: [MySqlBulkProvider()]).ExecuteMigrationJob(Run(), CancellationToken.None);
+        var result = await Service(MigrationTestWriters.All()).ExecuteMigrationJob(Run(), CancellationToken.None);
 
         result.Status.Should().Be(MigrationStatus.Failed);
         result.ErrorMessage.Should().Contain("Table 'target' has no primary key");
@@ -286,7 +360,7 @@ public class MigrationServiceWriterTests
         });
         Job(MigrationMode.Upsert);
 
-        var result = await Service(bulkProviders: [MySqlBulkProvider()]).ExecuteMigrationJob(Run(), CancellationToken.None);
+        var result = await Service(MigrationTestWriters.All()).ExecuteMigrationJob(Run(), CancellationToken.None);
 
         result.Status.Should().Be(MigrationStatus.Failed);
         result.ErrorMessage.Should().Contain("Failed to read the primary key of table 'target'");
@@ -306,7 +380,7 @@ public class MigrationServiceWriterTests
         Job(MigrationMode.Upsert);
         SourceRows(Row(1, "a"), new Dictionary<string, object?> { ["name"] = "b" });
 
-        var result = await Service(bulkProviders: [MySqlBulkProvider()]).ExecuteMigrationJob(Run(), CancellationToken.None);
+        var result = await Service(MigrationTestWriters.All()).ExecuteMigrationJob(Run(), CancellationToken.None);
 
         result.Status.Should().Be(MigrationStatus.Failed);
         result.ErrorMessage.Should().Contain("missing primary key columns: id");
@@ -429,14 +503,6 @@ public class MigrationServiceWriterTests
         return connection;
     }
 
-    private static IMigrationBulkContextProvider MySqlBulkProvider()
-    {
-        var provider = new Mock<IMigrationBulkContextProvider>();
-        provider.SetupGet(x => x.EngineType).Returns(DatabaseEngineType.MySQL);
-
-        return provider.Object;
-    }
-
     private void Destination(RecordingDbConnection connection)
     {
         _destination = connection;
@@ -469,7 +535,7 @@ public class MigrationServiceWriterTests
 
     private static Dictionary<string, object?> Row(int id, string name) => new() { ["id"] = id, ["name"] = name };
 
-    private MigrationService Service(MigrationBulkWriters? writers = null, IMigrationBulkContextProvider[]? bulkProviders = null)
+    private MigrationService Service(MigrationBulkWriters? writers = null)
     {
         return new MigrationService(
             _world.Factory(),
@@ -477,7 +543,6 @@ public class MigrationServiceWriterTests
             Mock.Of<IQueryService>(),
             _preview.Object,
             Mock.Of<IBeaconUserContext>(),
-            new MigrationBulkContextFactory(bulkProviders ?? []),
             writers ?? MigrationTestWriters.Of(_writer),
             NullLogger<MigrationService>.Instance,
             Options.Create(new MigrationOptions { Enabled = true }),

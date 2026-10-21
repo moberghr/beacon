@@ -29,7 +29,11 @@ public interface IMigrationBulkWriter
     /// <summary>The destination engine this writer serves.</summary>
     DatabaseEngineType Engine { get; }
 
-    /// <summary>Removes every row of the destination table, inside <see cref="MigrationWriteTarget.Transaction"/>.</summary>
+    /// <summary>
+    /// Removes every row of the destination table, inside <see cref="MigrationWriteTarget.Transaction"/>. The one exception
+    /// is MySQL, whose <c>TRUNCATE</c> commits implicitly: its writer starts the transaction again on the same connection,
+    /// so the rows written next still commit or roll back with the run, but the clear itself cannot be rolled back.
+    /// </summary>
     Task ClearAsync(MigrationWriteTarget target, CancellationToken cancellationToken);
 
     /// <summary>Inserts <paramref name="rows"/> into the destination table and returns the number of rows written.</summary>

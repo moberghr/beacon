@@ -7,12 +7,12 @@
 
 		<!-- Package Information -->
 		<Authors>Moberg</Authors>
-		<Description>Beacon core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions for PostgreSQL and SQL Server; MySQL support comes with the MySQL connector package.</Description>
+		<Description>Beacon core library providing semantic alerts and notifications for databases. Includes domain models, services, and data access abstractions; each database engine comes with its own package (the Core.PostgreSql or Core.SqlServer store, the connector packages).</Description>
 		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
-		<PackageTags>beacon;database;alerts;notifications;postgresql;sqlserver;mysql</PackageTags>
+		<PackageTags>beacon;database;alerts;notifications</PackageTags>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<IsPackable>true</IsPackable>
 	</PropertyGroup>
@@ -33,12 +33,10 @@
 		<PackageReference Include="CronExpressionDescriptor" />
 		<PackageReference Include="Cronos" />
 		<PackageReference Include="Dapper" />
-		<PackageReference Include="EFCore.BulkExtensions" />
 		<PackageReference Include="MediatR" />
 		<PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
-		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
 		<PackageReference Include="Microsoft.Extensions.Caching.Memory" />
 		<PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
 		<PackageReference Include="Microsoft.Extensions.Http" />
