@@ -37,6 +37,17 @@ internal sealed record HostEndpointToolParameter(
     string? Description,
     JsonElement Schema);
 
+/// <summary>
+/// An argument filled from the caller (<c>HostEndpointToolOptions.BindFromCaller</c>) and left out of the tool's schema:
+/// a scalar route/query/header/form <see cref="Parameter"/>, or the top-level <see cref="BodyProperty"/> of the JSON body,
+/// whose value is written as <see cref="BodyType"/> (the property's JSON schema type).
+/// </summary>
+internal sealed record HostEndpointCallerBinding(
+    string Name,
+    HostEndpointToolParameter? Parameter,
+    string? BodyProperty = null,
+    string? BodyType = null);
+
 /// <param name="ReadOnly">The declared read-only flag; false for a write tool (only with <c>AllowWriteTools</c>).</param>
 /// <param name="Destructive">Write tools only: the declared destructive flag.</param>
 /// <param name="Idempotent">Write tools only: the declared idempotent flag.</param>
@@ -53,6 +64,9 @@ internal sealed record HostEndpointToolDescriptor(
     bool Idempotent)
 {
     public const string ToolNamePrefix = "api_";
+
+    /// <summary>The arguments the call carries from the caller rather than from the agent; not in <see cref="Parameters"/>.</summary>
+    public IReadOnlyList<HostEndpointCallerBinding> CallerBindings { get; init; } = [];
 
     /// <summary>Appended to a write tool's name in its audit row, so write calls are distinguishable (and filterable).</summary>
     public const string WriteAuditSuffix = ":write";

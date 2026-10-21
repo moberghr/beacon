@@ -26,6 +26,7 @@ app.MapMcpDiscovery();                           // anonymous discovery document
 | Transport | Streamable HTTP |
 | Authentication | `Authorization: Bearer sk-sem_…` (API key) or `Authorization: Bearer <Entra access token>` |
 | Required scope | **Execute** (a Read-scoped key gets 403) |
+| Built-in tools | All eight by default; `AddBeaconMcp(x => …)` chooses (`BuiltInTools`), turns saved-query tools off (`SavedQueryTools = false`) and replaces the server instructions (`ServerInstructions`). A tool left out is neither listed nor callable, and the server card lists only the ones served. |
 | Sessions | Clients that start with `initialize` (most clients today) get an `Mcp-Session-Id` (idle timeout 30 minutes) and need **session affinity** when you run several instances. Clients speaking the stateless protocol revision `2026-07-28` need no session. A request that is neither (no session and no `2026-07-28` metadata) is refused with 400. |
 
 `MapBeaconMcp()` maps the route with the Execute-scope policy, and two filters inside the MCP layer refuse any caller without Execute even if the route were mapped with a weaker policy. Do not map it yourself with `MapMcp(...)` and a bare `RequireAuthorization()`.
@@ -68,7 +69,9 @@ To point OAuth-capable clients at your identity provider:
 |---|---|---|
 | `AuthorizationServers` | None | Issuers published as `authorization_servers` (each must equal the server metadata's `issuer`). Takes precedence. |
 | `DeriveAuthorizationServerFromJwtIssuer` | `false` | Publish the bearer-JWT issuer instead (prefers an Entra `/v2.0` issuer). |
-| `ScopesSupported` | `["Execute"]` | Scopes published to clients. Set your identity provider's scope when you publish an external authorization server. |
+| `ScopesSupported` | `["Execute"]` | Scopes published to clients. Set your identity provider's scope when you publish an external authorization server, and add `offline_access` so clients get a refresh token instead of asking people to sign in every hour (Beacon warns at startup when an `api://` scope is published without it). A configured list replaces the default whole. |
+
+Code can complete these settings too: `services.PostConfigure<McpProtectedResourceOptions>(...)` runs after the configuration is bound, on every request.
 
 With none of these set and OIDC enabled, Beacon publishes its OIDC authority.
 

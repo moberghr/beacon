@@ -49,7 +49,7 @@ When you pass a data source (or a factory resolved once from the root provider),
 
 - runs `SET search_path TO "beacon", public` on every connection it opens, so its unqualified SQL and the `vector` type resolve;
 - does not need `UseVector()` on your data source, because it never binds the vector type;
-- expects connection reset to stay on (no `No Reset On Close=true`) and `Multiplexing` off.
+- requires connection reset to stay on (no `No Reset On Close=true`) and `Multiplexing` off, and refuses a data source with either the first time it builds its context: the search path it sets would otherwise survive the connection's return to the pool, or leak into commands sharing it, and run your own queries against Beacon's schema.
 
 With a connection string, Beacon builds its own data source with `SearchPath=beacon,public`.
 

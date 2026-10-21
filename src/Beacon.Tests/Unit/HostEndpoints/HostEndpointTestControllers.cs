@@ -212,6 +212,14 @@ public sealed class DuplicateNameController : ControllerBase
     public IActionResult Two() => Ok();
 }
 
+[BeaconTool("whole_controller", ReadOnly = true)]
+public sealed class ClassMarkedController : ControllerBase
+{
+    [HttpGet("bad/class-marked")]
+    [Authorize]
+    public IActionResult Get() => Ok();
+}
+
 public sealed class NoAuthorizationController : ControllerBase
 {
     [HttpGet("bad/no-auth")]

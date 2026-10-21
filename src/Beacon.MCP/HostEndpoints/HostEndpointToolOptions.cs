@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace Beacon.MCP.HostEndpoints;
 
 /// <summary>Options for <see cref="HostEndpointToolsServiceCollectionExtensions.AddHostEndpointTools"/>.</summary>
@@ -39,6 +41,51 @@ public sealed class HostEndpointToolOptions
     /// none. Default false.
     /// </summary>
     public bool AllowWriteTools { get; set; }
+
+    /// <summary>
+    /// Run the host's <c>IExceptionHandler</c>s around a dispatched call, as <c>UseExceptionHandler()</c> runs them around
+    /// a real request — host middleware does not run for endpoint tools. An endpoint's deliberate refusal (an exception
+    /// the host maps to a 403, 404 or 400 problem) then reaches the agent as that status and body instead of "failed with
+    /// an unexpected error". An exception no handler takes still fails the call generically. Default true.
+    /// </summary>
+    public bool UseHostExceptionHandlers { get; set; } = true;
+
+    private readonly Dictionary<string, Func<ClaimsPrincipal, string?>> _callerBindings = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The arguments filled from the caller (<see cref="BindFromCaller(string, string)"/>), by name.</summary>
+    internal IReadOnlyDictionary<string, Func<ClaimsPrincipal, string?>> CallerBindings => _callerBindings;
+
+    /// <summary>
+    /// Fills the endpoint argument named <paramref name="argument"/> (compared ignoring case) from the claim
+    /// <paramref name="claimType"/> of the host principal the call runs as, instead of asking the agent for it. See
+    /// <see cref="BindFromCaller(string, Func{ClaimsPrincipal, string})"/>.
+    /// </summary>
+    public HostEndpointToolOptions BindFromCaller(string argument, string claimType)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(claimType);
+
+        return BindFromCaller(argument, x => x.FindFirst(claimType)?.Value);
+    }
+
+    /// <summary>
+    /// Fills the endpoint argument named <paramref name="argument"/> (compared ignoring case) from the host principal the
+    /// call runs as — the person's own id in the host, which an agent cannot know. On every tool that binds such a route,
+    /// query, header or form value, or a top-level property of its JSON body, the argument is left out of the tool's
+    /// input schema, and the call carries the caller's value: an agent that sends the argument anyway is refused (a body
+    /// property it sends is overwritten). A principal without a value refuses the call.
+    /// </summary>
+    public HostEndpointToolOptions BindFromCaller(string argument, Func<ClaimsPrincipal, string?> value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(argument);
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (!_callerBindings.TryAdd(argument.Trim(), value))
+        {
+            throw new InvalidOperationException($"AddHostEndpointTools: '{argument}' is already bound from the caller.");
+        }
+
+        return this;
+    }
 
     internal void Validate()
     {

@@ -75,7 +75,7 @@ app.MapGet("/api/orders/{id:int}", (int id, OrderService orders) => orders.Find(
     .WithBeaconTool("order_by_id", "One order by id.", readOnly: true);
 ```
 
-Or on a controller action: `[BeaconTool("customer_orders", Description = "…", ReadOnly = true)]`.
+Or on a controller action, or on a handler class whose framework copies class attributes into its endpoint (a Moberg Warp handler): `[BeaconTool("customer_orders", Description = "…", ReadOnly = true)]`.
 
 - `ReadOnly` must be declared explicitly; Beacon never infers it from the HTTP verb.
 - The endpoint must carry authorization metadata (or your host has a fallback policy); otherwise startup refuses it.
@@ -83,6 +83,8 @@ Or on a controller action: `[BeaconTool("customer_orders", Description = "…", 
 - Only mapped Entra callers (users or systems) of the host project can call them; API-key callers cannot.
 - Write tools (`ReadOnly = false`) need `AllowWriteTools`, are offered to **user** callers only and are audited as `api_<name>:write`.
 - Above 20 tools (`NamedToolLimit`), clients see `search_api` + `call_api` instead of one tool per endpoint.
+- An argument that is the caller's own id in your application is bound from the caller with `x.BindFromCaller("userId", "<claim type>")`: it leaves the tool's schema and the call carries the caller's value. See [Arguments the caller fills](/features/host-endpoint-tools/#arguments-the-caller-fills).
+- An exception your endpoint throws runs your `IExceptionHandler`s, so a refusal reaches the agent as the status and problem a browser would get.
 
 ## Saved queries as tools without code
 

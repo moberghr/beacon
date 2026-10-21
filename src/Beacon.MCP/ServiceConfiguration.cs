@@ -19,11 +19,26 @@ namespace Beacon.MCP;
 public static class ServiceConfiguration
 {
     /// <summary>
-    /// Adds Beacon MCP server services using the official ModelContextProtocol SDK.
-    /// Prerequisites: Beacon.Core and Beacon.AI services must be registered first.
+    /// Adds Beacon MCP server services using the official ModelContextProtocol SDK, with all eight built-in tools and the
+    /// saved-query tools. Prerequisites: Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services)
     {
+        return services.AddBeaconMcp(_ => { });
+    }
+
+    /// <summary>
+    /// Adds Beacon MCP server services using the official ModelContextProtocol SDK, serving the built-in tools and the
+    /// saved-query tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>). Prerequisites:
+    /// Beacon.Core and Beacon.AI services must be registered first.
+    /// </summary>
+    public static IServiceCollection AddBeaconMcp(this IServiceCollection services, Action<BeaconMcpOptions> configure)
+    {
+        var mcpOptions = new BeaconMcpOptions();
+        configure(mcpOptions);
+        mcpOptions.Validate();
+        services.AddSingleton(mcpOptions);
+
         // Project context infrastructure
         services.AddScoped<McpProjectContext>();
         services.AddScoped<IProjectContext>(ProjectContextFactory.Create);
@@ -64,15 +79,18 @@ public static class ServiceConfiguration
 
         // Approved saved queries as q_<name> tools (or search_saved_queries / run_saved_query past the limit), served
         // through the SDK's list/call handlers next to the attribute tools; AddHostEndpointTools chains after these.
-        services.TryAddTransient<SavedQueryToolService>();
-        services.Configure<McpServerOptions>(InstallSavedQueryToolHandlers);
+        if (mcpOptions.SavedQueryTools)
+        {
+            services.TryAddTransient<SavedQueryToolService>();
+            services.Configure<McpServerOptions>(InstallSavedQueryToolHandlers);
+        }
 
         // MCP Server via official SDK
-        services
+        var server = services
             .AddMcpServer(options =>
             {
                 options.ServerInfo = new() { Name = McpDiscoveryDocuments.ServerName, Version = McpDiscoveryDocuments.ServerVersion };
-                options.ServerInstructions =
+                options.ServerInstructions = mcpOptions.ServerInstructions ??
                     "Beacon gives agents governed access to a project's data sources.\n" +
                     "Recommended workflow for writing your own SQL:\n" +
                     "1. get_context — project overview: data sources, table counts, documentation status.\n" +
@@ -98,8 +116,15 @@ public static class ServiceConfiguration
                 // that session — multi-instance deployments need session affinity for them.
                 options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
-            })
-            .WithToolsFromAssembly(typeof(ServiceConfiguration).Assembly)
+            });
+
+        // Only the built-in tools the host serves exist; one left out is neither listed nor callable.
+        foreach (var tool in mcpOptions.BuiltInTools)
+        {
+            BuiltInToolRegistrations[tool](server);
+        }
+
+        server
             // Scope enforcement (§1.4) first: every request of a refused caller but tools/call, initialize and ping
             // is refused here; tools/call by the scope call-tool filter, ahead of every tool so a refused call reaches
             // none. The project-context filters run outermost: they only read the caller's project access, which the
@@ -122,6 +147,20 @@ public static class ServiceConfiguration
 
         return services;
     }
+
+    // One registration per built-in tool, by the name its [McpServerTool] declares (McpToolCatalog pins the names).
+    private static readonly IReadOnlyDictionary<string, Func<IMcpServerBuilder, IMcpServerBuilder>> BuiltInToolRegistrations =
+        new Dictionary<string, Func<IMcpServerBuilder, IMcpServerBuilder>>(StringComparer.Ordinal)
+        {
+            ["get_context"] = x => x.WithTools<GetContextTool>(),
+            ["ask"] = x => x.WithTools<ProjectAskTool>(),
+            ["query"] = x => x.WithTools<ProjectQueryTool>(),
+            ["get_documentation"] = x => x.WithTools<ProjectGetDocumentationTool>(),
+            ["search"] = x => x.WithTools<ProjectSearchTool>(),
+            ["feedback"] = x => x.WithTools<FeedbackTool>(),
+            ["dry_run"] = x => x.WithTools<DryRunTool>(),
+            ["get_query_context"] = x => x.WithTools<GetQueryContextTool>()
+        };
 
     /// <summary>
     /// Adds the saved-query tools through the SDK's list/call handlers, chaining any handler already installed. The

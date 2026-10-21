@@ -54,7 +54,23 @@ app.MapGet("/api/loans/{id:int}", (int id, LoanService loans) => loans.Find(id))
     .WithBeaconTool("loan_by_id", "One loan by id.", readOnly: true);
 ```
 
-The tool is exposed as `api_customer_loans` (or `api_loan_by_id`).
+Or a handler class whose framework copies class attributes into its endpoint's metadata, such as a
+[Moberg Warp](https://moberghr.github.io/warp/) handler with a `[WarpHttp*]` route:
+
+```csharp
+[Authorize]
+[BeaconTool("my_assets", Description = "The signed-in user's assets, newest first.", ReadOnly = true)]
+[WarpHttpGet("/api/my/assets")]
+public sealed class ListMyAssetsQueryHandler(AppDbContext db) : IRequestHandler<ListMyAssetsQuery, IReadOnlyList<AssetListItem>>
+{
+    // ...
+}
+```
+
+On an MVC controller class `[BeaconTool]` is refused at startup: it would mark every action under one name, so it goes
+on the action.
+
+The tool is exposed as `api_customer_loans` (or `api_loan_by_id`, `api_my_assets`).
 
 The endpoint must carry authorization metadata (`[Authorize]` on the action or controller, a policy, or
 `[AllowAnonymous]`), or the host must have a fallback authorization policy; otherwise startup refuses it. A
@@ -111,6 +127,28 @@ MFA or partner scheme.
 | `CancellationToken`, `HttpContext`, `[FromServices]`, DI-injected minimal API parameters | not arguments |
 
 Unknown and missing required arguments are rejected before anything is dispatched.
+
+### Arguments the caller fills
+
+An agent does not know the person's id in your application, so an endpoint that takes it (`/api/my/assets?userId=…`, a
+body with `RequestingUserId`) would otherwise need "leave it out, or pass 0, to mean me" logic. Bind such an argument to
+the caller instead:
+
+```csharp
+builder.Services.AddBeaconMcp()
+    .AddHostEndpointTools(x =>
+    {
+        x.ProjectName = "Shop";
+        x.BindFromCaller("userId", "shop_user_id");           // a claim of the host principal the call runs as
+        x.BindFromCaller("requestingUserId", "shop_user_id");
+    });
+```
+
+On every tool, a route, query, header or form value with that name (compared ignoring case), or a top-level property of
+its JSON body, is left out of the input schema and of its required list, and the call carries the caller's value — a body
+property written as the type its schema declares. An agent that sends the argument anyway is refused (a body property it
+sends is overwritten), and a principal without a value refuses the call. A `Func<ClaimsPrincipal, string?>` overload
+reads the value any other way. Your endpoint still checks ownership as it does for the browser.
 
 ### Named tools or a catalog
 
@@ -325,8 +363,12 @@ request) must make sure it accepts these requests.
   JSON array is wrapped as `{ "items": [...] }` (the text content is the unwrapped JSON).
 - 2xx text → text. An empty body → a "no content" line.
 - Any other content type → a tool error.
-- Non-2xx → a tool error with the status and a short body excerpt. An exception in the endpoint → a generic tool
-  error (the message is not returned or logged).
+- Non-2xx → a tool error with the status and a short body excerpt.
+- An exception in the endpoint → your `IExceptionHandler`s run, in registration order, as `UseExceptionHandler()` runs
+  them for a browser request (host middleware does not run for a dispatched call). The response the first one writes —
+  the 403, 404 or 400 problem your application maps a deliberate refusal to — is the tool error. An exception no handler
+  takes is a generic tool error (the message is not returned or logged). Set `UseHostExceptionHandlers = false` to always
+  answer the generic error.
 - Over `MaxResponseBytes` → a tool error; narrow the request.
 
 ## Audit and privacy

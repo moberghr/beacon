@@ -67,7 +67,8 @@ internal sealed class HostEndpointToolRegistry
             hasFallbackPolicy,
             policyProvider == null ? null : x => AuthenticationSchemesOf(x, policyProvider),
             options.TrustedAuthenticationSchemes,
-            options.AllowWriteTools);
+            options.AllowWriteTools,
+            options.CallerBindings.Keys.ToList());
     }
 
     // The same combined policy HostEndpointDispatcher.AuthorizeAsync evaluates (minus requirement-only metadata, which

@@ -68,15 +68,18 @@ internal sealed partial class HostEndpointToolDiscovery(
     /// </param>
     /// <param name="trustedAuthenticationSchemes"><see cref="HostEndpointToolOptions.TrustedAuthenticationSchemes"/>.</param>
     /// <param name="allowWriteTools"><see cref="HostEndpointToolOptions.AllowWriteTools"/>.</param>
+    /// <param name="callerBoundArguments">The argument names <see cref="HostEndpointToolOptions.BindFromCaller(string, string)"/> fills.</param>
     public IReadOnlyList<HostEndpointToolDescriptor> Discover(
         IEnumerable<Endpoint> endpoints,
         IReadOnlyList<ApiDescription> apiDescriptions,
         bool hasFallbackPolicy,
         Func<Endpoint, IReadOnlyCollection<string>>? authenticationSchemes = null,
         IReadOnlyCollection<string>? trustedAuthenticationSchemes = null,
-        bool allowWriteTools = false)
+        bool allowWriteTools = false,
+        IReadOnlyCollection<string>? callerBoundArguments = null)
     {
         var trusted = new HashSet<string>(trustedAuthenticationSchemes ?? [], StringComparer.Ordinal);
+        var callerBound = new HashSet<string>(callerBoundArguments ?? [], StringComparer.OrdinalIgnoreCase);
         var failures = new List<string>();
         var tools = new List<HostEndpointToolDescriptor>();
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -118,6 +121,11 @@ internal sealed partial class HostEndpointToolDiscovery(
                 endpointFailures.Add("it is declared both ReadOnly = true and Destructive = true; Destructive applies only to write tools (ReadOnly = false)");
             }
 
+            if (IsMarkedOnTheControllerClass(endpoint))
+            {
+                endpointFailures.Add("[BeaconTool] is on the controller class, which would make every action of it a tool under one name; put it on the action");
+            }
+
             if (!HasAuthorizationDecision(endpoint) && !hasFallbackPolicy)
             {
                 endpointFailures.Add("the endpoint declares no authorization ([Authorize], a policy, or [AllowAnonymous]) and the host has no fallback authorization policy; Beacon refuses to expose it");
@@ -141,7 +149,7 @@ internal sealed partial class HostEndpointToolDiscovery(
             {
                 try
                 {
-                    tools.Add(Describe(routeEndpoint, metadata, apiDescriptions));
+                    tools.Add(Describe(routeEndpoint, metadata, apiDescriptions, callerBound));
                 }
                 catch (HostEndpointToolDefinitionException ex)
                 {
@@ -163,6 +171,13 @@ internal sealed partial class HostEndpointToolDiscovery(
             .ToList();
     }
 
+    // A class-level marker is for handler classes whose framework copies class attributes into the endpoint's metadata
+    // (one class, one endpoint); on an MVC controller it would land on every action.
+    private static bool IsMarkedOnTheControllerClass(Endpoint endpoint) =>
+        endpoint.Metadata.GetMetadata<ControllerActionDescriptor>() is { } action
+        && action.MethodInfo.GetCustomAttribute<BeaconToolAttribute>() == null
+        && action.ControllerTypeInfo.GetCustomAttribute<BeaconToolAttribute>() != null;
+
     internal static bool HasAuthorizationDecision(Endpoint endpoint) =>
         endpoint.Metadata.GetMetadata<IAllowAnonymous>() != null
         || endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count > 0
@@ -172,7 +187,8 @@ internal sealed partial class HostEndpointToolDiscovery(
     private HostEndpointToolDescriptor Describe(
         RouteEndpoint endpoint,
         IBeaconToolMetadata metadata,
-        IReadOnlyList<ApiDescription> apiDescriptions)
+        IReadOnlyList<ApiDescription> apiDescriptions,
+        IReadOnlySet<string> callerBound)
     {
         var httpMethod = ChooseHttpMethod(endpoint);
         var method = ResolveMethod(endpoint);
@@ -204,6 +220,8 @@ internal sealed partial class HostEndpointToolDiscovery(
             throw new HostEndpointToolDefinitionException($"{httpMethod} cannot carry the body or form values the endpoint binds");
         }
 
+        var (asked, callerBindings) = BindFromCaller(parameters, callerBound);
+
         var route = "/" + (endpoint.RoutePattern.RawText ?? string.Empty).TrimStart('/');
         var summary = FirstNonEmpty(
             metadata.Description,
@@ -222,11 +240,111 @@ internal sealed partial class HostEndpointToolDiscovery(
             description,
             httpMethod,
             endpoint,
-            parameters,
-            BuildInputSchema(parameters),
+            asked,
+            BuildInputSchema(asked),
             metadata.ReadOnly,
             !metadata.ReadOnly && metadata.Destructive,
-            !metadata.ReadOnly && metadata.Idempotent);
+            !metadata.ReadOnly && metadata.Idempotent)
+        {
+            CallerBindings = callerBindings
+        };
+    }
+
+    /// <summary>
+    /// Takes the caller-bound arguments out of what the agent is asked for: a scalar route, query, header or form value
+    /// leaves the parameters, and a top-level property of the JSON body leaves the body's schema and its required list
+    /// (a body left with no required property becomes optional). A bound name matching a value of another shape fails
+    /// startup.
+    /// </summary>
+    private static (List<HostEndpointToolParameter> Asked, List<HostEndpointCallerBinding> Bindings) BindFromCaller(
+        IReadOnlyList<HostEndpointToolParameter> parameters,
+        IReadOnlySet<string> callerBound)
+    {
+        var asked = new List<HostEndpointToolParameter>();
+        var bindings = new List<HostEndpointCallerBinding>();
+
+        foreach (var parameter in parameters)
+        {
+            if (parameter.Source == HostEndpointParameterSource.Body)
+            {
+                asked.Add(WithoutCallerBoundProperties(parameter, callerBound, bindings));
+                continue;
+            }
+
+            if (!callerBound.Contains(parameter.ArgumentName))
+            {
+                asked.Add(parameter);
+                continue;
+            }
+
+            if (parameter.Shape != HostEndpointParameterShape.Scalar)
+            {
+                throw new HostEndpointToolDefinitionException($"'{parameter.ArgumentName}' is bound from the caller but takes several values; only a single value can be");
+            }
+
+            bindings.Add(new HostEndpointCallerBinding(parameter.ArgumentName, parameter));
+        }
+
+        return (asked, bindings);
+    }
+
+    private static HostEndpointToolParameter WithoutCallerBoundProperties(
+        HostEndpointToolParameter body,
+        IReadOnlySet<string> callerBound,
+        List<HostEndpointCallerBinding> bindings)
+    {
+        if (callerBound.Count == 0
+            || JsonNode.Parse(body.Schema.GetRawText()) is not JsonObject schema
+            || schema["properties"] is not JsonObject properties)
+        {
+            return body;
+        }
+
+        var names = properties
+            .Select(x => x.Key)
+            .Where(callerBound.Contains)
+            .ToList();
+        if (names.Count == 0)
+        {
+            return body;
+        }
+
+        var required = schema["required"] as JsonArray;
+        foreach (var name in names)
+        {
+            bindings.Add(new HostEndpointCallerBinding(name, null, name, SchemaType(properties[name])));
+            properties.Remove(name);
+
+            var entry = required?
+                .Where(x => x is JsonValue value && value.TryGetValue<string>(out var text) && text == name)
+                .FirstOrDefault();
+            if (entry != null)
+            {
+                required!.Remove(entry);
+            }
+        }
+
+        return body with
+        {
+            Schema = JsonSerializer.SerializeToElement(schema),
+            Required = body.Required && required is { Count: > 0 }
+        };
+    }
+
+    // The first JSON schema type that is not "null" ("integer", "number", "boolean", "string"), or null.
+    private static string? SchemaType(JsonNode? schema)
+    {
+        var type = schema?["type"];
+
+        return type switch
+        {
+            JsonValue value when value.TryGetValue<string>(out var text) => text,
+            JsonArray types => types
+                .Select(x => x is JsonValue item && item.TryGetValue<string>(out var text) ? text : null)
+                .Where(x => x is not null and not "null")
+                .FirstOrDefault(),
+            _ => null
+        };
     }
 
     private static string ChooseHttpMethod(Endpoint endpoint)
