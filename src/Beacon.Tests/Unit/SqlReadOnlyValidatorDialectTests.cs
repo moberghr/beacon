@@ -102,7 +102,7 @@ public class SqlReadOnlyValidatorDialectTests
         };
 
         var report = TestSqlGate.Create().Evaluate(
-            SqlGateRequest.FromSettings(BigQueryEscapeDifferential, DataSourceSqlDialect.Of(dataSource), TestSqlGate.DefaultSettings()));
+            SqlGateRequest.FromSettings(BigQueryEscapeDifferential, DataSourceSqlDialect.Of(dataSource), TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.Ast);
@@ -111,7 +111,7 @@ public class SqlReadOnlyValidatorDialectTests
     [Test]
     public void Gate_SourceWithoutAKnownDialect_IsBlocked()
     {
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT 1", null, TestSqlGate.DefaultSettings()));
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT 1", null, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.BlockReason.Should().StartWith("The SQL dialect of this data source is not known");

@@ -190,6 +190,7 @@ public class CrossDatabaseCallSiteTests
             store.Factory(),
             TestSqlGate.Create(),
             TestConfiguredDatabases.Of(Configured),
+            TestRowSecurity.Resolver,
             knowledge.Object,
             queryExecution.Object,
             SettingsProviderMock.Unshared(settings.Object),
@@ -225,6 +226,7 @@ public class CrossDatabaseCallSiteTests
             new QueryGuardrailService(),
             SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(ProjectId)),
+            TestRowSecurity.Resolver,
             TestQueryCostLimit.Passing,
             NullLoggerFactory.Instance);
 
@@ -247,6 +249,7 @@ public class CrossDatabaseCallSiteTests
             Providers(provider.Object),
             TestSqlGate.Create(),
             TestConfiguredDatabases.Of(Configured),
+            TestRowSecurity.Resolver,
             new McpSettingsData());
         executor.UseDataSource(Source());
 
@@ -289,7 +292,7 @@ public class CrossDatabaseCallSiteTests
         executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AskExecutionResult("### Results (1 row)\n", null, 1, true, [new Dictionary<string, object?> { ["id"] = 1 }]));
-        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), new McpStatementLog(), NullLogger<AskSqlPipeline>.Instance);
+        var pipeline = new AskSqlPipeline(knowledge.Object, generation.Object, TestSqlGate.Create(), TestRowSecurity.Resolver, TestRowDataEgress.Discarding(), Options.Create(new McpDeploymentOptions()), new McpStatementLog(), NullLogger<AskSqlPipeline>.Instance);
 
         Generates(generation, Foreign);
         var foreign = await pipeline.RunAsync(Mock.Of<ILlmProvider>(), DataSourceId, ProjectId, "orders?", new McpSettingsData(), executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
@@ -440,6 +443,7 @@ public class CrossDatabaseCallSiteTests
             new QueryGuardrailService(),
             TestSqlGate.Create(),
             TestConfiguredDatabases.Of(Configured),
+            TestRowSecurity.Resolver,
             knowledge.Object,
             generation.Object,
             TestRowDataEgress.Discarding(),

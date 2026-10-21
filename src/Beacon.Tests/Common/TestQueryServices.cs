@@ -124,6 +124,7 @@ internal static class TestQueryServices
             new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance),
             actors ?? TestProjectAccess.Actors(),
             executionAccess ?? TestProjectAccess.ExecutionAllowed(),
+            TestRowSecurity.Resolver,
             executionGate,
             Runner(connections, guard, databases, providers, executionGate, statementTimeout),
             new StepSqlSaveCheck(contextFactory, executionGate, databases),
@@ -189,7 +190,7 @@ internal static class TestQueryServices
     {
         var gate = TestSqlGate.Create();
 
-        return x => gate.Evaluate(new SqlGateRequest(x, nameof(DatabaseEngineType.SQLite), true, false, null, null, false, null, false, maxRows)
+        return x => gate.Evaluate(new SqlGateRequest(x, nameof(DatabaseEngineType.SQLite), true, false, null, null, false, null, false, maxRows, RowSecurity: TestRowSecurity.NotApplicable)
         {
             InMemoryJoin = true
         });

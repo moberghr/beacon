@@ -493,6 +493,15 @@ public static class ServiceConfiguration
         services.TryAddScoped<Authorization.ProjectAccess.ProjectRequestAuthorizer>();
         services.TryAddScoped<IExecutionAccessCheck, Authorization.ProjectAccess.ExecutionAccessCheck>();
 
+        // Row-level security (Beacon:RowSecurity): the lock is off by default, and ValidateOnStart refuses it while row
+        // security cannot be enforced. Every statement that runs takes its context from the resolver, scoped like the
+        // execution access check.
+        services.AddOptions<Configuration.RowSecurityOptions>()
+            .Bind(configuration.GetSection(Configuration.RowSecurityOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RowSecurityOptions>, Configuration.RowSecurityOptionsValidator>());
+        services.TryAddScoped<RowSecurity.IRowSecurityResolver, RowSecurity.RowSecurityResolver>();
+
         // Functional permissions (Beacon:Authorization:Roles, IdpRoles, SeparationOfDuties): the role each permission is
         // held through, identity-provider app roles mapped at sign-in, and separation of duties. ValidateOnStart so a
         // mapping onto a built-in role, or two permissions on one role, fails the host at boot. The permission accessor is

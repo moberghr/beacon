@@ -2,6 +2,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -59,6 +60,7 @@ internal sealed class SavedQueryToolExecutor(
     IQueryGuardrailService guardrailService,
     ISharedSourceSettings sharedSourceSettings,
     IProjectAccessEvaluator projectAccess,
+    IRowSecurityResolver rowSecurityResolver,
     IQueryCostLimit costLimit,
     ILoggerFactory loggerFactory) : ISavedQueryToolExecutor
 {
@@ -122,8 +124,9 @@ internal sealed class SavedQueryToolExecutor(
             var (boundSql, parameters) = SavedQueryParameterBinder.Bind(step.SqlValue, step.Parameters, arguments);
             var isResultStep = !hasFinalQuery && step == tool.Steps[^1];
             var stepCap = isResultStep ? maxRows : IntermediateRowCap;
+            var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, cancellationToken);
 
-            var report = gate.Evaluate(SqlGateRequest.FromSettings(boundSql, DataSourceSqlDialect.Of(dataSource), settings) with
+            var report = gate.Evaluate(SqlGateRequest.FromSettings(boundSql, DataSourceSqlDialect.Of(dataSource), settings, rowSecurity) with
             {
                 EnforceReadOnly = true,
                 MaxRows = stepCap + 1,

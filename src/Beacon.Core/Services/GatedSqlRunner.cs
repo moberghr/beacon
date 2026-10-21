@@ -4,6 +4,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -14,6 +15,8 @@ namespace Beacon.Core.Services;
 /// <param name="Sql">The statement as it runs: placeholders bound, their values in <paramref name="Parameters"/> (§1.10).</param>
 /// <param name="MaxRows">The row cap the gate places in the SQL — a bound of the statement's own above it is lowered, or the
 /// statement wrapped — which is also the most rows the provider reads. Every statement has one.</param>
+/// <param name="RowSecurity">Row-level security for the caller on <paramref name="DataSource"/>, from
+/// <see cref="IRowSecurityResolver"/>.</param>
 /// <param name="Pii">The settings whose PII detection applies; null detects nothing in the SQL text (a host data source's
 /// masked columns are reported and masked either way).</param>
 /// <param name="Timeout">A shorter statement timeout than the runner's own (a subscription's); never a longer one.</param>
@@ -22,6 +25,7 @@ internal sealed record GatedSqlRequest(
     string Sql,
     IReadOnlyDictionary<string, object?> Parameters,
     int MaxRows,
+    RowSecurityContext RowSecurity,
     McpSettingsData? Pii = null,
     TimeSpan? Timeout = null);
 
@@ -75,7 +79,8 @@ internal sealed class GatedSqlRunner(
             BlockOnSchemaFailure: false,
             LintContext: null,
             EnableSemanticLint: false,
-            request.MaxRows)
+            request.MaxRows,
+            request.RowSecurity)
         {
             HostManagedKey = dataSource.HostManagedKey,
             ConfiguredDatabase = DataSourceConfiguredDatabase.Undetermined
@@ -157,9 +162,11 @@ internal sealed class GatedSqlRunner(
     /// error redacted as <see cref="RunAsync"/> redacts one.
     /// </summary>
     /// <param name="sql">The statement as it would run, flattened and with no bind markers: a dry run binds no values.</param>
-    public async Task<string?> ValidationFailureAsync(DataSource dataSource, string sql, CancellationToken cancellationToken)
+    /// <param name="rowSecurity">Row-level security for the caller on <paramref name="dataSource"/>, from
+    /// <see cref="IRowSecurityResolver"/>: the validation reaches the source, so it is judged as a run would be.</param>
+    public async Task<string?> ValidationFailureAsync(DataSource dataSource, string sql, RowSecurityContext rowSecurity, CancellationToken cancellationToken)
     {
-        var request = new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), MaxRows: 1);
+        var request = new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), MaxRows: 1, rowSecurity);
         var report = Evaluate(request);
         if (report.Blocked)
         {

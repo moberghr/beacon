@@ -13,6 +13,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -45,6 +46,7 @@ internal class DataQualityEvaluationService(
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
     IExecutionAccessCheck executionAccess,
+    IRowSecurityResolver rowSecurityResolver,
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
     BeaconConfiguration configuration,
@@ -131,6 +133,7 @@ internal class DataQualityEvaluationService(
 
         // Rule SQL may name the source's own database only (the one its connection is configured for).
         var configuredDatabase = configuredDatabases.Resolve(contract.DataSource);
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(contract.DataSourceId, cancellationToken);
 
         // A rule's result reaches its history and the contract's alerts: masked as the strictest live project that links
         // the data source asks (§1.6).
@@ -141,7 +144,7 @@ internal class DataQualityEvaluationService(
 
         foreach (var rule in enabledRules)
         {
-            var result = await EvaluateRuleAsync(rule, contract, catalog, provider, engineType, configuredDatabase, pii, cancellationToken);
+            var result = await EvaluateRuleAsync(rule, contract, catalog, provider, engineType, configuredDatabase, rowSecurity, pii, cancellationToken);
             ruleResults.Add(result);
         }
 
@@ -222,6 +225,7 @@ internal class DataQualityEvaluationService(
         IDataSourceProvider provider,
         DatabaseEngineType engineType,
         string? configuredDatabase,
+        RowSecurityContext rowSecurity,
         McpSettingsData pii,
         CancellationToken cancellationToken)
     {
@@ -231,7 +235,7 @@ internal class DataQualityEvaluationService(
         // A caller's cancellation propagates (nothing is stored); every other failure becomes a failed rule result.
         try
         {
-            if (!TryPrepareQuery(rule, contract, catalog, engineType, configuredDatabase, out var query, out var rejection))
+            if (!TryPrepareQuery(rule, contract, catalog, engineType, configuredDatabase, rowSecurity, out var query, out var rejection))
             {
                 ruleStopwatch.Stop();
 
@@ -298,6 +302,7 @@ internal class DataQualityEvaluationService(
         DataQualityRuleCatalog catalog,
         DatabaseEngineType engineType,
         string? configuredDatabase,
+        RowSecurityContext rowSecurity,
         [NotNullWhen(true)] out DataQualityQuery? query,
         [NotNullWhen(false)] out string? rejection)
     {
@@ -356,7 +361,7 @@ internal class DataQualityEvaluationService(
         }
 
         // Re-checked on every run, so a rule saved before the gate existed (or edited in the database) cannot write.
-        var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(generated.Sql, engineType, contract.DataSource.HostManagedKey, configuredDatabase));
+        var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(generated.Sql, engineType, contract.DataSource.HostManagedKey, configuredDatabase, rowSecurity));
         var gateRejection = DataQualityRuleGuard.RejectionOf(report);
         if (gateRejection != null)
         {

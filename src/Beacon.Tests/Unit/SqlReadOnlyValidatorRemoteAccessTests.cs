@@ -137,7 +137,7 @@ public class SqlReadOnlyValidatorRemoteAccessTests
         var request = SqlGateRequest.FromSettings(
             "SELECT * FROM OPENQUERY(LNK,'UPDATE[dbo].[t] SET x=1 SELECT 1 AS a')",
             "MSSQL",
-            TestSqlGate.DefaultSettings()) with
+            TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = true,
             Catalog = catalog,

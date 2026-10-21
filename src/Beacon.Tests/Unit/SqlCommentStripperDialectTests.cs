@@ -124,6 +124,6 @@ public class SqlCommentStripperDialectTests
 
     private static SqlGateReport Gate(string sql, string dialect)
     {
-        return TestSqlGate.Create().Evaluate(new SqlGateRequest(sql, dialect, true, false, null, null, false, null, false, null));
+        return TestSqlGate.Create().Evaluate(new SqlGateRequest(sql, dialect, true, false, null, null, false, null, false, null, RowSecurity: TestRowSecurity.NotApplicable));
     }
 }

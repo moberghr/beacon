@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Helpers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -25,6 +26,7 @@ internal sealed class ValueGroundingService(
     IDataSourceProviderFactory providerFactory,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     IQueryGuardrailService guardrail,
     IMcpStatementLog statementLog,
     ILogger<ValueGroundingService> logger) : IValueGroundingService
@@ -102,6 +104,7 @@ internal sealed class ValueGroundingService(
 
             var dialect = DataSourceSqlDialect.Of(dataSource);
             var configuredDatabase = configuredDatabases.Resolve(dataSource);
+            var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, ct);
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
             var probesUsed = 0;
             var matchLines = new List<string>();
@@ -129,7 +132,7 @@ internal sealed class ValueGroundingService(
                     }
 
                     probesUsed++;
-                    var probeHits = await ProbeColumnAsync(provider, dataSource, dialect, configuredDatabase, candidate, literal, settings, ct);
+                    var probeHits = await ProbeColumnAsync(provider, dataSource, dialect, configuredDatabase, rowSecurity, candidate, literal, settings, ct);
                     if (probeHits != null)
                     {
                         hits.AddRange(probeHits);
@@ -347,7 +350,7 @@ internal sealed class ValueGroundingService(
     }
 
     private async Task<IReadOnlyList<string>?> ProbeColumnAsync(
-        IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, CandidateColumn candidate,
+        IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, RowSecurityContext rowSecurity, CandidateColumn candidate,
         string literal, McpSettingsData settings, CancellationToken ct)
     {
         var sql = BuildProbeSql(dataSource.DatabaseEngineType, candidate.Schema, candidate.Table, candidate.Column.ColumnName, literal);
@@ -366,7 +369,8 @@ internal sealed class ValueGroundingService(
             BlockOnSchemaFailure: false,
             LintContext: null,
             EnableSemanticLint: false,
-            MaxRows: ProbeResultLimit)
+            MaxRows: ProbeResultLimit,
+            rowSecurity)
         {
             HostManagedKey = dataSource.HostManagedKey,
             ConfiguredDatabase = configuredDatabase

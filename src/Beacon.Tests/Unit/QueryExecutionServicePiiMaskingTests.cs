@@ -521,7 +521,7 @@ public class QueryExecutionServicePiiMaskingTests
     private static string? GateRefusal(string sql, DatabaseEngineType engine, IHostDataSourceGuard? hostGuard = null, string? hostManagedKey = null)
     {
         var dataSource = new DataSource { Name = "source", DataSourceType = DataSourceType.Database, DatabaseEngineType = engine, EncryptedConnectionData = "" };
-        var report = TestSqlGate.Create(hostGuard: hostGuard).Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), new McpSettingsData { EnablePiiDetection = true }) with
+        var report = TestSqlGate.Create(hostGuard: hostGuard).Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), new McpSettingsData { EnablePiiDetection = true }, TestRowSecurity.NotApplicable) with
         {
             MaxRows = 100,
             HostManagedKey = hostManagedKey
@@ -597,7 +597,7 @@ public class QueryExecutionServicePiiMaskingTests
             new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog(), costLimit ?? TestQueryCostLimit.Passing,
             guard,
             TestSqlGate.Create(hostGuard: guard),
-            TestConfiguredDatabases.Of(configuredDatabase));
+            TestConfiguredDatabases.Of(configuredDatabase), TestRowSecurity.Resolver);
     }
 
     private sealed class SeededDataSourceContext : BeaconContext

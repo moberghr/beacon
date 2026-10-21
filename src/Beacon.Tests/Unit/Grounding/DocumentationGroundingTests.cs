@@ -130,6 +130,7 @@ public class DocumentationGroundingTests
             new Mock<IDataSourceProviderFactory>().Object,
             TestSqlGate.Create(),
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             Mock.Of<ISharedSourceSettings>(),
             new QueryGuardrailService(),
             TestRowDataEgress.Discarding(),

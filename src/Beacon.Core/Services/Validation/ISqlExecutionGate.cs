@@ -1,12 +1,13 @@
 using Beacon.Core.Models;
+using Beacon.Core.RowSecurity;
 
 namespace Beacon.Core.Services.Validation;
 
 /// <summary>
 /// The single pre-execution gate every MCP SQL path runs before SQL reaches a connector: length cap → regex guardrail →
-/// AST read-only validator → cross-database names → system catalog relations → host policy → schema catalog check →
-/// semantic lint → row-limit rewrite. Pure and synchronous (no I/O) so it can be evaluated on every candidate, including
-/// every repair attempt, at no cost beyond a parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
+/// AST read-only validator → cross-database names → system catalog relations → row-level security → host policy → schema
+/// catalog check → semantic lint → row-limit rewrite. Pure and synchronous (no I/O) so it can be evaluated on every
+/// candidate, including every repair attempt, at no cost beyond a parse. Provider-side checks (dry-run / EXPLAIN) deliberately live outside it.
 /// </summary>
 public interface ISqlExecutionGate
 {
@@ -23,6 +24,10 @@ public interface ISqlExecutionGate
 /// generic grammar.</param>
 /// <param name="BlockOnSchemaFailure">When true a schema-gate failure blocks execution (the <c>query</c> tool);
 /// when false it is advisory and left to the caller's repair loop (<c>ask</c>, <c>dry_run</c>, cross-source).</param>
+/// <param name="RowSecurity">Row-level security for the caller on the target, from <see cref="IRowSecurityResolver"/>: a
+/// <see cref="RowSecurityState.Denied"/> or <see cref="RowSecurityState.Filtered"/> context blocks whatever the other
+/// settings say (<see cref="SqlGateCodes.NoEntitlement"/>, <see cref="SqlGateCodes.RowSecurityUnrewritable"/>), and so
+/// does a missing one.</param>
 public sealed record SqlGateRequest(
     string Sql,
     string? Dialect,
@@ -33,7 +38,8 @@ public sealed record SqlGateRequest(
     bool BlockOnSchemaFailure,
     SchemaLintContext? LintContext,
     bool EnableSemanticLint,
-    int? MaxRows)
+    int? MaxRows,
+    RowSecurityContext RowSecurity)
 {
     /// <summary>
     /// <c>DataSource.HostManagedKey</c> of the target when it is a host-exposed DbContext. When set, the host
@@ -68,7 +74,7 @@ public sealed record SqlGateRequest(
     /// Read-only / PII / lint flags copied from the effective MCP settings; catalog, lint context and row limit
     /// left unset so a caller adds only the stages it needs via a <c>with</c> expression.
     /// </summary>
-    public static SqlGateRequest FromSettings(string sql, string? dialect, McpSettingsData settings)
+    public static SqlGateRequest FromSettings(string sql, string? dialect, McpSettingsData settings, RowSecurityContext rowSecurity)
     {
         return new SqlGateRequest(
             sql,
@@ -80,7 +86,8 @@ public sealed record SqlGateRequest(
             BlockOnSchemaFailure: false,
             LintContext: null,
             settings.EnableSemanticLint,
-            MaxRows: null)
+            MaxRows: null,
+            rowSecurity)
         {
             ReadOnlyPinnedByLock = settings.ReadOnlyPinnedByLock
         };
@@ -88,11 +95,12 @@ public sealed record SqlGateRequest(
 
     /// <summary>
     /// <see cref="FromSettings"/> for the statement that joins step results on the in-memory SQLite database: the SQLite
-    /// dialect, and no cross-database check (<see cref="InMemoryJoin"/>).
+    /// dialect, no cross-database check (<see cref="InMemoryJoin"/>), and no row filter — it reads only the step results,
+    /// each resolved for its own data source.
     /// </summary>
     public static SqlGateRequest ForInMemoryJoin(string sql, McpSettingsData settings)
     {
-        return FromSettings(sql, "SQLite", settings) with { InMemoryJoin = true };
+        return FromSettings(sql, "SQLite", settings, RowSecurityContext.NotApplicable(RowSecurityContext.InMemoryJoinReason)) with { InMemoryJoin = true };
     }
 }
 
@@ -147,6 +155,15 @@ public static class SqlGateCodes
 
     /// <summary>Schema: the SQL reads the engine's catalog, statistics or query history (<see cref="SqlSystemCatalogRule"/>).</summary>
     public const string SystemCatalog = "system_catalog";
+
+    /// <summary>Row-level security: the caller may not read the data source's rows (<see cref="RowSecurityState.Denied"/>).</summary>
+    public const string NoEntitlement = "no_entitlement";
+
+    /// <summary>
+    /// Row-level security: the caller's rows are filtered (<see cref="RowSecurityState.Filtered"/>), and the gate cannot write
+    /// the filter into the statement, so it is blocked rather than run unfiltered.
+    /// </summary>
+    public const string RowSecurityUnrewritable = "row_security_unrewritable";
 
     /// <summary>Schema: no catalog rows exist for the data source, so nothing could be checked.</summary>
     public const string EmptyCatalog = "empty_catalog";

@@ -190,5 +190,5 @@ public class SystemCatalogRelationTests
     }
 
     private static SqlGateRequest Request(string sql, string dialect) =>
-        SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings());
+        SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable);
 }

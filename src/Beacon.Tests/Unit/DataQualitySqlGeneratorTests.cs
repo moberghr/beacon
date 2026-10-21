@@ -202,7 +202,7 @@ public class DataQualitySqlGeneratorTests
             var query = _generator.GenerateSql(rule, engine);
 
             // A MySQL table's schema is its database: the one the data source is configured for.
-            var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(query.Sql, engine, hostManagedKey: null, configuredDatabase: "sales"));
+            var report = gate.Evaluate(DataQualityRuleGuard.GateRequest(query.Sql, engine, hostManagedKey: null, configuredDatabase: "sales", TestRowSecurity.NotApplicable));
 
             DataQualityRuleGuard.RejectionOf(report).Should().BeNull($"the generated {ruleType} SQL for {engine} must run, capped at one row");
         }

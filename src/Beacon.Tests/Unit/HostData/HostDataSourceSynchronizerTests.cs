@@ -394,7 +394,7 @@ public class HostDataSourceSynchronizerTests
         var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer")));
         var gate = TestSqlGate.Create(hostGuard: guard);
 
-        var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Payload FROM AuditLog", "MSSQL", TestSqlGate.DefaultSettings()) with
+        var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Payload FROM AuditLog", "MSSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             BlockOnSchemaFailure = false,
             HostManagedKey = "efcore:Netgiro"
@@ -411,7 +411,7 @@ public class HostDataSourceSynchronizerTests
         var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "Name")));
         var gate = TestSqlGate.Create(hostGuard: guard);
 
-        var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Name AS n FROM dbo.Customer", "MSSQL", TestSqlGate.DefaultSettings()) with
+        var report = gate.Evaluate(SqlGateRequest.FromSettings("SELECT Name AS n FROM dbo.Customer", "MSSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             HostManagedKey = "efcore:Netgiro"
         });
@@ -428,7 +428,7 @@ public class HostDataSourceSynchronizerTests
         var guard = new HostDataSourceGuard(BuildRegistry(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "Name")));
         var gate = TestSqlGate.Create(hostGuard: guard);
 
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "MSSQL", TestSqlGate.DefaultSettings()) with
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "MSSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             HostManagedKey = "efcore:Netgiro"
         });
@@ -441,7 +441,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void Gate_OrdinarySource_HasNoHostMaskedColumns()
     {
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT email FROM users", "PostgreSQL", TestSqlGate.DefaultSettings()));
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT email FROM users", "PostgreSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable));
 
         report.HostMaskedColumns.Should().BeEmpty();
     }
@@ -450,7 +450,7 @@ public class HostDataSourceSynchronizerTests
     public void Gate_HostKeyWithoutGuard_FailsClosed()
     {
         var report = TestSqlGate.Create().Evaluate(
-            SqlGateRequest.FromSettings("SELECT 1", "MSSQL", TestSqlGate.DefaultSettings()) with { HostManagedKey = "efcore:Netgiro" });
+            SqlGateRequest.FromSettings("SELECT 1", "MSSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with { HostManagedKey = "efcore:Netgiro" });
 
         report.Blocked.Should().BeTrue();
     }

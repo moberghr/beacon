@@ -105,7 +105,7 @@ public class SqlReadOnlyValidatorTSqlAliasTests
     [Test]
     public void TheGate_RefusesTheAlias_BeforeAnythingRuns()
     {
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT 1 COMMIT", "MSSQL", new McpSettingsData()));
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT 1 COMMIT", "MSSQL", new McpSettingsData(), TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be(SqlGateCodes.Ast);

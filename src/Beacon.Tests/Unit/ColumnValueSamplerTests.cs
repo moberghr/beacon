@@ -701,6 +701,7 @@ public class ColumnValueSamplerTests
         return new ColumnValueSampler(
             guardrail.Object,
             new GatedSqlRunner(TestSqlGate.Create(), providers.Object, configuredDatabases ?? TestConfiguredDatabases.None, TestQueryServices.QueryOptions),
+            TestRowSecurity.Resolver,
             logger ?? NullLogger<ColumnValueSampler>.Instance);
     }
 

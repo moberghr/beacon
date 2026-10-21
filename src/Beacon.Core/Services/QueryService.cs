@@ -23,6 +23,7 @@ using Beacon.Core.Validators;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.SecurityAudit;
+using Beacon.Core.RowSecurity;
 
 namespace Beacon.Core.Services;
 
@@ -245,6 +246,7 @@ internal partial class QueryService(
     SqlReadOnlyAstValidator readOnlyAstValidator,
     IBeaconActorAccessor actorAccessor,
     IExecutionAccessCheck executionAccess,
+    IRowSecurityResolver rowSecurityResolver,
     ISqlExecutionGate gate,
     GatedSqlRunner sqlRunner,
     IStepSqlSaveCheck saveCheck,
@@ -639,7 +641,8 @@ internal partial class QueryService(
 
     // The statement that joins step results on the in-memory SQLite store: the gate's read-only stages and the run's row
     // cap (rowCeiling, a migration's own budget, else ExecutionRowCeiling) plus one, no cross-database rule (it reaches
-    // nothing else), PII detected in its text when a run masks.
+    // nothing else) and no row filter (it reads only step results, each resolved for its own source), PII detected in its
+    // text when a run masks.
     private SqlGateRequest JoinGateRequest(string sql, McpSettingsData? pii, int? rowCeiling = null)
     {
         return new SqlGateRequest(
@@ -652,7 +655,8 @@ internal partial class QueryService(
             BlockOnSchemaFailure: false,
             LintContext: null,
             EnableSemanticLint: false,
-            MaxRows: (rowCeiling ?? ExecutionRowCeiling) + 1)
+            MaxRows: (rowCeiling ?? ExecutionRowCeiling) + 1,
+            RowSecurity: RowSecurityContext.NotApplicable(RowSecurityContext.InMemoryJoinReason))
         {
             InMemoryJoin = true
         };

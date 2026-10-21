@@ -11,6 +11,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Retention;
@@ -40,6 +41,7 @@ internal sealed class McpEvalService(
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate sqlGate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
     ILlmRowDataEgress rowDataEgress,
@@ -322,7 +324,7 @@ internal sealed class McpEvalService(
         // An eval run executes the generated SQL against the source, so live probes may run.
         var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, liveValueProbes: true, ct);
 
-        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, settings);
+        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, rowSecurityResolver, settings);
         evalExecutor.UseDataSource(dataSource);
 
         var outcome = await askSqlPipeline.RunAsync(

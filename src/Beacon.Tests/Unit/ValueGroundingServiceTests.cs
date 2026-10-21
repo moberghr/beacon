@@ -645,6 +645,7 @@ public class ValueGroundingServiceTests
             providerFactory.Object,
             TestSqlGate.Create(hostGuard: new Beacon.Core.HostData.HostDataSourceGuard(new TestHostDataSources())),
             TestConfiguredDatabases.Of(configuredDatabase),
+            TestRowSecurity.Resolver,
             new QueryGuardrailService(),
             statementLog ?? new McpStatementLog(),
             NullLogger<ValueGroundingService>.Instance);

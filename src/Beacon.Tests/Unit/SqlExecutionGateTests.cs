@@ -41,7 +41,7 @@ public class SqlExecutionGateTests
     private static SchemaLintContext LintContext() => new([], new Dictionary<string, IReadOnlySet<string>>(), Catalog());
 
     private static SqlGateRequest Request(string sql, string dialect = "PostgreSQL") =>
-        SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings());
+        SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable);
 
     [TestCase("WITH x AS (INSERT INTO orders (id) VALUES (1) RETURNING id) SELECT * FROM x", "PostgreSQL")]
     [TestCase("SELECT id INTO t2 FROM orders UNION SELECT id FROM customers", "PostgreSQL")]
@@ -168,7 +168,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnableSemanticLint = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("SELECT id FROM orders", "PostgreSQL", settings) with
+        var report = _gate.Evaluate(SqlGateRequest.FromSettings("SELECT id FROM orders", "PostgreSQL", settings, TestRowSecurity.NotApplicable) with
         {
             LintContext = LintContext()
         });
@@ -218,7 +218,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("  ", "PostgreSQL", settings));
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("  ", "PostgreSQL", settings, TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.ReadOnly.Code.Should().Be("empty");
@@ -230,7 +230,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("SELECT email FROM customers", "PostgreSQL", settings));
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("SELECT email FROM customers", "PostgreSQL", settings, TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeFalse();
         report.Verdicts.ReadOnly.Code.Should().Be("disabled");
@@ -243,7 +243,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
+        var report = _unlocked.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings, TestRowSecurity.NotApplicable) with { Catalog = Catalog() });
 
         // Read-only enforcement switched off is honoured only where the deployment unlocks it.
         report.Blocked.Should().BeFalse();
@@ -256,7 +256,7 @@ public class SqlExecutionGateTests
         var settings = TestSqlGate.DefaultSettings();
         settings.EnforceReadOnly = false;
 
-        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings) with { Catalog = Catalog() });
+        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", settings, TestRowSecurity.NotApplicable) with { Catalog = Catalog() });
 
         report.Blocked.Should().BeTrue("Beacon:Mcp:ForceReadOnly is on unless the deployment turns it off");
         report.Verdicts.ReadOnly.Status.Should().Be(SqlGateStatus.Fail);
@@ -269,9 +269,9 @@ public class SqlExecutionGateTests
         var stored = new McpSettingsData { EnforceReadOnly = false };
         var resolved = Beacon.Core.Services.McpSettingsProvider.Resolve(stored, null, new McpDeploymentOptions()).Effective;
 
-        var write = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", resolved));
-        var empty = _gate.Evaluate(SqlGateRequest.FromSettings("   ", "PostgreSQL", resolved));
-        var enforcedAnyway = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", TestSqlGate.DefaultSettings()));
+        var write = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", resolved, TestRowSecurity.NotApplicable));
+        var empty = _gate.Evaluate(SqlGateRequest.FromSettings("   ", "PostgreSQL", resolved, TestRowSecurity.NotApplicable));
+        var enforcedAnyway = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable));
 
         resolved.EnforceReadOnly.Should().BeTrue();
         resolved.ReadOnlyPinnedByLock.Should().BeTrue();
@@ -308,7 +308,7 @@ public class SqlExecutionGateTests
             EnableSemanticLint = false
         };
 
-        var request = SqlGateRequest.FromSettings("SELECT 1", "MSSQL", settings);
+        var request = SqlGateRequest.FromSettings("SELECT 1", "MSSQL", settings, TestRowSecurity.NotApplicable);
 
         request.EnforceReadOnly.Should().BeFalse();
         request.DetectPii.Should().BeFalse();
@@ -324,7 +324,7 @@ public class SqlExecutionGateTests
     [Test]
     public void FromSettings_EmptyCustomPatterns_BecomeNull()
     {
-        var request = SqlGateRequest.FromSettings("SELECT 1", null, TestSqlGate.DefaultSettings());
+        var request = SqlGateRequest.FromSettings("SELECT 1", null, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable);
 
         request.CustomPiiPatterns.Should().BeNull();
     }
@@ -432,7 +432,7 @@ public class SqlExecutionGateTests
         settings.EnforceReadOnly = enforceReadOnly;
         var sql = "SELECT " + new string('1', 100_001 - "SELECT ".Length);
 
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "PostgreSQL", settings) with
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, "PostgreSQL", settings, TestRowSecurity.NotApplicable) with
         {
             Catalog = Catalog(),
             LintContext = LintContext(),

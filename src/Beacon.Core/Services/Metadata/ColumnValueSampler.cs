@@ -4,6 +4,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 
@@ -40,6 +41,7 @@ public interface IColumnValueSampler
 internal sealed class ColumnValueSampler(
     IQueryGuardrailService guardrailService,
     GatedSqlRunner sqlRunner,
+    IRowSecurityResolver rowSecurityResolver,
     ILogger<ColumnValueSampler> logger) : IColumnValueSampler
 {
     private const int SampleRowCount = 5;
@@ -188,11 +190,12 @@ internal sealed class ColumnValueSampler(
         int statementBound,
         CancellationToken cancellationToken)
     {
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, cancellationToken);
         GatedSqlRun run;
         try
         {
             run = await sqlRunner.RunAsync(
-                new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), statementBound + 1, Timeout: StatementTimeout),
+                new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), statementBound + 1, rowSecurity, Timeout: StatementTimeout),
                 cancellationToken);
         }
         catch (InvalidOperationException)

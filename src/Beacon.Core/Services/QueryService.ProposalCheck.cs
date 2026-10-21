@@ -36,7 +36,8 @@ internal partial class QueryService : IQueryProposalCheck
 
             foreach (var step in steps)
             {
-                var failure = await sqlRunner.ValidationFailureAsync(step.DataSource, DryRunSql(step), cancellationToken);
+                var rowSecurity = await rowSecurityResolver.ResolveAsync(step.DataSourceId, cancellationToken);
+                var failure = await sqlRunner.ValidationFailureAsync(step.DataSource, DryRunSql(step), rowSecurity, cancellationToken);
                 if (failure != null)
                 {
                     return failure;

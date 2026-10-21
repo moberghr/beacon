@@ -696,6 +696,7 @@ public class ReadOnlyExecutionRoutingTests
             guardrail.Object,
             TestSqlGate.Create(guardrail.Object),
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             knowledgeGraph.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,

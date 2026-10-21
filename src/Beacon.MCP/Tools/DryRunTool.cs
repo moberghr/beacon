@@ -8,6 +8,7 @@ using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
@@ -20,6 +21,7 @@ internal sealed class DryRunTool(
     IDbContextFactory<BeaconContext> contextFactory,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     IKnowledgeGraphService knowledgeGraph,
     IQueryExecutionService queryExecutionService,
     ISharedSourceSettings sharedSourceSettings,
@@ -129,10 +131,11 @@ internal sealed class DryRunTool(
 
             var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
             var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
+            var rowSecurity = await rowSecurityResolver.ResolveAsync(datasource_id.Value, cancellationToken);
 
             // Gates 1-3 (read-only, schema, row limit) run through the one shared gate (§1.5). The schema
             // verdict is advisory here — every issue is collected so the caller sees all of them at once.
-            var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
+            var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings, rowSecurity) with
             {
                 Catalog = catalog,
                 MaxRows = maxRows,

@@ -359,6 +359,7 @@ public class HostOutputMaskingPathTests
             guardrail,
             TestSqlGate.Create(guardrail, guard),
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             knowledgeGraph.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },

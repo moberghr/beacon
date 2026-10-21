@@ -463,6 +463,7 @@ public class McpPlaygroundServiceTests
             factory.Object,
             TestSqlGate.Create(guardrail.Object),
             TestConfiguredDatabases.None,
+            TestRowSecurity.Resolver,
             _knowledgeGraph.Object,
             _queryExecution.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),

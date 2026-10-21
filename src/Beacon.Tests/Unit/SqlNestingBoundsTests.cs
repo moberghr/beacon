@@ -43,7 +43,7 @@ public class SqlNestingBoundsTests
     [TestCase("or")]
     public void Gate_ChainDeeperThanTheBound_IsBlockedBeforeAnyLaterStage(string chain)
     {
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings(DeepChain(chain), "PostgreSQL", TestSqlGate.DefaultSettings()) with
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings(DeepChain(chain), "PostgreSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             MaxRows = 10
         });

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.HostData;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -22,7 +23,8 @@ internal sealed class QueryExecutionService(
     IQueryCostLimit costLimit,
     IHostDataSourceGuard hostGuard,
     ISqlExecutionGate gate,
-    IConfiguredDatabaseResolver configuredDatabases) : IQueryExecutionService
+    IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver) : IQueryExecutionService
 {
     public async Task<QueryExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
     {
@@ -41,7 +43,8 @@ internal sealed class QueryExecutionService(
         // the source is the gate's FinalSql, never SQL changed after the gate. The pipeline judged the same SQL while it
         // generated and repaired it; this evaluation, under the source's effective settings, decides what runs, and a
         // refusal reaches no source.
-        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings) with
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSourceId, ct);
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, DataSourceSqlDialect.Of(dataSource), settings, rowSecurity) with
         {
             MaxRows = maxRows,
             HostManagedKey = dataSource.HostManagedKey,

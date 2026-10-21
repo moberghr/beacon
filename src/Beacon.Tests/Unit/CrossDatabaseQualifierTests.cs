@@ -140,7 +140,7 @@ public class CrossDatabaseQualifierTests
     [TestCase("databricks", "SELECT reflect('java.lang.Runtime', 'getRuntime')")]
     public void Gate_WithReadOnlyEnforcementOff_StillRefusesWhatReachesBeyondTheSource(string dialect, string sql)
     {
-        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = false,
             ConfiguredDatabase = "Sales"
@@ -157,7 +157,7 @@ public class CrossDatabaseQualifierTests
     [Test]
     public void Gate_WithReadOnlyEnforcementOff_StillRunsWhatStaysInTheSource()
     {
-        var request = SqlGateRequest.FromSettings("SELECT lower(name) FROM public.orders", "PostgreSQL", TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.FromSettings("SELECT lower(name) FROM public.orders", "PostgreSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = false,
             ConfiguredDatabase = "sales"
@@ -225,7 +225,7 @@ public class CrossDatabaseQualifierTests
     [TestCase("SQLite", "ATTACH '/data/other.db' AS o", "opens another database")]
     public void Gate_WithReadOnlyEnforcementOff_RefusesContextSwitchesAndDynamicSql(string dialect, string sql, string reason)
     {
-        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = false,
             ConfiguredDatabase = "Sales",
@@ -262,7 +262,7 @@ public class CrossDatabaseQualifierTests
     [TestCase("bigquery", "EXECUTE IMMEDIATE q USING 1 AS x")]
     public void Gate_WithReadOnlyEnforcementOff_RefusesSwitchesAndDynamicSqlTheParserCannotRead(string dialect, string sql)
     {
-        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = false,
             ConfiguredDatabase = "Sales",
@@ -290,7 +290,7 @@ public class CrossDatabaseQualifierTests
     [TestCase("SQLite", DataSourceConfiguredDatabase.SqliteMain, "INSERT INTO main.t (a) VALUES (1); UPDATE t SET a = 2")]
     public void Gate_WithReadOnlyEnforcementOff_StillRunsAWriteBatchInTheConfiguredDatabase(string dialect, string configured, string sql)
     {
-        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.FromSettings(sql, dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = false,
             ConfiguredDatabase = configured
@@ -404,7 +404,7 @@ public class CrossDatabaseQualifierTests
     [Test]
     public void Gate_WithoutAConfiguredDatabase_BlocksAQualifiedName()
     {
-        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT id FROM sales.public.orders", "PostgreSQL", TestSqlGate.DefaultSettings()));
+        var report = TestSqlGate.Create().Evaluate(SqlGateRequest.FromSettings("SELECT id FROM sales.public.orders", "PostgreSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable));
 
         report.Blocked.Should().BeTrue();
         report.Verdicts.Schema.Code.Should().Be(SqlGateCodes.CrossDatabase);
@@ -415,7 +415,7 @@ public class CrossDatabaseQualifierTests
     [TestCase("SELECT ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))) AS x")]
     public void Gate_WithReadOnlyEnforcementOff_BlocksSqlWhoseNamesCannotBeChecked(string sql)
     {
-        var request = SqlGateRequest.FromSettings(sql, "PostgreSQL", TestSqlGate.DefaultSettings()) with
+        var request = SqlGateRequest.FromSettings(sql, "PostgreSQL", TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = false,
             ConfiguredDatabase = "sales",
@@ -634,8 +634,8 @@ public class CrossDatabaseQualifierTests
         var settings = TestSqlGate.DefaultSettings();
 
         var join = gate.Evaluate(SqlGateRequest.ForInMemoryJoin("SELECT * FROM other.result1", settings));
-        var foreign = gate.Evaluate(SqlGateRequest.FromSettings("SELECT * FROM other.orders", "SQLite", settings) with { ConfiguredDatabase = "main" });
-        var own = gate.Evaluate(SqlGateRequest.FromSettings("SELECT * FROM main.orders", "SQLite", settings) with { ConfiguredDatabase = "main" });
+        var foreign = gate.Evaluate(SqlGateRequest.FromSettings("SELECT * FROM other.orders", "SQLite", settings, TestRowSecurity.NotApplicable) with { ConfiguredDatabase = "main" });
+        var own = gate.Evaluate(SqlGateRequest.FromSettings("SELECT * FROM main.orders", "SQLite", settings, TestRowSecurity.NotApplicable) with { ConfiguredDatabase = "main" });
 
         join.Blocked.Should().BeFalse();
         foreign.Blocked.Should().BeTrue();
@@ -680,7 +680,7 @@ public class CrossDatabaseQualifierTests
 
     private static SqlGateRequest Request(string sql, QualifierCase dialect, bool enforceReadOnly)
     {
-        return SqlGateRequest.FromSettings(sql, dialect.Dialect, TestSqlGate.DefaultSettings()) with
+        return SqlGateRequest.FromSettings(sql, dialect.Dialect, TestSqlGate.DefaultSettings(), TestRowSecurity.NotApplicable) with
         {
             EnforceReadOnly = enforceReadOnly,
             ConfiguredDatabase = dialect.Configured,

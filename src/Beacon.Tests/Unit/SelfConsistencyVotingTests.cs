@@ -677,6 +677,7 @@ public class SelfConsistencyVotingTests
             _knowledgeGraph.Object,
             _sqlGeneration.Object,
             TestSqlGate.Create(_guardrail.Object),
+            TestRowSecurity.Resolver,
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
             statementLog ?? new McpStatementLog(),

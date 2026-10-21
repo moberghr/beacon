@@ -284,8 +284,9 @@ internal partial class QueryService : IStoredQueryPreview
         var dialect = DataSourceSqlDialect.Of(step.DataSource);
         var (parameterizedSql, sqlParameters) = QueryHelper.PrepareParameterizedQuery(step.SqlValue, ExtractStepParameters(step, parameters));
         var executedSql = StoredSql.Flatten(parameterizedSql, dialect);
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(step.DataSourceId, cancellationToken);
 
-        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1);
+        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1, rowSecurity);
         var report = sqlRunner.Evaluate(original);
         if (report.Blocked)
         {

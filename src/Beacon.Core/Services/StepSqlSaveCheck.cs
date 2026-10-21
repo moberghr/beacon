@@ -1,6 +1,7 @@
 using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Subscriptions;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Validation;
 using Microsoft.EntityFrameworkCore;
 
@@ -90,7 +91,9 @@ internal sealed class StepSqlSaveCheck(
             BlockOnSchemaFailure: true,
             LintContext: null,
             EnableSemanticLint: false,
-            MaxRows: null)
+            MaxRows: null,
+            // Judged before it is stored, never run here: row security applies wherever the step runs.
+            RowSecurity: RowSecurityContext.NotApplicable(RowSecurityContext.SaveCheckReason))
         {
             HostManagedKey = target.HostManagedKey,
             ConfiguredDatabase = target.ConfiguredDatabase

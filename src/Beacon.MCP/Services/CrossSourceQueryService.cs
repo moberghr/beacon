@@ -10,6 +10,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -26,6 +27,7 @@ internal sealed class CrossSourceQueryService(
     IQueryGuardrailService guardrailService,
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
+    IRowSecurityResolver rowSecurityResolver,
     IKnowledgeGraphService knowledgeGraph,
     ISqlGenerationService sqlGenerationService,
     ILlmRowDataEgress rowDataEgress,
@@ -63,12 +65,13 @@ internal sealed class CrossSourceQueryService(
             var sqlResult = await sqlGenerationService.GenerateAsync(
                 sourceProvider, smartContext.FullContext, question, settings, ct);
             var sql = sqlResult.Sql;
+            var generationRowSecurity = await rowSecurityResolver.ResolveAsync(source.DataSourceId, ct);
 
             // Pre-execution schema validation with one bounded repair, mirroring the single-source flow.
             // Only the SCHEMA verdict is acted on here: this loop also runs for execute=false (preview),
             // which never enforced read-only on SQL that is only rendered — the read-only gate runs in the
             // execution loop below, before anything reaches a provider.
-            var schemaReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings) with
+            var schemaReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, smartContext.DatabaseDialect, settings, generationRowSecurity) with
             {
                 Catalog = smartContext.SchemaCatalog,
                 ConfiguredDatabase = smartContext.ConfiguredDatabase
@@ -85,7 +88,7 @@ internal sealed class CrossSourceQueryService(
                     sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
 
                 var retryReport = retriedSql != null
-                    ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings) with
+                    ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings, generationRowSecurity) with
                     {
                         Catalog = smartContext.SchemaCatalog,
                         ConfiguredDatabase = smartContext.ConfiguredDatabase
@@ -151,10 +154,11 @@ internal sealed class CrossSourceQueryService(
 
             var dialect = DataSourceSqlDialect.Of(dataSource);
             var configuredDatabase = configuredDatabases.Resolve(dataSource);
+            var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, ct);
 
             // Read-only gate (regex guardrail + AST, §1.5) BEFORE the provider dry-run — a write statement
             // must never reach EXPLAIN.
-            var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
+            var readOnlyReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings, rowSecurity) with
             {
                 HostManagedKey = dataSource.HostManagedKey,
                 ConfiguredDatabase = configuredDatabase
@@ -167,11 +171,11 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, source, sql, sourceContext, question, settings, signal, ct);
+            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, rowSecurity, source, sql, sourceContext, question, settings, signal, ct);
 
             // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
-            var finalReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings) with
+            var finalReport = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings, rowSecurity) with
             {
                 MaxRows = settings.MaxRowLimit,
                 HostManagedKey = dataSource.HostManagedKey,
@@ -369,6 +373,7 @@ internal sealed class CrossSourceQueryService(
         ILlmProvider llmProvider,
         Core.Data.Entities.DataSource dataSource,
         string? configuredDatabase,
+        RowSecurityContext rowSecurity,
         RoutedSource source,
         string sql,
         SmartSchemaContext sourceContext,
@@ -429,7 +434,7 @@ internal sealed class CrossSourceQueryService(
         }
 
         // The retry must clear the same read-only gate the original did before it can be adopted.
-        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, DataSourceSqlDialect.Of(dataSource), settings) with { ConfiguredDatabase = configuredDatabase }).Blocked)
+        if (gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, DataSourceSqlDialect.Of(dataSource), settings, rowSecurity) with { ConfiguredDatabase = configuredDatabase }).Blocked)
         {
             return sql;
         }
