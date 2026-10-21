@@ -66,7 +66,8 @@ public class HostQueryPolicyValidatorTests
     [TestCase("SELECT c.\"Name\", l.\"Amount\" FROM public.\"Customer\" c JOIN lending.\"Loan\" l ON l.\"CustomerId\" = c.\"Id\" WHERE l.\"Amount\" > @p0 ORDER BY l.\"Amount\" DESC LIMIT 10")]
     [TestCase("SELECT \"Name\" FROM public.\"Customer\" WHERE \"Id\" = @p0 AND \"Name\" <> @p1")]
     [TestCase("SELECT \"Id\" FROM public.\"Customer\" WHERE \"Id\" > 0 - @p0 AND \"Id\" < @p1::int")]
-    [TestCase("SELECT date_trunc('month', now()) AS m, count(*) AS n FROM public.\"Customer\" GROUP BY m")]
+    [TestCase("SELECT date_trunc('month', now()) AS m, count(*) AS n FROM public.\"Customer\" GROUP BY 1")]
+    [TestCase("SELECT date_trunc('month', now()) AS m, count(*) AS n FROM public.\"Customer\" GROUP BY date_trunc('month', now())")]
     [TestCase("SELECT c.\"Name\", x.total FROM public.\"Customer\" c CROSS JOIN LATERAL (SELECT sum(l.\"Amount\") AS total FROM lending.\"Loan\" l WHERE l.\"CustomerId\" = c.\"Id\") x")]
     [TestCase("SELECT \"Id\", c.\"Name\" FROM public.\"Customer\" c JOIN lending.\"Loan\" l USING (\"Id\")")]
     [TestCase("WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT n FROM r")]
@@ -305,6 +306,307 @@ public class HostQueryPolicyValidatorTests
     public void Validate_PostgresEscapeHatches_AreRejected(string sql)
     {
         HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Allowed.Should().BeFalse();
+    }
+
+    // PostgreSQL reads a bare GROUP BY name as a column of the tables read first and only then as an output alias, so an
+    // alias over a table could stand for a column the policy excludes or the model does not map.
+    [TestCase("SELECT count(*) AS \"InternalNote\", array_agg(\"Id\") AS ids FROM public.\"Customer\" GROUP BY \"InternalNote\"")]
+    [TestCase("SELECT count(*) AS \"PasswordHash\" FROM public.\"Customer\" GROUP BY \"PasswordHash\"")]
+    [TestCase("SELECT count(*) AS legacy_code, array_agg(\"Id\") AS ids FROM public.\"Customer\" GROUP BY legacy_code")]
+    [TestCase("SELECT date_trunc('month', now()) AS m, count(*) AS n FROM public.\"Customer\" GROUP BY m")]
+    [TestCase("SELECT count(*) AS k FROM public.\"Customer\" c JOIN lending.\"Loan\" l ON l.\"CustomerId\" = c.\"Id\" GROUP BY k")]
+    [TestCase("SELECT count(*) AS k FROM public.\"Customer\" c, (SELECT 1 AS z) d GROUP BY k")]
+    [TestCase("SELECT x.\"Name\", count(*) AS \"InternalNote\" FROM public.\"Customer\" x GROUP BY x.\"Name\", \"InternalNote\"")]
+    public void Validate_PostgresGroupByOutputAliasOverATable_IsRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Allowed.Should().BeFalse();
+    }
+
+    [Test]
+    public void Validate_PostgresGroupByOutputAliasOverATable_ExplainsTheAlternatives()
+    {
+        var result = HostQueryPolicyValidator.Validate(
+            "SELECT date_trunc('month', now()) AS m, count(*) AS n FROM public.\"Customer\" GROUP BY m",
+            PostgresPolicy);
+
+        result.Error.Should().Contain("GROUP BY m").And.Contain("GROUP BY 1");
+    }
+
+    [TestCase("SELECT \"Name\", count(*) AS n FROM public.\"Customer\" GROUP BY \"Name\"")]
+    [TestCase("SELECT upper(x.m) AS u, count(*) AS n FROM (SELECT \"Name\" AS m FROM public.\"Customer\") x GROUP BY u")]
+    [TestCase("WITH a AS (SELECT \"Name\" AS nm FROM public.\"Customer\") SELECT lower(nm) AS l, count(*) AS n FROM a GROUP BY l")]
+    [TestCase("SELECT 1 AS one GROUP BY one")]
+    public void Validate_PostgresGroupByOutputAlias_WhenNoTableCouldHoldTheName_Passes(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT \"Name\" FROM public.\"Customer\" WHERE regclass 'public.\"AuditLog\"' IS NOT NULL")]
+    [TestCase("SELECT regclass 'pg_authid' AS o")]
+    [TestCase("SELECT CAST('postgres' AS regrole) AS o")]
+    [TestCase("SELECT 'pg_catalog'::regnamespace AS o")]
+    [TestCase("SELECT '{pg_authid}'::regclass[] AS o")]
+    public void Validate_PostgresCatalogTypeLiterals_AreRejected(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeFalse();
+        result.Error.Should().Contain("catalog types");
+    }
+
+    // The parser reads name 'text' as a column with a string alias; PostgreSQL reads it as a typed literal of that name.
+    [TestCase("SELECT regrole 'postgres' FROM public.\"Customer\"")]
+    [TestCase("SELECT regproc 'now'")]
+    [TestCase("SELECT regnamespace 'pg_catalog'")]
+    [TestCase("SELECT regtype 'int4'")]
+    [TestCase("SELECT \"Name\" 'n' FROM public.\"Customer\"")]
+    [TestCase("SELECT c.\"Name\" FROM public.\"Customer\" 'c'")]
+    public void Validate_PostgresStringWrittenAsAName_IsRejected(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeFalse();
+        result.Error.Should().Contain("typed literal");
+    }
+
+    [Test]
+    public void Validate_SqlServerStringAlias_StillPasses()
+    {
+        var result = HostQueryPolicyValidator.Validate("SELECT Name 'n' FROM dbo.Customer", SqlServerPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT date '2024-01-01' AS d")]
+    [TestCase("SELECT \"Name\" FROM public.\"Customer\" WHERE now() - interval '30 days' < timestamp '2024-01-01 00:00'")]
+    [TestCase("SELECT '42'::int AS n, CAST('2024-01-01' AS date) AS d")]
+    public void Validate_PostgresTypedLiterals_OfOrdinaryTypes_Pass(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT repeat('x', 200000000) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT lpad(\"Name\", 100000) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT rpad(\"Name\", 100000, '*') AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT repeat('x', 1e9) AS c")]
+    [TestCase("SELECT lpad('x', (100000)) AS c")]
+    [TestCase("SELECT lpad('x', '100000'::int) AS c")]
+    [TestCase("SELECT repeat('x', \"Id\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT repeat('x', @p0) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT repeat('x', 100 * 1000) AS c")]
+    [TestCase("SELECT format('%100000000s', 'x') AS c")]
+    [TestCase("SELECT format('%1$-200000s', \"Name\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%*s', 100000, 'x') AS c")]
+    [TestCase("SELECT format(\"Name\", 1) AS c FROM public.\"Customer\"")]
+    public void Validate_PostgresLengthArguments_AboveTheBound_AreRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Allowed.Should().BeFalse();
+    }
+
+    [Test]
+    public void Validate_LengthArgumentAboveTheBound_NamesTheBound()
+    {
+        var result = HostQueryPolicyValidator.Validate("SELECT repeat('x', 200000000) AS c", PostgresPolicy);
+
+        result.Error.Should().Contain("repeat").And.Contain("10000");
+    }
+
+    [TestCase("SELECT lpad(\"Id\"::text, 8, '0') AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT repeat('-', 20) AS c, rpad(\"Name\", 30) AS d FROM public.\"Customer\"")]
+    [TestCase("SELECT lpad('x', 10000) AS c, repeat('x', -1) AS d")]
+    [TestCase("SELECT format('%s-%s', \"Name\", \"Id\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%-10s|%2$s %%', \"Name\", \"Id\") AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT regexp_replace(\"Name\", '\\s+', ' ', 'g') AS c FROM public.\"Customer\"")]
+    public void Validate_PostgresLengthArguments_WithinTheBound_Pass(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT REPLICATE(CAST('x' AS varchar(max)), 200000000) AS c")]
+    [TestCase("SELECT REPLICATE(Name, Id) AS c FROM dbo.Customer")]
+    public void Validate_SqlServerLengthArguments_AboveTheBound_AreRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, SqlServerPolicy).Allowed.Should().BeFalse();
+    }
+
+    [Test]
+    public void Validate_SqlServerLengthArgument_WithinTheBound_Passes()
+    {
+        var result = HostQueryPolicyValidator.Validate("SELECT REPLICATE('0', 5) + Name AS c FROM dbo.Customer", SqlServerPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT count(*) AS k FROM public.\"Customer\" c JOIN lending.\"Loan\" l ON l.\"CustomerId\" = c.\"Id\" GROUP BY k")]
+    [TestCase("SELECT count(*) AS k FROM public.\"Customer\" c CROSS JOIN lending.\"Loan\" l GROUP BY k")]
+    [TestCase("SELECT d.z AS k, count(*) AS n FROM public.\"Customer\" c, (SELECT 1 AS z) d GROUP BY k")]
+    public void Validate_PostgresGroupByOutputAliasOverJoinedTables_NamesTheAlias(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeFalse();
+        result.Error.Should().Contain("GROUP BY k names an output column");
+    }
+
+    // The model maps every column the check knows, but the database can still hold columns the model does not map, so
+    // an output alias over a table is refused whatever the policy excludes.
+    [Test]
+    public void Validate_PostgresGroupByOutputAliasOverATable_IsRejectedWithoutExcludedColumns()
+    {
+        var policy = HostTestModelFactory.Read(x => x.AllowTables("lending.Loan"), npgsql: true).Policy;
+
+        var result = HostQueryPolicyValidator.Validate(
+            "SELECT date_trunc('month', now()) AS m, count(*) AS n FROM lending.\"Loan\" GROUP BY m",
+            policy);
+
+        result.Allowed.Should().BeFalse();
+        result.Error.Should().Contain("GROUP BY m names an output column");
+    }
+
+    [Test]
+    public void Validate_PostgresGroupByName_ThatIsAnExposedInputColumn_Passes()
+    {
+        var result = HostQueryPolicyValidator.Validate(
+            "SELECT upper(\"Name\") AS \"Name\", count(*) AS n FROM public.\"Customer\" GROUP BY \"Name\"",
+            PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT x.s AS k, count(*) AS n FROM (SELECT \"SSN\" AS s FROM public.\"Customer\") x GROUP BY k")]
+    [TestCase("WITH a AS (SELECT \"SSN\" AS s FROM public.\"Customer\") SELECT s AS k, count(*) AS n FROM a GROUP BY k")]
+    public void Validate_PostgresGroupByMaskedOutputAlias_OverDerivedRelations_IsRejected(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeFalse();
+        result.Error.Should().Contain("Masked column 'k'");
+    }
+
+    [TestCase("SELECT CAST('x' AS _regclass) AS o")]
+    [TestCase("SELECT CAST('x' AS \"regclass\") AS o")]
+    [TestCase("SELECT CAST('x' AS pg_catalog.\"_regrole\") AS o")]
+    [TestCase("SELECT CAST('x' AS pg_catalog.regclass) AS o")]
+    [TestCase("SELECT ARRAY['x']::_regtype AS o")]
+    [TestCase("SELECT REGCLASS 'pg_authid' AS o")]
+    [TestCase("SELECT 'now'::regprocedure AS o")]
+    [TestCase("SELECT '+'::regoper AS o")]
+    [TestCase("SELECT 'english'::regconfig AS o")]
+    [TestCase("SELECT 'simple'::regdictionary AS o")]
+    [TestCase("SELECT 'C'::regcollation AS o")]
+    [TestCase("SELECT 'pg_authid'::regclass::oid AS o")]
+    public void Validate_PostgresCatalogTypes_InEveryForm_AreRejected(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeFalse();
+        result.Error.Should().Contain("catalog types");
+    }
+
+    [Test]
+    public void Validate_PostgresCastToATypeThatOnlyStartsLikeACatalogType_Passes()
+    {
+        var result = HostQueryPolicyValidator.Validate("SELECT 'a'::regular_kind AS k", PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [Test]
+    public void Validate_PostgresStringAliasAfterAs_IsRejected()
+    {
+        HostQueryPolicyValidator.Validate("SELECT \"Name\" AS 'n' FROM public.\"Customer\"", PostgresPolicy).Allowed.Should().BeFalse();
+    }
+
+    [TestCase("SELECT repeat('x', 10001) AS c")]
+    [TestCase("SELECT rpad('x', 10001) AS c")]
+    [TestCase("SELECT lpad('x', 10001, '0') AS c")]
+    [TestCase("SELECT repeat('x', 10000.5) AS c")]
+    [TestCase("SELECT repeat('x', 1e100) AS c")]
+    [TestCase("SELECT repeat('x', '100000') AS c")]
+    [TestCase("SELECT repeat('x', \"Id\"::int) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT REPEAT('x', 10001) AS c")]
+    [TestCase("SELECT \"Name\" FROM public.\"Customer\" WHERE \"Id\" IN (SELECT length(repeat('x', 100000)))")]
+    [TestCase("WITH a AS (SELECT repeat('x', 100000) AS c) SELECT c FROM a")]
+    [TestCase("SELECT repeat(repeat('a', 10000), 10000) AS c")]
+    [TestCase("SELECT repeat(\"Name\", 10) AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT repeat('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 100) AS c")]
+    [TestCase("SELECT format('%10000s%10000s', 'a', 'b') AS c")]
+    [TestCase("SELECT format('%10001s', 'x') AS c")]
+    [TestCase("SELECT format('%-*s', 5, 'x') AS c")]
+    [TestCase("SELECT format('%1$*2$s', 'x', 5) AS c")]
+    [TestCase("SELECT format(E'%s\\n', 'x') AS c")]
+    [TestCase("SELECT format($$%s$$, 'x') AS c")]
+    [TestCase("SELECT format(NULL, 'x') AS c")]
+    public void Validate_PostgresStringBuilders_OutsideTheBounds_AreRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Allowed.Should().BeFalse();
+    }
+
+    [TestCase("SELECT repeat('x', 10000) AS c, rpad('x', 10000) AS d")]
+    [TestCase("SELECT repeat('x', 5.5) AS c")]
+    [TestCase("SELECT repeat('x', 1e2) AS c")]
+    [TestCase("SELECT repeat('x', '5') AS c")]
+    [TestCase("SELECT repeat('x', -5) AS c, lpad('x', -5) AS d, rpad('x', -5) AS e")]
+    [TestCase("SELECT REPEAT('x', 5) AS c")]
+    [TestCase("SELECT repeat('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 100) AS c")]
+    [TestCase("SELECT lpad(\"Name\", 20, '.') AS c FROM public.\"Customer\"")]
+    [TestCase("SELECT format('%10000s', 'x') AS c")]
+    [TestCase("SELECT format('%5000s%5000s', 'a', 'b') AS c")]
+    [TestCase("SELECT format('%0s', 'x') AS c")]
+    public void Validate_PostgresStringBuilders_WithinTheBounds_Pass(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, PostgresPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [TestCase("SELECT format('%10000s%10000s', 'a', 'b') AS c", "add up to no more than 10000")]
+    [TestCase("SELECT format('%*s', 5, 'x') AS c", "add up to no more than 10000")]
+    [TestCase("SELECT format(\"Name\", 1) AS c FROM public.\"Customer\"", "format string of format() must be a plain string literal")]
+    [TestCase("SELECT repeat(\"Name\", 10) AS c FROM public.\"Customer\"", "repeat() repeats must be a plain string literal of at most 100 characters")]
+    public void Validate_PostgresStringBuilderRejection_ExplainsTheBound(string sql, string reason)
+    {
+        HostQueryPolicyValidator.Validate(sql, PostgresPolicy).Error.Should().Contain(reason);
+    }
+
+    [TestCase("SELECT REPLICATE('x', 10001) AS c")]
+    [TestCase("SELECT REPLICATE('x', @p0) AS c")]
+    [TestCase("SELECT REPLICATE('x', CAST(Id AS int)) AS c FROM dbo.Customer")]
+    [TestCase("SELECT REPLICATE('x', '100000') AS c")]
+    [TestCase("SELECT REPLICATE(REPLICATE(CAST('a' AS varchar(max)), 10000), 10000) AS c")]
+    [TestCase("SELECT REPLICATE(Name, 5) AS c FROM dbo.Customer")]
+    [TestCase("SELECT FORMAT(Id, 'N999999999') AS c FROM dbo.Customer")]
+    [TestCase("SELECT FORMAT(Id, 'D1000') AS c FROM dbo.Customer")]
+    [TestCase("SELECT FORMAT(Id, Name) AS c FROM dbo.Customer")]
+    public void Validate_SqlServerStringBuilders_OutsideTheBounds_AreRejected(string sql)
+    {
+        HostQueryPolicyValidator.Validate(sql, SqlServerPolicy).Allowed.Should().BeFalse();
+    }
+
+    [TestCase("SELECT REPLICATE('x', 10000) AS c")]
+    [TestCase("SELECT REPLICATE('x', -5) AS c, REPLICATE('x', '5') AS d, REPLICATE('x', CAST(5 AS int)) AS e")]
+    [TestCase("SELECT REPLICATE(N'ab', 3) AS c")]
+    [TestCase("SELECT FORMAT(GETDATE(), 'yyyy-MM-dd') AS c")]
+    [TestCase("SELECT FORMAT(Id, 'N2') AS c, FORMAT(Id, 'D999') AS d, FORMAT(Id, '#,##0.0000') AS e FROM dbo.Customer")]
+    public void Validate_SqlServerStringBuilders_WithinTheBounds_Pass(string sql)
+    {
+        var result = HostQueryPolicyValidator.Validate(sql, SqlServerPolicy);
+
+        result.Allowed.Should().BeTrue(result.Error);
+    }
+
+    [Test]
+    public void Validate_SqlServerFormatPrecisionAboveTheBound_NamesTheBound()
+    {
+        var result = HostQueryPolicyValidator.Validate("SELECT FORMAT(Id, 'N999999999') AS c FROM dbo.Customer", SqlServerPolicy);
+
+        result.Error.Should().Contain("no number above 999");
     }
 
     [Test]

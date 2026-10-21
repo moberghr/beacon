@@ -108,11 +108,33 @@ UI is refused; restart the host (or call the sync again) instead.
     derived table's / CTE's columns. A bare relation name is never a column, so whole-row references
     (`SELECT c FROM … c`, `row_to_json(c)`, `(c).col`) are rejected; unknown and excluded columns are rejected
     anywhere; a table alias may be used only once per query;
+  - on PostgreSQL a bare `GROUP BY` name is read the way the server reads it: as a column of the `SELECT`'s own
+    relations first, and as an output alias only when none of them has a column of that name. A table can have
+    columns the policy excludes or the model does not map, so an output alias in `GROUP BY` is accepted only when the
+    `SELECT` reads derived tables or CTEs alone; over a table, group by the expression itself or by its position
+    (`GROUP BY 1`);
+  - on PostgreSQL, catalog types (`regclass`, `regrole`, `regproc`, `regtype` … and their arrays, `regclass[]` or
+    `_regclass`, in any case, quoted or schema-qualified) are rejected as casts (`CAST(… AS regclass)`,
+    `'…'::regclass`) and as typed literals (`regclass '…'`), and a string where a name belongs (`SELECT col 'x'`,
+    which PostgreSQL reads as a typed literal) is rejected — quote names with double quotes;
   - `SELECT *` / `t.*` is rejected with a list of the exposed columns to use instead;
   - functions must be on a per-dialect **allow-list** of built-in string, date/time, math, conditional, conversion,
     aggregate, window and (on column values) JSON functions, plus any `AllowFunctions` entries; everything else,
     user-defined functions included, is rejected. Bind parameters are `@p0`, `@p1` … on both engines (the bare
     PostgreSQL `@` operator is rejected; use `abs()`), and a statement never runs with a parameter unbound;
+  - string-building functions take only bounded literals, so one call cannot build a huge value:
+    - the count of `repeat` (`REPLICATE` on SQL Server) and the width of `lpad` / `rpad` must be a number literal of
+      at most 10,000 (a column, parameter or expression is rejected; a negative number passes, since it builds
+      nothing);
+    - the string `repeat` / `REPLICATE` repeats must be a plain string literal of at most 100 characters, so a column
+      or a nested call cannot multiply the length (`lpad` / `rpad` cut their string to the width, so theirs is free);
+    - PostgreSQL's `format()` needs a string-literal format string whose field widths add up to at most 10,000 (a `*`
+      width, taken from an argument, is rejected);
+    - SQL Server's `FORMAT` needs a string-literal format string with no number above 999 (a precision such as
+      `N999999999` is rejected).
+
+    Other costly work (regular expressions, large joins and aggregates) is bounded by the statement timeout and the
+    row cap, not by the check;
   - a masked column may appear **only** as a direct projection (optionally aliased, through CTEs, derived tables
     and `UNION ALL` the mask follows the value to its output key), inside `COUNT(col)`, or in `col IS NULL` /
     `col IS NOT NULL`. Any other use (`WHERE`, `JOIN … ON`/`USING`, `GROUP BY`, `ORDER BY` (by name, alias or
