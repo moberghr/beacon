@@ -27,9 +27,18 @@ internal partial class MigrationService
         if (string.IsNullOrWhiteSpace(request.DestinationTable))
             errors.Add("Destination table is required");
 
-        // Deeper validation (cron syntax, query parse, destination reachability) runs
-        // lazily on first execution rather than at creation time so the user can save
-        // drafts. ValidateBeforeExecution on the job opts into pre-flight checks.
+        var settingsRefusal = MigrationJobSettings.Refusal(
+            request.Mode,
+            request.Schedule,
+            request.MaxRetries,
+            request.TimeoutMinutes,
+            request.ValidateBeforeExecution);
+        if (settingsRefusal != null)
+        {
+            errors.Add(settingsRefusal);
+        }
+
+        // The source SQL and the destination table are checked on every run, before anything is written, not at creation.
 
         var queryValidated = !string.IsNullOrWhiteSpace(request.QueryText);
         var destinationValidated = !string.IsNullOrWhiteSpace(request.DestinationTable);
@@ -41,6 +50,7 @@ internal partial class MigrationService
         MigrationJob migrationJob,
         MigrationExecutionHistory execution,
         ExecuteMigrationJobRequest request,
+        MigrationRunProgress progress,
         CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
@@ -55,7 +65,7 @@ internal partial class MigrationService
                 throw new InvalidOperationException("No query steps found in migration job");
             }
 
-            // Create temporary query data for execution
+            // The steps to run, in-process: no query is stored to run them
             var queryData = new QueryData
             {
                 Name = $"Migration-{migrationJob.Name}",
@@ -63,8 +73,8 @@ internal partial class MigrationService
                 Steps = querySteps
             };
 
-            // Read the source through the temporary-query path, within the migration's own row budget (Beacon:Migrations:MaxRows):
-            // a larger source fails the run here, before anything is written.
+            // Read the source through the query path (the gate, the read-only provider path), within the migration's own row
+            // budget (Beacon:Migrations:MaxRows): a larger source fails the run here, before anything is written.
             var parameters = request.Parameters?.Select(kvp => new ParameterValue
             {
                 Name = kvp.Key,
@@ -110,6 +120,7 @@ internal partial class MigrationService
                 migrationJob.DestinationTable,
                 transformedData,
                 migrationJob.Mode,
+                progress,
                 cancellationToken);
 
             logger.LogInformation("Migration execution completed: {SourceRows} read, {DestinationRows} written", sourceRowsRead, rowsWritten);
@@ -149,6 +160,7 @@ internal partial class MigrationService
         string destinationTable,
         List<Dictionary<string, object?>> data,
         MigrationMode mode,
+        MigrationRunProgress progress,
         CancellationToken cancellationToken)
     {
         if (!destinationDataSource.DatabaseEngineType.HasValue)
@@ -187,11 +199,18 @@ internal partial class MigrationService
             connection = CreateDatabaseConnection(destinationDataSource);
             await connection.OpenAsync(cancellationToken);
 
-            // Validate destination table exists
-            await ValidateDestinationTable(connection, schema, table, databaseEngineType);
-
-            // Start transaction for data consistency
+            // One transaction for the run: the table is resolved, checked and written inside it.
             transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            // PostgreSQL finds an unqualified name on the connection's search_path: it is resolved there once, so the existence
+            // check, the key lookup and the writer all name the same table, never a same-named one in another schema.
+            if (schema == null && databaseEngineType == DatabaseEngineType.PostgreSQL)
+            {
+                schema = await ResolvePostgreSqlSchemaAsync(connection, transaction, table, cancellationToken);
+            }
+
+            // Validate destination table exists
+            await ValidateDestinationTable(connection, transaction, schema, table, databaseEngineType, cancellationToken);
 
             try
             {
@@ -205,7 +224,9 @@ internal partial class MigrationService
                 var target = new MigrationWriteTarget(connection, transaction, schema, table, Constants.Migration.BulkCopyTimeoutSeconds);
                 var rowsWritten = await WriteThroughAsync(writer, target, rows, mode, keyColumns, cancellationToken);
 
-                await transaction.CommitAsync(cancellationToken);
+                // Not cancelled once started (by the caller or the run's timeout): the outcome is what the commit did.
+                progress.CommitStarted = true;
+                await transaction.CommitAsync(CancellationToken.None);
 
                 logger.LogInformation("Destination operation completed for table {Table}: {Mode} mode, {Written} written",
                     destinationTable, mode, rowsWritten);
@@ -214,7 +235,7 @@ internal partial class MigrationService
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync(cancellationToken);
+                await transaction.RollbackAsync(CancellationToken.None);
                 throw new InvalidOperationException($"Failed to execute {mode} operation on table '{destinationTable}': {ex.Message}", ex);
             }
         }

@@ -62,7 +62,7 @@ public class MigrationServiceWriteTargetTests
             .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = NoRows() });
 
         // The destination's table exists; every statement the writer sends is recorded.
-        _destination = new RecordingDbConnection { Scalar = _ => true };
+        _destination = new RecordingDbConnection { Scalar = x => x.Contains("current_schemas", StringComparison.Ordinal) ? "public" : true };
         _connectionsOpened = 0;
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ =>
         {

@@ -5,9 +5,11 @@ using Beacon.Core;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
@@ -281,6 +283,38 @@ public class StoredQueryExecutionGateTests
         JoinStatements(gate).Should().ContainSingle().Which.Should().EndWith("LIMIT 1001");
     }
 
+    // A migration's steps run as given, in-process: nothing is stored to run them, and they run through the same gate and
+    // read-only path as a saved step, within the migration's own budget.
+    [Test]
+    public async Task MigrationRead_OfGivenSteps_RunsThemInProcess_AndStoresNoQuery()
+    {
+        var connection = Connect(new RecordingDbConnection { RowCount = 5 });
+        var saved = new List<object>();
+        var service = (IStoredQueryPreview)BuildService("SELECT 1", saved: saved);
+
+        var result = await service.ExecuteTemporaryQuery(GivenSteps("SELECT id FROM accounts"), null, 100, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        result.FinalResult!.AllRecords.Should().HaveCount(5);
+        connection.ExecutedCommands.Should().Contain("SELECT id FROM accounts LIMIT 101");
+        connection.ExecutedCommands.Should().Contain(ReadOnlyTransaction);
+        saved.Should().BeEmpty("nothing is stored to run the steps");
+    }
+
+    [Test]
+    public async Task MigrationRead_OfAGivenStepThatWrites_IsRefusedBeforeAnythingRuns()
+    {
+        var connection = Connect(new RecordingDbConnection { RowCount = 1 });
+        var saved = new List<object>();
+        var service = (IStoredQueryPreview)BuildService("SELECT 1", saved: saved);
+
+        var act = () => service.ExecuteTemporaryQuery(GivenSteps("UPDATE accounts SET balance = 0"), null, 100, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("*UPDATE*");
+        connection.Executions.Should().BeEmpty();
+        saved.Should().BeEmpty();
+    }
+
     [Test]
     public async Task Subscription_MasksPiiColumns_BeforeTheResultReachesARecipient()
     {
@@ -377,6 +411,12 @@ public class StoredQueryExecutionGateTests
 
     private const int Ceiling = Constants.Query.MaxExecutionRows;
 
+    private static QueryData GivenSteps(string sql) => new()
+    {
+        Name = "Migration-copy",
+        Steps = [new QueryStepData { StepOrder = 1, Name = "step 1", DataSourceId = DataSourceId, SqlValue = sql }]
+    };
+
     private static RecordingDbConnection Connect(RecordingDbConnection connection)
     {
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => connection);
@@ -415,7 +455,8 @@ public class StoredQueryExecutionGateTests
         string? finalQuery = null,
         int? executionRowCeiling = null,
         int? finalQueryTimeoutSeconds = null,
-        ISqlExecutionGate? gate = null)
+        ISqlExecutionGate? gate = null,
+        List<object>? saved = null)
     {
         var dataSource = new DataSource
         {
@@ -445,7 +486,7 @@ public class StoredQueryExecutionGateTests
             CronExpression = "0 * * * *",
             MaxRows = maxRows
         };
-        var saved = new List<object>();
+        saved ??= [];
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
@@ -455,7 +496,8 @@ public class StoredQueryExecutionGateTests
                     [typeof(DataSource)] = RecordingBeaconContext.MemorySet([dataSource], saved),
                     [typeof(Query)] = RecordingBeaconContext.MemorySet([query], saved),
                     [typeof(QueryStep)] = RecordingBeaconContext.MemorySet([step], saved),
-                    [typeof(Subscription)] = RecordingBeaconContext.MemorySet([subscription], saved)
+                    [typeof(Subscription)] = RecordingBeaconContext.MemorySet([subscription], saved),
+                    [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), saved)
                 },
                 saved));
 

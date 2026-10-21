@@ -16,12 +16,12 @@ public interface IQueryExecutionPreviewService
     Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
     /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
     Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
-    /// <summary>Runs <paramref name="queryData"/> once as a temporary query.</summary>
+    /// <summary>Runs <paramref name="queryData"/>'s steps once, in-process; no query is stored to run them.</summary>
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
 
     /// <summary>
-    /// Runs <paramref name="queryData"/> once as a temporary query (a migration's read); <paramref name="maxRows"/> replaces
-    /// <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
+    /// Runs <paramref name="queryData"/>'s steps once, in-process (a migration's read), storing no query;
+    /// <paramref name="maxRows"/> replaces <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
     /// </summary>
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken);
 }
@@ -123,66 +123,13 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         return ExecuteTemporaryQueryPreviewCore(queryData, parameters, maxRows, cancellationToken);
     }
 
+    // The steps run as given, after the caller's access to each step's source is checked: nothing is stored to run them,
+    // so nothing is left behind if the run is cancelled, and no one can edit them between the check and the run.
     private async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreviewCore(QueryData queryData, List<ParameterValue>? parameters, int? maxRows, CancellationToken cancellationToken)
     {
         await DemandMayQueryEachStepAsync(queryData.Steps, queryData.FinalQueryDataSourceId, cancellationToken);
 
-        int? tempQueryId = null;
-        try
-        {
-            // Create temporary query
-            var tempQueryName = $"TEMP_PREVIEW_{Guid.NewGuid():N}";
-            var tempQuery = new QueryData
-            {
-                Name = tempQueryName,
-                Description = "Temporary query for preview",
-                Steps = queryData.Steps,
-                FinalQuery = queryData.FinalQuery,
-                FinalQueryDataSourceId = queryData.FinalQueryDataSourceId
-            };
-
-            // Stored live whatever the approval workflow: it runs once, here, and is deleted below.
-            var createResponse = await _storedPreview.CreateTemporaryQuery(tempQuery, cancellationToken);
-            if (!createResponse.Success)
-            {
-                return null;
-            }
-
-            // Find the created query: a lookup of the row this method just created, not a listing for the caller.
-            var queries = await _queryService.GetQueries(new GetQueriesRequest
-            {
-                Readable = ProjectSet.All,
-                QueryName = tempQueryName
-            }, cancellationToken);
-
-            var createdQuery = queries.Items?.OrderByDescending(q => q.CreatedTime).FirstOrDefault();
-            if (createdQuery?.QueryId == null)
-            {
-                return null;
-            }
-
-            tempQueryId = createdQuery.QueryId;
-
-            // Execute the query, within the caller's own row limit when it has one
-            return maxRows is { } limit
-                ? await _queryService.ExecuteQueryAdvanced(createdQuery.QueryId.Value, null, parameters, limit, cancellationToken)
-                : await _queryService.ExecuteQueryAdvanced(createdQuery.QueryId.Value, parameters: parameters, cancellationToken: cancellationToken);
-        }
-        finally
-        {
-            // Clean up: delete the temporary query
-            if (tempQueryId.HasValue)
-            {
-                try
-                {
-                    await _queryService.DeleteQuery(tempQueryId.Value, cancellationToken);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-            }
-        }
+        return await _storedPreview.ExecuteTemporaryQuery(queryData, parameters, maxRows, cancellationToken);
     }
 
     // Checked before anything is read, outside the catch that turns failures into results: the stored query needs Run

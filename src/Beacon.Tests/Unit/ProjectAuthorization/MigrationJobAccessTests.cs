@@ -326,7 +326,7 @@ public class MigrationJobAccessTests
         var preview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object, stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
 
         await preview.Should().ThrowAsync<BeaconNotFoundException>();
-        stored.TemporaryQueries.Should().BeEmpty("nothing runs on a source the caller may not query");
+        stored.TemporaryRuns.Should().BeEmpty("nothing runs on a source the caller may not query");
         queries.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

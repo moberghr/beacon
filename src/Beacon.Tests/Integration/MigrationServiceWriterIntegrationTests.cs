@@ -92,6 +92,67 @@ public class MigrationServiceWriterIntegrationTests
         }
     }
 
+    // A table named without a schema is the one the connection's search_path finds: the copy on the path is written, and a
+    // same-named table in a schema off the path is neither checked nor written.
+    [Test]
+    public async Task APostgreSqlInsert_IntoAnUnqualifiedTable_WritesTheTableOnTheSearchPath()
+    {
+        var adminConnectionString = Required(PostgreSqlHostDataSourceMigrationTests.AdminConnectionStringEnvVar);
+        var onPath = $"beacon_mw_{Guid.NewGuid():N}";
+        var offPath = $"beacon_mw_{Guid.NewGuid():N}";
+        await PostgreSqlAsync(
+            adminConnectionString,
+            $"CREATE SCHEMA {onPath}",
+            $"CREATE SCHEMA {offPath}",
+            $"CREATE TABLE {onPath}.orders (id int PRIMARY KEY, name text)",
+            $"CREATE TABLE {offPath}.orders (id int PRIMARY KEY, name text)");
+        try
+        {
+            var writerConnectionString = new NpgsqlConnectionStringBuilder(adminConnectionString) { SearchPath = onPath }.ConnectionString;
+            SourceRows(new Dictionary<string, object?> { ["id"] = 1, ["name"] = "a" });
+            Job(MigrationMode.Insert, "orders");
+
+            var result = await Service(writerConnectionString, new PostgreSqlMigrationBulkWriter(NullLogger<PostgreSqlMigrationBulkWriter>.Instance))
+                .ExecuteMigrationJob(Run(), CancellationToken.None);
+
+            result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+            (await PostgreSqlScalarAsync(adminConnectionString, $"SELECT count(*) FROM {onPath}.orders")).Should().Be(1L);
+            (await PostgreSqlScalarAsync(adminConnectionString, $"SELECT count(*) FROM {offPath}.orders")).Should().Be(0L);
+        }
+        finally
+        {
+            await PostgreSqlAsync(adminConnectionString, $"DROP SCHEMA {onPath} CASCADE", $"DROP SCHEMA {offPath} CASCADE");
+        }
+    }
+
+    [Test]
+    public async Task APostgreSqlRun_IntoAnUnqualifiedTableOffTheSearchPath_FailsAndWritesNothing()
+    {
+        var adminConnectionString = Required(PostgreSqlHostDataSourceMigrationTests.AdminConnectionStringEnvVar);
+        var offPath = $"beacon_mw_{Guid.NewGuid():N}";
+        var table = $"orders_{Guid.NewGuid():N}";
+        await PostgreSqlAsync(
+            adminConnectionString,
+            $"CREATE SCHEMA {offPath}",
+            $"CREATE TABLE {offPath}.{table} (id int PRIMARY KEY, name text)");
+        try
+        {
+            SourceRows(new Dictionary<string, object?> { ["id"] = 1, ["name"] = "a" });
+            Job(MigrationMode.Insert, table);
+
+            var result = await Service(adminConnectionString, new PostgreSqlMigrationBulkWriter(NullLogger<PostgreSqlMigrationBulkWriter>.Instance))
+                .ExecuteMigrationJob(Run(), CancellationToken.None);
+
+            result.Status.Should().Be(MigrationStatus.Failed);
+            result.ErrorMessage.Should().Contain("does not exist");
+            (await PostgreSqlScalarAsync(adminConnectionString, $"SELECT count(*) FROM {offPath}.{table}")).Should().Be(0L);
+        }
+        finally
+        {
+            await PostgreSqlAsync(adminConnectionString, $"DROP SCHEMA {offPath} CASCADE");
+        }
+    }
+
     [Test]
     public async Task ASqlServerUpsert_IntoAnUnqualifiedTable_WritesTheDboTable()
     {

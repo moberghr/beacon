@@ -178,7 +178,7 @@ export default function NewMigrationJobPage() {
         </Section>
 
         <Section icon={<RefreshCw className="size-3.5" />} title="Schedule & options">
-          <BField label="Cron schedule" hint="Standard 5-field cron. Leave empty for manual-only execution.">
+          <BField label="Cron schedule" hint="Standard 5-field cron, kept for a host's own scheduler. Beacon runs the job only from Run now.">
             <Input
               type="text"
               className="mono"
@@ -186,32 +186,18 @@ export default function NewMigrationJobPage() {
               {...register('schedule')}
             />
           </BField>
-          <div className="grid grid-cols-2 gap-3">
-            <BField label="Max retries">
-              <Input
-                type="number"
-                min={0}
-                max={10}
-                {...register('maxRetries', { valueAsNumber: true })}
-              />
-            </BField>
-            <BField label="Timeout (minutes)">
-              <Input
-                type="number"
-                min={1}
-                max={1440}
-                {...register('timeoutMinutes', { valueAsNumber: true })}
-              />
-            </BField>
-          </div>
+          <BField label="Timeout (minutes)" hint="A run that lasts longer is stopped. A failed run is not retried.">
+            <Input
+              type="number"
+              min={1}
+              max={1440}
+              {...register('timeoutMinutes', { valueAsNumber: true })}
+            />
+          </BField>
           <div className="flex flex-col gap-1.5 mt-1.5 text-sm">
             <label className="flex items-center gap-2">
               <input type="checkbox" {...register('isEnabled')} />
               <span>Enable migration job</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" {...register('validateBeforeExecution')} />
-              <span>Validate query before execution</span>
             </label>
           </div>
           <BField label="Transformation script (optional)">

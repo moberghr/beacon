@@ -47,6 +47,12 @@ internal sealed class ProjectAccessWorld
     /// <summary><c>Beacon:Authorization:RequireProjectMembership</c> (default: off).</summary>
     public bool RequireProjectMembership { get; set; }
 
+    /// <summary>
+    /// The contexts' transactions: their connection is never opened, so a transaction is a stand-in recorded here (its
+    /// isolation level, commits).
+    /// </summary>
+    public SqlCapture Transactions { get; } = new();
+
     private Dictionary<Type, Func<object>> Served { get; } = [];
 
     public IReadOnlyList<McpAuditLog> AuditLogs => Saved
@@ -139,12 +145,21 @@ internal sealed class ProjectAccessWorld
         Served[typeof(T)] = () => RecordingBeaconContext.MemorySet(rows, Saved);
     }
 
+    /// <summary>
+    /// Serves <paramref name="rows"/> and the rows of <typeparamref name="T"/> the code added (in <see cref="Saved"/>), so a
+    /// later read or bulk write in another context finds a row an earlier one added.
+    /// </summary>
+    public void ServeWithSaved<T>(List<T> rows) where T : class
+    {
+        Served[typeof(T)] = () => RecordingBeaconContext.MemorySet(rows, Saved, rows.Concat(Saved.OfType<T>()));
+    }
+
     public IDbContextFactory<BeaconContext> Factory()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new RecordingBeaconContext(Sets(), Saved));
+            .ReturnsAsync(() => new RecordingBeaconContext(Sets(), Saved, Transactions));
 
         return factory.Object;
     }

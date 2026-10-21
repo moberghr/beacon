@@ -23,9 +23,10 @@ export const MIGRATION_JOB_SCHEMA = z.object({
   mode: z.number().int().min(1).max(3),
   isEnabled: z.boolean(),
   schedule: z.string(),
-  maxRetries: z.number({ message: 'Enter retries between 0 and 10' }).int().min(0).max(10),
+  // The API accepts only 0 or 3 (a failed run is never retried) and validation on: the forms do not offer either.
+  maxRetries: z.union([z.literal(0), z.literal(3)]),
   timeoutMinutes: z.number({ message: 'Enter a timeout between 1 and 1440 minutes' }).int().min(1).max(1440),
-  validateBeforeExecution: z.boolean(),
+  validateBeforeExecution: z.literal(true),
   transformationScript: z.string(),
 });
 

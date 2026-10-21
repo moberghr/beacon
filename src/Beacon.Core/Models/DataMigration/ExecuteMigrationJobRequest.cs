@@ -19,4 +19,11 @@ public record ExecuteMigrationJobResponse(
     TimeSpan ExecutionDuration = default,
     string? ErrorMessage = null,
     List<string> Warnings = null
-);
+)
+{
+    /// <summary>
+    /// The run did not start because the job already has a run starting or in progress (<see cref="ErrorMessage"/> says
+    /// so): nothing was read, written or added to the job's history. The HTTP route answers 409.
+    /// </summary>
+    public bool RunInProgress { get; init; }
+}
