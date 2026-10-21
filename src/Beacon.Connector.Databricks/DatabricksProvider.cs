@@ -32,6 +32,9 @@ public class DatabricksProvider(
     // How long a best-effort statement cancellation may take once the wait for it has ended.
     private static readonly TimeSpan CancelTimeout = TimeSpan.FromSeconds(10);
 
+    // How long reading the submission's answer may take; the caller's token does not end it.
+    private static readonly TimeSpan SubmitTimeout = TimeSpan.FromSeconds(30);
+
     public DataSourceType SupportedType => DataSourceType.Databricks;
     public string GetQueryLanguageName() => "Databricks SQL";
 
@@ -140,14 +143,11 @@ public class DatabricksProvider(
                     .ToList();
             }
 
-            using var response = await client.PostAsJsonAsync(
-                $"https://{config.Host}/api/2.0/sql/statements",
-                requestBody,
-                cancellationToken);
-
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<DatabricksStatementResponse>(cancellationToken: cancellationToken);
+            // Once sent, the submission's answer (status and statement id) is read to the end under a deadline of its own,
+            // not the caller's token: a statement the warehouse accepted is then always known, and cancelled below when the
+            // caller has gone.
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = await SubmitAsync(client, config, requestBody);
 
             if (result?.Status?.State == "FAILED")
             {
@@ -155,22 +155,23 @@ public class DatabricksProvider(
             }
 
             var statementId = result?.StatementId;
-            if (result?.Status?.State is "PENDING" or "RUNNING" && string.IsNullOrEmpty(statementId))
+            if (IsRunning(result) && string.IsNullOrEmpty(statementId))
             {
                 // A statement Beacon cannot poll it cannot cancel either.
                 throw new DataSourceServiceException("Databricks accepted the statement without a statement id.", null);
             }
 
-            // Poll if pending: once at once, then with gentle backoff (500ms growing to 5s), under an overall timeout. The
-            // timeout and the caller's cancellation both cancel the statement on the warehouse.
+            // Poll while it runs: once at once, then with gentle backoff (500ms growing to 5s), under an overall timeout.
+            // Every way out before a terminal state is seen (the timeout, the caller's cancellation, a failed or unreadable
+            // poll) cancels the statement on the warehouse and keeps the original failure.
             var pollDelayMs = 0;
             try
             {
-                while (result?.Status?.State is "PENDING" or "RUNNING")
+                while (IsRunning(result))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (stopwatch.Elapsed.TotalSeconds >= timeoutSeconds)
                     {
-                        await TryCancelStatementAsync(client, config, statementId);
                         throw new BeaconException($"Databricks query timed out after {timeoutSeconds} seconds");
                     }
 
@@ -185,10 +186,11 @@ public class DatabricksProvider(
                         $"https://{config.Host}/api/2.0/sql/statements/{statementId}",
                         cancellationToken);
                     pollResponse.EnsureSuccessStatusCode();
-                    result = await pollResponse.Content.ReadFromJsonAsync<DatabricksStatementResponse>(cancellationToken: cancellationToken);
+                    result = await pollResponse.Content.ReadFromJsonAsync<DatabricksStatementResponse>(cancellationToken: cancellationToken)
+                        ?? throw new DataSourceServiceException("Databricks answered a poll without a statement.", null);
                 }
             }
-            catch (OperationCanceledException)
+            catch (Exception)
             {
                 await TryCancelStatementAsync(client, config, statementId);
                 throw;
@@ -348,6 +350,22 @@ public class DatabricksProvider(
         var parts = httpPath.TrimEnd('/').Split('/');
         return parts[^1];
     }
+
+    private static async Task<DatabricksStatementResponse?> SubmitAsync(HttpClient client, DatabricksConfiguration config, Dictionary<string, object?> requestBody)
+    {
+        using var submit = new CancellationTokenSource(SubmitTimeout);
+        using var response = await client.PostAsJsonAsync(
+            $"https://{config.Host}/api/2.0/sql/statements",
+            requestBody,
+            submit.Token);
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<DatabricksStatementResponse>(cancellationToken: submit.Token);
+    }
+
+    private static bool IsRunning(DatabricksStatementResponse? result) =>
+        result?.Status?.State is "PENDING" or "RUNNING";
 
     // Best effort, on its own short deadline: the caller's token may already be cancelled.
     private async Task TryCancelStatementAsync(HttpClient client, DatabricksConfiguration config, string? statementId)

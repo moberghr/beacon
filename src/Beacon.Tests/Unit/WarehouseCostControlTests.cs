@@ -255,6 +255,50 @@ public class WarehouseCostControlTests
     }
 
     [Test]
+    public async Task Databricks_ACallerCancellingDuringSubmission_CancelsTheAcceptedStatement()
+    {
+        using var caller = new CancellationTokenSource();
+        var handler = new ScriptedHandler("""{"statement_id":"st1","status":{"state":"PENDING"}}""")
+        {
+            OnSubmit = caller.Cancel
+        };
+
+        var act = () => Databricks(handler).ExecuteQueryAsync(Source(DataSourceType.Databricks), "SELECT id FROM main.sales.orders", [], caller.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        handler.Requests.Should().Contain(x => x.Method == HttpMethod.Post && x.Path.EndsWith("/statements/st1/cancel"));
+        handler.Requests.Should().NotContain(x => x.Method == HttpMethod.Get, "a cancelled caller's statement is not polled");
+    }
+
+    [Test]
+    public async Task Databricks_AFailedPollAfterRunning_CancelsTheStatement()
+    {
+        var handler = new ScriptedHandler("""{"statement_id":"st1","status":{"state":"RUNNING"}}""")
+        {
+            PollReply = () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        };
+
+        var result = await Databricks(handler).ExecuteQueryAsync(Source(DataSourceType.Databricks), "SELECT id FROM main.sales.orders", []);
+
+        result.Success.Should().BeFalse();
+        handler.Requests.Should().Contain(x => x.Method == HttpMethod.Post && x.Path.EndsWith("/statements/st1/cancel"));
+    }
+
+    [Test]
+    public async Task Databricks_AnUnreadablePollAfterRunning_CancelsTheStatement()
+    {
+        var handler = new ScriptedHandler("""{"statement_id":"st1","status":{"state":"RUNNING"}}""")
+        {
+            PollReply = () => Json("not json")
+        };
+
+        var result = await Databricks(handler).ExecuteQueryAsync(Source(DataSourceType.Databricks), "SELECT id FROM main.sales.orders", []);
+
+        result.Success.Should().BeFalse();
+        handler.Requests.Should().Contain(x => x.Method == HttpMethod.Post && x.Path.EndsWith("/statements/st1/cancel"));
+    }
+
+    [Test]
     public async Task Databricks_APendingStatement_IsPolledAtOnce()
     {
         var handler = new ScriptedHandler("""{"statement_id":"st1","status":{"state":"PENDING"}}""")
@@ -401,6 +445,36 @@ public class WarehouseCostControlTests
 
         result.Success.Should().BeTrue(result.ErrorMessage);
         cleared.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task Snowflake_AFailedReset_KeepsTheSessionOutOfThePoolBeforeItCloses()
+    {
+        var connection = new RecordingDbConnection { RowCount = 1, FailOnCommandText = x => x.Contains("UNSET") };
+        var discardedWhile = new List<System.Data.ConnectionState>();
+        DbConnectionFactory.Register(DatabaseEngineType.Snowflake, x => connection);
+        DbConnectionFactory.RegisterDiscard(DatabaseEngineType.Snowflake, x => discardedWhile.Add(x.State));
+        var dataSource = new DataSource { Id = 1, Name = "s", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.Snowflake, EncryptedConnectionData = "e" };
+
+        var result = await TestQueryServices.DatabaseProvider().ExecuteReadOnlyQueryAsync(dataSource, SelectSql, []);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        discardedWhile.Should().Equal(System.Data.ConnectionState.Open);
+        connection.State.Should().Be(System.Data.ConnectionState.Closed);
+    }
+
+    [Test]
+    public async Task Snowflake_ASuccessfulReset_KeepsTheSessionPooled()
+    {
+        var connection = new RecordingDbConnection { RowCount = 1 };
+        var discarded = 0;
+        DbConnectionFactory.Register(DatabaseEngineType.Snowflake, x => connection);
+        DbConnectionFactory.RegisterDiscard(DatabaseEngineType.Snowflake, x => discarded++);
+        var dataSource = new DataSource { Id = 1, Name = "s", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.Snowflake, EncryptedConnectionData = "e" };
+
+        await TestQueryServices.DatabaseProvider().ExecuteReadOnlyQueryAsync(dataSource, SelectSql, []);
+
+        discarded.Should().Be(0);
     }
 
     [Test]
@@ -720,6 +794,12 @@ public class WarehouseCostControlTests
         /// <summary>What a poll answers; RUNNING when null.</summary>
         public string? PollAnswer { get; init; }
 
+        /// <summary>The whole response to a poll, in place of <see cref="PollAnswer"/>.</summary>
+        public Func<HttpResponseMessage>? PollReply { get; init; }
+
+        /// <summary>Runs once the submission is accepted, before its answer is read.</summary>
+        public Action? OnSubmit { get; init; }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -732,6 +812,7 @@ public class WarehouseCostControlTests
             if (request.Method == HttpMethod.Post)
             {
                 SubmittedBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+                OnSubmit?.Invoke();
 
                 return Json(submitted);
             }
@@ -742,6 +823,10 @@ public class WarehouseCostControlTests
             }
 
             OnPoll?.Invoke();
+            if (PollReply != null)
+            {
+                return PollReply();
+            }
 
             return Json(PollAnswer ?? """{"statement_id":"st1","status":{"state":"RUNNING"}}""");
         }

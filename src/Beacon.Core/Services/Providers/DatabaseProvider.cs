@@ -804,7 +804,8 @@ internal class DatabaseProvider(
         $"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {seconds}";
 
     // The pooled session must not keep Beacon's timeout for whatever runs on it next (the metadata scan allows longer). When
-    // the reset fails, the connection is closed and its connection string's pool emptied, so the session is not reused.
+    // the reset fails, the connection is kept out of the pool before it closes (its session ends rather than returning to
+    // another borrower), and its connection string's pool is emptied as well.
     private async Task ResetSnowflakeStatementTimeoutAsync(DbConnection connection, DataSource dataSource, string connectionString)
     {
         try
@@ -819,6 +820,15 @@ internal class DatabaseProvider(
         catch (Exception ex)
         {
             DescribeFailure(dataSource, ex, "Resetting the session statement timeout failed", LogLevel.Warning);
+        }
+
+        try
+        {
+            DbConnectionFactory.Discard(DatabaseEngineType.Snowflake, connection);
+        }
+        catch (Exception ex)
+        {
+            DescribeFailure(dataSource, ex, "Keeping the session out of the pool after a failed session reset failed", LogLevel.Warning);
         }
 
         try

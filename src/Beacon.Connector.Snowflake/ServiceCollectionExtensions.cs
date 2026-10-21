@@ -16,6 +16,7 @@ public static class ServiceCollectionExtensions
             DatabaseEngineType.Snowflake,
             cs => new SnowflakeDbConnection(cs),
             x => SnowflakeDbConnectionPool.GetPool(x.ConnectionString).ClearPool());
+        DbConnectionFactory.RegisterDiscard(DatabaseEngineType.Snowflake, x => ((SnowflakeDbConnection)x).PreventPooling());
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.Snowflake, "Snowflake");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SnowflakeMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SnowflakeTransportInspector>());

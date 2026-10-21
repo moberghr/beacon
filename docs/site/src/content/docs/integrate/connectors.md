@@ -103,7 +103,8 @@ The last step of the dialog runs **Test connection** before **Create data source
   warehouse. Results are limited to 16 MiB (a larger one fails) and, on Beacon's capped reads, to the row cap.
 - **BigQuery, Databricks:** a result read without a row cap fails above 10,000 rows instead of being cut short.
 - **Snowflake:** each statement also runs under the session's `STATEMENT_TIMEOUT_IN_SECONDS`
-  (`Beacon:Query:StatementTimeoutSeconds`), reset after the read.
+  (`Beacon:Query:StatementTimeoutSeconds`), reset after the read; a session whose reset fails is closed without
+  returning to the driver's pool.
 - **BigQuery, Databricks, CloudWatch:** a stored `QueryTimeoutSeconds` above 900 seconds is treated as 900.
 - **REST API:** `TimeoutSeconds` is clamped to 1–120 seconds; one response may hold 10 MB; the OpenAPI description is
   fetched within 30 seconds and may hold 50 MB.
