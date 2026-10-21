@@ -97,8 +97,9 @@ travels to a redirect target. This also fixes Azure OpenAI, which failed on ever
 Data-migration writes moved out of `Moberg.Beacon.Core` into the destination's connector, behind
 `IMigrationBulkWriter`. PostgreSQL writes with binary `COPY`, SQL Server with `SqlBulkCopy` and `MERGE`, MySQL with
 multi-row parameterised inserts, Upsert with `ON DUPLICATE KEY UPDATE`, and Truncate-Load. Every write, the clear and
-the primary key lookup run on the run's one connection and transaction, so a run is all-or-nothing (on MySQL: on
-InnoDB). `EFCore.BulkExtensions` and `Pomelo.EntityFrameworkCore.MySql`
+the primary key lookup run on the run's one connection and transaction, so a run is all-or-nothing on PostgreSQL and
+SQL Server, and an Insert or Upsert run is all-or-nothing on MySQL InnoDB. The exception is a MySQL Truncate-Load:
+`TRUNCATE` commits on its own, so a run that fails after the clear leaves the table empty. `EFCore.BulkExtensions` and `Pomelo.EntityFrameworkCore.MySql`
 have left the build, and `Moberg.Beacon.Core` no longer brings the SQL Server EF Core provider with it.
 
 ### Under the hood
@@ -138,7 +139,8 @@ two items.
       `Beacon:Embeddings:Enabled` on, the host logs one warning the first time retrieval asks for embeddings. → [AI providers](/integrate/ai/)
 - [ ] **Migration targets: register the connector.** A data-migration run writes through the destination's connector,
       so a PostgreSQL, SQL Server or MySQL target needs that connector package and its `Add<Engine>Connector()` call.
-      A run into an engine without one fails before Beacon decrypts the target's credentials.
+      A run into an engine without one fails before Beacon decrypts the target's credentials. If you run MySQL
+      Truncate-Load jobs, keep a way to reload the table: a failed run leaves it empty.
       → [Data migration](/features/data-migration/)
 - [ ] **Central package management: raise your pins.** If restore fails with `NU1109` ("Detected package downgrade"),
       raise each pinned package to the version the message names (EF Core and `Microsoft.Extensions.*` patches,
