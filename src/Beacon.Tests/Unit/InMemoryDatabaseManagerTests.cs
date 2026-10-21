@@ -421,6 +421,25 @@ public class InMemoryDatabaseManagerTests
         await start.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    // A token that fires while the last row under the cap is being produced must count: the run is cancelled, never
+    // returned as a success. (The runner also checks the tokens once the read ends, for a token that fires between the
+    // last read and the cap check; that window cannot be hit deterministically from a test.)
+    [Test]
+    public async Task ExecuteQueryAsync_CallerCancelsWhileTheLastRowIsComputed_ThrowsInsteadOfReturningRows()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        raw.sqlite3_create_function(manager.Handle, "cancel_caller", 0, raw.SQLITE_UTF8, null, (context, _, _) =>
+        {
+            cancellation.Cancel();
+            raw.sqlite3_result_int(context, 1);
+        });
+
+        var act = () => manager.ExecuteQueryAsync("SELECT cancel_caller() AS stopped", TimeoutSeconds, 1, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
 #pragma warning disable CS0618 // The obsolete overloads stay for hosts built against the earlier signatures.
     [Test]
     public async Task ExecuteQueryAsync_ObsoleteOverload_RunsWithTheDefaultTimeout()

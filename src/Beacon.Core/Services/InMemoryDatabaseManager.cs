@@ -534,7 +534,9 @@ public class InMemoryDatabaseManager : IDisposable
     /// Runs <paramref name="run"/> under the statement timeout and the caller's token. Microsoft.Data.Sqlite checks a token
     /// only before a statement starts and ignores CommandTimeout for a running one, so a fired token interrupts the
     /// statement on the connection. A stop the timeout caused throws <see cref="InMemoryJoinTimeoutException"/>, and only
-    /// that: an exception <paramref name="run"/> throws itself passes through unchanged.
+    /// that: an exception <paramref name="run"/> throws itself passes through unchanged. A token that fired while
+    /// <paramref name="run"/> was finishing without a read that noticed it (the row cap reached right after) counts too, so
+    /// a timed-out or cancelled run never returns as a success.
     /// </summary>
     private async Task<T> RunInterruptibleAsync<T>(int timeoutSeconds, Func<CancellationToken, Task<T>> run, CancellationToken cancellationToken)
     {
@@ -542,9 +544,10 @@ public class InMemoryDatabaseManager : IDisposable
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
         using var interruptRegistration = linkedCts.Token.Register(() => raw.sqlite3_interrupt(_connection.Handle));
 
+        T result;
         try
         {
-            return await run(linkedCts.Token);
+            result = await run(linkedCts.Token);
         }
         catch (Exception ex) when (IsCancellation(ex) && linkedCts.IsCancellationRequested)
         {
@@ -552,6 +555,15 @@ public class InMemoryDatabaseManager : IDisposable
 
             throw new InMemoryJoinTimeoutException();
         }
+
+        if (linkedCts.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            throw new InMemoryJoinTimeoutException();
+        }
+
+        return result;
     }
 
     /// <summary>Reads at most <paramref name="maxRows"/> rows; the reader is disposed (the statement reset) at the cap.</summary>
