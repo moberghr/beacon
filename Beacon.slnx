@@ -12,6 +12,7 @@
   <Folder Name="/Test/">
     <Project Path="src/Beacon.SampleProject/Beacon.SampleProject.csproj" />
   </Folder>
+  <Project Path="src/Beacon.AI.Bedrock/Beacon.AI.Bedrock.csproj" />
   <Project Path="src/Beacon.AI.Embeddings.Onnx/Beacon.AI.Embeddings.Onnx.csproj" />
   <Project Path="src/Beacon.AI/Beacon.AI.csproj" />
   <Project Path="src/Beacon.Api/Beacon.Api.csproj" />

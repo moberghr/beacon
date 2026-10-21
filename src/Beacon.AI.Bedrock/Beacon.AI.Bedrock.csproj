@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Package Information -->
+		<Authors>Moberg</Authors>
+		<Description>Amazon Bedrock LLM provider for Beacon AI. Optional add-on for Beacon AI.</Description>
+		<PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+		<PackageTags>beacon;ai;llm;bedrock;aws;database</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<IsPackable>true</IsPackable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Beacon.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="AWSSDK.BedrockRuntime" />
+	</ItemGroup>
+
+</Project>

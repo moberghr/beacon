@@ -8,8 +8,10 @@ import {
   AI_PROVIDER_LABEL,
   AWS_REGIONS,
   BEDROCK_AUTH_MODE_LABEL,
+  isProviderInstalled,
   modelsForProvider,
   type AdminSettingsView,
+  type LlmProvidersResult,
   type ModelOption,
 } from './queries';
 import type { FormValues } from './lib/admin-settings-form';
@@ -73,27 +75,38 @@ const PROVIDER_CARDS: Array<{
   { id: AiProvider.Bedrock, icon: Cloud, title: 'AWS Bedrock', blurb: 'Claude, Llama, and more via AWS — IAM-role friendly.' },
 ];
 
+/**
+ * Offers the providers the host installed. A stored provider whose package is not installed stays visible (and
+ * selected until another is picked) but cannot be picked. While AI is off, or the list is still loading, all are offered.
+ */
 export function ProviderPicker({
   value,
   onChange,
   disabled = false,
+  catalog,
+  storedProvider = null,
 }: {
   value: AiProvider;
   onChange: (id: AiProvider) => void;
   /** Only an Admin changes the provider. */
   disabled?: boolean;
+  /** The providers the host installed. */
+  catalog?: LlmProvidersResult;
+  storedProvider?: AiProvider | null;
 }) {
+  const cards = PROVIDER_CARDS.filter(x => isProviderInstalled(catalog, x.id) || x.id === storedProvider || x.id === value);
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {PROVIDER_CARDS.map(card => {
+      {cards.map(card => {
         const selected = value === card.id;
+        const installed = isProviderInstalled(catalog, card.id);
         const Icon = card.icon;
         return (
           <button
             type="button"
             key={card.id}
             onClick={() => onChange(card.id)}
-            disabled={disabled}
+            disabled={disabled || !installed}
             className={cn(
               'flex items-start gap-3 p-3 rounded-md border text-left transition',
               'focus:outline-none focus:shadow-ring disabled:cursor-not-allowed disabled:opacity-70',
@@ -115,6 +128,7 @@ export function ProviderPicker({
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text">{card.title}</span>
                 {selected && <Pill tone="info">Selected</Pill>}
+                {!installed && <Pill tone="warn">Package not installed</Pill>}
               </div>
               <div className="text-xs text-text-muted mt-0.5">{card.blurb}</div>
             </div>
@@ -126,6 +140,10 @@ export function ProviderPicker({
 }
 
 // ─── Per-provider field sets ─────────────────────────────────────────
+
+function apiKeyError(errors: ErrorsObj): ReactNode {
+  return errors.llmApiKey?.message ? <span className="text-crit">{errors.llmApiKey.message}</span> : undefined;
+}
 
 export function OpenAiFields({
   register,
@@ -145,7 +163,7 @@ export function OpenAiFields({
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="API key" className="md:col-span-2">
+      <Field label="API key" className="md:col-span-2" hint={apiKeyError(errors)}>
         <Input
           type="password"
           autoComplete="new-password"
@@ -195,7 +213,7 @@ export function AnthropicFields({
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="API key" className="md:col-span-2">
+      <Field label="API key" className="md:col-span-2" hint={apiKeyError(errors)}>
         <Input
           type="password"
           autoComplete="new-password"
@@ -255,7 +273,7 @@ export function AzureFields({
           disabled={locked}
         />
       </Field>
-      <Field label="API key" className="md:col-span-2">
+      <Field label="API key" className="md:col-span-2" hint={apiKeyError(errors)}>
         <Input
           type="password"
           autoComplete="new-password"

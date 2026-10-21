@@ -34,7 +34,7 @@ starts and the non-AI features work; **Test connection** and the eval harness re
 | OpenAI | `OpenAI` | OpenAI | API key, model |
 | Anthropic | `Claude` | Anthropic | API key, model |
 | Azure OpenAI | `AzureOpenAI` | Azure OpenAI | Endpoint (your resource), API key, deployment name as the model |
-| AWS Bedrock | `Bedrock` | AWS Bedrock | Region, model id, AWS credentials |
+| AWS Bedrock | `Bedrock` | AWS Bedrock | Region, model id, AWS credentials; needs `Moberg.Beacon.AI.Bedrock` + `AddBeaconBedrock()` |
 
 The model is the string you enter: Beacon does not restrict or recommend model ids. OpenAI and Anthropic are called on
 their public API endpoints; there is no base-URL or proxy setting for them. Azure OpenAI uses your resource's endpoint,

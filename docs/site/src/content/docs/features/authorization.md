@@ -238,7 +238,7 @@ Paths are under `/beacon/api`. "Requires" means the route's policy is the permis
 | `GET /approvals/pending`, `/approvals/{id}`, `/approvals/changes`, `/approvals/changes/{id}` | | Approver |
 | `GET /mcp/audit` | Auditor | |
 | `GET /mcp/settings`, `/mcp/settings/locks`, `/mcp/projects/{projectId}/settings` | Auditor or SecurityAdmin | |
-| `GET /admin-settings` | Auditor or SecurityAdmin | |
+| `GET /admin-settings`, `/admin-settings/llm-providers` | Auditor or SecurityAdmin | |
 | `GET /api-keys/admin` | Auditor or UserAdmin | |
 | `PUT /mcp/settings`, `PUT /mcp/projects/{projectId}/settings` | SecurityAdmin | |
 | `PUT /admin-settings`, `POST /admin-settings/test-llm` | SecurityAdmin (LLM connection and base URL: Admin, checked by the handler) | |

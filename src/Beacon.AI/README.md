@@ -51,7 +51,7 @@ file.
 
 | Key | Default | What it does |
 |---|---|---|
-| `Provider` | `OpenAI` | `OpenAI`, `Claude`, `AzureOpenAI` or `Bedrock`. |
+| `Provider` | `OpenAI` | `OpenAI`, `Claude`, `AzureOpenAI` or `Bedrock`. `Bedrock` needs the `Moberg.Beacon.AI.Bedrock` package and `AddBeaconBedrock()`. |
 | `ApiKey` | empty | Provider key. For Bedrock: empty uses the default AWS credential chain; `accessKey:secretKey` uses those keys. |
 | `Model` | empty | Model or deployment name. |
 | `FastModel` | none | Model for cheaper calls. Falls back to a provider default, or to `Model` on Azure OpenAI and Bedrock. |
@@ -61,7 +61,8 @@ file.
 | `Limits:MaxConcurrentRequests` | `50` | Concurrent LLM calls allowed by the request queue. Fixed at startup. |
 
 Every LLM call goes through that queue. With no `ApiKey` (and a provider other than Bedrock), Beacon starts with
-no active provider until one is configured.
+no active provider until one is configured. A provider whose package is not installed is never activated: Beacon
+logs a warning and starts with no active provider.
 
 ## Documentation
 

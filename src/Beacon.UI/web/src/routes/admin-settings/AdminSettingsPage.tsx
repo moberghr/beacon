@@ -11,7 +11,9 @@ import { useRequirePermission } from '@/auth/useRequirePermission';
 import { AiProvider, type BedrockAuthMode } from '@/lib/enums';
 import {
   modelsForProvider,
+  providerRequiresApiKey,
   useAdminSettingsQuery,
+  useLlmProvidersQuery,
   useUpdateAdminSettings,
   useTestLlmConnection,
 } from './queries';
@@ -61,6 +63,7 @@ function AdminSettingsForm() {
   const canEdit = access.hasPermission('SecurityAdmin');
   const connectionLocked = !access.isAdmin;
   const { data, isLoading, isError, error } = useAdminSettingsQuery();
+  const { data: providerCatalog, isPending: providersLoading, isError: providersFailed } = useLlmProvidersQuery();
   const updateMutation = useUpdateAdminSettings();
   const testMutation = useTestLlmConnection();
 
@@ -76,6 +79,7 @@ function AdminSettingsForm() {
     control,
     setValue,
     getValues,
+    setError,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(ADMIN_SETTINGS_SCHEMA),
@@ -88,9 +92,23 @@ function AdminSettingsForm() {
 
   const provider = useWatch({ control, name: 'llmProvider' }) as AiProvider;
   const bedrockAuthMode = useWatch({ control, name: 'llmBedrockAuthMode' }) as BedrockAuthMode;
+  // The stored API key belongs to the stored provider: another one is never offered "leave blank to keep".
+  const storedApiKeyApplies = (settings?.llmApiKeySet ?? false) && provider === settings?.llmProvider;
 
   const onSubmit = handleSubmit(async values => {
     if (!canEdit) return;
+    // Only an Admin supplies credentials. A provider that needs a key gets one: typed when the provider changes (the
+    // stored key belongs to the previous provider), else stored or typed.
+    const nextProvider = values.llmProvider as AiProvider;
+    const providerChanged = nextProvider !== settings?.llmProvider;
+    const apiKeyMissing = !connectionLocked
+      && providerRequiresApiKey(providerCatalog, nextProvider)
+      && !values.llmApiKey
+      && (providerChanged || !settings?.llmApiKeySet);
+    if (apiKeyMissing) {
+      setError('llmApiKey', { type: 'required', message: 'This provider needs an API key.' });
+      return;
+    }
     const payload = formToUpdatePayload(values);
     try {
       // The base URL, like the LLM connection, is an Admin's to change: anyone else sends the stored one back.
@@ -173,6 +191,15 @@ function AdminSettingsForm() {
           title="AI provider"
           sub="Pick the large-language-model provider. Only the fields the provider needs are shown."
         >
+          {providersFailed && (
+            <Banner
+              tone="warn"
+              icon={<AlertTriangle />}
+              title="The installed providers could not be loaded"
+              sub="Every provider is offered; saving one this host has not installed is refused."
+            />
+          )}
+
           {canEdit && connectionLocked && (
             <Banner
               tone="info"
@@ -188,6 +215,8 @@ function AdminSettingsForm() {
             render={({ field }) => (
               <ProviderPicker
                 disabled={connectionLocked}
+                catalog={providerCatalog}
+                storedProvider={settings?.llmProvider ?? null}
                 value={field.value as AiProvider}
                 onChange={next => {
                   field.onChange(next);
@@ -203,7 +232,7 @@ function AdminSettingsForm() {
             <OpenAiFields
               register={register}
               errors={errors}
-              modelKnown={settings?.llmApiKeySet ?? false}
+              modelKnown={storedApiKeyApplies}
               control={control}
               setValue={setValue}
               locked={connectionLocked}
@@ -213,7 +242,7 @@ function AdminSettingsForm() {
             <AnthropicFields
               register={register}
               errors={errors}
-              apiKeySet={settings?.llmApiKeySet ?? false}
+              apiKeySet={storedApiKeyApplies}
               control={control}
               setValue={setValue}
               locked={connectionLocked}
@@ -223,7 +252,7 @@ function AdminSettingsForm() {
             <AzureFields
               register={register}
               errors={errors}
-              apiKeySet={settings?.llmApiKeySet ?? false}
+              apiKeySet={storedApiKeyApplies}
               endpointSet={settings?.llmEndpointSet ?? false}
               locked={connectionLocked}
             />
@@ -292,7 +321,7 @@ function AdminSettingsForm() {
             <Button
               type="submit"
               variant="primary"
-              disabled={!isDirty || isSubmitting}
+              disabled={!isDirty || isSubmitting || providersLoading}
             >
               {isSubmitting ? 'Saving…' : 'Save changes'}
             </Button>

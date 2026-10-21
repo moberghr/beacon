@@ -11,6 +11,7 @@ internal sealed class TestLlmConnectionHandler(
     ILlmConnectionTester tester,
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
+    ILlmProviderCatalog providerCatalog,
     ILogger<TestLlmConnectionHandler> logger)
     : IRequestHandler<TestLlmConnectionCommand, TestLlmConnectionResult>
 {
@@ -35,6 +36,8 @@ internal sealed class TestLlmConnectionHandler(
                 request.LlmAwsAccessKeyId,
                 request.LlmAwsSecretAccessKey),
             nullKeepsStored: true);
+
+        LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, current.LlmProvider);
 
         var provider = request.LlmProvider ?? current.LlmProvider ?? AiProvider.OpenAI;
         var model = request.LlmModel ?? current.LlmModel;

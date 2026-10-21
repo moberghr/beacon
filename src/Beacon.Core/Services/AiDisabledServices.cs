@@ -20,6 +20,14 @@ internal sealed class AiDisabledLlmConnectionTester : ILlmConnectionTester
     }
 }
 
+/// <summary>The provider catalog of a host without Beacon.AI: AI is off and no provider is installed.</summary>
+internal sealed class AiDisabledLlmProviderCatalog : ILlmProviderCatalog
+{
+    public bool AiEnabled => false;
+
+    public IReadOnlyList<LlmProviderInfo> Registered => [];
+}
+
 /// <inheritdoc cref="AiDisabledLlmConnectionTester"/>
 internal sealed class AiDisabledMcpEvalService : IMcpEvalService
 {

@@ -172,7 +172,7 @@ public class StoredSettingsStartupTests
     private static LlmProviderManager Manager()
     {
         LlmProviderManager? manager = null;
-        var factory = new LlmProviderFactory(() => manager?.CurrentConfiguration ?? Bootstrap);
+        var factory = TestLlmProviderFactory.Create(() => manager?.CurrentConfiguration ?? Bootstrap);
         manager = new LlmProviderManager(Bootstrap, factory, NullLogger<LlmProviderManager>.Instance);
 
         return manager;

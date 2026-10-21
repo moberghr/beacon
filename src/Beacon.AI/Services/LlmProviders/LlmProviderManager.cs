@@ -20,6 +20,7 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     private readonly object _lock = new();
     private LlmConfiguration _config;
     private ILlmProvider? _currentProvider;
+    private string? _inactiveReason;
 
     public LlmProviderManager(
         LlmConfiguration llmConfig,
@@ -31,11 +32,16 @@ public class LlmProviderManager : ILlmConfigurationUpdater
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Create initial provider if configuration is valid
-        if (!string.IsNullOrEmpty(_config.ApiKey) || _config.Provider == AiProvider.Bedrock)
+        _inactiveReason = NotInstalledReason(_config);
+        if (_inactiveReason is not null)
+        {
+            WarnNotInstalled(_config.Provider);
+        }
+        else if (HasRequiredApiKey(_config))
         {
             try
             {
-                _currentProvider = factory.CreateProvider();
+                _currentProvider = factory.CreateProvider(_config);
             }
             catch (Exception ex)
             {
@@ -49,6 +55,12 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     }
 
     public ILlmProvider? CurrentProvider => Volatile.Read(ref _currentProvider);
+
+    /// <summary>
+    /// Why there is no active provider when the cause is that the configured provider is not installed: the install
+    /// message (provider and package names only, no configuration values). Null otherwise.
+    /// </summary>
+    public string? InactiveReason => Volatile.Read(ref _inactiveReason);
 
     /// <summary>
     /// Snapshot of the currently active configuration. Always returns the most recently
@@ -89,11 +101,20 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             // The active provider always matches the published configuration: when the new one cannot build a provider,
             // there is no active provider, never the previous one (which could run under other credentials).
             ILlmProvider? rebuilt = null;
-            if (!string.IsNullOrEmpty(next.ApiKey) || next.Provider == AiProvider.Bedrock)
+            var inactiveReason = NotInstalledReason(next);
+            if (inactiveReason is not null)
+            {
+                // Reported when the provider changes to one that is not installed, not again on every save that keeps it.
+                if (next.Provider != previous.Provider)
+                {
+                    WarnNotInstalled(next.Provider);
+                }
+            }
+            else if (HasRequiredApiKey(next))
             {
                 try
                 {
-                    rebuilt = _factory.CreateProvider();
+                    rebuilt = _factory.CreateProvider(next);
                 }
                 catch (Exception ex)
                 {
@@ -105,6 +126,27 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             }
 
             Interlocked.Exchange(ref _currentProvider, rebuilt);
+            Interlocked.Exchange(ref _inactiveReason, inactiveReason);
         }
+    }
+
+    /// <summary>The install message when <paramref name="config"/> names a provider that is not installed, else null.</summary>
+    private string? NotInstalledReason(LlmConfiguration config)
+    {
+        return _factory.IsRegistered(config.Provider)
+            ? null
+            : LlmProviderFactory.NotInstalledMessage(config.Provider);
+    }
+
+    private bool HasRequiredApiKey(LlmConfiguration config)
+    {
+        return !_factory.RequiresApiKey(config.Provider) || !string.IsNullOrEmpty(config.ApiKey);
+    }
+
+    private void WarnNotInstalled(AiProvider provider)
+    {
+        _logger.LogWarning(
+            "LLM provider {Provider} is not installed: its package is not referenced or its registration was not added. No provider is active; install the provider or choose another one in Admin Settings.",
+            provider);
     }
 }

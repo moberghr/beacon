@@ -22,9 +22,7 @@ public class DelegatingLlmProvider : ILlmProvider
 
     public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
     {
-        var provider = _manager.CurrentProvider
-            ?? throw new InvalidOperationException(
-                "LLM provider is not configured. Configure it via Admin Settings.");
+        var provider = RequireProvider();
 
         // Recursion guard: pass the INNER provider to the queue, never `this`. If `this` were
         // passed, the queue would call back into DelegatingLlmProvider.CompleteAsync, which
@@ -40,9 +38,16 @@ public class DelegatingLlmProvider : ILlmProvider
 
     public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
     {
-        var provider = _manager.CurrentProvider
-            ?? throw new InvalidOperationException(
-                "LLM provider is not configured. Configure it via Admin Settings.");
+        var provider = RequireProvider();
         return provider.CountTokensAsync(text, cancellationToken);
+    }
+
+    // When the configured provider is not installed, the manager's install message says what to do; otherwise the
+    // provider is not configured (no key yet) or could not be built.
+    private ILlmProvider RequireProvider()
+    {
+        return _manager.CurrentProvider
+            ?? throw new InvalidOperationException(
+                _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
     }
 }

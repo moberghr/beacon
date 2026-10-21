@@ -12,6 +12,7 @@ internal sealed class UpdateAdminSettingsHandler(
     IBeaconUserContext userContext,
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
+    ILlmProviderCatalog providerCatalog,
     ILogger<UpdateAdminSettingsHandler> logger)
     : IRequestHandler<UpdateAdminSettingsCommand>
 {
@@ -47,6 +48,8 @@ internal sealed class UpdateAdminSettingsHandler(
                 request.LlmAwsAccessKeyId,
                 request.LlmAwsSecretAccessKey),
             nullKeepsStored: false);
+
+        LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, current.LlmProvider);
 
         var next = new AppSettingsData
         {

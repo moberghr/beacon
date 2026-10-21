@@ -19,6 +19,9 @@ public class AzureOpenAiProvider : ILlmProvider
         _model = deploymentName;
     }
 
+    /// <summary>The deployment the client was built for.</summary>
+    internal string Model => _model;
+
     public async Task<Beacon.Core.Models.Ai.LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
     {
         var messages = new List<OpenAI.Chat.ChatMessage>();

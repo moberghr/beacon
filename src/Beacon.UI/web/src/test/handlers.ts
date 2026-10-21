@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw';
+import { AiProvider } from '@/lib/enums';
 import { permissionsHandler } from './permissions';
 
 /**
@@ -21,6 +22,18 @@ export const handlers = [
   ),
   // A user with a role can read and write, and holds no functional permission.
   permissionsHandler(),
+  // Every LLM provider installed (as in the sample host); Bedrock authenticates without an API key.
+  http.get('*/beacon/api/admin-settings/llm-providers', () =>
+    HttpResponse.json({
+      aiEnabled: true,
+      providers: [
+        { provider: AiProvider.OpenAI, requiresApiKey: true },
+        { provider: AiProvider.Claude, requiresApiKey: true },
+        { provider: AiProvider.AzureOpenAI, requiresApiKey: true },
+        { provider: AiProvider.Bedrock, requiresApiKey: false },
+      ],
+    }),
+  ),
   // No MCP setting pinned by the deployment unless a test says so.
   http.get('*/beacon/api/mcp/settings/locks', () => HttpResponse.json({ lockedFields: [] })),
   // Match any origin so we don't have to mirror jsdom's default (currently 'http://localhost:3000').

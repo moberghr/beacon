@@ -18,6 +18,10 @@ internal static class AdminSettingsEndpoints
             .WithName("GetAdminSettings")
             .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
 
+        settings.MapGet("/llm-providers", (IMediator m, CancellationToken ct) => m.Send(new GetLlmProvidersQuery(), ct))
+            .WithName("GetLlmProviders")
+            .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
+
         settings.MapPut("/", async (UpdateAdminSettingsCommand cmd, IMediator m, CancellationToken ct) =>
         {
             await m.Send(cmd, ct);
