@@ -18,7 +18,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("beacon")
-                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -1764,6 +1764,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("OpenWhenUnlinked")
                         .HasColumnType("boolean")
                         .HasColumnName("open_when_unlinked");
+
+                    b.Property<long>("RowSecurityVersion")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_security_version");
 
                     b.Property<bool>("UseReadOnlyIntent")
                         .HasColumnType("boolean")
@@ -4779,6 +4783,303 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("recipients", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.AttributeDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(63)
+                        .HasColumnType("character varying(63)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("integer")
+                        .HasColumnName("value_type");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attribute_definitions");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_definitions_key")
+                        .HasFilter("archived_time IS NULL");
+
+                    b.ToTable("attribute_definitions", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ActiveVersionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("active_version_id");
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("schema_name");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("table_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_row_policies");
+
+                    b.HasIndex("ActiveVersionId")
+                        .HasDatabaseName("ix_row_policies_active_version_id");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName")
+                        .HasDatabaseName("ix_row_policies_data_source_id_schema_name_table_name");
+
+                    b.ToTable("row_policies", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicyVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("definition_json");
+
+                    b.Property<int>("RowPolicyId")
+                        .HasColumnType("integer")
+                        .HasColumnName("row_policy_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_row_policy_versions");
+
+                    b.HasIndex("RowPolicyId", "Status")
+                        .HasDatabaseName("ix_row_policy_versions_row_policy_id_status");
+
+                    b.HasIndex("RowPolicyId", "VersionNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_row_policy_versions_row_policy_id_version_number");
+
+                    b.ToTable("row_policy_versions", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.TableClassification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("Class")
+                        .HasColumnType("integer")
+                        .HasColumnName("class");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
+                    b.Property<int?>("RequestedClass")
+                        .HasColumnType("integer")
+                        .HasColumnName("requested_class");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("schema_name");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("table_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_table_classifications");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName")
+                        .IsUnique()
+                        .HasDatabaseName("ix_table_classifications_data_source_id_schema_name_table_name");
+
+                    b.ToTable("table_classifications", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.UserAttributeValue", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AttributeDefinitionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("attribute_definition_id");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_attribute_values");
+
+                    b.HasIndex("AttributeDefinitionId")
+                        .HasDatabaseName("ix_user_attribute_values_attribute_definition_id");
+
+                    b.HasIndex("UserId", "AttributeDefinitionId", "Value")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_attribute_values_user_id_attribute_definition_id_value");
+
+                    b.ToTable("user_attribute_values", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.SecurityAuditEvent", b =>
                 {
                     b.Property<int>("Id")
@@ -4872,15 +5173,15 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_security_audit_events");
 
-                    b.HasIndex("ActorUserId", "CreatedTime")
-                        .HasDatabaseName("ix_security_audit_events_actor_user_id_created_time");
-
                     b.HasIndex("CreatedTime")
                         .HasDatabaseName("ix_security_audit_events_created_time");
 
                     b.HasIndex("EventGuid")
                         .IsUnique()
                         .HasDatabaseName("ix_security_audit_events_event_guid");
+
+                    b.HasIndex("ActorUserId", "CreatedTime")
+                        .HasDatabaseName("ix_security_audit_events_actor_user_id_created_time");
 
                     b.HasIndex("ResourceType", "ResourceId")
                         .HasDatabaseName("ix_security_audit_events_resource_type_resource_id");
@@ -5795,6 +6096,71 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Query");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.RowSecurity.RowPolicyVersion", "ActiveVersion")
+                        .WithMany()
+                        .HasForeignKey("ActiveVersionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_row_policies_row_policy_versions_active_version_id");
+
+                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_row_policies_data_sources_data_source_id");
+
+                    b.Navigation("ActiveVersion");
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicyVersion", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", "RowPolicy")
+                        .WithMany("Versions")
+                        .HasForeignKey("RowPolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_row_policy_versions_row_policies_row_policy_id");
+
+                    b.Navigation("RowPolicy");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.TableClassification", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_table_classifications_data_sources_data_source_id");
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.UserAttributeValue", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.RowSecurity.AttributeDefinition", "AttributeDefinition")
+                        .WithMany("Values")
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_attribute_values_attribute_definitions_attribute_defin");
+
+                    b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_attribute_values_users_user_id");
+
+                    b.Navigation("AttributeDefinition");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.AiActor", "AiActor")
@@ -5996,6 +6362,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.Recipient", b =>
                 {
                     b.Navigation("Notifications");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.AttributeDefinition", b =>
+                {
+                    b.Navigation("Values");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", b =>
+                {
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>

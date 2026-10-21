@@ -30,8 +30,18 @@ public class SecurityAuditCoverageTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 14, 9, 0, 0, TimeSpan.Zero);
 
-    // Actions defined for an event site a later change adds; none at present.
-    private static readonly string[] Reserved = [];
+    // Actions defined for an event site a later change adds: the row-security management endpoints record these.
+    private static readonly string[] Reserved =
+    [
+        nameof(SecurityAuditActions.AttributeDefined),
+        nameof(SecurityAuditActions.AttributeUpdated),
+        nameof(SecurityAuditActions.AttributeArchived),
+        nameof(SecurityAuditActions.AttributeValuesSet),
+        nameof(SecurityAuditActions.RowPolicyCreated),
+        nameof(SecurityAuditActions.RowPolicyUpdated),
+        nameof(SecurityAuditActions.RowPolicyArchived),
+        nameof(SecurityAuditActions.TableClassified)
+    ];
 
     [Test]
     public void EveryCatalogueAction_IsRecordedSomewhere()
@@ -55,8 +65,13 @@ public class SecurityAuditCoverageTests
             .Except(Reserved)
             .ToList();
 
+        var recordedReserved = Reserved
+            .Where(x => sources.Any(y => Regex.IsMatch(y, $@"\bSecurityAuditActions\.{x}\b")))
+            .ToList();
+
         actions.Should().HaveCountGreaterThan(90);
         unrecorded.Should().BeEmpty("an action in the catalogue that nothing records promises an event the trail never holds");
+        recordedReserved.Should().BeEmpty("an action something records is no longer reserved");
     }
 
     [TestCase(true)]

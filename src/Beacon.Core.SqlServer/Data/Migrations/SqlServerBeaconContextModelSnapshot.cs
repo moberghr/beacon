@@ -18,7 +18,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("beacon")
-                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -1382,6 +1382,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<bool>("OpenWhenUnlinked")
                         .HasColumnType("bit");
+
+                    b.Property<long>("RowSecurityVersion")
+                        .HasColumnType("bigint");
 
                     b.Property<bool>("UseReadOnlyIntent")
                         .HasColumnType("bit");
@@ -3755,6 +3758,249 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("Recipients", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.AttributeDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(63)
+                        .HasColumnType("nvarchar(63)");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ValueType")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasFilter("[ArchivedTime] IS NULL");
+
+                    b.ToTable("AttributeDefinitions", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ActiveVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActiveVersionId");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName");
+
+                    b.ToTable("RowPolicies", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicyVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("RowPolicyId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RowPolicyId", "Status");
+
+                    b.HasIndex("RowPolicyId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("RowPolicyVersions", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.TableClassification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("Class")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("RequestedClass")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName")
+                        .IsUnique();
+
+                    b.ToTable("TableClassifications", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.UserAttributeValue", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AttributeDefinitionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .UseCollation("Latin1_General_100_BIN2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttributeDefinitionId");
+
+                    b.HasIndex("UserId", "AttributeDefinitionId", "Value")
+                        .IsUnique();
+
+                    b.ToTable("UserAttributeValues", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.SecurityAuditEvent", b =>
                 {
                     b.Property<int>("Id")
@@ -3830,12 +4076,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ActorUserId", "CreatedTime");
-
                     b.HasIndex("CreatedTime");
 
                     b.HasIndex("EventGuid")
                         .IsUnique();
+
+                    b.HasIndex("ActorUserId", "CreatedTime");
 
                     b.HasIndex("ResourceType", "ResourceId");
 
@@ -4640,6 +4886,65 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Query");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.RowSecurity.RowPolicyVersion", "ActiveVersion")
+                        .WithMany()
+                        .HasForeignKey("ActiveVersionId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ActiveVersion");
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicyVersion", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", "RowPolicy")
+                        .WithMany("Versions")
+                        .HasForeignKey("RowPolicyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("RowPolicy");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.TableClassification", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.DataSource", "DataSource")
+                        .WithMany()
+                        .HasForeignKey("DataSourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.UserAttributeValue", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.RowSecurity.AttributeDefinition", "AttributeDefinition")
+                        .WithMany("Values")
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Beacon.Core.Data.Entities.BeaconUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AttributeDefinition");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.AiActor", "AiActor")
@@ -4833,6 +5138,16 @@ namespace Beacon.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.Recipient", b =>
                 {
                     b.Navigation("Notifications");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.AttributeDefinition", b =>
+                {
+                    b.Navigation("Values");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.RowSecurity.RowPolicy", b =>
+                {
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Subscription", b =>
