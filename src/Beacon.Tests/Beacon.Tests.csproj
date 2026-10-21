@@ -28,6 +28,7 @@
 
     <ItemGroup>
         <None Include="Unit\ProjectAuthorization\FastPathGolden\*.sql" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="Unit\LlmProviders\WireGolden\*.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>

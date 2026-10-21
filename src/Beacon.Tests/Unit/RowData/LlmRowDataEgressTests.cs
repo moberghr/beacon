@@ -23,6 +23,8 @@ public class LlmRowDataEgressTests
     private static readonly Dictionary<string, string> RowFree = new(StringComparer.Ordinal)
     {
         ["src/Beacon.AI/Services/LlmProviders/LlmRequestQueue.cs"] = "the queue every request goes through (§6.1)",
+        ["src/Beacon.AI/Services/LlmProviders/OpenAiProvider.cs"] = "an obsolete provider wrapper: forwards its caller's request unchanged",
+        ["src/Beacon.AI/Services/LlmProviders/AzureOpenAiProvider.cs"] = "an obsolete provider wrapper: forwards its caller's request unchanged",
         ["src/Beacon.AI/Services/Mcp/SqlGenerationService.cs"] = "sends through the provider its caller hands in, which the ask pipeline and cross-source query track",
         ["src/Beacon.AI/Services/Mcp/IntentClassifier.cs"] = "the question only",
         ["src/Beacon.AI/Services/Mcp/DataSourceRouter.cs"] = "the question and the data sources' names and descriptions",

@@ -282,7 +282,7 @@ public class BedrockAuthModeTests
             LlmModel = "gpt-4o-mini",
             LlmApiKey = TestCredentials.ProviderSecretKey,
         });
-        manager.CurrentProvider.Should().BeOfType<OpenAiProvider>();
+        manager.CurrentProvider.Should().BeOfType<OpenAiCompatibleProvider>();
 
         manager.UpdateConfiguration(new AppSettingsData
         {

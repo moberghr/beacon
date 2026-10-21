@@ -2,7 +2,7 @@
 
 > §6.x — Async, caching, rate limiting. Loaded automatically by Claude Code.
 
-§6.1 **All LLM calls go through `LlmRequestQueue`.** It enforces `MaxConcurrentRequests` from config. NEVER call OpenAI / Azure OpenAI / Anthropic / Bedrock SDK clients directly from a handler or service — go through the queue.
+§6.1 **All LLM calls go through `LlmRequestQueue`.** It enforces `MaxConcurrentRequests` from config. NEVER call a provider (the OpenAI / Azure OpenAI / Claude HTTP providers, the Bedrock SDK client) directly from a handler or service — go through the queue.
 
 §6.2 **`IMemoryCache` is the standard for hot, rarely-changing reads.** Used for MCP settings, metadata, and app settings. Cache invalidation happens on the corresponding write handler — keep that pairing intact.
 

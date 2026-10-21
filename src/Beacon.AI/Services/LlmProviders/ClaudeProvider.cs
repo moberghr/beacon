@@ -14,23 +14,25 @@ public class ClaudeProvider : ILlmProvider
     private const decimal InputCostPerMillionTokens = 3.00m;
     private const decimal OutputCostPerMillionTokens = 15.00m;
     private const decimal CachedInputCostPerMillionTokens = 0.30m; // 90% discount
+    private const string AnthropicVersion = "2023-06-01";
+
+    private static readonly Uri MessagesUri = new("https://api.anthropic.com/v1/messages");
 
     public ClaudeProvider(string apiKey, string model = "claude-sonnet-4-20250514")
+        : this(LlmHttpClients.Shared, apiKey, model)
+    {
+    }
+
+    internal ClaudeProvider(HttpClient httpClient, string apiKey, string model)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new ArgumentNullException(nameof(apiKey));
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentNullException(nameof(model));
 
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _apiKey = apiKey;
         _model = model;
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri("https://api.anthropic.com/v1/"),
-            Timeout = TimeSpan.FromMinutes(5)
-        };
-        _httpClient.DefaultRequestHeaders.Add("x-api-key", _apiKey);
-        _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
     }
 
     /// <summary>The model the client was built for.</summary>
@@ -57,7 +59,15 @@ public class ClaudeProvider : ILlmProvider
                 system = request.SystemPrompt
             };
 
-            var response = await _httpClient.PostAsJsonAsync("messages", requestBody, cancellationToken);
+            // Headers are set per request, never on the client: the client may be shared.
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, MessagesUri)
+            {
+                Content = JsonContent.Create(requestBody)
+            };
+            httpRequest.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+            httpRequest.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
+
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);

@@ -1,3 +1,4 @@
+using System.Net;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Models.Ai;
 
@@ -58,6 +59,13 @@ public class LlmRequestQueue
 
     private static bool IsRetryable(Exception ex)
     {
+        // A failure with an HTTP status is retried only for a status that can pass (408, 429, 5xx): the provider has
+        // already retried it, and an authentication or request error never passes on a retry.
+        if (ex is HttpRequestException { StatusCode: { } status })
+        {
+            return status is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests || (int)status >= 500;
+        }
+
         // Retry on rate limit, timeout, or transient network errors
         var message = ex.Message.ToLowerInvariant();
         return message.Contains("rate limit") ||
