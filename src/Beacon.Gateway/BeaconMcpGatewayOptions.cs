@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.Extensions.Configuration;
 using Beacon.Core;
 using Beacon.Core.HostDocs;
@@ -102,6 +103,23 @@ public sealed class BeaconMcpGatewayOptions
         return this;
     }
 
+    internal BeaconMcpGatewayAdminOptions? AdminConfiguration { get; private set; }
+
+    /// <summary>
+    /// Serves Beacon's admin UI at <c>/beacon</c> for the host's administrators of the gateway: the MCP audit, the MCP
+    /// settings, the learning views and the host project's documents — nothing else of Beacon. People sign in with the
+    /// host's own sign-in; whoever passes <see cref="BeaconMcpGatewayAdminOptions.HostPolicy"/> is Beacon's administrator
+    /// there.
+    /// </summary>
+    public BeaconMcpGatewayOptions AdminUi(Action<BeaconMcpGatewayAdminOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        AdminConfiguration = new BeaconMcpGatewayAdminOptions();
+        configure(AdminConfiguration);
+
+        return this;
+    }
+
     /// <summary>Documents the host ships, as grounding (<see cref="HostDocsOptions"/>); the project name is set for you.</summary>
     public BeaconMcpGatewayOptions Docs(Action<HostDocsOptions> configure)
     {
@@ -139,6 +157,7 @@ public sealed class BeaconMcpGatewayOptions
         }
 
         EntraConfiguration!.Validate();
+        AdminConfiguration?.Validate();
     }
 }
 
@@ -219,6 +238,40 @@ public sealed class BeaconMcpGatewayEntra
         if (!Uri.TryCreate(Instance, UriKind.Absolute, out var instance) || instance.Scheme != Uri.UriSchemeHttps)
         {
             throw new InvalidOperationException("AddBeaconMcpGateway: the Entra instance must be an https URL.");
+        }
+    }
+}
+
+/// <summary>The gateway's admin UI (<see cref="BeaconMcpGatewayOptions.AdminUi"/>).</summary>
+public sealed class BeaconMcpGatewayAdminOptions
+{
+    /// <summary>
+    /// The host's authorization policy that makes someone Beacon's administrator here (<c>"perm:beacon.admin"</c>, say).
+    /// It is required on every admin route on top of Beacon's own policies, and judged against the signed-in principal.
+    /// Required.
+    /// </summary>
+    public string HostPolicy { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The host's stable id of the signed-in person (its own user id, not a pairwise <c>sub</c>): Beacon keeps a user
+    /// <c>host:&lt;id&gt;</c> for each administrator, which its audit columns name. Required.
+    /// </summary>
+    public Func<ClaimsPrincipal, string?>? HostUserId { get; set; }
+
+    /// <summary>
+    /// Where the shell sends a signed-out person: the host's sign-in page, which returns them to
+    /// <see cref="ReturnUrlParameter"/>. Required.
+    /// </summary>
+    public string SignInPath { get; set; } = string.Empty;
+
+    /// <summary>The query parameter the host's sign-in page reads the return address from. Default <c>returnUrl</c>.</summary>
+    public string ReturnUrlParameter { get; set; } = "returnUrl";
+
+    internal void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(HostPolicy) || HostUserId == null || string.IsNullOrWhiteSpace(SignInPath))
+        {
+            throw new InvalidOperationException("AddBeaconMcpGateway: AdminUi needs HostPolicy, HostUserId and SignInPath.");
         }
     }
 }

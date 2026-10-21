@@ -21,6 +21,8 @@ export interface CurrentPermissions {
   permissions: string[];
   /** Whether this deployment runs data migrations (`Beacon:Migrations:Enabled`, off by default). */
   migrationsEnabled?: boolean;
+  /** Whether Beacon is embedded as an MCP gateway (`AddBeaconMcpGateway`): only part of the REST API is served. */
+  gatewayMode?: boolean;
 }
 
 /** What the signed-in user may do now, with the checks the pages ask. */
@@ -41,6 +43,8 @@ export interface Access {
   migrationsEnabled: boolean;
   /** The migration pages are open: the deployment runs migrations and the user holds MigrationOperator (or is an Admin). */
   opensMigrations: boolean;
+  /** Beacon runs as an MCP gateway: only the projects and MCP pages are served, every other route answers 404. */
+  gatewayMode: boolean;
 }
 
 export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoading: boolean): Access {
@@ -61,6 +65,7 @@ export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoadin
     isFunctionalOnly: data !== undefined && data.canRead === false && !isAdmin && permissions.length > 0,
     migrationsEnabled,
     opensMigrations: migrationsEnabled && hasPermission('MigrationOperator'),
+    gatewayMode: data?.gatewayMode === true,
   };
 }
 

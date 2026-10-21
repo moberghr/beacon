@@ -2,7 +2,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from './auth/RequireAuth';
+import { GATEWAY_LANDING_PATH, RequireFullBeacon } from './auth/RequireFullBeacon';
 import { RequireMigrations } from './auth/RequireMigrations';
+import { useAccess } from './auth/useAuth';
 import { AppShell } from './components/layout/AppShell';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { lazyWithRetry } from './lib/lazyWithRetry';
@@ -72,6 +74,21 @@ function lazyRoute(Element: ComponentType) {
   );
 }
 
+/** `/home` is the landing page of the full Beacon; the MCP gateway has none and lands on its MCP pages. */
+function HomeRoute() {
+  const access = useAccess();
+  if (access.isLoading) return null;
+  if (access.gatewayMode) return <Navigate to={GATEWAY_LANDING_PATH} replace />;
+  return lazyRoute(HomePage);
+}
+
+/** The catch-all leads home, or to the gateway landing page in gateway mode. */
+function FallbackRoute() {
+  const access = useAccess();
+  if (access.isLoading) return null;
+  return <Navigate to={access.gatewayMode ? GATEWAY_LANDING_PATH : '/home'} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter basename="/beacon">
@@ -90,52 +107,57 @@ export default function App() {
               <Routes>
                 <Route element={<AppShell />}>
                   <Route path="/" element={<Navigate to="/home" replace />} />
-                  <Route path="/home" element={lazyRoute(HomePage)} />
+                  <Route path="/home" element={<HomeRoute />} />
                   <Route path="/about" element={lazyRoute(AboutPage)} />
                   <Route path="/projects" element={lazyRoute(ProjectsListPage)} />
-                  <Route path="/projects/new" element={lazyRoute(NewProjectPage)} />
-                  <Route path="/projects/:id" element={lazyRoute(ProjectDetailPage)} />
-                  <Route path="/notifications" element={lazyRoute(NotificationsPage)} />
-                  <Route path="/notifications/:id" element={lazyRoute(NotificationDetailPage)} />
-                  <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />
-                  {/* Data migration exists only while the deployment runs it (Beacon:Migrations:Enabled). */}
-                  <Route element={<RequireMigrations />}>
-                    <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
-                    <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
-                    <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
-                    <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                  <Route element={<RequireFullBeacon />}>
+                    <Route path="/projects/new" element={lazyRoute(NewProjectPage)} />
                   </Route>
-                  <Route path="/queries" element={lazyRoute(QueriesListPage)} />
-                  <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />
-                  <Route path="/queries/:id" element={lazyRoute(QueryDetailPage)} />
-                  <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
-                  <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
-                  <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
-                  <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />
-                  <Route path="/tasks" element={lazyRoute(TasksListPage)} />
-                  <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
-                  <Route path="/approvals" element={lazyRoute(ApprovalsListPage)} />
-                  <Route path="/approvals/:id" element={lazyRoute(ApprovalDetailPage)} />
-                  <Route path="/approvals/changes/:id" element={lazyRoute(ChangeApprovalDetailPage)} />
-                  <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
-                  <Route path="/users" element={lazyRoute(UsersListPage)} />
-                  <Route path="/subscriptions" element={lazyRoute(SubscriptionsListPage)} />
-                  <Route path="/subscriptions/:id" element={lazyRoute(SubscriptionDetailPage)} />
-                  <Route path="/data-sources" element={lazyRoute(DataSourcesListPage)} />
-                  <Route path="/data-sources/:id" element={lazyRoute(DataSourceDetailPage)} />
-                  <Route path="/data-sources/:id/relationships" element={lazyRoute(RelationshipsPage)} />
-                  <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
-                  <Route path="/security-audit" element={lazyRoute(SecurityAuditPage)} />
+                  <Route path="/projects/:id" element={lazyRoute(ProjectDetailPage)} />
                   <Route path="/settings" element={lazyRoute(SettingsPage)} />
-                  <Route path="/data-quality" element={lazyRoute(DataQualityPage)} />
-                  <Route path="/data-quality/:id" element={lazyRoute(DataContractDetailPage)} />
-                  <Route path="/mcp-playground" element={lazyRoute(McpPlaygroundPage)} />
                   <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
                   <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
-                  <Route path="/ai-actors" element={lazyRoute(AiActorsListPage)} />
-                  <Route path="/ai-actors/:id" element={lazyRoute(AiActorDetailPage)} />
-                  <Route path="/ai-actors/:id/edit" element={lazyRoute(AiActorEditPage)} />
-                  <Route path="*" element={<Navigate to="/home" replace />} />
+                  {/* The MCP gateway serves only the projects and MCP pages. */}
+                  <Route element={<RequireFullBeacon />}>
+                    <Route path="/notifications" element={lazyRoute(NotificationsPage)} />
+                    <Route path="/notifications/:id" element={lazyRoute(NotificationDetailPage)} />
+                    <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />
+                    {/* Data migration exists only while the deployment runs it (Beacon:Migrations:Enabled). */}
+                    <Route element={<RequireMigrations />}>
+                      <Route path="/migration-history" element={lazyRoute(MigrationHistoryPage)} />
+                      <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
+                      <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
+                      <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                    </Route>
+                    <Route path="/queries" element={lazyRoute(QueriesListPage)} />
+                    <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />
+                    <Route path="/queries/:id" element={lazyRoute(QueryDetailPage)} />
+                    <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
+                    <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
+                    <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
+                    <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />
+                    <Route path="/tasks" element={lazyRoute(TasksListPage)} />
+                    <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
+                    <Route path="/approvals" element={lazyRoute(ApprovalsListPage)} />
+                    <Route path="/approvals/:id" element={lazyRoute(ApprovalDetailPage)} />
+                    <Route path="/approvals/changes/:id" element={lazyRoute(ChangeApprovalDetailPage)} />
+                    <Route path="/api-keys" element={lazyRoute(ApiKeysListPage)} />
+                    <Route path="/users" element={lazyRoute(UsersListPage)} />
+                    <Route path="/subscriptions" element={lazyRoute(SubscriptionsListPage)} />
+                    <Route path="/subscriptions/:id" element={lazyRoute(SubscriptionDetailPage)} />
+                    <Route path="/data-sources" element={lazyRoute(DataSourcesListPage)} />
+                    <Route path="/data-sources/:id" element={lazyRoute(DataSourceDetailPage)} />
+                    <Route path="/data-sources/:id/relationships" element={lazyRoute(RelationshipsPage)} />
+                    <Route path="/admin-settings" element={lazyRoute(AdminSettingsPage)} />
+                    <Route path="/security-audit" element={lazyRoute(SecurityAuditPage)} />
+                    <Route path="/data-quality" element={lazyRoute(DataQualityPage)} />
+                    <Route path="/data-quality/:id" element={lazyRoute(DataContractDetailPage)} />
+                    <Route path="/mcp-playground" element={lazyRoute(McpPlaygroundPage)} />
+                    <Route path="/ai-actors" element={lazyRoute(AiActorsListPage)} />
+                    <Route path="/ai-actors/:id" element={lazyRoute(AiActorDetailPage)} />
+                    <Route path="/ai-actors/:id/edit" element={lazyRoute(AiActorEditPage)} />
+                  </Route>
+                  <Route path="*" element={<FallbackRoute />} />
                 </Route>
               </Routes>
             </RequireAuth>

@@ -37,6 +37,30 @@ function signedInAs(roles: string[], signOutEverywhereEnabled = true) {
 }
 
 describe('Sidebar', () => {
+  it('shows only the pages the MCP gateway serves in gateway mode', async () => {
+    sessionOf(true, ['Admin'], 'Tester');
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
+
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('MCP Settings')).toBeInTheDocument();
+    expect(screen.getByText('Projects')).toBeInTheDocument();
+    expect(screen.getByText('MCP Learning')).toBeInTheDocument();
+    for (const name of ['Home', 'Control Tower', 'Data Sources', 'Queries', 'API Keys', 'MCP Playground', 'Approvals', 'User Management', 'Security Audit']) {
+      expect(screen.queryByText(name)).not.toBeInTheDocument();
+    }
+  });
+
+  it('keeps the full navigation without gateway mode', async () => {
+    sessionOf(true, ['Admin'], 'Tester');
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: false }));
+
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('Control Tower')).toBeInTheDocument();
+    expect(screen.getByText('MCP Playground')).toBeInTheDocument();
+  });
+
   it('hides the pages a functional permission opens from a user who holds none', async () => {
     signedInAs(['Editor']);
 

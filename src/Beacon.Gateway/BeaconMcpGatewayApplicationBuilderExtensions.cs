@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Beacon.Api.Authentication;
+using Beacon.Api.Endpoints;
+using Beacon.UI;
 using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
 using Beacon.MCP.Discovery;
@@ -40,6 +43,15 @@ public static class BeaconMcpGatewayApplicationBuilderExtensions
 
         endpoints.MapMcp(McpDiscoveryPaths.McpPath)
             .RequireAuthorization(McpRoutePolicy);
+
+        // The admin UI: Beacon's shell and the gateway's part of its REST API, behind the host's admin policy.
+        if (endpoints.ServiceProvider.GetRequiredService<BeaconMcpGatewayOptions>().AdminConfiguration is { } admin)
+        {
+            var api = endpoints.MapGroup(string.Empty);
+            api.MapBeaconApi();
+            ((IEndpointConventionBuilder)api).Finally(x => BeaconGatewayApiProfile.Apply(x, admin.HostPolicy));
+            endpoints.MapBeaconUi();
+        }
         endpoints.MapMcpDiscovery();
         endpoints.MapFallback($"{McpDiscoveryPaths.McpPath}/{{**path}}", () => Results.NotFound())
             .AllowAnonymous();

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Beacon.AI;
 using Beacon.Api;
 using Beacon.Api.Authentication;
+using Beacon.Api.Endpoints;
 using Beacon.Core;
 using Beacon.Core.Configuration;
 using Beacon.Core.HostData;
@@ -95,7 +96,27 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
 
         // The MCP tools' hard dependency; no LLM provider is configured, the client brings its own model.
         services.AddBeaconAI(configuration);
-        services.AddBeaconApiServices(x => x.Realtime = false);
+        var admin = options.AdminConfiguration;
+        services.AddBeaconApiServices(x =>
+        {
+            x.Realtime = false;
+            x.GatewayMode = true;
+            if (admin != null)
+            {
+                x.ExternalLogin = new ExternalLoginOptions { LoginUrl = admin.SignInPath, ReturnUrlParameter = admin.ReturnUrlParameter };
+            }
+        });
+        if (admin != null)
+        {
+            // Beacon's REST API policies and antiforgery (its shell sends the token in this header), and the identity bridge
+            // that makes a holder of the host's admin policy Beacon's administrator on /beacon.
+            services.AddBeaconApiAuthorization();
+            services.AddAntiforgery(x => x.HeaderName = "X-XSRF-TOKEN");
+            services.AddMemoryCache();
+            services.AddScoped<BeaconGatewayAdminDirectory>();
+            services.AddScoped<IClaimsTransformation, BeaconGatewayAdminClaimsTransformation>();
+            services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconGatewayAdminStartupCheck>());
+        }
 
         services.AddBeaconJwtAuthentication(x =>
         {

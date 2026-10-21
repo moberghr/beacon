@@ -29,6 +29,7 @@
         <ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
         <ProjectReference Include="..\Beacon.MCP\Beacon.MCP.csproj" />
         <ProjectReference Include="..\Beacon.Api\Beacon.Api.csproj" />
+        <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
     </ItemGroup>
 
 </Project>

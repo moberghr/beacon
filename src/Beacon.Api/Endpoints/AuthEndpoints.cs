@@ -111,7 +111,8 @@ internal static class AuthEndpoints
             BeaconPermissions.All
                 .Where(permissions.Holds)
                 .ToArray(),
-            migrationsEnabled);
+            migrationsEnabled,
+            httpContext.RequestServices.GetService<BeaconApiOptions>()?.GatewayMode == true);
     }
 }
 
@@ -152,7 +153,8 @@ internal sealed record CurrentPermissionsResponse(
     bool CanWrite,
     bool IsAdmin,
     IReadOnlyList<string> Permissions,
-    bool MigrationsEnabled);
+    bool MigrationsEnabled,
+    bool GatewayMode = false);
 
 /// <summary>Whether single sign-on is offered (<c>Enabled</c>), and whether password sign-in is open to everyone.</summary>
 internal sealed record SsoConfigResponse(bool Enabled, bool LocalLoginEnabled);

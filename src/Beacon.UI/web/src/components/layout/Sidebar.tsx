@@ -54,6 +54,9 @@ interface NavSection {
   items: NavItem[];
 }
 
+/** The pages the MCP gateway's admin UI serves (everything else answers 404 there). */
+const GATEWAY_SLUGS = ['projects', 'mcp-settings', 'mcp-learning'];
+
 const SECTIONS: NavSection[] = [
   {
     label: 'Overview',
@@ -134,7 +137,7 @@ export function Sidebar() {
   const { data: user } = useAuth();
   const access = useAccess();
   const sections = SECTIONS
-    .map(section => ({ ...section, items: section.items.filter(item => (item.visible ?? readsProjectData)(access)) }))
+    .map(section => ({ ...section, items: section.items.filter(item => (!access.gatewayMode || GATEWAY_SLUGS.includes(item.slug)) && (item.visible ?? readsProjectData)(access)) }))
     .filter(section => section.items.length > 0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
