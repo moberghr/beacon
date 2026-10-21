@@ -185,7 +185,8 @@ internal static class TestProjectAccess
             new SystemWorkScope(),
             new RunAsScope(requestPrincipal),
             new UnmarkedSystemWorkLog(TimeProvider.System, NullLogger<UnmarkedSystemWorkLog>.Instance),
-            requestPrincipal);
+            requestPrincipal,
+            new Beacon.Core.BeaconConfiguration { UserManagement = new Beacon.Core.UserManagementOptions { Enabled = false } });
     }
 
     /// <summary>An execute-time check that allows every run: for tests of what a run does, not who may make it.</summary>

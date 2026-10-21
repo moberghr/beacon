@@ -18,12 +18,14 @@ internal sealed class BeaconMcpGatewayStartupCheck(
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
     {
         var options = authentication.Value;
-        var named = options.DefaultScheme ?? options.DefaultAuthenticateScheme ?? options.DefaultChallengeScheme;
+        var authenticateDefault = options.DefaultAuthenticateScheme ?? options.DefaultScheme;
+        var challengeDefault = options.DefaultChallengeScheme ?? options.DefaultScheme;
         var hostSchemes = schemes.GetAllSchemesAsync().GetAwaiter().GetResult()
             .Where(x => x.Name != BeaconMcpGatewayDefaults.AuthenticationScheme)
             .ToList();
 
-        if (named == null && hostSchemes.Count == 1)
+        // Authenticate and challenge each fall back to the only scheme on their own, so either one left unnamed is lost.
+        if (hostSchemes.Count == 1 && (authenticateDefault == null || challengeDefault == null))
         {
             throw new InvalidOperationException(
                 $"The application relies on '{hostSchemes[0].Name}' being its only authentication scheme, and the Beacon MCP gateway adds "

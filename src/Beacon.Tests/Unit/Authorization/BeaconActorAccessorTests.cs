@@ -48,7 +48,7 @@ public class BeaconActorAccessorTests
         // A strict factory fails the test if a context is ever created.
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
 
-        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None);
+        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None, beaconManagesUsers: false);
 
         actor.UserId.Should().BeNull();
         actor.IsAdmin.Should().BeFalse();
@@ -66,7 +66,7 @@ public class BeaconActorAccessorTests
                 new Dictionary<Type, object> { [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(_users, []) },
                 []));
 
-        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None);
+        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None, beaconManagesUsers: false);
 
         actor.UserId.Should().BeNull();
         actor.IsAdmin.Should().BeFalse();
@@ -267,7 +267,7 @@ public class BeaconActorAccessorTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await BeaconActorAccessor.ResolveAsync(ApiKey(nameIdentifier: "7", userName: "ana"), capture.Factory(), CancellationToken.None);
+        await BeaconActorAccessor.ResolveAsync(ApiKey(nameIdentifier: "7", userName: "ana"), capture.Factory(), CancellationToken.None, beaconManagesUsers: false);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         var where = sql[sql.IndexOf("WHERE", StringComparison.Ordinal)..];
@@ -282,7 +282,7 @@ public class BeaconActorAccessorTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await BeaconActorAccessor.ResolveAsync(Interactive("ext-ana"), capture.Factory(), CancellationToken.None);
+        await BeaconActorAccessor.ResolveAsync(Interactive("ext-ana"), capture.Factory(), CancellationToken.None, beaconManagesUsers: false);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("u.external_id = @");
@@ -530,7 +530,8 @@ public class BeaconActorAccessorTests
             systemWork,
             new RunAsScope(TestRequestPrincipal.OffRequest()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()),
-            TestRequestPrincipal.OffRequest());
+            TestRequestPrincipal.OffRequest(),
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -545,11 +546,11 @@ public class BeaconActorAccessorTests
         var time = new FakeTimeProvider();
         var unmarked = new UnmarkedSystemWorkLog(time, logs.For<UnmarkedSystemWorkLog>());
 
-        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
-        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
+        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest(), Unmanaged).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest(), Unmanaged).GetCurrentAsync(CancellationToken.None);
         var afterBurst = logs.Entries.Count;
         time.Advance(UnmarkedSystemWorkLog.Interval);
-        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest(), Unmanaged).GetCurrentAsync(CancellationToken.None);
 
         first.Kind.Should().Be(BeaconPrincipalKind.Anonymous, "an unmarked scope without a request is nobody");
         afterBurst.Should().Be(1, "a second unmarked scope within the interval is not reported again");
@@ -587,7 +588,8 @@ public class BeaconActorAccessorTests
             systemWork,
             new RunAsScope(TestRequestPrincipal.OffRequest()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            TestRequestPrincipal.For(Interactive("ext-ana")));
+            TestRequestPrincipal.For(Interactive("ext-ana")),
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -606,7 +608,8 @@ public class BeaconActorAccessorTests
             new SystemWorkScope(),
             runAs,
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            principal);
+            principal,
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -636,7 +639,8 @@ public class BeaconActorAccessorTests
             systemWork,
             new RunAsScope(TestRequestPrincipal.For()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            TestRequestPrincipal.For());
+            TestRequestPrincipal.For(),
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -646,8 +650,11 @@ public class BeaconActorAccessorTests
 
     private Task<BeaconActor> Resolve(ClaimsPrincipal principal)
     {
-        return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None);
+        return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None, beaconManagesUsers: false);
     }
+
+    // A host without Beacon user management: the configuration the cases above were written for.
+    private static Beacon.Core.BeaconConfiguration Unmanaged => new() { UserManagement = new Beacon.Core.UserManagementOptions { Enabled = false } };
 
     private Task<BeaconActor> ResolveManaged(ClaimsPrincipal principal)
     {

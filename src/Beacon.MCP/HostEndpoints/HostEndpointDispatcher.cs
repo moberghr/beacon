@@ -226,8 +226,10 @@ internal sealed class HostEndpointDispatcher(
                 throw;
             }
 
+            // As ExceptionHandlerMiddleware does: a handler that takes the exception but writes no status still answers 500.
             httpContext.Response.Clear();
             responseBody.Discard();
+            httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
             var feature = new ExceptionHandlerFeature
             {
                 Error = exception,

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.HostData;
 using Beacon.Core.HostEndpoints;
@@ -61,7 +62,7 @@ internal sealed class HostEndpointToolRegistry
             services.GetService<IXmlDocumentationProvider>() ?? NoXmlDocumentation.Instance,
             services.GetService<IServiceProviderIsService>());
 
-        return discovery.Discover(
+        var tools = discovery.Discover(
             endpoints,
             apiDescriptions,
             hasFallbackPolicy,
@@ -69,6 +70,32 @@ internal sealed class HostEndpointToolRegistry
             options.TrustedAuthenticationSchemes,
             options.AllowWriteTools,
             options.CallerBindings.Keys.ToList());
+        WarnAboutUnusedCallerBindings(services, options, tools);
+
+        return tools;
+    }
+
+    // A binding no tool uses is most likely a typo or a renamed parameter, and that argument is then still the agent's to send.
+    private static void WarnAboutUnusedCallerBindings(IServiceProvider services, HostEndpointToolOptions options, IReadOnlyList<HostEndpointToolDescriptor> tools)
+    {
+        var used = tools
+            .SelectMany(x => x.CallerBindings)
+            .Select(x => x.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unused = options.CallerBindings.Keys
+            .Where(x => !used.Contains(x))
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+        if (unused.Count == 0)
+        {
+            return;
+        }
+
+        services.GetService<ILoggerFactory>()?
+            .CreateLogger<HostEndpointToolRegistry>()
+            .LogWarning(
+                "HostEndpointToolOptions.BindFromCaller names {Arguments}, which no endpoint tool takes: check the spelling against the endpoints' parameters.",
+                string.Join(", ", unused));
     }
 
     // The same combined policy HostEndpointDispatcher.AuthorizeAsync evaluates (minus requirement-only metadata, which

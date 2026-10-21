@@ -251,7 +251,8 @@ public class ProjectAccessQueryTranslationTests
                 [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, "ext-ana")],
                 "Cookies")),
             capture.Factory(),
-            CancellationToken.None);
+            CancellationToken.None,
+            beaconManagesUsers: true);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("user_roles").And.Contain("max(");

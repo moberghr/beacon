@@ -146,9 +146,11 @@ builder.Services.AddBeaconMcp()
 
 On every tool, a route, query, header or form value with that name (compared ignoring case), or a top-level property of
 its JSON body, is left out of the input schema and of its required list, and the call carries the caller's value — a body
-property written as the type its schema declares. An agent that sends the argument anyway is refused (a body property it
-sends is overwritten), and a principal without a value refuses the call. A `Func<ClaimsPrincipal, string?>` overload
-reads the value any other way. Your endpoint still checks ownership as it does for the browser.
+property written as the type its schema declares. An agent that sends a bound name anyway — as an argument, as a raw field
+of a custom-binder model, or as a body property in any casing — is refused, on every tool, since a custom binder or a
+dictionary could still read it. A principal without a value refuses the call, and a bound name that no tool takes is
+warned at startup (most likely a typo). A `Func<ClaimsPrincipal, string?>` overload reads the value any other way. Your
+endpoint still checks ownership as it does for the browser.
 
 ### Named tools or a catalog
 
@@ -366,9 +368,10 @@ request) must make sure it accepts these requests.
 - Non-2xx → a tool error with the status and a short body excerpt.
 - An exception in the endpoint → your `IExceptionHandler`s run, in registration order, as `UseExceptionHandler()` runs
   them for a browser request (host middleware does not run for a dispatched call). The response the first one writes —
-  the 403, 404 or 400 problem your application maps a deliberate refusal to — is the tool error. An exception no handler
-  takes is a generic tool error (the message is not returned or logged). Set `UseHostExceptionHandlers = false` to always
-  answer the generic error.
+  the 403, 404 or 400 problem your application maps a deliberate refusal to — is the tool error, its body passed to the
+  agent as the handler wrote it. A handler that takes the exception without setting a status answers 500. An exception no
+  handler takes is a generic tool error (the message is not returned or logged). Set `UseHostExceptionHandlers = false` to
+  always answer the generic error.
 - Over `MaxResponseBytes` → a tool error; narrow the request.
 
 ## Audit and privacy

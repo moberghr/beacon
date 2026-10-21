@@ -87,6 +87,11 @@ internal static class HostEndpointRequestBuilder
             }
 
             var pairs = Pairs(parameter, value);
+            if (parameter.Shape == HostEndpointParameterShape.RawFields)
+            {
+                RefuseCallerBoundFields(tool, pairs.Select(x => x.Key));
+            }
+
             switch (parameter.Source)
             {
                 case HostEndpointParameterSource.Route:
@@ -114,6 +119,24 @@ internal static class HostEndpointRequestBuilder
         return new HostEndpointRequestParts(path, BuildQueryString(query), routeValues, headers, form, jsonBody);
     }
 
+    // A field the agent names after a caller-bound argument, in any casing, would compete with the caller's value: refused.
+    private static void RefuseCallerBoundFields(HostEndpointToolDescriptor tool, IEnumerable<string> names)
+    {
+        var bound = tool.CallerBindings
+            .Select(x => x.BodyProperty ?? x.Name)
+            .Concat(tool.CallerBoundNames)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var supplied = names
+            .Where(bound.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+        if (supplied.Count > 0)
+        {
+            throw new HostEndpointArgumentException($"Invalid arguments: {string.Join(", ", supplied)} is filled from the caller and cannot be sent.");
+        }
+    }
+
     private static string CallerValue(IReadOnlyDictionary<string, string>? callerValues, string name) =>
         callerValues != null && callerValues.TryGetValue(name, out var value)
             ? value
@@ -128,12 +151,20 @@ internal static class HostEndpointRequestBuilder
         var properties = tool.CallerBindings
             .Where(x => x.BodyProperty != null)
             .ToList();
+        var agentBody = jsonBody == null ? null : JsonNode.Parse(jsonBody);
+
+        // JSON binding matches property names ignoring case, so the agent's key in any casing would compete with the bound one.
+        if (agentBody is JsonObject sent)
+        {
+            RefuseCallerBoundFields(tool, sent.Select(x => x.Key));
+        }
+
         if (properties.Count == 0)
         {
             return jsonBody;
         }
 
-        if ((jsonBody == null ? new JsonObject() : JsonNode.Parse(jsonBody)) is not JsonObject body)
+        if ((agentBody ?? new JsonObject()) is not JsonObject body)
         {
             throw new HostEndpointArgumentException("Invalid arguments: the request body must be an object.");
         }

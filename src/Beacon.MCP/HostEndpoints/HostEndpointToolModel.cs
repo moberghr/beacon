@@ -68,6 +68,13 @@ internal sealed record HostEndpointToolDescriptor(
     /// <summary>The arguments the call carries from the caller rather than from the agent; not in <see cref="Parameters"/>.</summary>
     public IReadOnlyList<HostEndpointCallerBinding> CallerBindings { get; init; } = [];
 
+    /// <summary>
+    /// Every argument name bound from the caller across the host (<c>BindFromCaller</c>), compared ignoring case: an agent's
+    /// raw field or body property with one of these names is refused even where this tool binds none of them, since a
+    /// custom binder or a dictionary could still read it.
+    /// </summary>
+    public IReadOnlySet<string> CallerBoundNames { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Appended to a write tool's name in its audit row, so write calls are distinguishable (and filterable).</summary>
     public const string WriteAuditSuffix = ":write";
 

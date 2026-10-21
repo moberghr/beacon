@@ -24,7 +24,7 @@ internal sealed class BeaconActorAccessor(
     IRunAsScope runAs,
     ProjectAccess.UnmarkedSystemWorkLog unmarkedSystemWork,
     IBeaconRequestPrincipal requestPrincipal,
-    BeaconConfiguration? configuration = null) : IBeaconActorAccessor
+    BeaconConfiguration configuration) : IBeaconActorAccessor
 {
     private BeaconActor? _current;
 
@@ -63,7 +63,7 @@ internal sealed class BeaconActorAccessor(
             requestPrincipal.User,
             contextFactory,
             cancellationToken,
-            configuration?.UserManagement.Enabled == true);
+            configuration.UserManagement.Enabled);
 
         return _current;
     }
@@ -101,16 +101,18 @@ internal sealed class BeaconActorAccessor(
         ClaimsPrincipal? principal,
         IDbContextFactory<BeaconContext> contextFactory,
         CancellationToken cancellationToken,
-        bool beaconManagesUsers = false)
+        bool beaconManagesUsers)
     {
         if (principal?.Identity?.IsAuthenticated != true)
         {
             return BeaconActor.Nobody;
         }
 
-        var holdsAdminRole = !beaconManagesUsers && BeaconActor.HoldsAdminRole(principal);
         var isApiKey = BeaconUserLookup.IsApiKey(principal);
         var isMcpCaller = BeaconUserLookup.IsMcpCaller(principal);
+
+        // A scoped caller (an API key, a mapped MCP caller) is never an Admin, whatever its owner or user is (§1.13).
+        var holdsAdminRole = !beaconManagesUsers && !isApiKey && !isMcpCaller && BeaconActor.HoldsAdminRole(principal);
         var kind = isApiKey
             ? BeaconPrincipalKind.ApiKey
             : isMcpCaller
@@ -155,7 +157,6 @@ internal sealed class BeaconActorAccessor(
             return BeaconActor.Nobody;
         }
 
-        // A scoped caller (an API key, a mapped MCP caller) is never an Admin, whatever its owner or user is (§1.13).
         var isAdmin = !isApiKey && !isMcpCaller && (beaconManagesUsers ? user.IsLiveAdmin : holdsAdminRole);
         var actor = new BeaconActor(user.ExternalId, isAdmin)
         {

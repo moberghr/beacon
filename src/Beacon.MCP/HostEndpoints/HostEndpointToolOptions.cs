@@ -71,8 +71,9 @@ public sealed class HostEndpointToolOptions
     /// Fills the endpoint argument named <paramref name="argument"/> (compared ignoring case) from the host principal the
     /// call runs as — the person's own id in the host, which an agent cannot know. On every tool that binds such a route,
     /// query, header or form value, or a top-level property of its JSON body, the argument is left out of the tool's
-    /// input schema, and the call carries the caller's value: an agent that sends the argument anyway is refused (a body
-    /// property it sends is overwritten). A principal without a value refuses the call.
+    /// input schema, and the call carries the caller's value. An agent that sends a bound name anyway — as an argument, a
+    /// raw field or a body property in any casing — is refused on every tool. A principal without a value refuses the call,
+    /// and a name no tool takes is warned at startup.
     /// </summary>
     public HostEndpointToolOptions BindFromCaller(string argument, Func<ClaimsPrincipal, string?> value)
     {

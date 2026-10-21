@@ -120,6 +120,16 @@ public class BeaconMcpGatewayTests
     }
 
     [Test]
+    public async Task AMappedCaller_WithAHostSessionOnTheSameRequest_IsDecidedByItsToken()
+    {
+        await using var app = await StartAsync();
+
+        var response = await PostInitializeAsync(app, Token(KnownPerson), hostSession: true);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "the MCP route's policy evaluates the bearer caller, whatever the host's session");
+    }
+
+    [Test]
     public async Task ATokenOfAPersonTheHostDoesNotKnow_Is403_NotARedirect()
     {
         await using var app = await StartAsync();

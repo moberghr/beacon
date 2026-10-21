@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Beacon.MCP.HostEndpoints;
 using static Beacon.Tests.Unit.HostEndpoints.HostEndpointDispatchTests;
@@ -67,16 +68,60 @@ public class HostEndpointCallerBindingTests
     }
 
     [Test]
-    public async Task ABoundBodyProperty_IsTheCallersOwn_WhateverTheAgentSent()
+    public async Task ABoundBodyProperty_IsTheCallersOwn()
     {
         await using var host = await StartAsync();
-        var arguments = Args(new { body = new { reason = "Holiday", requestingUserId = 7 } });
+        var arguments = Args(new { body = new { reason = "Holiday" } });
 
         var result = await Service(host, Caller("42")).CallAsync("api_request_leave", arguments, CancellationToken.None);
 
         result.IsError.Should().NotBe(true, Text(result));
         result.StructuredContent!.Value.GetProperty("requestingUserId").GetInt32().Should().Be(42, "the caller's own id, written as the integer the body declares");
         result.StructuredContent!.Value.GetProperty("reason").GetString().Should().Be("Holiday");
+    }
+
+    [TestCase("requestingUserId")]
+    [TestCase("RequestingUserId")]
+    [TestCase("REQUESTINGUSERID")]
+    public async Task AnAgentSendingABoundBodyProperty_InAnyCasing_IsRefused(string key)
+    {
+        await using var host = await StartAsync();
+        var arguments = Args(new Dictionary<string, object?> { ["body"] = new Dictionary<string, object?> { ["reason"] = "Holiday", [key] = 7 } });
+
+        var result = await Service(host, Caller("42")).CallAsync("api_request_leave", arguments, CancellationToken.None);
+
+        result.IsError.Should().BeTrue("JSON binding ignores case, so any casing would compete with the caller's value");
+        Text(result).Should().Contain("is filled from the caller and cannot be sent");
+    }
+
+    [Test]
+    public async Task ARawFieldNamedAfterABoundArgument_IsRefused_EvenWhereTheToolBindsNone()
+    {
+        await using var host = await HostEndpointTestHost.StartAsync(configure: x => x.BindFromCaller("pageSize", UserIdClaim));
+        var caller = HostEndpointTestHost.SystemCaller(HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewLoans), new Claim(UserIdClaim, "42"));
+
+        var result = await host.CreateService(HostEndpointTestHost.OuterRequest(caller))
+            .CallAsync("api_loan_page", Args(new { request = new { page = 2, pageSize = 50 } }), CancellationToken.None);
+
+        result.IsError.Should().BeTrue("a custom binder could read the field the host binds from the caller");
+        Text(result).Should().Contain("pageSize is filled from the caller and cannot be sent");
+    }
+
+    [Test]
+    public async Task ABindingNoToolTakes_IsWarnedAtStartup()
+    {
+        var logs = new Beacon.Tests.Common.LogRecorder();
+
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [],
+            mapDefaultMinimalApis: false,
+            configure: x => x.BindFromCaller("usreId", UserIdClaim),
+            services: x => x.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(logs),
+            map: x => x.MapGet("/my/assets", (int? userId) => Results.Ok(new { userId }))
+                .RequireAuthorization(HostEndpointTestHost.ViewThingPolicy)
+                .WithBeaconTool("my_assets", "The caller's assets.", readOnly: true));
+
+        logs.Contains("BindFromCaller names usreId, which no endpoint tool takes").Should().BeTrue();
     }
 
     [Test]

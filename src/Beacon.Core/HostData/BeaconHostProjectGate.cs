@@ -85,16 +85,15 @@ internal sealed partial class BeaconHostProjectGate(
     ILogger<BeaconHostProjectGate> logger) : IBeaconHostProjectGate, IDisposable
 {
     private readonly SemaphoreSlim _sync = new(1, 1);
-    private int? _projectId;
-    private int _failures;
-    private string? _lastError;
-    private DateTimeOffset? _nextAttemptAt;
 
-    public BeaconHostSyncState State => new(_projectId != null, _failures, _lastError, _nextAttemptAt);
+    // Read without the lock on the fast path: one immutable snapshot, replaced whole, so a reader never sees a mix.
+    private volatile Snapshot _state = new(null, new BeaconHostSyncState(false, 0, null, null));
+
+    public BeaconHostSyncState State => _state.Public;
 
     public async Task<int?> GetProjectIdAsync(CancellationToken cancellationToken)
     {
-        if (_projectId is { } synced)
+        if (_state.ProjectId is { } synced)
         {
             return synced;
         }
@@ -107,7 +106,7 @@ internal sealed partial class BeaconHostProjectGate(
         await _sync.WaitAsync(cancellationToken);
         try
         {
-            if (_projectId is { } syncedMeanwhile)
+            if (_state.ProjectId is { } syncedMeanwhile)
             {
                 return syncedMeanwhile;
             }
@@ -119,13 +118,11 @@ internal sealed partial class BeaconHostProjectGate(
 
             try
             {
-                _projectId = await SyncOutsideTheRequestAsync(cancellationToken);
-                _failures = 0;
-                _lastError = null;
-                _nextAttemptAt = null;
-                LogSynced(logger, options.Value.ProjectName, _projectId.Value);
+                var projectId = await SyncOutsideTheRequestAsync(cancellationToken);
+                _state = new Snapshot(projectId, new BeaconHostSyncState(true, 0, null, null));
+                LogSynced(logger, options.Value.ProjectName, projectId);
 
-                return _projectId;
+                return projectId;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -133,11 +130,10 @@ internal sealed partial class BeaconHostProjectGate(
             }
             catch (Exception ex)
             {
-                _failures++;
-                _lastError = ex.GetType().Name;
-                var delay = options.Value.RetryDelay(_failures);
-                _nextAttemptAt = timeProvider.GetUtcNow() + delay;
-                LogFailed(logger, ex, _failures, delay);
+                var failures = _state.Public.Failures + 1;
+                var delay = options.Value.RetryDelay(failures);
+                _state = new Snapshot(null, new BeaconHostSyncState(false, failures, ex.GetType().Name, timeProvider.GetUtcNow() + delay));
+                LogFailed(logger, ex, failures, delay);
 
                 return null;
             }
@@ -150,7 +146,9 @@ internal sealed partial class BeaconHostProjectGate(
 
     public void Dispose() => _sync.Dispose();
 
-    private bool IsBackingOff() => _nextAttemptAt is { } next && timeProvider.GetUtcNow() < next;
+    private bool IsBackingOff() => _state.Public.NextAttemptAt is { } next && timeProvider.GetUtcNow() < next;
+
+    private sealed record Snapshot(int? ProjectId, BeaconHostSyncState Public);
 
     // The sync is Beacon's own work, never the asking request's: run without the request's execution context, so the
     // scope the sync marks as system work does not see the caller of the request (an MCP caller) through the HttpContext.

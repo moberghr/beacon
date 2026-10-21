@@ -71,6 +71,30 @@ public class BeaconHostProjectGateTests
         synchronizer.Calls.Should().Be(2, "nothing was tried while backing off");
     }
 
+    [Test]
+    public async Task ACancelledAsk_IsNotCountedAsAFailure_AndStartsNoBackOff()
+    {
+        using var cancelled = new CancellationTokenSource();
+        var synchronizer = new FakeSynchronizer(call =>
+        {
+            // The asker gives up while the sync runs.
+            if (call == 1)
+            {
+                cancelled.Cancel();
+                cancelled.Token.ThrowIfCancellationRequested();
+            }
+
+            return 7;
+        });
+        using var gate = Gate(synchronizer);
+
+        var ask = () => gate.GetProjectIdAsync(cancelled.Token);
+
+        await ask.Should().ThrowAsync<OperationCanceledException>();
+        gate.State.Should().Be(new BeaconHostSyncState(false, 0, null, null));
+        (await gate.GetProjectIdAsync(CancellationToken.None)).Should().Be(7, "the next ask syncs at once, without waiting out a back-off");
+    }
+
     [TestCase(1, 5)]
     [TestCase(2, 10)]
     [TestCase(3, 20)]

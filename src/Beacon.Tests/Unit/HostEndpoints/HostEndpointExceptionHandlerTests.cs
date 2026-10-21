@@ -42,6 +42,23 @@ public class HostEndpointExceptionHandlerTests
     }
 
     [Test]
+    public async Task AHandlerThatTakesTheExceptionWithoutAStatus_StillAnswers500()
+    {
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [],
+            mapDefaultMinimalApis: false,
+            services: x => x.AddExceptionHandler<SilentExceptionHandler>(),
+            map: x => x.MapGet("/assets/broken", IResult () => throw new InvalidOperationException("must not leak"))
+                .RequireAuthorization(HostEndpointTestHost.ViewThingPolicy)
+                .WithBeaconTool("broken", "A failing read.", readOnly: true));
+
+        var result = await Service(host).CallAsync("api_broken", null, CancellationToken.None);
+
+        result.IsError.Should().BeTrue("a call that threw never reads as a success");
+        Text(result).Should().StartWith("The host endpoint returned HTTP 500");
+    }
+
+    [Test]
     public async Task WithTheHandlersOff_ARefusalIsAGenericFailure()
     {
         await using var host = await StartAsync(x => x.UseHostExceptionHandlers = false);
@@ -71,6 +88,13 @@ public class HostEndpointExceptionHandlerTests
             });
 
     private sealed class NotYoursException : Exception;
+
+    // A metrics-style handler: it takes every exception and writes nothing.
+    private sealed class SilentExceptionHandler : IExceptionHandler
+    {
+        public ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(true);
+    }
 
     // The host's own mapping of a deliberate refusal to a 403 problem, as its UseExceptionHandler() runs it for the browser.
     private sealed class NotYoursExceptionHandler : IExceptionHandler

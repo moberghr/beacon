@@ -246,7 +246,8 @@ internal sealed partial class HostEndpointToolDiscovery(
             !metadata.ReadOnly && metadata.Destructive,
             !metadata.ReadOnly && metadata.Idempotent)
         {
-            CallerBindings = callerBindings
+            CallerBindings = callerBindings,
+            CallerBoundNames = callerBound
         };
     }
 
