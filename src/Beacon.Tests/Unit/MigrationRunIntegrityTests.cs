@@ -251,6 +251,43 @@ public class MigrationRunIntegrityTests
         result.DestinationRowsWritten.Should().Be(1);
     }
 
+    [Test]
+    public async Task ARunWhoseDestinationLockIsHeld_IsRecordedWithItsReasonCode()
+    {
+        Job();
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => new RecordingDbConnection
+        {
+            Scalar = x => x.Contains("pg_try_advisory_xact_lock", StringComparison.Ordinal) ? false : true
+        });
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationService.DestinationBusyMessage);
+        _audit.Of(SecurityAuditActions.MigrationJobRunEnded).Should().ContainSingle()
+            .Which.DetailsJson.Should().Contain("\"reason\":\"destination_busy\"");
+    }
+
+    [Test]
+    public async Task ARunWhoseCommitFails_IsRecordedAsUnconfirmed_WithItsReasonCode()
+    {
+        Job();
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => new RecordingDbConnection
+        {
+            Scalar = x => x.Contains("current_schemas", StringComparison.Ordinal) ? "public" : true,
+            FailCommitWith = new InvalidOperationException("the network went away")
+        });
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationService.CommitUnknownMessage);
+        _world.Saved.OfType<MigrationExecutionHistory>().Should().ContainSingle()
+            .Which.ErrorMessage.Should().Be(MigrationService.CommitUnknownMessage);
+        _audit.Of(SecurityAuditActions.MigrationJobRunEnded).Should().ContainSingle()
+            .Which.DetailsJson.Should().Contain("\"reason\":\"commit_unknown\"");
+    }
+
     // The run's end cannot be saved with the context it ran on: the row is closed again from a fresh context (only while it
     // is still Running) and the end event recorded on its own, and the answer is still the run's outcome.
     [Test]

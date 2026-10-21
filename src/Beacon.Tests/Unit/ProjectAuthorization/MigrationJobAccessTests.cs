@@ -330,6 +330,50 @@ public class MigrationJobAccessTests
         queries.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // The legacy single-step form (the SQL and data source on the query, no steps) is the step that is checked and run.
+    [Test]
+    public async Task ATemporaryPreview_InTheLegacySingleStepForm_NeedsQueryOnItsSource()
+    {
+        var queries = new Mock<IQueryService>();
+        var legacy = new QueryData { Name = "copy", SqlValue = "SELECT 1", DataSourceId = HiddenSource };
+        var stored = new RecordingStoredQueryPreview();
+
+        var preview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object, stored).ExecuteTemporaryQueryPreview(legacy, CancellationToken.None));
+
+        await preview.Should().ThrowAsync<BeaconNotFoundException>();
+        stored.TemporaryRuns.Should().BeEmpty("nothing runs on a source the caller may not query");
+    }
+
+    [Test]
+    public async Task ATemporaryPreview_WithoutSteps_IsRefused_AndRunsNothing()
+    {
+        var stored = new RecordingStoredQueryPreview();
+
+        var preview = () => SendAsync("ext-op", sp => Preview(sp, Mock.Of<IQueryService>(), stored).ExecuteTemporaryQueryPreview(new QueryData { Name = "copy" }, CancellationToken.None));
+
+        await preview.Should().ThrowAsync<BeaconNotFoundException>();
+        stored.TemporaryRuns.Should().BeEmpty();
+    }
+
+    // What runs is a copy of the steps taken before the check: the caller's own object never reaches the run.
+    [Test]
+    public async Task ATemporaryPreview_RunsACopyOfTheStepsItChecked()
+    {
+        var steps = new QueryData
+        {
+            Name = "copy",
+            Steps = [new QueryStepData { StepOrder = 1, DataSourceId = RestrictedSource, SqlValue = "SELECT 1" }]
+        };
+        var stored = new RecordingStoredQueryPreview();
+
+        await SendAsync("ext-op", sp => Preview(sp, Mock.Of<IQueryService>(), stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
+
+        var ran = stored.TemporaryRuns.Should().ContainSingle().Which.Query;
+        ran.Should().NotBeSameAs(steps);
+        ran.Steps.Should().ContainSingle().Which.Should().NotBeSameAs(steps.Steps[0]);
+        ran.Steps[0].Should().Match<QueryStepData>(x => x.DataSourceId == RestrictedSource && x.SqlValue == "SELECT 1");
+    }
+
     [TestCase(false, true, true)]
     [TestCase(true, false, false)]
     [TestCase(true, true, false)]

@@ -230,6 +230,17 @@ shows it in the job's runs.
 - **One run at a time.** A job runs once at a time, across every host: a run of a job that already has a run starting
   or in progress is refused with `409 Conflict` before it reads or writes anything, and adds no run to the history (the
   refusal is a security event with reason `run_in_progress`).
+- **Destination lock.** Inside its write transaction, before it checks or writes the table, a run takes a lock on its
+  job in the destination database, without waiting: a PostgreSQL transaction-level advisory lock
+  (`pg_try_advisory_xact_lock`), a SQL Server application lock owned by the transaction (`sp_getapplock`) or a MySQL
+  named lock (`GET_LOCK`, released after the commit or rollback). If another run of the job holds it (a run whose host
+  paused past the in-progress window while a new run started), the run fails with *"Nothing was written: another run of
+  this job holds its destination's migration lock"* (security event reason `destination_busy`) and writes nothing. None
+  of these locks needs a grant beyond the login's.
+- **A commit that cannot be confirmed.** If the destination's commit fails (the connection is lost during it, say),
+  Beacon cannot tell whether the rows were written. The run is recorded as failed with *"The destination's commit could
+  not be confirmed: check the destination table before running this job again"* (reason `commit_unknown`); nothing is
+  rolled back or retried. Look at the table before you run the job again, especially in Insert mode.
 - **A host that stops during a run.** Its run stays **Running** and blocks the job until the job's timeout and 10 more
   minutes have passed since it started. The next run after that closes it as **Failed** (*"Abandoned: the host stopped
   during the run"*, security event reason `abandoned`); nothing needs to be done by hand.
@@ -332,6 +343,8 @@ MigrationOperator permission.
 | No **Data Migration** entry | `Beacon:Migrations:Enabled` is `true`, and you hold MigrationOperator (or are an Admin). |
 | The destination picker is empty | An Admin has marked the destination as a migration write target. |
 | **Run now** is disabled | The job is enabled and not awaiting approval. |
+| Run failed: another run holds the destination's migration lock | A run of the same job is still writing (its host was slow or paused). Wait for it to end, then run the job again. |
+| Run failed: the destination's commit could not be confirmed | Check the destination table for the run's rows before you run the job again. |
 | Run answers `409 Conflict` | Another run of the job is starting or in progress (or a host stopped during one less than the job's timeout plus 10 minutes ago). Wait for it to end, then run it again. |
 | Run failed on a job with a transformation script | Create the job again with **Transformation script** empty. |
 | Run failed: row budget exceeded | The source returned more than `Beacon:Migrations:MaxRows` rows. Split the job or raise the budget. |

@@ -120,6 +120,7 @@ internal partial class MigrationService
                 migrationJob.DestinationTable,
                 transformedData,
                 migrationJob.Mode,
+                migrationJob.Id,
                 progress,
                 cancellationToken);
 
@@ -160,6 +161,7 @@ internal partial class MigrationService
         string destinationTable,
         List<Dictionary<string, object?>> data,
         MigrationMode mode,
+        int migrationJobId,
         MigrationRunProgress progress,
         CancellationToken cancellationToken)
     {
@@ -192,6 +194,7 @@ internal partial class MigrationService
 
         DbConnection? connection = null;
         DbTransaction? transaction = null;
+        var lockHeld = false;
 
         try
         {
@@ -201,6 +204,16 @@ internal partial class MigrationService
 
             // One transaction for the run: the table is resolved, checked and written inside it.
             transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            // The job's destination lock, held for the whole write and taken without waiting: a run whose claim went stale
+            // while another run of the job started cannot write alongside it.
+            if (!await MigrationRunLock.TryAcquireAsync(connection, transaction, databaseEngineType, migrationJobId, cancellationToken))
+            {
+                logger.LogWarning("Migration job {MigrationJobId} wrote nothing: its destination lock is held by another run", migrationJobId);
+                throw new MigrationRunFailedException(DestinationBusyMessage, DestinationBusyReason);
+            }
+
+            lockHeld = true;
 
             // PostgreSQL finds an unqualified name on the connection's search_path: it is resolved there once, so the existence
             // check, the key lookup and the writer all name the same table, never a same-named one in another schema.
@@ -224,26 +237,36 @@ internal partial class MigrationService
                 var target = new MigrationWriteTarget(connection, transaction, schema, table, Constants.Migration.BulkCopyTimeoutSeconds);
                 var rowsWritten = await WriteThroughAsync(writer, target, rows, mode, keyColumns, cancellationToken);
 
-                // Not cancelled once started (by the caller or the run's timeout): the outcome is what the commit did.
+                // Not cancelled once started (by the caller or the run's timeout): the outcome is what the commit did. A
+                // commit that fails leaves it unknown whether the rows were written, so the run says so and nothing is rolled
+                // back or retried.
                 progress.CommitStarted = true;
-                await transaction.CommitAsync(CancellationToken.None);
+                try
+                {
+                    await transaction.CommitAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError("The destination's commit of migration job {MigrationJobId} could not be confirmed ({Failure})", migrationJobId, FailureCodes.Describe(ex));
+                    throw new MigrationRunFailedException(CommitUnknownMessage, CommitUnknownReason, ex);
+                }
 
                 logger.LogInformation("Destination operation completed for table {Table}: {Mode} mode, {Written} written",
                     destinationTable, mode, rowsWritten);
 
                 return rowsWritten;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not MigrationRunFailedException)
             {
                 await transaction.RollbackAsync(CancellationToken.None);
                 throw new InvalidOperationException($"Failed to execute {mode} operation on table '{destinationTable}': {ex.Message}", ex);
             }
         }
-        catch (Exception ex) when (ex.Message.Contains("does not exist"))
+        catch (Exception ex) when (ex is not MigrationRunFailedException && ex.Message.Contains("does not exist"))
         {
             throw new InvalidOperationException($"Destination table '{destinationTable}' does not exist in database '{destinationDataSource.Name}'", ex);
         }
-        catch (Exception ex) when (ex.Message.Contains("connect") || ex.Message.Contains("connection"))
+        catch (Exception ex) when (ex is not MigrationRunFailedException && (ex.Message.Contains("connect") || ex.Message.Contains("connection")))
         {
             throw new InvalidOperationException($"Unable to connect to destination database '{destinationDataSource.Name}': {ex.Message}", ex);
         }
@@ -254,11 +277,30 @@ internal partial class MigrationService
         finally
         {
             transaction?.Dispose();
+            if (lockHeld)
+            {
+                await ReleaseRunLockAsync(connection!, databaseEngineType, migrationJobId);
+            }
+
             if (connection != null)
             {
                 await connection.CloseAsync();
                 await connection.DisposeAsync();
             }
+        }
+    }
+
+    // A session lock (MySQL) is released once the transaction ended; a failed release ends with the session, which the
+    // connection's close ends (a pooled connection is reset before reuse).
+    private async Task ReleaseRunLockAsync(DbConnection connection, DatabaseEngineType engine, int migrationJobId)
+    {
+        try
+        {
+            await MigrationRunLock.ReleaseAsync(connection, engine, migrationJobId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("The destination lock of migration job {MigrationJobId} could not be released ({Failure})", migrationJobId, FailureCodes.Describe(ex));
         }
     }
 }

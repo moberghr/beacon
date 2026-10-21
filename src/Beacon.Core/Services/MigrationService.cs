@@ -12,6 +12,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.DataMigration;
 using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
@@ -70,6 +71,18 @@ internal partial class MigrationService(
 
     /// <summary>The security event reason of a run closed as abandoned.</summary>
     internal const string AbandonedRunReason = "abandoned";
+
+    /// <summary>Why a run whose destination lock another run of the job holds wrote nothing.</summary>
+    internal const string DestinationBusyMessage =
+        "Nothing was written: another run of this job holds its destination's migration lock. Wait for it to end, then run the job again.";
+
+    internal const string DestinationBusyReason = "destination_busy";
+
+    /// <summary>What a run whose destination commit failed records: whether its rows were written is not known.</summary>
+    internal const string CommitUnknownMessage =
+        "The destination's commit could not be confirmed: check the destination table before running this job again.";
+
+    internal const string CommitUnknownReason = "commit_unknown";
 
     private readonly MigrationOptions _options = migrationOptions.Value;
 
@@ -227,9 +240,10 @@ internal partial class MigrationService(
                 var timedOut = !progress.CommitStarted
                     && timeoutSource.IsCancellationRequested
                     && !cancellationToken.IsCancellationRequested;
-                failureCode = timedOut ? "timed_out" : null;
+                var reported = ReportedFailure(ex);
+                failureCode = reported?.ReasonCode ?? (timedOut ? "timed_out" : null);
                 execution.Status = MigrationStatus.Failed;
-                execution.ErrorMessage = timedOut ? TimedOutMessage(timeout) : GetFullExceptionMessage(ex);
+                execution.ErrorMessage = reported?.Message ?? (timedOut ? TimedOutMessage(timeout) : GetFullExceptionMessage(ex));
 
                 logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure}, timed out: {TimedOut})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex), timedOut);
             }
@@ -624,6 +638,20 @@ internal partial class MigrationService(
     private sealed class MigrationRunProgress
     {
         public bool CommitStarted { get; set; }
+    }
+
+    // The failure a run reports as itself (its own message and reason code), wherever it sits in the exception chain.
+    private static MigrationRunFailedException? ReportedFailure(Exception exception)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            if (current is MigrationRunFailedException reported)
+            {
+                return reported;
+            }
+        }
+
+        return null;
     }
 
     private static string TimedOutMessage(TimeSpan timeout) =>

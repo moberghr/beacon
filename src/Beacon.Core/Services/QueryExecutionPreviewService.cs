@@ -123,13 +123,77 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         return ExecuteTemporaryQueryPreviewCore(queryData, parameters, maxRows, cancellationToken);
     }
 
-    // The steps run as given, after the caller's access to each step's source is checked: nothing is stored to run them,
-    // so nothing is left behind if the run is cancelled, and no one can edit them between the check and the run.
+    // The steps run are a detached copy taken before anything is checked: the legacy single-step form (no steps, the SQL and
+    // data source on the query itself) becomes its one step first, and exactly the copy's steps are authorized, validated
+    // and run. Nothing is stored to run them, so nothing is left behind if the run is cancelled, and nothing the caller
+    // changes after the check reaches the run.
     private async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreviewCore(QueryData queryData, List<ParameterValue>? parameters, int? maxRows, CancellationToken cancellationToken)
     {
-        await DemandMayQueryEachStepAsync(queryData.Steps, queryData.FinalQueryDataSourceId, cancellationToken);
+        var snapshot = Snapshot(queryData);
+        await DemandMayQueryEachStepAsync(snapshot.Steps, snapshot.FinalQueryDataSourceId, cancellationToken);
 
-        return await _storedPreview.ExecuteTemporaryQuery(queryData, parameters, maxRows, cancellationToken);
+        return await _storedPreview.ExecuteTemporaryQuery(snapshot, parameters, maxRows, cancellationToken);
+    }
+
+    // A copy of the query's steps (each with its parameters) and final query; never empty: a query without steps is its
+    // legacy single step, from the SQL, data source and parameters it carries.
+    private static QueryData Snapshot(QueryData queryData)
+    {
+        var steps = queryData.Steps.Count > 0
+            ? queryData.Steps
+            :
+            [
+                new QueryStepData
+                {
+                    StepOrder = 1,
+                    Name = "Step 1",
+                    SqlValue = queryData.SqlValue,
+                    DataSourceId = queryData.DataSourceId,
+                    DataSourceName = queryData.DataSourceName,
+                    Parameters = queryData.Parameters
+                        .Select(x =>
+                            new QueryStepParameterData
+                            {
+                                Name = x.Name,
+                                Type = x.Type,
+                                Description = x.Description,
+                                Placeholder = x.Placeholder
+                            })
+                        .ToList()
+                }
+            ];
+
+        return new QueryData
+        {
+            Name = queryData.Name,
+            Description = queryData.Description,
+            FinalQuery = queryData.FinalQuery,
+            FinalQueryDataSourceId = queryData.FinalQueryDataSourceId,
+            Steps = steps
+                .Select(x =>
+                    new QueryStepData
+                    {
+                        StepOrder = x.StepOrder,
+                        Name = x.Name,
+                        Description = x.Description,
+                        SqlValue = x.SqlValue,
+                        DataSourceId = x.DataSourceId,
+                        DataSourceName = x.DataSourceName,
+                        DataSourceType = x.DataSourceType,
+                        DatabaseEngineType = x.DatabaseEngineType,
+                        Parameters = x.Parameters
+                            .Select(y =>
+                                new QueryStepParameterData
+                                {
+                                    Name = y.Name,
+                                    Type = y.Type,
+                                    Description = y.Description,
+                                    Placeholder = y.Placeholder
+                                })
+                            .ToList()
+                    })
+                .ToList()
+        };
     }
 
     // Checked before anything is read, outside the catch that turns failures into results: the stored query needs Run

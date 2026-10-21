@@ -530,6 +530,100 @@ public class MigrationServiceWriterTests
         _destination.Commits.Should().Be(0);
     }
 
+    // The run takes its job's destination lock first, inside its transaction and without waiting, with the job's key as a
+    // parameter: a PostgreSQL transaction-scoped advisory lock.
+    [Test]
+    public async Task APostgreSqlRun_TakesTheJobsAdvisoryLock_InsideItsTransaction_BeforeAnythingElse()
+    {
+        Job(MigrationMode.Insert);
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        var acquire = _destination.Executions.First();
+        acquire.CommandText.Should().Be("SELECT pg_try_advisory_xact_lock(@lockNamespace, @jobId)");
+        acquire.Transaction.Should().NotBeNull().And.BeSameAs(_writer.Calls.Single().Target.Transaction);
+        acquire.Parameters.Should().ContainSingle(x => x.ParameterName == "jobId").Which.Value.Should().Be(JobId);
+    }
+
+    [Test]
+    public async Task ASqlServerRun_TakesTheJobsApplicationLock_OwnedByItsTransaction()
+    {
+        _world.DataSources.First(x => x.Id == WriteTarget).DatabaseEngineType = DatabaseEngineType.MSSQL;
+        Job(MigrationMode.Insert, "sales.orders");
+        var sqlServerWriter = new RecordingMigrationWriter(DatabaseEngineType.MSSQL);
+        var destination = new RecordingDbConnection { Scalar = x => x.Contains("sp_getapplock", StringComparison.Ordinal) ? 0 : 1 };
+        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, _ => destination);
+
+        var result = await Service(MigrationTestWriters.Of(sqlServerWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        var acquire = destination.Executions.First();
+        acquire.CommandText.Should().Contain("sp_getapplock @Resource = @lockResource, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 0");
+        acquire.Transaction.Should().NotBeNull().And.BeSameAs(sqlServerWriter.Calls.Single().Target.Transaction);
+        acquire.Parameters.Should().ContainSingle(x => x.ParameterName == "lockResource").Which.Value.Should().Be($"beacon-migration-{JobId}");
+    }
+
+    // MySQL's lock is the session's: taken without waiting before the write, released after the transaction ended.
+    [Test]
+    public async Task AMySqlRun_TakesTheJobsNamedLock_AndReleasesItAfterTheCommit()
+    {
+        var mySqlWriter = new RecordingMigrationWriter(DatabaseEngineType.MySQL);
+        var destination = MySqlDestination(new RecordingDbConnection { Scalar = _ => 1L });
+        Job(MigrationMode.Insert);
+
+        var result = await Service(MigrationTestWriters.Of(mySqlWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        destination.ExecutedCommands.First().Should().Be("SELECT GET_LOCK(@lockResource, 0)");
+        destination.ExecutedCommands.Last().Should().Be("SELECT RELEASE_LOCK(@lockResource)");
+        destination.Executions.Last().Parameters.Should().ContainSingle().Which.Value.Should().Be($"beacon-migration-{JobId}");
+        destination.Commits.Should().Be(1);
+    }
+
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    [TestCase(DatabaseEngineType.MySQL)]
+    public async Task ARunWhoseDestinationLockIsHeld_FailsAndWritesNothing(DatabaseEngineType engine)
+    {
+        object? busy = engine switch
+        {
+            DatabaseEngineType.PostgreSQL => false,
+            DatabaseEngineType.MSSQL => -1,
+            _ => 0L
+        };
+        var destination = new RecordingDbConnection
+        {
+            Scalar = x => x.Contains("lock", StringComparison.OrdinalIgnoreCase) && !x.Contains("RELEASE", StringComparison.Ordinal) ? busy : OnSearchPath(x)
+        };
+        _world.DataSources.First(x => x.Id == WriteTarget).DatabaseEngineType = engine;
+        DbConnectionFactory.Register(engine, _ => destination);
+        var writer = new RecordingMigrationWriter(engine);
+        Job(MigrationMode.Truncate);
+
+        var result = await Service(MigrationTestWriters.Of(writer)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationService.DestinationBusyMessage);
+        writer.Calls.Should().BeEmpty();
+        destination.Commits.Should().Be(0);
+        destination.ExecutedCommands.Should().NotContain(x => x.Contains("RELEASE_LOCK", StringComparison.Ordinal), "a lock not taken is not released");
+    }
+
+    // A commit that fails leaves it unknown whether the rows were written: the run says so, and is not rolled back.
+    [Test]
+    public async Task ACommitThatFails_IsRecordedAsUnconfirmed_AndNotRolledBack()
+    {
+        Destination(new RecordingDbConnection { Scalar = OnSearchPath, FailCommitWith = new InvalidOperationException("the network went away") });
+        Job(MigrationMode.Insert);
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationService.CommitUnknownMessage);
+        _destination.Rollbacks.Should().Be(0);
+    }
+
     // The schema PostgreSQL resolves a name to, for a table that is on the search_path, and true for every other check.
     private static object? OnSearchPath(string sql) =>
         sql.Contains("current_schemas", StringComparison.Ordinal) ? "public" : true;
