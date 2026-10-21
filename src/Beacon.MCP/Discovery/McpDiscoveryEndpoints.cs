@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 
 namespace Beacon.MCP.Discovery;
@@ -160,7 +161,7 @@ public static class McpDiscoveryEndpoints
     private static IResult HandleProtectedResourceMetadata(HttpContext context, IConfiguration configuration)
     {
         var baseUrl = ResolvePublicBaseUrl(context.Request, configuration);
-        var options = GetProtectedResourceOptions(configuration);
+        var options = GetProtectedResourceOptions(context.RequestServices, configuration);
         var authorizationServers = McpDiscoveryDocuments.ResolveAuthorizationServers(
             options,
             context.RequestServices.GetService<JwtAuthenticationOptions>(),
@@ -177,17 +178,39 @@ public static class McpDiscoveryEndpoints
     private static IResult HandleServerCard(HttpContext context, IConfiguration configuration)
     {
         var baseUrl = ResolvePublicBaseUrl(context.Request, configuration);
-        var scopes = McpDiscoveryDocuments.ResolveScopesSupported(GetProtectedResourceOptions(configuration));
+        var scopes = McpDiscoveryDocuments.ResolveScopesSupported(GetProtectedResourceOptions(context.RequestServices, configuration));
 
-        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl, scopes);
+        var builtInTools = context.RequestServices.GetService<BeaconMcpOptions>()?.BuiltInTools.ToList();
+        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl, scopes, builtInTools);
         context.Response.Headers.CacheControl = CacheControlValue;
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
-    private static McpProtectedResourceOptions GetProtectedResourceOptions(IConfiguration configuration)
+    // Bound from configuration on every request, so a changed value applies at once, then completed by code: the host or
+    // a Beacon composition (the MCP gateway's Entra defaults) contributes with services.Configure/PostConfigure.
+    private static McpProtectedResourceOptions GetProtectedResourceOptions(IServiceProvider services, IConfiguration configuration)
     {
-        return configuration.GetSection(McpProtectedResourceOptions.SectionName).Get<McpProtectedResourceOptions>()
+        var options = configuration.GetSection(McpProtectedResourceOptions.SectionName).Get<McpProtectedResourceOptions>()
             ?? new McpProtectedResourceOptions();
+
+        foreach (var configure in services.GetServices<IConfigureOptions<McpProtectedResourceOptions>>())
+        {
+            if (configure is IConfigureNamedOptions<McpProtectedResourceOptions> named)
+            {
+                named.Configure(Options.DefaultName, options);
+            }
+            else
+            {
+                configure.Configure(options);
+            }
+        }
+
+        foreach (var postConfigure in services.GetServices<IPostConfigureOptions<McpProtectedResourceOptions>>())
+        {
+            postConfigure.PostConfigure(Options.DefaultName, options);
+        }
+
+        return options;
     }
 
     private static string? GetOidcAuthority(IConfiguration configuration)
@@ -202,11 +225,23 @@ public static class McpDiscoveryEndpoints
     // scopes it does not know, is logged once rather than discovered from a failing connector.
     private static void WarnOnIncompleteProtectedResourceOptions(IServiceProvider services, IConfiguration configuration, ILogger logger)
     {
-        var options = GetProtectedResourceOptions(configuration);
+        var options = GetProtectedResourceOptions(services, configuration);
         var authorizationServers = McpDiscoveryDocuments.ResolveAuthorizationServers(
             options,
             services.GetService<JwtAuthenticationOptions>(),
             GetOidcAuthority(configuration));
+
+        // Entra issues a refresh token only for offline_access: a published api:// scope without it has an OAuth client
+        // (Claude's connector) send the person through sign-in again every time the hour-long access token expires.
+        if (options.ScopesSupported.Any(x => x.StartsWith("api://", StringComparison.OrdinalIgnoreCase))
+            && !options.ScopesSupported.Contains(McpDiscoveryDocuments.OfflineAccessScope, StringComparer.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                "{Section}:ScopesSupported publishes an api:// scope but not {OfflineAccess}: clients cannot refresh their token and will ask people to sign in again every hour. Add {OfflineAccess} to the list.",
+                McpProtectedResourceOptions.SectionName,
+                McpDiscoveryDocuments.OfflineAccessScope,
+                McpDiscoveryDocuments.OfflineAccessScope);
+        }
 
         if (options.DeriveAuthorizationServerFromJwtIssuer && options.AuthorizationServers.Count == 0 && authorizationServers.Count == 0)
         {

@@ -35,7 +35,7 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
 
-The mapped principal carries `auth_method=mcp_caller`, so the Execute-scope rules for scoped callers apply to it as they do to API keys. A browser session (cookie or SSO) is not a scoped caller and reaches no project on `/beacon/mcp`; browsers use the [MCP Playground](/features/mcp-server/#mcp-playground).
+The mapped principal carries `auth_method=mcp_caller`, so the Execute-scope rules for scoped callers apply to it as they do to API keys. A browser session (cookie or SSO, Beacon's or the host's) is not a scoped caller and is refused on `/beacon/mcp` with `403`; browsers use the [MCP Playground](/features/mcp-server/#mcp-playground).
 
 ### What a caller reaches
 

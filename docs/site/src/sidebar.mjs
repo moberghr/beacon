@@ -37,6 +37,7 @@ export const SECTIONS = [
       'Embed Beacon in your own ASP.NET Core application: packages, host wiring, database, sign-in, access control, jobs, connectors, AI, MCP and production.',
     items: [
       { label: 'Integration overview', slug: 'integrate' },
+      { label: 'MCP gateway for your app', slug: 'integrate/gateway' },
       { label: 'Packages', slug: 'integrate/packages' },
       { label: 'Host wiring', slug: 'integrate/host-setup' },
       { label: 'Metadata database', slug: 'integrate/database' },

@@ -8,6 +8,8 @@ export interface PermissionsFixture {
   permissions?: BeaconPermission[];
   /** Whether the deployment runs data migrations; on unless a test turns it off. */
   migrationsEnabled?: boolean;
+  /** Whether Beacon runs as an MCP gateway; off unless a test turns it on. */
+  gatewayMode?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ export function permissionsHandler(fixture: PermissionsFixture = {}) {
       isAdmin,
       permissions: isAdmin ? [...BEACON_PERMISSIONS] : fixture.permissions ?? [],
       migrationsEnabled: fixture.migrationsEnabled ?? true,
+      gatewayMode: fixture.gatewayMode ?? false,
     }),
   );
 }

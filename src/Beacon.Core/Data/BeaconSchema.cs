@@ -26,6 +26,27 @@ public static class BeaconSchema
         return schema;
     }
 
+    /// <summary>
+    /// Creates the schema when <paramref name="createSchema"/> is set and applies Beacon's pending migrations through
+    /// <paramref name="context"/> — what <c>UseBeacon</c> does, for a context a migration process built without composing
+    /// Beacon (<c>BeaconPostgreSqlMigrator</c>, <c>BeaconSqlServerMigrator</c>). Idempotent.
+    /// </summary>
+    public static async Task MigrateAsync(DbContext context, bool createSchema, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        // Validated before any DDL, as UseBeacon does.
+        var schema = ValidateIdentifier(Resolve(context) ?? "beacon");
+        if (createSchema)
+        {
+#pragma warning disable EF1002 // identifier validated above; DDL cannot take parameters
+            await context.Database.ExecuteSqlRawAsync(CreateSchemaStatement(context.Database.ProviderName, schema), cancellationToken);
+#pragma warning restore EF1002
+        }
+
+        await context.Database.MigrateAsync(cancellationToken);
+    }
+
     internal static string CreateSchemaStatement(string? providerName, string schema)
     {
         ValidateIdentifier(schema);

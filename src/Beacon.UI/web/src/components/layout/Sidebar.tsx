@@ -22,6 +22,7 @@ import {
   Settings as IconCog,
   Info as IconInfo,
   ScrollText as IconAudit,
+  Activity as IconMcpAudit,
   ChevronDown,
   LogOut as IconLogOut,
   type LucideIcon,
@@ -53,6 +54,9 @@ interface NavSection {
   label: string;
   items: NavItem[];
 }
+
+/** The pages the MCP gateway's admin UI serves (everything else answers 404 there). */
+const GATEWAY_SLUGS = ['projects', 'mcp-settings', 'mcp-learning', 'mcp-audit'];
 
 const SECTIONS: NavSection[] = [
   {
@@ -100,6 +104,7 @@ const SECTIONS: NavSection[] = [
       { name: 'MCP Settings', Icon: IconSliders, slug: 'mcp-settings', visible: opensFor('Auditor', 'SecurityAdmin') },
       { name: 'MCP Playground', Icon: IconWand, slug: 'mcp-playground' },
       { name: 'MCP Learning', Icon: IconLightbulb, slug: 'mcp-learning' },
+      { name: 'MCP Audit', Icon: IconMcpAudit, slug: 'mcp-audit', visible: opensFor('Auditor') },
     ],
   },
   {
@@ -134,7 +139,7 @@ export function Sidebar() {
   const { data: user } = useAuth();
   const access = useAccess();
   const sections = SECTIONS
-    .map(section => ({ ...section, items: section.items.filter(item => (item.visible ?? readsProjectData)(access)) }))
+    .map(section => ({ ...section, items: section.items.filter(item => (!access.gatewayMode || GATEWAY_SLUGS.includes(item.slug)) && (item.visible ?? readsProjectData)(access)) }))
     .filter(section => section.items.length > 0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);

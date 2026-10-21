@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -160,18 +161,6 @@ internal sealed class HostEndpointToolService(
             return ToolHelper.Error(refused);
         }
 
-        HostEndpointRequestParts parts;
-        try
-        {
-            parts = HostEndpointRequestBuilder.Build(tool, arguments);
-        }
-        catch (HostEndpointArgumentException ex)
-        {
-            await AuditAsync(auditTool, arguments, access.ProjectId, sw, ex.Message);
-
-            return ToolHelper.Error(ex.Message);
-        }
-
         var principal = await principalFactory.CreateAsync(access.Caller!, access.McpPrincipal!, cancellationToken);
         if (principal == null)
         {
@@ -179,6 +168,18 @@ internal sealed class HostEndpointToolService(
             await AuditAsync(auditTool, arguments, access.ProjectId, sw, refused);
 
             return ToolHelper.Error(refused);
+        }
+
+        HostEndpointRequestParts parts;
+        try
+        {
+            parts = HostEndpointRequestBuilder.Build(tool, arguments, CallerValues(tool, principal));
+        }
+        catch (HostEndpointArgumentException ex)
+        {
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, ex.Message);
+
+            return ToolHelper.Error(ex.Message);
         }
 
         HostEndpointDispatchResult result;
@@ -196,6 +197,22 @@ internal sealed class HostEndpointToolService(
         await AuditAsync(auditTool, arguments, access.ProjectId, sw, auditError);
 
         return toolResult;
+    }
+
+    // The values the host principal carries for the tool's caller-bound arguments; one it lacks is left out, and the
+    // request builder refuses the call for it.
+    private Dictionary<string, string> CallerValues(HostEndpointToolDescriptor tool, ClaimsPrincipal principal)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var binding in tool.CallerBindings)
+        {
+            if (options.CallerBindings.TryGetValue(binding.Name, out var read) && read(principal) is { Length: > 0 } value)
+            {
+                values[binding.Name] = value;
+            }
+        }
+
+        return values;
     }
 
     /// <summary>

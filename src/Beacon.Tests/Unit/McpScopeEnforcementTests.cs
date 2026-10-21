@@ -77,15 +77,44 @@ public class McpScopeEnforcementTests
         result.IsError.Should().NotBe(true);
     }
 
-    [Test]
-    public async Task CallerWithoutAScopeMarker_ReachesTheTool()
+    [TestCase("Beacon.Auth")]
+    [TestCase("Cookies")]
+    public async Task ABrowserSession_IsRefused_BeforeTheTool(string authenticationType)
     {
         var toolRan = false;
-        var cookie = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "ext-ada")], "Beacon.Auth"));
 
-        await InvokeAsync(cookie, () => toolRan = true);
+        var result = await InvokeAsync(BrowserSession(authenticationType), () => toolRan = true);
 
-        toolRan.Should().BeTrue();
+        toolRan.Should().BeFalse("MCP takes an API key or a mapped bearer token, never a signed-in session, Beacon's or the host's");
+        result.IsError.Should().BeTrue();
+        HostEndpointDispatchTests.Text(result).Should().Be(McpScopeCallToolFilter.SessionMessage);
+    }
+
+    [Test]
+    public async Task MessageFilter_RefusesABrowserSession()
+    {
+        var nextRan = false;
+
+        var act = () => InvokeMessageFilterAsync(new JsonRpcRequest { Method = "tools/list" }, BrowserSession("Cookies"), () => nextRan = true);
+
+        (await act.Should().ThrowAsync<McpProtocolException>())
+            .Which.Message.Should().Be(McpScopeCallToolFilter.SessionMessage);
+        nextRan.Should().BeFalse();
+    }
+
+    [TestCase("api_key", true)]
+    [TestCase("mcp_caller", true)]
+    [TestCase("jwt", false)]
+    [TestCase(null, false)]
+    public async Task TheRoutesCredentialPolicy_AdmitsOnlyScopedCallers(string? authMethod, bool admitted)
+    {
+        using var services = new ServiceCollection().AddLogging().AddAuthorization().BuildServiceProvider();
+        var authorization = services.GetRequiredService<IAuthorizationService>();
+        var principal = authMethod == null ? BrowserSession("Cookies") : ScopedCaller(authMethod, "Execute");
+
+        var result = await authorization.AuthorizeAsync(principal, resource: null, BeaconMcpEndpointRouteBuilderExtensions.McpCredentialPolicy);
+
+        result.Succeeded.Should().Be(admitted);
     }
 
     [Test]
@@ -470,6 +499,14 @@ public class McpScopeEnforcementTests
 
         directory.Should().NotBeNull("the tests run inside the repository");
         return System.IO.Path.Combine(directory!.FullName, "src", "Beacon.SampleProject", "Program.cs");
+    }
+
+    // A signed-in session as a cookie or SSO sign-in presents it, here with the Admin role a host's sign-in might add.
+    private static ClaimsPrincipal BrowserSession(string authenticationType)
+    {
+        Claim[] claims = [new(ClaimTypes.NameIdentifier, "ext-ada"), new(ClaimTypes.Role, RoleService.RoleNames.Admin)];
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType));
     }
 
     private static ClaimsPrincipal ScopedCaller(string authMethod, string? scope)

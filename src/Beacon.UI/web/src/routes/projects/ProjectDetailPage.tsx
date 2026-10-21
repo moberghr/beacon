@@ -109,11 +109,13 @@ export default function ProjectDetailPage() {
   }
 
   // Linking needs the project-admin role (an Admin has it everywhere), whoever manages membership.
-  const canLink = project.myRole === ProjectRole.ProjectAdmin;
+  const canLink = project.myRole === ProjectRole.ProjectAdmin && !access.gatewayMode;
   // A UserAdmin manages the members of any project whose membership Beacon keeps, without being its project admin.
+  // The MCP gateway serves neither membership, linking, AI actors nor documentation curation.
   const showMembers =
-    project.canManageMembers ||
-    (access.hasPermission('UserAdmin') && project.membershipManagement === ProjectMembershipManagement.Beacon);
+    !access.gatewayMode &&
+    (project.canManageMembers ||
+      (access.hasPermission('UserAdmin') && project.membershipManagement === ProjectMembershipManagement.Beacon));
 
   const tabs: TabDef<TabKey>[] = [
     { key: 'overview', label: <><Layers size={13} /> Overview</> },
@@ -121,7 +123,7 @@ export default function ProjectDetailPage() {
     ...(showMembers ? [{ key: 'members' as const, label: <><Users size={13} /> Members</> }] : []),
     { key: 'repositories', label: <><GitBranch size={13} /> Repositories</>, count: project.repositories.length },
     { key: 'documentation', label: <><BookOpen size={13} /> Documentation</> },
-    { key: 'aiActors', label: <><Bot size={13} /> AI Actors</> },
+    ...(access.gatewayMode ? [] : [{ key: 'aiActors' as const, label: <><Bot size={13} /> AI Actors</> }]),
   ];
 
   return (
@@ -142,7 +144,7 @@ export default function ProjectDetailPage() {
         }
       />
 
-      {access.hasPermission('UserAdmin') && <AccessCard project={project} canUnlink={access.isAdmin} canOpen={access.isAdmin} />}
+      {!access.gatewayMode && access.hasPermission('UserAdmin') && <AccessCard project={project} canUnlink={access.isAdmin} canOpen={access.isAdmin} />}
 
       {project.description && (
         <Card>
@@ -190,8 +192,8 @@ export default function ProjectDetailPage() {
         {tab === 'repositories' && (
           <RepositoriesTab repositories={project.repositories} canSetToken={access.hasPermission('SecurityAdmin')} />
         )}
-        {tab === 'documentation' && <DocumentationTab projectId={project.id} />}
-        {tab === 'aiActors' && <AiActorsTab projectId={project.id} dataSources={project.dataSources} />}
+        {tab === 'documentation' && <DocumentationTab projectId={project.id} canCurateHere={!access.gatewayMode} />}
+        {tab === 'aiActors' && !access.gatewayMode && <AiActorsTab projectId={project.id} dataSources={project.dataSources} />}
       </Card>
 
       {canLink && (
@@ -583,7 +585,7 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
 
 // --- Documentation tab ------------------------------------------------
 
-function DocumentationTab({ projectId }: { projectId: number }) {
+function DocumentationTab({ projectId, canCurateHere }: { projectId: number; canCurateHere: boolean }) {
   const { data, isLoading, isError, error } = useProjectDocumentationQuery(projectId);
   const [editing, setEditing] = useState<ProjectDocSectionEntry | null>(null);
 
@@ -619,7 +621,7 @@ function DocumentationTab({ projectId }: { projectId: number }) {
   const sections = [...latest.sections].sort((a, b) => a.sortOrder - b.sortOrder);
   // Editing a section or regenerating the documentation changes what every caller's prompts are grounded on: a project
   // admin's (or an Admin's) to do.
-  const canCurate = data?.canCurate === true;
+  const canCurate = canCurateHere && data?.canCurate === true;
 
   return (
     <>

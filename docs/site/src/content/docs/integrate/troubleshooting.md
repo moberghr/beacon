@@ -64,8 +64,8 @@ description: "Startup failures, empty pages, 401s and 404s, jobs that do nothing
 | Symptom | Cause | Fix |
 |---|---|---|
 | 401 | No or invalid key/token. | Send `Authorization: Bearer sk-sem_…`. |
-| 403 | Read-scoped key, or an unmapped JWT caller. | Use an Execute key, or map the caller. |
-| "No projects are available to you." | The key names no reachable project, or it is a browser session. | Create the key with a project; browsers use the playground. |
+| 403 | Read-scoped key, an unmapped JWT caller, or a signed-in browser session. | Use an Execute key or map the caller; browsers use the MCP playground. |
+| "No projects are available to you." | The key names no reachable project. | Create the key with a project. |
 | "Project access could not be determined; retry the call." | A transient failure while resolving access. | Retry; check the database. |
 | Discovery documents show the wrong host | `Beacon:PublicBaseUrl` unset behind a proxy. | Set it. |
 | Calls fail randomly across instances | Legacy MCP sessions without affinity. | Enable session affinity for `/beacon/mcp`. |

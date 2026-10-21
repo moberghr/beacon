@@ -15,6 +15,9 @@ public sealed class McpProtectedResourceOptions
 {
     public const string SectionName = "Beacon:Mcp:ProtectedResource";
 
+    /// <summary>The OpenID scope that makes an identity provider issue a refresh token with the access token.</summary>
+    public const string OfflineAccessScope = "offline_access";
+
     /// <summary>
     /// Authorization server issuer identifiers to publish, verbatim and in order (clients use the first), e.g.
     /// <c>https://login.microsoftonline.com/{tenant-id}/v2.0</c>. Each must equal the <c>issuer</c> of the server's

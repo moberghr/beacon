@@ -465,8 +465,9 @@ export function useLearnedPatternsList() {
 }
 
 /** Documentation patches: server-paged, best supported first (`patches*` in the URL). */
-export function useDocumentationPatchesList() {
+export function useDocumentationPatchesList(enabled = true) {
   return usePagedList<DocumentationPatchEntry>({
+    enabled,
     queryKey: MCP_PATCHES_KEY,
     path: '/beacon/api/mcp/documentation-patches',
     urlPrefix: 'patches',

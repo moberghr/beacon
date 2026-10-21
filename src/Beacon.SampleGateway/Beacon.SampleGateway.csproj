@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <!-- The reference MCP gateway host: a small application that embeds Beacon with AddBeaconMcpGateway. A sample, never
+         packed or shipped. -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Beacon.SampleGateway</RootNamespace>
+        <UserSecretsId>beacon-sample-gateway</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Beacon.Gateway\Beacon.Gateway.csproj" />
+        <ProjectReference Include="..\Beacon.Core.PostgreSql\Beacon.Core.PostgreSql.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Content Update="docs\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+</Project>

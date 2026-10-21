@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Metadata;
@@ -130,6 +131,13 @@ internal sealed class HostEndpointDispatcher(
                 pipeline = () => middleware.InvokeAsync(httpContext, caller, next, linked.Token);
             }
 
+            // Outermost, where the host's UseExceptionHandler() would sit around its own pipeline.
+            if (options.UseHostExceptionHandlers)
+            {
+                var guarded = pipeline;
+                pipeline = () => HandleWithHostExceptionHandlersAsync(httpContext, responseBody, guarded, scope.ServiceProvider, linked.Token);
+            }
+
             invocation = pipeline();
             await invocation.WaitAsync(linked.Token);
 
@@ -185,6 +193,62 @@ internal sealed class HostEndpointDispatcher(
             {
                 await CleanupAsync(scope, accessor, timeout, linked);
             }
+        }
+    }
+
+    /// <summary>
+    /// What <c>UseExceptionHandler()</c> does, for a dispatched call that runs no host middleware: an exception the
+    /// endpoint (or a host dispatch middleware) throws goes through the host's <see cref="IExceptionHandler"/>s in
+    /// registration order, with the response cleared and <see cref="IExceptionHandlerFeature"/> set, and the first that
+    /// handles it writes the response the tool result carries — the 403, 404 or 400 problem a browser would get. A
+    /// cancelled call, a response past the size cap, and an exception no handler takes propagate as before.
+    /// </summary>
+    private static async Task HandleWithHostExceptionHandlersAsync(
+        HttpContext httpContext,
+        CappedResponseStream responseBody,
+        Func<Task> next,
+        IServiceProvider services,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await next();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!responseBody.Exceeded && !httpContext.Response.HasStarted)
+        {
+            var handlers = services.GetServices<IExceptionHandler>().ToList();
+            if (handlers.Count == 0)
+            {
+                throw;
+            }
+
+            // As ExceptionHandlerMiddleware does: a handler that takes the exception but writes no status still answers 500.
+            httpContext.Response.Clear();
+            responseBody.Discard();
+            httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            var feature = new ExceptionHandlerFeature
+            {
+                Error = exception,
+                Path = httpContext.Request.Path,
+                Endpoint = httpContext.GetEndpoint(),
+                RouteValues = httpContext.Request.RouteValues
+            };
+            httpContext.Features.Set<IExceptionHandlerFeature>(feature);
+            httpContext.Features.Set<IExceptionHandlerPathFeature>(feature);
+
+            foreach (var handler in handlers)
+            {
+                if (await handler.TryHandleAsync(httpContext, exception, cancellationToken))
+                {
+                    return;
+                }
+            }
+
+            throw;
         }
     }
 
@@ -425,6 +489,9 @@ internal sealed class CappedResponseStream(int maxBytes) : Stream
     }
 
     public byte[] ToArray() => _buffer.ToArray();
+
+    /// <summary>Drops what was written so far, as clearing a response that has not started does.</summary>
+    public void Discard() => _buffer.SetLength(0);
 
     public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
 

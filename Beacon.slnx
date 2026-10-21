@@ -10,6 +10,7 @@
     <File Path="README.md" />
   </Folder>
   <Folder Name="/Test/">
+    <Project Path="src/Beacon.SampleGateway/Beacon.SampleGateway.csproj" />
     <Project Path="src/Beacon.SampleProject/Beacon.SampleProject.csproj" />
   </Folder>
   <Project Path="src/Beacon.AI.Bedrock/Beacon.AI.Bedrock.csproj" />
@@ -28,7 +29,10 @@
   <Project Path="src/Beacon.Core.PostgreSql/Beacon.Core.PostgreSql.csproj" />
   <Project Path="src/Beacon.Core.SqlServer/Beacon.Core.SqlServer.csproj" />
   <Project Path="src/Beacon.Core/Beacon.Core.csproj" />
+  <Project Path="src/Beacon.Doctor/Beacon.Doctor.csproj" />
+  <Project Path="src/Beacon.Gateway/Beacon.Gateway.csproj" />
   <Project Path="src/Beacon.MCP/Beacon.MCP.csproj" />
+  <Project Path="src/Beacon.Testing/Beacon.Testing.csproj" />
   <Project Path="src/Beacon.Tests/Beacon.Tests.csproj" />
   <Project Path="src/Beacon.UI/Beacon.UI.csproj" />
 </Solution>

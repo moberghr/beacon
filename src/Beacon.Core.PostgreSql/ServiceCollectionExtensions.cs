@@ -75,7 +75,8 @@ public static class ServiceCollectionExtensions
     /// <c>SET search_path TO beacon, public</c> on each connection it opens, so its unqualified names resolve
     /// to the <c>beacon</c> schema and pgvector in <c>public</c>. Npgsql discards that setting when the connection
     /// returns to the pool, so the data source must keep connection reset on (no <c>No Reset On Close</c>) and
-    /// must not use <c>Multiplexing</c>.
+    /// must not use <c>Multiplexing</c>; Beacon refuses one that does the first time it builds its context, since the
+    /// setting would otherwise leak into the host's own queries.
     /// </para>
     /// <para>
     /// No pgvector type mapping (<c>UseVector()</c>) is needed on the data source: Beacon never reads or binds the
@@ -107,7 +108,13 @@ public static class ServiceCollectionExtensions
         // instead cast with a ::vector string literal and use the <=> operator.
         builder.Services.AddDbContextFactory<PostgreSqlBeaconContext>((sp, options) =>
         {
-            options.UseNpgsql(dataSourceFactory(sp),
+            var dataSource = dataSourceFactory(sp);
+            if (setSearchPathOnOpen)
+            {
+                RequireConnectionResetOnReturn(dataSource);
+            }
+
+            options.UseNpgsql(dataSource,
                     o => o.MigrationsHistoryTable("__EFMigrationsHistory", schema))
                    .UseSnakeCaseNamingConvention()
                    .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>())
@@ -134,6 +141,31 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext());
 
         return builder.Services;
+    }
+
+    /// <summary>
+    /// Beacon sets its search path on every connection it opens from a host's data source and relies on Npgsql resetting
+    /// the connection when it returns to the pool. With <c>No Reset On Close</c> the next host query on that physical
+    /// connection would run against Beacon's schema; with <c>Multiplexing</c> the setting leaks into commands sharing it.
+    /// </summary>
+    internal static void RequireConnectionResetOnReturn(NpgsqlDataSource dataSource)
+    {
+        var settings = new NpgsqlConnectionStringBuilder(dataSource.ConnectionString);
+
+        if (settings.Multiplexing)
+        {
+            throw new InvalidOperationException(
+                "Beacon cannot share this NpgsqlDataSource: Multiplexing is on, so the search path Beacon sets on a connection would "
+                + "leak into the host's commands on it. Turn Multiplexing off, or give Beacon a data source of its own.");
+        }
+
+        if (settings.NoResetOnClose)
+        {
+            throw new InvalidOperationException(
+                "Beacon cannot share this NpgsqlDataSource: No Reset On Close is on, so the search path Beacon sets would survive the "
+                + "connection's return to the pool and redirect the host's next query on it. Turn it off, or give Beacon a data "
+                + "source of its own.");
+        }
     }
 
     private class BeaconContextFactoryAdapter : IDbContextFactory<BeaconContext>

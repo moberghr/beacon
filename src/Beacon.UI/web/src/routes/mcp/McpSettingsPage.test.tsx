@@ -670,4 +670,19 @@ describe('McpSettingsPage', () => {
 
     expect(screen.queryByRole('button', { name: 'Settings scope' })).not.toBeInTheDocument();
   });
+
+  it('does not offer saving the global defaults in gateway mode, but keeps the project overrides editable', async () => {
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
+    renderWithProviders(<McpSettingsPage />);
+
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    expect(screen.queryByText('Save settings')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Guardrails'));
+    expect(screen.getByLabelText('Statement timeout (s)')).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings scope' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Acme Analytics' }));
+    expect(await screen.findByText('Save overrides')).toBeInTheDocument();
+    expect(screen.getByLabelText('Override Max row limit')).toBeEnabled();
+  });
 });

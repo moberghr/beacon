@@ -42,6 +42,10 @@ public static class ServiceConfiguration
         services.AddHttpContextAccessor();
         services.TryAddScoped<IBeaconUserContext, HttpContextUserContext>();
 
+        // Who acts, for the audit columns Beacon's endpoints fill: as AddBeaconCookieAuthentication registers it, so a host
+        // that signs people in its own way (or embeds Beacon as an MCP gateway) records its administrators too.
+        services.TryAddScoped<IActorUserResolver, ActorUserResolver>();
+
         // Core reads the request's caller through IBeaconRequestPrincipal; this replaces only Core's
         // off-request default, so a principal the host registered itself stays.
         services.TryUseRequestPrincipal<Beacon.Shared.Http.HttpContextRequestPrincipal>();

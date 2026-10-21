@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing.Patterns;
 
@@ -19,11 +21,17 @@ internal sealed class HostEndpointArgumentException(string message) : Exception(
 /// <summary>
 /// Validates MCP arguments against a tool's parameters and turns them into a path (from the endpoint's route
 /// pattern, URL-encoded), a query string, declared headers only, and a JSON or form body. Unknown and missing
-/// required arguments are rejected before anything is dispatched.
+/// required arguments are rejected before anything is dispatched. Caller-bound arguments
+/// (<see cref="HostEndpointToolDescriptor.CallerBindings"/>) are not the agent's: they take
+/// <paramref name="callerValues"/>, the values the host principal carries for them.
 /// </summary>
 internal static class HostEndpointRequestBuilder
 {
-    public static HostEndpointRequestParts Build(HostEndpointToolDescriptor tool, IDictionary<string, JsonElement>? arguments)
+    /// <param name="callerValues">The caller's value of each of the tool's caller-bound arguments, by name.</param>
+    public static HostEndpointRequestParts Build(
+        HostEndpointToolDescriptor tool,
+        IDictionary<string, JsonElement>? arguments,
+        IReadOnlyDictionary<string, string>? callerValues = null)
     {
         var supplied = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
         foreach (var argument in arguments ?? new Dictionary<string, JsonElement>())
@@ -63,13 +71,15 @@ internal static class HostEndpointRequestBuilder
         var form = new List<KeyValuePair<string, string>>();
         string? jsonBody = null;
 
-        foreach (var parameter in tool.Parameters)
-        {
-            if (!supplied.TryGetValue(parameter.ArgumentName, out var value))
-            {
-                continue;
-            }
+        var bound = tool.CallerBindings
+            .Where(x => x.Parameter != null)
+            .Select(x => (x.Parameter!, Value: JsonSerializer.SerializeToElement(CallerValue(callerValues, x.Name))));
+        var asked = tool.Parameters
+            .Where(x => supplied.ContainsKey(x.ArgumentName))
+            .Select(x => (x, Value: supplied[x.ArgumentName]));
 
+        foreach (var (parameter, value) in asked.Concat(bound))
+        {
             if (parameter.Source == HostEndpointParameterSource.Body)
             {
                 jsonBody = value.GetRawText();
@@ -77,6 +87,11 @@ internal static class HostEndpointRequestBuilder
             }
 
             var pairs = Pairs(parameter, value);
+            if (parameter.Shape == HostEndpointParameterShape.RawFields)
+            {
+                RefuseCallerBoundFields(tool, pairs.Select(x => x.Key));
+            }
+
             switch (parameter.Source)
             {
                 case HostEndpointParameterSource.Route:
@@ -96,10 +111,87 @@ internal static class HostEndpointRequestBuilder
             }
         }
 
+        jsonBody = WithCallerBoundProperties(tool, jsonBody, callerValues);
+
         var routeValues = BuildRouteValues(tool.Endpoint.RoutePattern, routeArguments);
         var path = BuildPath(tool.Endpoint.RoutePattern, routeValues);
 
         return new HostEndpointRequestParts(path, BuildQueryString(query), routeValues, headers, form, jsonBody);
+    }
+
+    // A field the agent names after a caller-bound argument, in any casing, would compete with the caller's value: refused.
+    private static void RefuseCallerBoundFields(HostEndpointToolDescriptor tool, IEnumerable<string> names)
+    {
+        var bound = tool.CallerBindings
+            .Select(x => x.BodyProperty ?? x.Name)
+            .Concat(tool.CallerBoundNames)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var supplied = names
+            .Where(bound.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+        if (supplied.Count > 0)
+        {
+            throw new HostEndpointArgumentException($"Invalid arguments: {string.Join(", ", supplied)} is filled from the caller and cannot be sent.");
+        }
+    }
+
+    private static string CallerValue(IReadOnlyDictionary<string, string>? callerValues, string name) =>
+        callerValues != null && callerValues.TryGetValue(name, out var value)
+            ? value
+            : throw new HostEndpointArgumentException($"Forbidden: the host application gives this caller no value for '{name}'.");
+
+    // The caller-bound properties of the JSON body, written over whatever the agent sent for them, as their schema type.
+    private static string? WithCallerBoundProperties(
+        HostEndpointToolDescriptor tool,
+        string? jsonBody,
+        IReadOnlyDictionary<string, string>? callerValues)
+    {
+        var properties = tool.CallerBindings
+            .Where(x => x.BodyProperty != null)
+            .ToList();
+        var agentBody = jsonBody == null ? null : JsonNode.Parse(jsonBody);
+
+        // JSON binding matches property names ignoring case, so the agent's key in any casing would compete with the bound one.
+        if (agentBody is JsonObject sent)
+        {
+            RefuseCallerBoundFields(tool, sent.Select(x => x.Key));
+        }
+
+        if (properties.Count == 0)
+        {
+            return jsonBody;
+        }
+
+        if ((agentBody ?? new JsonObject()) is not JsonObject body)
+        {
+            throw new HostEndpointArgumentException("Invalid arguments: the request body must be an object.");
+        }
+
+        foreach (var property in properties)
+        {
+            body[property.BodyProperty!] = TypedValue(property, CallerValue(callerValues, property.Name));
+        }
+
+        return body.ToJsonString();
+    }
+
+    private static JsonNode TypedValue(HostEndpointCallerBinding binding, string value)
+    {
+        switch (binding.BodyType)
+        {
+            case "integer" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer):
+                return JsonValue.Create(integer);
+            case "number" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number):
+                return JsonValue.Create(number);
+            case "boolean" when bool.TryParse(value, out var flag):
+                return JsonValue.Create(flag);
+            case "integer" or "number" or "boolean":
+                throw new HostEndpointArgumentException($"Forbidden: the caller's value for '{binding.Name}' is not a {binding.BodyType}.");
+            default:
+                return JsonValue.Create(value);
+        }
     }
 
     public static string EncodeForm(IEnumerable<KeyValuePair<string, string>> fields) =>

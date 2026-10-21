@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronRight, Folder, Plus, RefreshCw } from 'lucide-rea
 import { Button, Input, PageHeader } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
+import { useAccess } from '@/auth/useAuth';
 import { formatRelativeTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
 import { PROJECT_ROLE_LABEL, useProjectsList, type ProjectSummaryEntry } from './queries';
@@ -73,6 +74,7 @@ const GRID_TEMPLATE = '2.4fr 0.9fr 0.7fr 0.7fr 1.1fr 1.1fr 28px';
 
 export default function ProjectsListPage() {
   const navigate = useNavigate();
+  const access = useAccess();
   const list = useProjectsList();
   const { data, isLoading, isError, error, refetch } = list;
   const [search, setSearch] = useSearchFilter(list.filters.search, value => list.setFilter('search', value));
@@ -95,11 +97,14 @@ export default function ProjectsListPage() {
             <Button onClick={() => refetch()} disabled={isLoading} icon={<RefreshCw />}>
               Refresh
             </Button>
-            <Link to="/projects/new">
-              <Button variant="primary" icon={<Plus />} type="button">
-                New project
-              </Button>
-            </Link>
+            {/* The MCP gateway does not serve project creation. */}
+            {!access.gatewayMode && (
+              <Link to="/projects/new">
+                <Button variant="primary" icon={<Plus />} type="button">
+                  New project
+                </Button>
+              </Link>
+            )}
           </>
         }
       />

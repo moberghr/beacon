@@ -2,7 +2,8 @@ namespace Beacon.Core.HostEndpoints;
 
 /// <summary>
 /// Endpoint metadata that opts one host endpoint in as a Beacon MCP tool. Put <see cref="BeaconToolAttribute"/> on
-/// a controller action, or call <c>.WithBeaconTool(...)</c> on a minimal API endpoint. Endpoints without it are
+/// a controller action or on a handler class whose framework copies class attributes into its endpoint's metadata
+/// (Moberg Warp handlers), or call <c>.WithBeaconTool(...)</c> on a minimal API endpoint. Endpoints without it are
 /// never exposed.
 /// </summary>
 public interface IBeaconToolMetadata
@@ -41,7 +42,9 @@ public interface IBeaconToolMetadata
 
 /// <summary>
 /// Exposes a controller action as the Beacon MCP tool <c>api_&lt;name&gt;</c>, invoked in-process as the MCP caller's
-/// host principal, through the action's real model binding, filters and authorization policies.
+/// host principal, through the action's real model binding, filters and authorization policies. It also goes on a
+/// handler class whose framework copies class attributes into the endpoint's metadata (a Moberg Warp handler with a
+/// <c>[WarpHttp*]</c> route); on an MVC controller class it is refused at startup, since it would mark every action.
 /// <c>ReadOnly</c> is mandatory: <c>true</c> is the host's declaration that the action changes nothing; <c>false</c>
 /// declares a write tool, which also needs <c>HostEndpointToolOptions.AllowWriteTools</c>.
 /// </summary>
@@ -51,7 +54,13 @@ public interface IBeaconToolMetadata
 /// [BeaconTool("customer_loans", Description = "Loans of one customer, newest first.", ReadOnly = true)]
 /// public IActionResult CustomerLoans([FromForm] CustomerLoansFilter filter) { ... }
 /// </code></example>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+/// <example><code>
+/// [Authorize]
+/// [BeaconTool("my_assets", Description = "The signed-in user's assets, newest first.", ReadOnly = true)]
+/// [WarpHttpGet("/api/my/assets")]
+/// public sealed class ListMyAssetsQueryHandler(...) : IRequestHandler&lt;ListMyAssetsQuery, IReadOnlyList&lt;AssetListItem&gt;&gt; { ... }
+/// </code></example>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 public sealed class BeaconToolAttribute(string name) : Attribute, IBeaconToolMetadata
 {
     private bool _readOnly;

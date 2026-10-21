@@ -75,7 +75,7 @@ app.MapGet("/api/orders/{id:int}", (int id, OrderService orders) => orders.Find(
     .WithBeaconTool("order_by_id", "One order by id.", readOnly: true);
 ```
 
-Or on a controller action: `[BeaconTool("customer_orders", Description = "…", ReadOnly = true)]`.
+Or on a controller action, or on a handler class whose framework copies class attributes into its endpoint (a Moberg Warp handler): `[BeaconTool("customer_orders", Description = "…", ReadOnly = true)]`.
 
 - `ReadOnly` must be declared explicitly; Beacon never infers it from the HTTP verb.
 - The endpoint must carry authorization metadata (or your host has a fallback policy); otherwise startup refuses it.
@@ -83,6 +83,8 @@ Or on a controller action: `[BeaconTool("customer_orders", Description = "…", 
 - Only mapped Entra callers (users or systems) of the host project can call them; API-key callers cannot.
 - Write tools (`ReadOnly = false`) need `AllowWriteTools`, are offered to **user** callers only and are audited as `api_<name>:write`.
 - Above 20 tools (`NamedToolLimit`), clients see `search_api` + `call_api` instead of one tool per endpoint.
+- An argument that is the caller's own id in your application is bound from the caller with `x.BindFromCaller("userId", "<claim type>")`: it leaves the tool's schema and the call carries the caller's value. See [Arguments the caller fills](/features/host-endpoint-tools/#arguments-the-caller-fills).
+- An exception your endpoint throws runs your `IExceptionHandler`s, so a refusal reaches the agent as the status and problem a browser would get.
 
 ## Saved queries as tools without code
 
@@ -100,6 +102,7 @@ Beacon registers most services with `TryAdd`, so **your registration wins if you
 | `IBeaconAuthorizationProvider` | user store / allow-all | Cap users' global read/write from your own model. |
 | `IProjectMembershipSource` | Beacon's membership table | Take project membership from your application. Beacon's membership endpoints then answer 409. |
 | `IMcpCallerMapper` | `Beacon:Mcp:Callers` | Map JWT callers to projects and scopes your own way. |
+| `IMcpHostUserResolver` | none | Let your own users decide who may use MCP: register `HostUserMcpCallerMapper` and `HostUserMcpHostPrincipalFactory` with it (the MCP gateway does), and a delegated Entra token is a caller when your resolver knows its person; a tool call runs as the user it returns. |
 | `IMcpHostPrincipalFactory` | copies name/email/oid; system callers get `HostClaims` | Build the principal your endpoints expect for MCP calls. |
 | `IHostEndpointDispatchMiddleware` | none | Run your own middleware logic (tenant, culture, audit) around dispatched tool calls. Ships in `Moberg.Beacon.MCP` (namespace `Beacon.Core.HostEndpoints`). |
 | `IApprovalNotifier` | SignalR | Notify approvers elsewhere. |

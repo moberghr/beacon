@@ -18,6 +18,7 @@ Beacon is published to nuget.org as `Moberg.Beacon.*` packages. Package IDs carr
 | `Moberg.Beacon.AI.Bedrock` | The Amazon Bedrock LLM provider (`AddBeaconBedrock()`) | You use Bedrock as the LLM provider |
 | `Moberg.Beacon.AI.Embeddings.Onnx` | Local in-process ONNX embeddings (`AddBeaconOnnxEmbeddings()`) | You want semantic retrieval; without it retrieval stays keyword-based |
 | `Moberg.Beacon.MCP` | The MCP server at `/beacon/mcp`, its tools, filters, discovery documents, host endpoint tools | You expose Beacon to AI clients |
+| `Moberg.Beacon.Gateway` | `AddBeaconMcpGateway`: Beacon as the MCP gateway of your own application — its users as callers, its endpoints as tools, its documents as grounding, no data sources | You want an MCP server for your application rather than Beacon's data product |
 | `Moberg.Beacon.Connector.PostgreSql` | PostgreSQL connector | You monitor PostgreSQL |
 | `Moberg.Beacon.Connector.SqlServer` | SQL Server connector | You monitor SQL Server |
 | `Moberg.Beacon.Connector.MySql` | MySQL connector (also the MySQL migration-write path) | You monitor MySQL |

@@ -8,7 +8,7 @@ Beacon ships as a set of NuGet packages (`Moberg.Beacon.*`). You add them to an 
 This section is the complete integration guide. This page is the checklist; each step links to a page with every option for that step.
 
 :::tip[Using Claude Code or another coding agent?]
-Point it at the whole guide in one file:
+Point it at the whole guide in one file (for an MCP gateway of your own application, use `llms-gateway.txt` instead):
 
 ```text
 Integrate Beacon into this ASP.NET Core app.
@@ -18,6 +18,16 @@ Ask me before every decision the guide marks as one.
 
 Every page of these docs is also available as Markdown: add `.md` to the page URL, or use **Copy as Markdown** under the page title.
 :::
+
+## Which integration?
+
+| You want | Follow |
+|---|---|
+| An MCP server for **your own application**: AI clients act as your signed-in users through your own endpoints and read your docs. No data sources, no SQL. | [MCP gateway for your application](/integrate/gateway/), one page, `llms-gateway.txt` |
+| **Beacon's data product** in your application: monitored databases, queries, alerts, data movement, and an MCP server over them. | This checklist |
+
+The two combine (a gateway host can add data sources later), but start with the one you need: the gateway path leaves out
+most of this checklist (scheduler, connectors, login form, first-run setup) on purpose.
 
 ## Before you start
 

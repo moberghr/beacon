@@ -17817,6 +17817,7 @@ export interface CurrentPermissionsResponse {
   isAdmin: boolean;
   permissions: string[];
   migrationsEnabled: boolean;
+  gatewayMode?: boolean;
 
   [key: string]: any;
 }

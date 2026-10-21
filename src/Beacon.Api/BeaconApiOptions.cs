@@ -15,6 +15,13 @@ public sealed class BeaconApiOptions
     public bool Realtime { get; set; } = true;
 
     /// <summary>
+    /// Beacon serves only its MCP gateway part here (<c>AddBeaconMcpGateway</c>'s admin UI): the audit, the MCP settings,
+    /// the learning views and the host project's documents. <c>/auth/permissions</c> reports it, and the shell shows only
+    /// those pages. Default false.
+    /// </summary>
+    public bool GatewayMode { get; set; }
+
+    /// <summary>
     /// Applied to the <see cref="ISignalRServerBuilder"/> returned by <c>AddSignalR()</c> when
     /// <see cref="Realtime"/> is enabled — the hook for protocol and backplane configuration.
     /// </summary>

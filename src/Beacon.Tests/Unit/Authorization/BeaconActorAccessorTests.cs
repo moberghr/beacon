@@ -21,7 +21,8 @@ namespace Beacon.Tests.Unit.Authorization;
 /// The caller as the owner, creator and assignee of resources: an API key is its owner by Users.Id, every other
 /// principal is the user its NameIdentifier names by Users.ExternalId; a session without a stored user keeps its own
 /// id; nobody is resolved for a request that names no one, without reading the database; and only an enabled,
-/// signed-in user holding the Admin role claim is an Admin.
+/// signed-in user holding the Admin role claim is an Admin — while Beacon manages users, only one whose stored roles make
+/// it one, whatever role claims a host's sign-in added.
 /// </summary>
 [TestFixture]
 public class BeaconActorAccessorTests
@@ -47,7 +48,7 @@ public class BeaconActorAccessorTests
         // A strict factory fails the test if a context is ever created.
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
 
-        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None);
+        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None, beaconManagesUsers: false);
 
         actor.UserId.Should().BeNull();
         actor.IsAdmin.Should().BeFalse();
@@ -65,7 +66,7 @@ public class BeaconActorAccessorTests
                 new Dictionary<Type, object> { [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(_users, []) },
                 []));
 
-        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None);
+        var actor = await BeaconActorAccessor.ResolveAsync(principal, factory.Object, CancellationToken.None, beaconManagesUsers: false);
 
         actor.UserId.Should().BeNull();
         actor.IsAdmin.Should().BeFalse();
@@ -266,7 +267,7 @@ public class BeaconActorAccessorTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await BeaconActorAccessor.ResolveAsync(ApiKey(nameIdentifier: "7", userName: "ana"), capture.Factory(), CancellationToken.None);
+        await BeaconActorAccessor.ResolveAsync(ApiKey(nameIdentifier: "7", userName: "ana"), capture.Factory(), CancellationToken.None, beaconManagesUsers: false);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         var where = sql[sql.IndexOf("WHERE", StringComparison.Ordinal)..];
@@ -281,7 +282,7 @@ public class BeaconActorAccessorTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await BeaconActorAccessor.ResolveAsync(Interactive("ext-ana"), capture.Factory(), CancellationToken.None);
+        await BeaconActorAccessor.ResolveAsync(Interactive("ext-ana"), capture.Factory(), CancellationToken.None, beaconManagesUsers: false);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("u.external_id = @");
@@ -380,6 +381,63 @@ public class BeaconActorAccessorTests
     }
 
     [Test]
+    public async Task WhileBeaconManagesUsers_AStoredUsersAdminStanding_IsItsLiveRoles_NotItsClaim()
+    {
+        _users[0].UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = RoleService.RoleNames.Admin, Level = RoleService.RoleLevels.Admin } });
+
+        var liveAdminWithoutTheClaim = await ResolveManaged(Interactive("ext-ana"));
+        var claimWithoutTheRole = await ResolveManaged(Interactive("ext-ben", RoleService.RoleNames.Admin));
+
+        liveAdminWithoutTheClaim.IsAdmin.Should().BeTrue();
+        claimWithoutTheRole.IsAdmin.Should().BeFalse("a host sign-in's Admin role claim makes no Beacon Admin while Beacon manages users");
+    }
+
+    [Test]
+    public async Task WhileBeaconManagesUsers_AnApiKeyOrMappedCallerOfAnAdmin_IsNoAdmin()
+    {
+        _users[0].UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = RoleService.RoleNames.Admin, Level = RoleService.RoleLevels.Admin } });
+        var mappedCaller = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, "1"), new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod)],
+            "Bearer"));
+
+        var apiKey = await ResolveManaged(ApiKey(nameIdentifier: "1", userName: "ana"));
+        var mapped = await ResolveManaged(mappedCaller);
+
+        apiKey.BeaconUserId.Should().Be(1);
+        apiKey.IsAdmin.Should().BeFalse("an API key never carries the Admin bypass, even when its owner is an Admin");
+        mapped.BeaconUserId.Should().Be(1);
+        mapped.IsAdmin.Should().BeFalse("neither does a mapped MCP caller");
+    }
+
+    [Test]
+    public async Task WhileBeaconManagesUsers_ASessionWithoutAStoredUser_IsNoAdmin_WhateverItsClaims()
+    {
+        var actor = await ResolveManaged(Interactive("ext-host-only", RoleService.RoleNames.Admin));
+
+        actor.UserId.Should().Be("ext-host-only");
+        actor.IsAdmin.Should().BeFalse();
+    }
+
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public async Task TheAccessor_ReadsWhetherBeaconManagesUsers_FromItsConfiguration(bool userManagement, bool isAdmin)
+    {
+        var configuration = new Beacon.Core.BeaconConfiguration { UserManagement = new Beacon.Core.UserManagementOptions { Enabled = userManagement } };
+        var principal = TestRequestPrincipal.For(Interactive("ext-host-only", RoleService.RoleNames.Admin));
+        var accessor = new BeaconActorAccessor(
+            Factory(),
+            new SystemWorkScope(),
+            new RunAsScope(principal),
+            new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
+            principal,
+            configuration);
+
+        var actor = await accessor.GetCurrentAsync(CancellationToken.None);
+
+        actor.IsAdmin.Should().Be(isAdmin);
+    }
+
+    [Test]
     public async Task AnApiKey_CarriesItsScopeAndProjectList()
     {
         var actor = await Resolve(ApiKey(nameIdentifier: "1", userName: "ana"));
@@ -472,7 +530,8 @@ public class BeaconActorAccessorTests
             systemWork,
             new RunAsScope(TestRequestPrincipal.OffRequest()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), logs.For<UnmarkedSystemWorkLog>()),
-            TestRequestPrincipal.OffRequest());
+            TestRequestPrincipal.OffRequest(),
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -487,11 +546,11 @@ public class BeaconActorAccessorTests
         var time = new FakeTimeProvider();
         var unmarked = new UnmarkedSystemWorkLog(time, logs.For<UnmarkedSystemWorkLog>());
 
-        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
-        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
+        var first = await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest(), Unmanaged).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest(), Unmanaged).GetCurrentAsync(CancellationToken.None);
         var afterBurst = logs.Entries.Count;
         time.Advance(UnmarkedSystemWorkLog.Interval);
-        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest()).GetCurrentAsync(CancellationToken.None);
+        await new BeaconActorAccessor(Factory(), new SystemWorkScope(), new RunAsScope(TestRequestPrincipal.OffRequest()), unmarked, TestRequestPrincipal.OffRequest(), Unmanaged).GetCurrentAsync(CancellationToken.None);
 
         first.Kind.Should().Be(BeaconPrincipalKind.Anonymous, "an unmarked scope without a request is nobody");
         afterBurst.Should().Be(1, "a second unmarked scope within the interval is not reported again");
@@ -529,7 +588,8 @@ public class BeaconActorAccessorTests
             systemWork,
             new RunAsScope(TestRequestPrincipal.OffRequest()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            TestRequestPrincipal.For(Interactive("ext-ana")));
+            TestRequestPrincipal.For(Interactive("ext-ana")),
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -548,7 +608,8 @@ public class BeaconActorAccessorTests
             new SystemWorkScope(),
             runAs,
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            principal);
+            principal,
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -578,7 +639,8 @@ public class BeaconActorAccessorTests
             systemWork,
             new RunAsScope(TestRequestPrincipal.For()),
             new UnmarkedSystemWorkLog(new FakeTimeProvider(), new LogRecorder().For<UnmarkedSystemWorkLog>()),
-            TestRequestPrincipal.For());
+            TestRequestPrincipal.For(),
+            Unmanaged);
 
         var actor = await accessor.GetCurrentAsync(CancellationToken.None);
 
@@ -588,7 +650,15 @@ public class BeaconActorAccessorTests
 
     private Task<BeaconActor> Resolve(ClaimsPrincipal principal)
     {
-        return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None);
+        return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None, beaconManagesUsers: false);
+    }
+
+    // A host without Beacon user management: the configuration the cases above were written for.
+    private static Beacon.Core.BeaconConfiguration Unmanaged => new() { UserManagement = new Beacon.Core.UserManagementOptions { Enabled = false } };
+
+    private Task<BeaconActor> ResolveManaged(ClaimsPrincipal principal)
+    {
+        return BeaconActorAccessor.ResolveAsync(principal, Factory(), CancellationToken.None, beaconManagesUsers: true);
     }
 
     private IDbContextFactory<BeaconContext> Factory()

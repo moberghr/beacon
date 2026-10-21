@@ -23,7 +23,8 @@ internal sealed class BeaconActorAccessor(
     ISystemWorkScope systemWork,
     IRunAsScope runAs,
     ProjectAccess.UnmarkedSystemWorkLog unmarkedSystemWork,
-    IBeaconRequestPrincipal requestPrincipal) : IBeaconActorAccessor
+    IBeaconRequestPrincipal requestPrincipal,
+    BeaconConfiguration configuration) : IBeaconActorAccessor
 {
     private BeaconActor? _current;
 
@@ -58,7 +59,11 @@ internal sealed class BeaconActorAccessor(
             return _current;
         }
 
-        _current = await ResolveAsync(requestPrincipal.User, contextFactory, cancellationToken);
+        _current = await ResolveAsync(
+            requestPrincipal.User,
+            contextFactory,
+            cancellationToken,
+            configuration.UserManagement.Enabled);
 
         return _current;
     }
@@ -87,19 +92,27 @@ internal sealed class BeaconActorAccessor(
         };
     }
 
+    /// <param name="beaconManagesUsers">
+    /// Beacon user management is on. Then the user store alone decides who is an Admin: a stored user is one when its live
+    /// roles say so, and a session without a stored user never is, whatever role claims a host's sign-in put on the
+    /// principal. Off, a host's Admin role claim is Beacon's Admin, by design.
+    /// </param>
     internal static async Task<BeaconActor> ResolveAsync(
         ClaimsPrincipal? principal,
         IDbContextFactory<BeaconContext> contextFactory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool beaconManagesUsers)
     {
         if (principal?.Identity?.IsAuthenticated != true)
         {
             return BeaconActor.Nobody;
         }
 
-        var holdsAdminRole = BeaconActor.HoldsAdminRole(principal);
         var isApiKey = BeaconUserLookup.IsApiKey(principal);
         var isMcpCaller = BeaconUserLookup.IsMcpCaller(principal);
+
+        // A scoped caller (an API key, a mapped MCP caller) is never an Admin, whatever its owner or user is (§1.13).
+        var holdsAdminRole = !beaconManagesUsers && !isApiKey && !isMcpCaller && BeaconActor.HoldsAdminRole(principal);
         var kind = isApiKey
             ? BeaconPrincipalKind.ApiKey
             : isMcpCaller
@@ -144,7 +157,8 @@ internal sealed class BeaconActorAccessor(
             return BeaconActor.Nobody;
         }
 
-        var actor = new BeaconActor(user.ExternalId, holdsAdminRole)
+        var isAdmin = !isApiKey && !isMcpCaller && (beaconManagesUsers ? user.IsLiveAdmin : holdsAdminRole);
+        var actor = new BeaconActor(user.ExternalId, isAdmin)
         {
             Kind = kind == BeaconPrincipalKind.Session ? BeaconPrincipalKind.User : kind,
             SessionIds = isMcpCaller ? [] : SessionIdsOf(principal, user.ExternalId),

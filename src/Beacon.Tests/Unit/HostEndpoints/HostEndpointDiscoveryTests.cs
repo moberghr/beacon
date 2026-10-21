@@ -152,6 +152,7 @@ public class HostEndpointDiscoveryTests
     [TestCase(typeof(BadNameController), "must match ^[a-z][a-z0-9_]{2,47}$")]
     [TestCase(typeof(DuplicateNameController), "tool name 'same_name' is already used by")]
     [TestCase(typeof(NoAuthorizationController), "declares no authorization")]
+    [TestCase(typeof(ClassMarkedController), "put it on the action")]
     [TestCase(typeof(StepUpSchemeController), "requires authentication scheme(s) 'StepUp'")]
     public async Task Startup_FailsForMisconfiguredMarkers(Type controller, string expected)
     {
@@ -159,6 +160,21 @@ public class HostEndpointDiscoveryTests
 
         (await start.Should().ThrowAsync<InvalidOperationException>())
             .Which.Message.Should().Contain("Beacon host endpoint tools are misconfigured").And.Contain(expected);
+    }
+
+    [Test]
+    public async Task AClassLevelMarker_ThatAFrameworkCopiedIntoTheEndpointsMetadata_IsATool()
+    {
+        // What a Moberg Warp handler class carrying [BeaconTool] becomes: its class attributes in the endpoint's metadata.
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [],
+            mapDefaultMinimalApis: false,
+            map: x => x.MapGet("/handlers/my-things", () => Results.Ok())
+                .RequireAuthorization(HostEndpointTestHost.ViewThingPolicy)
+                .WithMetadata(new Beacon.Core.HostEndpoints.BeaconToolAttribute("my_things") { Description = "The caller's things.", ReadOnly = true }));
+
+        host.Registry.Tools.Select(x => x.Name).Should().Equal("my_things");
+        host.Tool("my_things").ReadOnly.Should().BeTrue();
     }
 
     [Test]

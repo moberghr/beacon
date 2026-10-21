@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- Package Information -->
+        <Authors>Moberg</Authors>
+        <Description>Beacon as the MCP gateway for an existing ASP.NET Core application: one call wires Beacon's MCP server at /beacon/mcp for the application's own users (Entra delegated tokens), its endpoints as tools and its documents as grounding — no data sources, no SQL, no Beacon sign-in.</Description>
+        <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+        <PackageTags>beacon;mcp;model-context-protocol;gateway;entra;ai</PackageTags>
+        <IsPackable>true</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Beacon.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
+        <ProjectReference Include="..\Beacon.AI\Beacon.AI.csproj" />
+        <ProjectReference Include="..\Beacon.MCP\Beacon.MCP.csproj" />
+        <ProjectReference Include="..\Beacon.Api\Beacon.Api.csproj" />
+        <ProjectReference Include="..\Beacon.UI\Beacon.UI.csproj" />
+    </ItemGroup>
+
+</Project>

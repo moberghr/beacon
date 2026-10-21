@@ -15,7 +15,8 @@ namespace Beacon.MCP.Services;
 /// that maps <c>/beacon/mcp</c> itself with a weaker policy (bare <c>RequireAuthorization()</c>, or none) still fails
 /// closed. <see cref="McpScopeMessageFilter"/> refuses the caller's other requests. A request without an authenticated
 /// user is refused too, whether it came over HTTP or over a transport without authentication (such as stdio): with no
-/// caller there is nothing to authorize. Callers without a scope marker (cookie sessions) pass.
+/// caller there is nothing to authorize. So is a caller without a scope marker — a cookie or SSO session, Beacon's or the
+/// host's: MCP takes an API key or a mapped bearer token, and browsers use the MCP playground.
 /// <para>
 /// A refused call never reaches a tool, but it is a tool invocation all the same and is audited (§1.7/§9.5): one audit
 /// row with the tool name, the caller's identifiers and a permission error. When the deployment requires the audit and
@@ -29,6 +30,9 @@ internal static class McpScopeCallToolFilter
 
     public const string UnauthenticatedMessage =
         "Permission denied: Beacon MCP requires an authenticated caller.";
+
+    public const string SessionMessage =
+        "Permission denied: Beacon MCP takes an API key or a mapped bearer token, not a signed-in browser session.";
 
     public static McpRequestFilter<CallToolRequestParams, CallToolResult> Create()
     {
@@ -69,13 +73,19 @@ internal static class McpScopeCallToolFilter
 
     /// <summary>
     /// Why <paramref name="user"/> may not use Beacon MCP, or <c>null</c> when it may: the caller must be authenticated,
-    /// and a scoped caller needs the Execute scope. A request without a user is refused, over HTTP or not.
+    /// must be a scoped caller (an API key or a mapped MCP caller, never a browser session), and needs the Execute scope.
+    /// A request without a user is refused, over HTTP or not.
     /// </summary>
     internal static string? Refusal(ClaimsPrincipal? user)
     {
         if (user?.Identity?.IsAuthenticated != true)
         {
             return UnauthenticatedMessage;
+        }
+
+        if (!BeaconScopes.IsScopedCaller(user))
+        {
+            return SessionMessage;
         }
 
         return BeaconScopes.SatisfiesExecuteScope(user) ? null : MissingScopeMessage;

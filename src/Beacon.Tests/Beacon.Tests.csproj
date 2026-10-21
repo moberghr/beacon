@@ -33,6 +33,9 @@
     <ItemGroup>
         <ProjectReference Include="..\Beacon.Core\Beacon.Core.csproj" />
         <ProjectReference Include="..\Beacon.AI.Bedrock\Beacon.AI.Bedrock.csproj" />
+        <ProjectReference Include="..\Beacon.Gateway\Beacon.Gateway.csproj" />
+        <ProjectReference Include="..\Beacon.Testing\Beacon.Testing.csproj" />
+        <ProjectReference Include="..\Beacon.Doctor\Beacon.Doctor.csproj" />
         <ProjectReference Include="..\Beacon.AI.Embeddings.Onnx\Beacon.AI.Embeddings.Onnx.csproj" />
         <ProjectReference Include="..\Beacon.Connector.Api\Beacon.Connector.Api.csproj" />
         <ProjectReference Include="..\Beacon.SampleProject\Beacon.SampleProject.csproj" />

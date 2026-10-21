@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- Package Information -->
+        <Authors>Moberg</Authors>
+        <Description>Test helpers for a host that embeds Beacon as its MCP gateway: Entra-shaped test tokens the gateway accepts in a test host, an in-memory user resolver, and a real MCP client over the test server, so a host tests its tools end to end without reaching into Beacon's internals.</Description>
+        <PackageProjectUrl>https://github.com/moberghr/beacon</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/moberghr/beacon</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+        <PackageTags>beacon;mcp;model-context-protocol;testing</PackageTags>
+        <IsPackable>true</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Beacon.Gateway\Beacon.Gateway.csproj" />
+    </ItemGroup>
+
+</Project>

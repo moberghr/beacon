@@ -239,6 +239,27 @@ public class AdminGatedRoutesTests
         admitted.Succeeded.Should().BeTrue();
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task OnARequest_TheAdminPolicies_AskBeaconWhoTheCallerIs_NotTheRoleClaim(bool actorIsAdmin)
+    {
+        await using var provider = AuthorizationServices(new RoleMappingOptions());
+        var authorization = provider.GetRequiredService<IAuthorizationService>();
+        var accessor = new Mock<IBeaconActorAccessor>();
+        accessor
+            .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BeaconActor("ext-1", actorIsAdmin));
+        await using var requestServices = new ServiceCollection().AddSingleton(accessor.Object).BuildServiceProvider();
+        var request = new DefaultHttpContext { RequestServices = requestServices };
+
+        // The caller carries the Admin role claim either way, as a host sign-in's Entra app role named Admin would.
+        var admin = await authorization.AuthorizeAsync(Principal(RoleService.RoleNames.Admin), request, BeaconApiEndpoints.AdminPolicyName);
+        var auditor = await authorization.AuthorizeAsync(Principal(RoleService.RoleNames.Admin), request, BeaconPermissions.AuditorPolicy);
+
+        admin.Succeeded.Should().Be(actorIsAdmin);
+        auditor.Succeeded.Should().Be(actorIsAdmin, "a permission policy admits Beacon's Admin the same way");
+    }
+
     [Test]
     public async Task APermissionPolicy_ComparesTheMappedRoleNameIgnoringCase()
     {

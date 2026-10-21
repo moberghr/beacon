@@ -49,7 +49,7 @@ When you pass a data source (or a factory resolved once from the root provider),
 
 - runs `SET search_path TO "beacon", public` on every connection it opens, so its unqualified SQL and the `vector` type resolve;
 - does not need `UseVector()` on your data source, because it never binds the vector type;
-- expects connection reset to stay on (no `No Reset On Close=true`) and `Multiplexing` off.
+- requires connection reset to stay on (no `No Reset On Close=true`) and `Multiplexing` off, and refuses a data source with either the first time it builds its context: the search path it sets would otherwise survive the connection's return to the pool, or leak into commands sharing it, and run your own queries against Beacon's schema.
 
 With a connection string, Beacon builds its own data source with `SearchPath=beacon,public`.
 
@@ -69,7 +69,19 @@ Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 | Situation | Approach |
 |---|---|
 | One instance, or a dev machine | `UseBeacon(app.Services, createSchema: true)` at startup. |
-| Several instances starting together | Run migrations once, from a deployment step, a dedicated migrator process that calls `UseBeacon`, or an idempotent SQL script, rather than from every replica. |
+| Several instances starting together | Run migrations once, from a deployment step, a dedicated migrator process, or an idempotent SQL script, rather than from every replica. |
+
+A migrator process that does not compose Beacon (it only shares the application's database) calls the standalone migrator of its provider instead of `UseBeacon`, which would need Beacon's whole application layer registered:
+
+```csharp
+// PostgreSQL, over the application's own data source (an Entra-token one, say) or a connection string.
+await Beacon.Core.PostgreSql.BeaconPostgreSqlMigrator.MigrateAsync(dataSource);
+
+// SQL Server.
+await Beacon.Core.SqlServer.BeaconSqlServerMigrator.MigrateAsync(connectionString);
+```
+
+Both create the `beacon` schema when it is missing and apply the pending migrations; both are idempotent. Over a shared PostgreSQL data source the migrator refuses one with `Multiplexing` or `No Reset On Close`, as `UsePostgreSql` does.
 | The application login cannot create schemas or extensions | Pre-create the `beacon` schema (and on PostgreSQL the `vector` extension) as an administrator, grant the application login ownership of the schema, then call `UseBeacon(app.Services)` without `createSchema`. |
 
 ### pgvector on PostgreSQL

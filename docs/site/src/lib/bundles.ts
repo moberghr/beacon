@@ -30,6 +30,12 @@ export async function orderedDocs(sectionLabels?: string[]): Promise<Doc[]> {
 	return result;
 }
 
+/** The entries with the given slugs, in the order given; a slug with no page is left out. */
+export async function docsBySlugs(slugs: string[]): Promise<Doc[]> {
+	const byId = await docsById();
+	return slugs.map((slug) => byId.get(slug)).filter((entry): entry is Doc => entry !== undefined);
+}
+
 export function bundle(title: string, intro: string, docs: Doc[]): string {
 	const header = `# ${title}\n\n> ${intro}\n\nPublished at ${SITE_URL}/. Every page is also available as Markdown at <page-url>.md.\n`;
 	return [header, ...docs.map(toMarkdown)].join('\n\n---\n\n');
@@ -44,6 +50,7 @@ export async function llmsIndex(): Promise<string> {
 		'',
 		'To integrate Beacon into an application, read the integration bundle first:',
 		'',
+		`- [MCP gateway guide (one file)](${SITE_URL}/llms-gateway.txt): an MCP server for your own ASP.NET Core application: your users, your endpoints as tools, your docs as grounding, no data sources`,
 		`- [Integration guide (all integration pages, one file)](${SITE_URL}/llms-integrate.txt): everything needed to embed Beacon in an ASP.NET Core host`,
 		`- [Full documentation (one file)](${SITE_URL}/llms-full.txt): every page of these docs`,
 		'',
