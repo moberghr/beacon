@@ -14,6 +14,8 @@ using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Moq;
 using NUnit.Framework;
 using ActorEntity = Beacon.Core.Data.Entities.AiActor;
@@ -71,10 +73,12 @@ public class AiActorCycleProposeOnlyTests
     private Mock<IQueryService> _queryService = null!;
     private Mock<ISubscriptionService> _subscriptionService = null!;
     private RecordingSecurityAudit _audit = null!;
+    private Mock<ILogger<AiActorService>> _logger = null!;
 
     [SetUp]
     public void SetUp()
     {
+        _logger = new Mock<ILogger<AiActorService>>();
         _audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(12, "ext-ben"));
         _store = new Store();
         _store.DataSources.Add(
@@ -263,6 +267,7 @@ public class AiActorCycleProposeOnlyTests
 
         actor.RequiresApproval.Should().BeTrue("a new actor proposes until someone opts it out");
         actor.Status.Should().Be(AiActorStatus.Active, "initial setup must complete, not fail the actor");
+        actor.LastThinkTime.Should().BeNull("the initial setup does not start the think cooldown");
         AssertProposedAndNothingExecuted(SingleCompletedExecution());
     }
 
@@ -286,6 +291,139 @@ public class AiActorCycleProposeOnlyTests
         actions[3].Proposed.Should().BeTrue("the actions after a malformed one are still processed");
         actions[3].ActionType.Should().Be(AiActorActionType.CreateQuery);
         AssertNothingExecuted();
+    }
+
+    private static readonly DateTime Now = new(2026, 10, 21, 12, 0, 0, DateTimeKind.Utc);
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_WithinCooldown_SkipsAndSaysHowLongIsLeft()
+    {
+        var actor = SeedActor();
+        actor.LastThinkTime = Now.AddMinutes(-10);
+        var llmCalls = 0;
+        var service = BuildService(PlanJson, () => llmCalls++, time: new FixedTimeProvider(Now));
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain(AiActorService.ThinkCooldownMessage).And.Contain("5 minute(s)");
+        llmCalls.Should().Be(0);
+        _store.Executions.Should().BeEmpty();
+        actor.LastThinkTime.Should().Be(Now.AddMinutes(-10));
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleBackgroundAsync_WithinCooldown_SkipsAndLogsOnlyTheActorIdAtDebug()
+    {
+        var actor = SeedActor();
+        actor.LastThinkTime = Now.AddMinutes(-1);
+        var llmCalls = 0;
+        var service = BuildService(PlanJson, () => llmCalls++, time: new FixedTimeProvider(Now));
+
+        await service.ExecuteThinkCycleBackgroundAsync(ActorId, null, CancellationToken.None);
+
+        llmCalls.Should().Be(0);
+        _store.Executions.Should().BeEmpty();
+        _logger.Invocations
+            .Where(x => x.Arguments[0] is LogLevel.Debug)
+            .Should()
+            .ContainSingle(x => x.Arguments[2].ToString()!.Contains("within the think cooldown") && x.Arguments[2].ToString()!.Contains(ActorId.ToString()));
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_AfterCooldown_RunsAndRecordsTheLastThinkTime()
+    {
+        var actor = SeedActor();
+        actor.LastThinkTime = Now.AddMinutes(-16);
+        var service = BuildService(PlanJson, time: new FixedTimeProvider(Now));
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        actor.LastThinkTime.Should().Be(Now);
+        actor.ThinkCount.Should().Be(1);
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_CooldownOff_RunsAgainImmediately()
+    {
+        var actor = SeedActor();
+        actor.LastThinkTime = Now;
+        var service = BuildService(PlanJson, time: new FixedTimeProvider(Now), cooldownMinutes: 0);
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_TwoCyclesAtOnce_OnlyTheClaimHolderRuns()
+    {
+        SeedActor();
+        var llmCalls = 0;
+        var claim = new SingleWinnerThinkClaim();
+        var first = BuildService(PlanJson, () => llmCalls++, claim, new FixedTimeProvider(Now));
+        var second = BuildService(PlanJson, () => llmCalls++, claim, new FixedTimeProvider(Now));
+
+        var results = await Task.WhenAll(
+            first.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None),
+            second.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None));
+
+        results.Count(x => x.Success).Should().Be(1);
+        llmCalls.Should().Be(1);
+        _store.Executions.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_CooldownOff_DoesNotTouchTheClaim()
+    {
+        SeedActor();
+        var claim = new Mock<IAiActorThinkClaim>(MockBehavior.Strict);
+        var service = BuildService(PlanJson, claim: claim.Object, time: new FixedTimeProvider(Now), cooldownMinutes: 0);
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_ActorArchivedBeforeTheClaim_SaysItIsUnavailable()
+    {
+        SeedActor();
+        var claim = new Mock<IAiActorThinkClaim>();
+        claim
+            .Setup(x => x.TryClaimAsync(ActorId, It.IsAny<DateTime>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ThinkClaimResult.Missing);
+        var service = BuildService(PlanJson, claim: claim.Object, time: new FixedTimeProvider(Now));
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be(AiActorService.ActorUnavailableMessage);
+    }
+
+    [Test]
+    public void AiActorOptionsValidator_RejectsACooldownOutOfRange()
+    {
+        var validator = new AiActorOptionsValidator();
+
+        validator.Validate(null, new AiActorOptions { ThinkCooldownMinutes = -1 }).Failed.Should().BeTrue();
+        validator.Validate(null, new AiActorOptions { ThinkCooldownMinutes = AiActorOptions.MaxThinkCooldownMinutes + 1 }).Failed.Should().BeTrue();
+        validator.Validate(null, new AiActorOptions { ThinkCooldownMinutes = 0 }).Succeeded.Should().BeTrue();
+        validator.Validate(null, new AiActorOptions()).Succeeded.Should().BeTrue();
+    }
+
+    private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(utcNow, TimeSpan.Zero);
+    }
+
+    private sealed class SingleWinnerThinkClaim : IAiActorThinkClaim
+    {
+        private int _taken;
+
+        public Task<ThinkClaimResult> TryClaimAsync(int actorId, DateTime now, DateTime threshold, CancellationToken cancellationToken)
+            => Task.FromResult(Interlocked.Exchange(ref _taken, 1) == 0 ? ThinkClaimResult.Claimed : ThinkClaimResult.Held);
     }
 
     private ActorEntity SeedActor()
@@ -350,7 +488,12 @@ public class AiActorCycleProposeOnlyTests
         return JsonSerializer.Deserialize<List<AiActorAction>>(execution.ActionsJson!, ReadOptions)!;
     }
 
-    private AiActorService BuildService(string llmContent, Action? onLlmCall = null)
+    private AiActorService BuildService(
+        string llmContent,
+        Action? onLlmCall = null,
+        IAiActorThinkClaim? claim = null,
+        TimeProvider? time = null,
+        int cooldownMinutes = 15)
     {
         var sets = new Dictionary<Type, object>
         {
@@ -410,7 +553,10 @@ public class AiActorCycleProposeOnlyTests
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
             _audit,
-            Mock.Of<ILogger<AiActorService>>());
+            _logger.Object,
+            Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions { ThinkCooldownMinutes = cooldownMinutes }),
+            time,
+            claim ?? new GrantingThinkClaim());
     }
 
     private static Mock<DbSet<T>> BuildSet<T>(List<T> rows) where T : class

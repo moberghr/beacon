@@ -84,6 +84,8 @@ public static class ServiceConfiguration
         services.TryAddTransient<ILlmRowDataEgress, LlmRowDataEgress>();
 
         // AI Actor services (autonomous monitoring)
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddTransient<IAiActorThinkClaim, EfAiActorThinkClaim>();
         services.TryAddScoped<AiActorService>();
         services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());

@@ -22,6 +22,12 @@ public interface IAiActorServiceExtended : Core.Services.IAiActorService
 
     Task ExecuteThinkCycleBackgroundAsync(int actorId, int? triggeringSubscriptionId = null);
 
+    /// <summary>The same background cycle, stopping with <paramref name="cancellationToken"/>.</summary>
+    Task ExecuteThinkCycleBackgroundAsync(int actorId, int? triggeringSubscriptionId, CancellationToken cancellationToken)
+    {
+        return ExecuteThinkCycleBackgroundAsync(actorId, triggeringSubscriptionId);
+    }
+
     Task PauseActorAsync(int actorId, CancellationToken cancellationToken = default);
 
     Task ResumeActorAsync(int actorId, CancellationToken cancellationToken = default);
