@@ -187,7 +187,9 @@ Truncate & insert empties a MySQL table with `TRUNCATE TABLE`. The server refuse
 references by foreign key, whatever the write login can see of that table, so the run fails and nothing is emptied or
 cascaded; a table's foreign key to itself does not stop it. On MySQL `TRUNCATE` commits implicitly and cannot be rolled
 back, so Beacon starts the transaction again right after it: a Truncate & insert run that fails after the table was
-emptied leaves the table empty, never partly written. Run it again once the cause is fixed.
+emptied leaves the table empty, never partly written. Run it again once the cause is fixed. Because the table is not
+locked between the clear and the commit, two Truncate & insert runs into the same MySQL table at the same time can
+both write their rows; schedule such jobs so they do not overlap.
 
 The rows are written as the source returns them:
 
