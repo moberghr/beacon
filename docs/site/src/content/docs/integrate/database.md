@@ -69,7 +69,19 @@ Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 | Situation | Approach |
 |---|---|
 | One instance, or a dev machine | `UseBeacon(app.Services, createSchema: true)` at startup. |
-| Several instances starting together | Run migrations once, from a deployment step, a dedicated migrator process that calls `UseBeacon`, or an idempotent SQL script, rather than from every replica. |
+| Several instances starting together | Run migrations once, from a deployment step, a dedicated migrator process, or an idempotent SQL script, rather than from every replica. |
+
+A migrator process that does not compose Beacon (it only shares the application's database) calls the standalone migrator of its provider instead of `UseBeacon`, which would need Beacon's whole application layer registered:
+
+```csharp
+// PostgreSQL, over the application's own data source (an Entra-token one, say) or a connection string.
+await Beacon.Core.PostgreSql.BeaconPostgreSqlMigrator.MigrateAsync(dataSource);
+
+// SQL Server.
+await Beacon.Core.SqlServer.BeaconSqlServerMigrator.MigrateAsync(connectionString);
+```
+
+Both create the `beacon` schema when it is missing and apply the pending migrations; both are idempotent. Over a shared PostgreSQL data source the migrator refuses one with `Multiplexing` or `No Reset On Close`, as `UsePostgreSql` does.
 | The application login cannot create schemas or extensions | Pre-create the `beacon` schema (and on PostgreSQL the `vector` extension) as an administrator, grant the application login ownership of the schema, then call `UseBeacon(app.Services)` without `createSchema`. |
 
 ### pgvector on PostgreSQL

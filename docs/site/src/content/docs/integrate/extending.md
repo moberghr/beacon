@@ -102,6 +102,7 @@ Beacon registers most services with `TryAdd`, so **your registration wins if you
 | `IBeaconAuthorizationProvider` | user store / allow-all | Cap users' global read/write from your own model. |
 | `IProjectMembershipSource` | Beacon's membership table | Take project membership from your application. Beacon's membership endpoints then answer 409. |
 | `IMcpCallerMapper` | `Beacon:Mcp:Callers` | Map JWT callers to projects and scopes your own way. |
+| `IMcpHostUserResolver` | none | Let your own users decide who may use MCP: register `HostUserMcpCallerMapper` and `HostUserMcpHostPrincipalFactory` with it (the MCP gateway does), and a delegated Entra token is a caller when your resolver knows its person; a tool call runs as the user it returns. |
 | `IMcpHostPrincipalFactory` | copies name/email/oid; system callers get `HostClaims` | Build the principal your endpoints expect for MCP calls. |
 | `IHostEndpointDispatchMiddleware` | none | Run your own middleware logic (tenant, culture, audit) around dispatched tool calls. Ships in `Moberg.Beacon.MCP` (namespace `Beacon.Core.HostEndpoints`). |
 | `IApprovalNotifier` | SignalR | Notify approvers elsewhere. |

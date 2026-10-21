@@ -173,6 +173,7 @@ internal sealed class JwtBearerAuthMiddleware(
         // An unmapped caller stays authenticated but carries no scope and no projects: the Execute-scope policy
         // answers 403 and ProjectContextFactory fails closed.
         context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, AuthenticationType));
+        context.Features.Set(new McpCallerAuthenticationFeature(context.User));
 
         await next(context);
     }

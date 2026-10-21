@@ -41,7 +41,7 @@ internal static class McpDiscoveryDocuments
     public static readonly IReadOnlyList<string> ScopesSupported = [BeaconScopes.Execute];
 
     /// <summary>The OpenID scope that makes an identity provider issue a refresh token with the access token.</summary>
-    public const string OfflineAccessScope = "offline_access";
+    public const string OfflineAccessScope = McpProtectedResourceOptions.OfflineAccessScope;
 
     private const string Description =
         "Governed, read-only access to a project's data sources: natural-language ask, "

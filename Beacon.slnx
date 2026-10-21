@@ -28,6 +28,7 @@
   <Project Path="src/Beacon.Core.PostgreSql/Beacon.Core.PostgreSql.csproj" />
   <Project Path="src/Beacon.Core.SqlServer/Beacon.Core.SqlServer.csproj" />
   <Project Path="src/Beacon.Core/Beacon.Core.csproj" />
+  <Project Path="src/Beacon.Gateway/Beacon.Gateway.csproj" />
   <Project Path="src/Beacon.MCP/Beacon.MCP.csproj" />
   <Project Path="src/Beacon.Tests/Beacon.Tests.csproj" />
   <Project Path="src/Beacon.UI/Beacon.UI.csproj" />
