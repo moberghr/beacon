@@ -758,7 +758,7 @@ internal class UserManagementService(
                 var superAdminCount = await context.Users
                     .Where(x => x.IsSuperAdmin)
                     .CountAsync(ct);
-                if (superAdminCount <= 1)
+                if (superAdminCount <= 1 || (user.IsEnabled && await IsLastEnabledSuperAdminAsync(context, ct)))
                 {
                     return RefusedLastSuperAdmin(user.Id, "Cannot delete the last super admin.", "archive");
                 }

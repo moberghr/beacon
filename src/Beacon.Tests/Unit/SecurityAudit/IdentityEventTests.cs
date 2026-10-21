@@ -192,6 +192,26 @@ public class IdentityEventTests
         _audit.Events.Should().NotContain(x => x.Action == SecurityAuditActions.LastSuperAdminChangeRefused);
     }
 
+    [Test]
+    public async Task ArchivingTheOnlyEnabledSuperAdmin_WhileAnotherIsDisabled_IsRefused_AndRecorded()
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = false, IsInternalUser = true });
+
+        var response = await Users().DeleteUserAsync(1);
+
+        response.Should().BeEquivalentTo(new { Success = false, Message = "Cannot delete the last super admin." });
+        _users.Single(x => x.Id == 1).ArchivedTime.Should().BeNull();
+        AssertRefusal("archive");
+    }
+
+    [Test]
+    public async Task ArchivingADisabledSuperAdmin_WhileAnotherIsEnabled_Succeeds()
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = false, IsInternalUser = true });
+
+        (await Users().DeleteUserAsync(8)).Success.Should().BeTrue();
+    }
+
     [TestCase("toggle")]
     [TestCase("update")]
     [TestCase("delete")]
