@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Models;
 using Microsoft.OpenApi;
 using Microsoft.OpenApi.Reader;
 using Beacon.Connector.Api.Models;
@@ -10,6 +11,11 @@ public class OpenApiImportService(
     IHttpClientFactory httpClientFactory,
     ILogger<OpenApiImportService> logger)
 {
+    // The most an OpenAPI description may hold, and how long fetching it may take.
+    private const long MaxSpecBytes = 50 * 1024 * 1024;
+
+    /// <summary>How long fetching the description, body included, may take: 30 seconds. Settable for tests.</summary>
+    internal TimeSpan SpecFetchTimeout { get; init; } = TimeSpan.FromSeconds(30);
     public async Task<List<ApiEndpointMetadata>> ImportAsync(
         string specUrl,
         ApiEndpointFilter? filter,
@@ -18,10 +24,25 @@ public class OpenApiImportService(
         logger.LogInformation("Importing OpenAPI spec from {SpecUrl}", specUrl);
 
         var client = httpClientFactory.CreateClient();
-        using var response = await client.GetAsync(specUrl, ct);
-        response.EnsureSuccessStatusCode();
+        client.Timeout = SpecFetchTimeout;
 
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        // The deadline covers the body too: HttpClient.Timeout ends once the headers are read.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(SpecFetchTimeout);
+        MemoryStream stream;
+        try
+        {
+            using var response = await client.GetAsync(specUrl, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            stream = await ApiHttpClientHelper.ReadCappedAsync(response, MaxSpecBytes, "OpenAPI description", timeoutCts.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new BeaconException($"The OpenAPI description was not fetched within {SpecFetchTimeout.TotalSeconds:0} seconds.", ex);
+        }
+
+        await using var _ = stream;
         var result = await OpenApiDocument.LoadAsync(stream, null, ReaderSettings(), ct);
         return ToEndpoints(result, filter);
     }

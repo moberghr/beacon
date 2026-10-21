@@ -12,7 +12,10 @@ public static class ServiceCollectionExtensions
 {
     public static BeaconBuilder AddSnowflakeConnector(this BeaconBuilder builder)
     {
-        DbConnectionFactory.Register(DatabaseEngineType.Snowflake, cs => new SnowflakeDbConnection(cs));
+        DbConnectionFactory.Register(
+            DatabaseEngineType.Snowflake,
+            cs => new SnowflakeDbConnection(cs),
+            x => SnowflakeDbConnectionPool.GetPool(x.ConnectionString).ClearPool());
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.Snowflake, "Snowflake");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SnowflakeMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SnowflakeTransportInspector>());

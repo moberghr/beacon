@@ -38,8 +38,8 @@ Only registered engines appear in **New data source**. Data sources themselves (
 | SQL Server | Yes | No: runs in a transaction that is always rolled back | Yes | Yes |
 | Azure Synapse | Yes | No | Yes | No |
 | Snowflake | Yes | No | Yes | No |
-| BigQuery | No | No: the connector's own parser check plus a dry run whose statement type must be `SELECT` | No (reads the capped result) | No |
-| Databricks | No | No: the connector's own parser check and configured catalog | No (reads the capped result) | No |
+| BigQuery | No | No: the connector's own parser check plus a dry run whose statement type must be `SELECT` | Yes: stops reading the job's result | No |
+| Databricks | No | No: the connector's own parser check and configured catalog | Yes: the statement is sent with `row_limit` | No |
 | CloudWatch | Log fields | n/a (Logs Insights queries, no SQL) | n/a | No |
 | REST API | OpenAPI endpoints | n/a (HTTP requests, no SQL) | n/a | No |
 
@@ -87,11 +87,28 @@ GRANT SELECT, SHOW VIEW ON shop.* TO 'beacon_reader'@'%';
 |---|---|
 | PostgreSQL, SQL Server, MySQL, Synapse, Snowflake | Database engine and connection string, plus metadata options: max tables, max columns per table, include and exclude schemas |
 | Databricks | Host, HTTP path, personal access token; catalog and schema (optional) |
-| BigQuery | Project id, service-account JSON; dataset id and location (optional) |
+| BigQuery | Project id, service-account JSON; dataset id and location (optional); `MaximumBytesBilled` and `QueryTimeoutSeconds` in the connection settings (optional) |
 | CloudWatch | AWS region, log groups; access key id, secret access key or AWS profile (optional) |
 | REST API | Base URL, OpenAPI spec URL, authentication (API key in a header or parameter, bearer token, or basic), include and exclude path patterns |
 
 The last step of the dialog runs **Test connection** before **Create data source**.
+
+### Cost and time limits
+
+- **BigQuery:** every query job is sent with `MaximumBytesBilled`: the data source's own value, or 10 GiB when it sets
+  none, lowered by the deployment's `Beacon:DataSources:BigQuery:MaxBytesBilled` when that is set. A job that would bill
+  more fails without a charge. Set the per-source value (bytes) as `MaximumBytesBilled` in the connection JSON. A job
+  still running when the timeout passes or the caller cancels is cancelled.
+- **Databricks:** the statement is submitted without waiting, so a caller's cancellation or the timeout cancels it on the
+  warehouse. Results are limited to 16 MiB (a larger one fails) and, on Beacon's capped reads, to the row cap.
+- **BigQuery, Databricks:** a result read without a row cap fails above 10,000 rows instead of being cut short.
+- **Snowflake:** each statement also runs under the session's `STATEMENT_TIMEOUT_IN_SECONDS`
+  (`Beacon:Query:StatementTimeoutSeconds`), reset after the read.
+- **BigQuery, Databricks, CloudWatch:** a stored `QueryTimeoutSeconds` above 900 seconds is treated as 900.
+- **REST API:** `TimeoutSeconds` is clamped to 1–120 seconds; one response may hold 10 MB; the OpenAPI description is
+  fetched within 30 seconds and may hold 50 MB.
+
+See [Warehouse cost limits](/getting-started/configuration/#warehouse-cost-limits).
 
 Queries may only name objects in the database (catalog, project) the data source is configured for: the gate refuses other databases, remote servers, files and dynamic SQL.
 

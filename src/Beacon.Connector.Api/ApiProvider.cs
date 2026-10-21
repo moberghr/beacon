@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -21,7 +22,16 @@ public class ApiProvider(
     JsonResponseTabularizer tabularizer,
     ILogger<ApiProvider> logger) : IDataSourceProvider
 {
-    private const long MaxResponseBytes = 50 * 1024 * 1024;
+    // The most one API response may hold: a query's rows are read whole into memory.
+    private const long MaxResponseBytes = 10 * 1024 * 1024;
+
+    // The bounds of the stored TimeoutSeconds, and the wait used when it is zero or less.
+    private const int MinTimeoutSeconds = 1;
+    private const int MaxTimeoutSeconds = 120;
+    private const int DefaultTimeoutSeconds = 30;
+
+    // The data sources whose replaced timeout was logged, so it is logged once per process.
+    private static readonly ConcurrentDictionary<int, bool> ReplacedTimeoutLogged = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -42,13 +52,13 @@ public class ApiProvider(
         {
             var config = ParseConfiguration(dataSource);
             var client = httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
+            client.Timeout = TimeoutOf(dataSource, config);
 
-            // Test by fetching the OpenAPI spec URL
+            // Test by fetching the OpenAPI spec URL; only its status is needed, so its body is never read.
             var request = new HttpRequestMessage(HttpMethod.Get, config.OpenApiSpecUrl);
             ApiHttpClientHelper.ApplyAuth(request, config.Auth);
 
-            using var response = await client.SendAsync(request, cancellationToken);
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             stopwatch.Stop();
@@ -106,21 +116,35 @@ public class ApiProvider(
                     $"HTTP method '{queryDef.Method}' is not permitted. Only read-only verbs (GET, HEAD, OPTIONS) are allowed.");
             }
 
+            var timeout = TimeoutOf(dataSource, config);
             var client = httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
-            // CreateClient() hands out a fresh HttpClient per call, so capping the buffer here
-            // doesn't affect other consumers of the factory's shared handler.
-            client.MaxResponseContentBufferSize = MaxResponseBytes;
+            client.Timeout = timeout;
 
             var request = ApiHttpClientHelper.CreateRequest(config, queryDef);
 
             // The data source only (§1.11): the path can carry identifiers or a credential in its query string.
             logger.LogInformation("Executing API query on data source {DataSourceId}", dataSource.Id);
 
-            using var response = await client.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            // The timeout covers the body too: HttpClient.Timeout ends once the headers are read.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+            int statusCode;
+            string responseBody;
+            try
+            {
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
+                response.EnsureSuccessStatusCode();
+                statusCode = (int)response.StatusCode;
 
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                await using var body = await ApiHttpClientHelper.ReadCappedAsync(response, MaxResponseBytes, "API response", timeoutCts.Token);
+                using var reader = new StreamReader(body, ApiHttpClientHelper.EncodingOf(response.Content), detectEncodingFromByteOrderMarks: true);
+                responseBody = await reader.ReadToEndAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new BeaconException($"The API did not answer within {timeout.TotalSeconds:0} seconds.", ex);
+            }
+
             var rows = tabularizer.Tabularize(responseBody, queryDef.ResultMapping, out var truncated, out var totalAvailable);
 
             stopwatch.Stop();
@@ -138,11 +162,15 @@ public class ApiProvider(
                 {
                     ["Method"] = queryDef.Method,
                     ["Path"] = queryDef.Path,
-                    ["StatusCode"] = (int)response.StatusCode,
+                    ["StatusCode"] = statusCode,
                     ["Truncated"] = truncated,
                     ["TotalAvailable"] = totalAvailable
                 }
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -242,6 +270,25 @@ public class ApiProvider(
 
     private static bool IsReadOnlyMethod(string? method) =>
         !string.IsNullOrWhiteSpace(method) && ReadOnlyMethods.Contains(method.ToUpperInvariant());
+
+    // The stored TimeoutSeconds within its bounds; zero or less means the default, logged once per data source.
+    private TimeSpan TimeoutOf(DataSource dataSource, ApiConnectionConfig config)
+    {
+        if (config.TimeoutSeconds > 0)
+        {
+            return TimeSpan.FromSeconds(Math.Clamp(config.TimeoutSeconds, MinTimeoutSeconds, MaxTimeoutSeconds));
+        }
+
+        if (ReplacedTimeoutLogged.TryAdd(dataSource.Id, true))
+        {
+            logger.LogInformation(
+                "API data source {DataSourceId} stores a timeout of zero or less; {TimeoutSeconds} seconds is used",
+                dataSource.Id,
+                DefaultTimeoutSeconds);
+        }
+
+        return TimeSpan.FromSeconds(DefaultTimeoutSeconds);
+    }
 
     private ApiConnectionConfig ParseConfiguration(DataSource dataSource)
     {

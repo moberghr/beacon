@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -21,9 +22,15 @@ public class DatabricksProvider(
     IHttpClientFactory httpClientFactory,
     IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
-    ILogger<DatabricksProvider> logger) : IDataSourceProvider
+    ILogger<DatabricksProvider> logger) : IDataSourceProvider, IRowCappedReadOnlyExecution
 {
     private const int MaxResultRows = 10000;
+
+    // The most result bytes one statement may return (the Statement Execution API's byte_limit): 16 MiB.
+    private const long MaxResultBytes = 16L * 1024 * 1024;
+
+    // How long a best-effort statement cancellation may take once the wait for it has ended.
+    private static readonly TimeSpan CancelTimeout = TimeSpan.FromSeconds(10);
 
     public DataSourceType SupportedType => DataSourceType.Databricks;
     public string GetQueryLanguageName() => "Databricks SQL";
@@ -66,25 +73,59 @@ public class DatabricksProvider(
         }
     }
 
-    public async Task<ProviderQueryResult> ExecuteQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    public Task<ProviderQueryResult> ExecuteQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    {
+        return ExecuteQueryCoreAsync(dataSource, query, parameters, rowLimit: null, cancellationToken);
+    }
+
+    // Sends the statement with row_limit = maxRows, so the warehouse returns no more than the caller reads; a result that
+    // holds maxRows rows may have had more, and the caller judges it.
+    async Task<ProviderQueryResult> IRowCappedReadOnlyExecution.ExecuteReadOnlyQueryAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        int maxRows,
+        CancellationToken cancellationToken)
+    {
+        var validation = await ValidateQueryAsync(dataSource, query, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return Refused(validation);
+        }
+
+        return await ExecuteQueryCoreAsync(dataSource, query, parameters, Math.Max(1, maxRows), cancellationToken);
+    }
+
+    private async Task<ProviderQueryResult> ExecuteQueryCoreAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        int? rowLimit,
+        CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         try
         {
             var config = ParseConfiguration(dataSource);
+            var timeoutSeconds = DataSourceQueryTimeout.Clamp(config.QueryTimeoutSeconds);
             using var client = CreateHttpClient(config);
 
-            // Databricks only accepts wait_timeout of 0s or 5s-50s; rely on the poll loop below for longer waits.
-            var waitSeconds = Math.Clamp(config.QueryTimeoutSeconds, 5, 50);
-
+            // wait_timeout 0s answers at once with the statement id, so a caller's cancellation can always cancel the
+            // statement on the warehouse; the poll loop below waits for it.
             var requestBody = new Dictionary<string, object?>
             {
                 ["statement"] = query,
                 ["warehouse_id"] = ExtractWarehouseId(config.HttpPath),
                 ["catalog"] = config.Catalog,
                 ["schema"] = config.Schema,
-                ["wait_timeout"] = $"{waitSeconds}s"
+                ["wait_timeout"] = "0s",
+                ["byte_limit"] = MaxResultBytes
             };
+
+            if (rowLimit is { } limit)
+            {
+                requestBody["row_limit"] = limit;
+            }
 
             if (parameters is { Count: > 0 })
             {
@@ -113,24 +154,44 @@ public class DatabricksProvider(
                 throw new DataSourceServiceException($"Databricks query failed: {result.Status.Error?.Message}", result.Status.Error?.ErrorCode);
             }
 
-            // Poll if pending, with an overall timeout and gentle backoff (500ms growing to 5s).
-            var pollDelayMs = 500;
-            while (result?.Status?.State is "PENDING" or "RUNNING")
+            var statementId = result?.StatementId;
+            if (result?.Status?.State is "PENDING" or "RUNNING" && string.IsNullOrEmpty(statementId))
             {
-                if (stopwatch.Elapsed.TotalSeconds >= config.QueryTimeoutSeconds)
+                // A statement Beacon cannot poll it cannot cancel either.
+                throw new DataSourceServiceException("Databricks accepted the statement without a statement id.", null);
+            }
+
+            // Poll if pending: once at once, then with gentle backoff (500ms growing to 5s), under an overall timeout. The
+            // timeout and the caller's cancellation both cancel the statement on the warehouse.
+            var pollDelayMs = 0;
+            try
+            {
+                while (result?.Status?.State is "PENDING" or "RUNNING")
                 {
-                    await TryCancelStatementAsync(client, config, result.StatementId, cancellationToken);
-                    throw new BeaconException($"Databricks query timed out after {config.QueryTimeoutSeconds} seconds");
+                    if (stopwatch.Elapsed.TotalSeconds >= timeoutSeconds)
+                    {
+                        await TryCancelStatementAsync(client, config, statementId);
+                        throw new BeaconException($"Databricks query timed out after {timeoutSeconds} seconds");
+                    }
+
+                    if (pollDelayMs > 0)
+                    {
+                        await Task.Delay(pollDelayMs, cancellationToken);
+                    }
+
+                    pollDelayMs = pollDelayMs == 0 ? 500 : Math.Min(pollDelayMs * 2, 5000);
+
+                    using var pollResponse = await client.GetAsync(
+                        $"https://{config.Host}/api/2.0/sql/statements/{statementId}",
+                        cancellationToken);
+                    pollResponse.EnsureSuccessStatusCode();
+                    result = await pollResponse.Content.ReadFromJsonAsync<DatabricksStatementResponse>(cancellationToken: cancellationToken);
                 }
-
-                await Task.Delay(pollDelayMs, cancellationToken);
-                pollDelayMs = Math.Min(pollDelayMs * 2, 5000);
-
-                using var pollResponse = await client.GetAsync(
-                    $"https://{config.Host}/api/2.0/sql/statements/{result.StatementId}",
-                    cancellationToken);
-                pollResponse.EnsureSuccessStatusCode();
-                result = await pollResponse.Content.ReadFromJsonAsync<DatabricksStatementResponse>(cancellationToken: cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                await TryCancelStatementAsync(client, config, statementId);
+                throw;
             }
 
             if (result?.Status?.State != "SUCCEEDED")
@@ -140,7 +201,16 @@ public class DatabricksProvider(
                 throw new DataSourceServiceException(errorDetail == null ? stateMessage : $"{stateMessage} — {errorDetail}", result?.Status?.Error?.ErrorCode);
             }
 
-            var (rows, truncated) = await ConvertResultToRowsAsync(client, config, result, cancellationToken);
+            // The warehouse cut the result short. Only a cut at the row limit, with the full rowLimit rows returned, is
+            // handed back (the caller asked for no more and judges it); any other cut was the byte limit, and a partial
+            // result is never returned as a whole one.
+            var cutAtRowLimit = rowLimit is { } requested && result.Manifest?.TotalRowCount is { } returned && returned >= requested;
+            if (result.Manifest?.Truncated == true && !cutAtRowLimit)
+            {
+                throw new BeaconException($"The Databricks result is larger than the {MaxResultBytes / (1024 * 1024)} MB Beacon reads from one statement. Select fewer columns or rows.");
+            }
+
+            var rows = await ConvertResultToRowsAsync(client, config, result, rowLimit, cancellationToken);
             stopwatch.Stop();
 
             return new ProviderQueryResult
@@ -152,11 +222,14 @@ public class DatabricksProvider(
                 Metadata = new Dictionary<string, object?>
                 {
                     ["StatementId"] = result.StatementId,
-                    ["Truncated"] = truncated,
-                    ["RowLimit"] = MaxResultRows,
+                    ["RowLimit"] = rowLimit ?? MaxResultRows,
                     ["TotalRowCount"] = result.Manifest?.TotalRowCount
                 }
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -189,13 +262,7 @@ public class DatabricksProvider(
         var validation = await ValidateQueryAsync(dataSource, query, cancellationToken);
         if (!validation.IsValid)
         {
-            return new ProviderQueryResult
-            {
-                Rows = [],
-                TotalRows = 0,
-                Success = false,
-                ErrorMessage = string.Join("; ", validation.Errors)
-            };
+            return Refused(validation);
         }
 
         return await ExecuteQueryAsync(dataSource, query, parameters, cancellationToken);
@@ -260,8 +327,19 @@ public class DatabricksProvider(
     {
         var client = httpClientFactory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.Token);
-        client.Timeout = TimeSpan.FromSeconds(config.QueryTimeoutSeconds + 30);
+        client.Timeout = TimeSpan.FromSeconds(DataSourceQueryTimeout.Clamp(config.QueryTimeoutSeconds) + 30);
         return client;
+    }
+
+    private static ProviderQueryResult Refused(QueryValidationResult validation)
+    {
+        return new ProviderQueryResult
+        {
+            Rows = [],
+            TotalRows = 0,
+            Success = false,
+            ErrorMessage = string.Join("; ", validation.Errors)
+        };
     }
 
     private static string ExtractWarehouseId(string httpPath)
@@ -271,7 +349,8 @@ public class DatabricksProvider(
         return parts[^1];
     }
 
-    private async Task TryCancelStatementAsync(HttpClient client, DatabricksConfiguration config, string? statementId, CancellationToken cancellationToken)
+    // Best effort, on its own short deadline: the caller's token may already be cancelled.
+    private async Task TryCancelStatementAsync(HttpClient client, DatabricksConfiguration config, string? statementId)
     {
         if (string.IsNullOrEmpty(statementId))
         {
@@ -280,10 +359,18 @@ public class DatabricksProvider(
 
         try
         {
+            using var cancel = new CancellationTokenSource(CancelTimeout);
             using var cancelResponse = await client.PostAsync(
                 $"https://{config.Host}/api/2.0/sql/statements/{statementId}/cancel",
                 null,
-                cancellationToken);
+                cancel.Token);
+            if (!cancelResponse.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Databricks refused to cancel statement {StatementId} with status {StatusCode}",
+                    statementId,
+                    (int)cancelResponse.StatusCode);
+            }
         }
         catch (Exception ex)
         {
@@ -294,23 +381,42 @@ public class DatabricksProvider(
         }
     }
 
-    private static async Task<(List<Dictionary<string, object?>> Rows, bool Truncated)> ConvertResultToRowsAsync(
+    // Reads every chunk of the result. With a row limit the read stops at it (the warehouse sends no more; the caller judges
+    // a result that reaches it); without one, a result over MaxResultRows fails, and so does a chunk that is missing, so a
+    // partial result is never returned as a whole one.
+    private static async Task<List<Dictionary<string, object?>>> ConvertResultToRowsAsync(
         HttpClient client,
         DatabricksConfiguration config,
         DatabricksStatementResponse result,
+        int? rowLimit,
         CancellationToken cancellationToken)
     {
         var rows = new List<Dictionary<string, object?>>();
         if (result.Manifest?.Schema?.Columns == null || result.Result?.DataArray == null)
-            return (rows, false);
+        {
+            if (result.Manifest?.TotalRowCount is > 0)
+            {
+                throw new DataSourceServiceException("Databricks reported rows but returned none of them.", null);
+            }
 
-        var columnNames = result.Manifest.Schema.Columns.Select(c => c.Name).ToList();
-        var truncated = AppendChunkRows(rows, columnNames, result.Result.DataArray);
+            return rows;
+        }
+
+        var readLimit = rowLimit ?? MaxResultRows;
+        var columnNames = result.Manifest.Schema.Columns.Select(x => x.Name).ToList();
+        var overflow = AppendChunkRows(rows, columnNames, result.Result.DataArray, readLimit);
         var nextChunkIndex = result.Result.NextChunkIndex;
 
         // Follow subsequent result chunks; large results arrive in multiple chunks.
-        while (!truncated && nextChunkIndex != null)
+        while (!overflow && nextChunkIndex != null)
         {
+            if (rows.Count >= readLimit)
+            {
+                // The next chunk holds rows past the limit.
+                overflow = true;
+                break;
+            }
+
             using var chunkResponse = await client.GetAsync(
                 $"https://{config.Host}/api/2.0/sql/statements/{result.StatementId}/result/chunks/{nextChunkIndex}",
                 cancellationToken);
@@ -319,30 +425,37 @@ public class DatabricksProvider(
             var chunk = await chunkResponse.Content.ReadFromJsonAsync<DatabricksResult>(cancellationToken: cancellationToken);
             if (chunk?.DataArray == null)
             {
-                break;
+                throw new DataSourceServiceException("Databricks returned an empty chunk of the result.", null);
             }
 
-            truncated = AppendChunkRows(rows, columnNames, chunk.DataArray);
+            overflow = AppendChunkRows(rows, columnNames, chunk.DataArray, readLimit);
             nextChunkIndex = chunk.NextChunkIndex;
         }
 
-        return (rows, truncated);
+        if (overflow && rowLimit == null)
+        {
+            throw new BeaconException($"The Databricks result has more than {MaxResultRows.ToString("N0", CultureInfo.InvariantCulture)} rows, the most Beacon reads from one statement without a row cap. Narrow the query.");
+        }
+
+        return rows;
     }
 
-    private static bool AppendChunkRows(List<Dictionary<string, object?>> rows, List<string> columnNames, List<List<string?>> dataArray)
+    // Adds the chunk's rows up to readLimit; true when a row did not fit.
+    private static bool AppendChunkRows(List<Dictionary<string, object?>> rows, List<string> columnNames, List<List<string?>> dataArray, int readLimit)
     {
         foreach (var dataRow in dataArray)
         {
-            if (rows.Count >= MaxResultRows)
+            if (rows.Count >= readLimit)
             {
                 return true;
             }
 
             var row = new Dictionary<string, object?>();
-            for (int i = 0; i < columnNames.Count && i < dataRow.Count; i++)
+            for (var i = 0; i < columnNames.Count && i < dataRow.Count; i++)
             {
                 row[columnNames[i]] = dataRow[i];
             }
+
             rows.Add(row);
         }
 
@@ -390,6 +503,9 @@ public class DatabricksProvider(
 
         [JsonPropertyName("total_row_count")]
         public long? TotalRowCount { get; set; }
+
+        [JsonPropertyName("truncated")]
+        public bool? Truncated { get; set; }
     }
 
     private class DatabricksSchema

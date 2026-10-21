@@ -212,7 +212,7 @@ public class ConnectorReadOnlyBindingTests
     }
 
     private sealed class FixedClientBigQueryProvider(BigQueryClient client, IEncryptionService encryption)
-        : BigQueryProvider(TestTransport.Resolver(encryption), new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<BigQueryProvider>.Instance)
+        : BigQueryProvider(TestTransport.Resolver(encryption), new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<BigQueryProvider>.Instance, Microsoft.Extensions.Options.Options.Create(new BigQueryOptions()))
     {
         protected override BigQueryClient CreateClient(BigQueryConfiguration config) => client;
     }
