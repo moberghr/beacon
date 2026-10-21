@@ -673,138 +673,146 @@ internal class UserManagementService(
 
     public async Task<BaseResponse> UpdateUserAsync(UpdateUserRequest request, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        var user = await context.Users.FindAsync(new object[] { request.UserId }, ct);
-        if (user == null)
+        return await InLastSuperAdminTransactionAsync(async context =>
         {
-            return new BaseResponse { Success = false, Message = "User not found." };
-        }
+            var user = await context.Users.FindAsync(new object[] { request.UserId }, ct);
+            if (user == null)
+            {
+                return new GuardedChange(new BaseResponse { Success = false, Message = "User not found." });
+            }
 
-        // Check for duplicate username (if changed)
-        if (user.UserName != request.UserName &&
-            await context.Users.AnyAsync(u => u.UserName == request.UserName && u.Id != request.UserId, ct))
-        {
-            return new BaseResponse { Success = false, Message = "A user with this username already exists." };
-        }
+            // Check for duplicate username (if changed)
+            if (user.UserName != request.UserName &&
+                await context.Users
+                    .Where(x => x.UserName == request.UserName)
+                    .Where(x => x.Id != request.UserId)
+                    .AnyAsync(ct))
+            {
+                return new GuardedChange(new BaseResponse { Success = false, Message = "A user with this username already exists." });
+            }
 
-        var wasEnabled = user.IsEnabled;
+            if (user.IsSuperAdmin && user.IsEnabled && !request.IsEnabled && await IsLastEnabledSuperAdminAsync(context, ct))
+            {
+                return RefusedLastSuperAdmin(user.Id, "Cannot disable the last super admin.", "disable");
+            }
 
-        // What the user signs in with, or whether they may: a change signs out every session they hold.
-        var userNameChanged = user.UserName != request.UserName;
-        var emailChanged = !string.Equals(EmptyAsNull(user.Email), EmptyAsNull(request.Email), StringComparison.Ordinal);
-        var displayNameChanged = !string.Equals(user.DisplayName, request.DisplayName, StringComparison.Ordinal);
-        var signsOut = user.IsEnabled != request.IsEnabled || userNameChanged || emailChanged;
+            var wasEnabled = user.IsEnabled;
 
-        user.UserName = request.UserName;
-        user.Email = request.Email;
-        user.DisplayName = request.DisplayName;
-        user.IsEnabled = request.IsEnabled;
+            // What the user signs in with, or whether they may: a change signs out every session they hold.
+            var userNameChanged = user.UserName != request.UserName;
+            var emailChanged = !string.Equals(EmptyAsNull(user.Email), EmptyAsNull(request.Email), StringComparison.Ordinal);
+            var displayNameChanged = !string.Equals(user.DisplayName, request.DisplayName, StringComparison.Ordinal);
+            var signsOut = user.IsEnabled != request.IsEnabled || userNameChanged || emailChanged;
 
-        var revokedKeys = !wasEnabled || !user.IsEnabled
-            ? await RevokeApiKeysAsync(context, user, ct)
-            : 0;
+            user.UserName = request.UserName;
+            user.Email = request.Email;
+            user.DisplayName = request.DisplayName;
+            user.IsEnabled = request.IsEnabled;
 
-        if (signsOut)
-        {
-            user.SecurityStamp = SecurityStamps.New();
-        }
+            var revokedKeys = !wasEnabled || !user.IsEnabled
+                ? await RevokeApiKeysAsync(context, user, ct)
+                : 0;
 
-        // Which fields changed, never their values.
-        if (signsOut || displayNameChanged || revokedKeys > 0)
-        {
-            await securityAudit.StageAsync(
-                context,
-                new SecurityAuditEntry(SecurityAuditActions.UserUpdated)
-                    .On(SecurityAuditResources.User, user.Id)
-                    .With(new SecurityAuditDetails()
-                        .Add("userNameChanged", userNameChanged)
-                        .Add("emailChanged", emailChanged)
-                        .Add("displayNameChanged", displayNameChanged)
-                        .Add("enabledBefore", wasEnabled)
-                        .Add("enabledAfter", user.IsEnabled)
-                        .Add("sessionsSignedOut", signsOut)
-                        .Add("apiKeysRevoked", revokedKeys)),
-                ct);
-        }
+            if (signsOut)
+            {
+                user.SecurityStamp = SecurityStamps.New();
+            }
 
-        await context.SaveChangesAsync(ct);
+            // Which fields changed, never their values.
+            if (signsOut || displayNameChanged || revokedKeys > 0)
+            {
+                await securityAudit.StageAsync(
+                    context,
+                    new SecurityAuditEntry(SecurityAuditActions.UserUpdated)
+                        .On(SecurityAuditResources.User, user.Id)
+                        .With(new SecurityAuditDetails()
+                            .Add("userNameChanged", userNameChanged)
+                            .Add("emailChanged", emailChanged)
+                            .Add("displayNameChanged", displayNameChanged)
+                            .Add("enabledBefore", wasEnabled)
+                            .Add("enabledAfter", user.IsEnabled)
+                            .Add("sessionsSignedOut", signsOut)
+                            .Add("apiKeysRevoked", revokedKeys)),
+                    ct);
+            }
 
-        return new BaseResponse { Success = true, Message = "User updated successfully." };
+            await context.SaveChangesAsync(ct);
+
+            return new GuardedChange(new BaseResponse { Success = true, Message = "User updated successfully." });
+        }, ct);
     }
 
     public async Task<BaseResponse> DeleteUserAsync(int userId, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        var user = await context.Users.FindAsync(new object[] { userId }, ct);
-        if (user == null)
+        return await InLastSuperAdminTransactionAsync(async context =>
         {
-            return new BaseResponse { Success = false, Message = "User not found." };
-        }
-
-        if (user.IsSuperAdmin)
-        {
-            // Check if this is the last super admin
-            var superAdminCount = await context.Users.CountAsync(u => u.IsSuperAdmin && u.ArchivedTime == null, ct);
-            if (superAdminCount <= 1)
+            var user = await context.Users.FindAsync(new object[] { userId }, ct);
+            if (user == null)
             {
-                return new BaseResponse { Success = false, Message = "Cannot delete the last super admin." };
+                return new GuardedChange(new BaseResponse { Success = false, Message = "User not found." });
             }
-        }
 
-        user.Archive();
-        user.SecurityStamp = SecurityStamps.New();
-        var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
-        await securityAudit.StageAsync(
-            context,
-            new SecurityAuditEntry(SecurityAuditActions.UserArchived)
-                .On(SecurityAuditResources.User, user.Id)
-                .With(new SecurityAuditDetails().Add("apiKeysRevoked", revokedKeys)),
-            ct);
-        await context.SaveChangesAsync(ct);
+            if (user.IsSuperAdmin)
+            {
+                // Check if this is the last super admin
+                var superAdminCount = await context.Users
+                    .Where(x => x.IsSuperAdmin)
+                    .CountAsync(ct);
+                if (superAdminCount <= 1)
+                {
+                    return RefusedLastSuperAdmin(user.Id, "Cannot delete the last super admin.", "archive");
+                }
+            }
 
-        return new BaseResponse { Success = true, Message = "User deleted successfully." };
+            user.Archive();
+            user.SecurityStamp = SecurityStamps.New();
+            var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
+            await securityAudit.StageAsync(
+                context,
+                new SecurityAuditEntry(SecurityAuditActions.UserArchived)
+                    .On(SecurityAuditResources.User, user.Id)
+                    .With(new SecurityAuditDetails().Add("apiKeysRevoked", revokedKeys)),
+                ct);
+            await context.SaveChangesAsync(ct);
+
+            return new GuardedChange(new BaseResponse { Success = true, Message = "User deleted successfully." });
+        }, ct);
     }
 
     public async Task<BaseResponse> ToggleUserEnabledAsync(int userId, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        var user = await context.Users.FindAsync(new object[] { userId }, ct);
-        if (user == null)
+        return await InLastSuperAdminTransactionAsync(async context =>
         {
-            return new BaseResponse { Success = false, Message = "User not found." };
-        }
-
-        if (user.IsSuperAdmin && user.IsEnabled)
-        {
-            // Check if this is the last enabled super admin
-            var enabledSuperAdminCount = await context.Users.CountAsync(u => u.IsSuperAdmin && u.IsEnabled && u.ArchivedTime == null, ct);
-            if (enabledSuperAdminCount <= 1)
+            var user = await context.Users.FindAsync(new object[] { userId }, ct);
+            if (user == null)
             {
-                return new BaseResponse { Success = false, Message = "Cannot disable the last super admin." };
+                return new GuardedChange(new BaseResponse { Success = false, Message = "User not found." });
             }
-        }
 
-        // Either transition revokes: disabling, and re-enabling too (see RevokeApiKeysAsync), and signs out every session.
-        user.IsEnabled = !user.IsEnabled;
-        user.SecurityStamp = SecurityStamps.New();
-        var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
-        await securityAudit.StageAsync(
-            context,
-            new SecurityAuditEntry(user.IsEnabled ? SecurityAuditActions.UserEnabled : SecurityAuditActions.UserDisabled)
-                .On(SecurityAuditResources.User, user.Id)
-                .With(new SecurityAuditDetails().Add("apiKeysRevoked", revokedKeys)),
-            ct);
+            if (user.IsSuperAdmin && user.IsEnabled && await IsLastEnabledSuperAdminAsync(context, ct))
+            {
+                return RefusedLastSuperAdmin(user.Id, "Cannot disable the last super admin.", "disable");
+            }
 
-        await context.SaveChangesAsync(ct);
+            // Either transition revokes: disabling, and re-enabling too (see RevokeApiKeysAsync), and signs out every session.
+            user.IsEnabled = !user.IsEnabled;
+            user.SecurityStamp = SecurityStamps.New();
+            var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
+            await securityAudit.StageAsync(
+                context,
+                new SecurityAuditEntry(user.IsEnabled ? SecurityAuditActions.UserEnabled : SecurityAuditActions.UserDisabled)
+                    .On(SecurityAuditResources.User, user.Id)
+                    .With(new SecurityAuditDetails().Add("apiKeysRevoked", revokedKeys)),
+                ct);
 
-        return new BaseResponse
-        {
-            Success = true,
-            Message = user.IsEnabled ? "User enabled successfully." : "User disabled successfully."
-        };
+            await context.SaveChangesAsync(ct);
+
+            return new GuardedChange(new BaseResponse
+            {
+                Success = true,
+                Message = user.IsEnabled ? "User enabled successfully." : "User disabled successfully."
+            });
+        }, ct);
     }
 
     public async Task<BaseResponse> AssignRoleAsync(int userId, int roleId, string? assignedBy, CancellationToken ct = default)
@@ -1177,6 +1185,64 @@ internal class UserManagementService(
     // The keys are enumerated before the save, so a key stored concurrently (approved before the change, inserted after
     // the enumeration) escapes the revocation; advancing the user's API-key generation in the same save makes that key
     // carry a generation that is no longer theirs, and validation refuses it.
+    // A change that can leave no enabled super admin runs in a serializable transaction (the count and the write see the
+    // same rows, so two concurrent changes cannot both pass); a conflict with a concurrent change is a 409 to retry. A
+    // refusal is recorded once the transaction has ended.
+    private async Task<BaseResponse> InLastSuperAdminTransactionAsync(Func<BeaconContext, Task<GuardedChange>> change, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+
+        var strategy = context.Database.CreateExecutionStrategy();
+
+        GuardedChange result;
+        try
+        {
+            result = await strategy.ExecuteAsync(async () =>
+            {
+                context.ChangeTracker.Clear();
+
+                await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+                var changed = await change(context);
+                await transaction.CommitAsync(ct);
+
+                return changed;
+            });
+        }
+        catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
+        {
+            throw new BeaconConflictException("The super admins changed concurrently; reload and retry.");
+        }
+
+        if (result.Refusal != null)
+        {
+            await securityAudit.RecordAsync(result.Refusal, ct);
+        }
+
+        return result.Response;
+    }
+
+    private static async Task<bool> IsLastEnabledSuperAdminAsync(BeaconContext context, CancellationToken ct)
+    {
+        var enabledSuperAdminCount = await context.Users
+            .Where(x => x.IsSuperAdmin)
+            .Where(x => x.IsEnabled)
+            .CountAsync(ct);
+
+        return enabledSuperAdminCount <= 1;
+    }
+
+    private static GuardedChange RefusedLastSuperAdmin(int userId, string message, string attempt)
+    {
+        return new GuardedChange(
+            new BaseResponse { Success = false, Message = message },
+            new SecurityAuditEntry(SecurityAuditActions.LastSuperAdminChangeRefused)
+                .On(SecurityAuditResources.User, userId)
+                .Ending(SecurityAuditOutcomes.Refused)
+                .With(new SecurityAuditDetails().AddCode("attempt", attempt)));
+    }
+
+    private sealed record GuardedChange(BaseResponse Response, SecurityAuditEntry? Refusal = null);
+
     private async Task<int> RevokeApiKeysAsync(BeaconContext context, BeaconUser user, CancellationToken ct)
     {
         user.ApiKeyGeneration++;

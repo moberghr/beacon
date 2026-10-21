@@ -115,6 +115,7 @@ public static class SecurityAuditActions
     public const string UserEnabled = "identity.user_enabled";
     public const string UserDisabled = "identity.user_disabled";
     public const string UserArchived = "identity.user_archived";
+    public const string LastSuperAdminChangeRefused = "identity.last_super_admin_change_refused";
     public const string PasswordChanged = "identity.password_changed";
     public const string PasswordReset = "identity.password_reset";
     public const string RolesChanged = "identity.roles_changed";

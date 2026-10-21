@@ -8,7 +8,8 @@ using Beacon.Core.SecurityAudit;
 namespace Beacon.Core.Handlers.Queries;
 
 /// <summary>
-/// Locks a query against changes by anyone but its lock holder, or unlocks it. A change of the lock is recorded as the
+/// Locks a query against AI and restore changes by anyone but its lock holder (it does not bind human edits), or
+/// unlocks it, which only the lock holder or an Admin may do. A change of the lock is recorded as the
 /// query's last change (by the caller) and as a security audit event in the same save.
 /// </summary>
 internal sealed class ToggleQueryLockHandler(
@@ -25,6 +26,7 @@ internal sealed class ToggleQueryLockHandler(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         var query = await context.Queries
             .Where(q => q.Id == request.QueryId)
             .FirstOrDefaultAsync(cancellationToken);
@@ -53,7 +55,8 @@ internal sealed class ToggleQueryLockHandler(
 
             query.IsLocked = true;
             query.LockedAt = DateTime.UtcNow;
-            query.LockedByUserId = request.UserId;
+            // The id Beacon records people by, so the holder is recognised exactly when unlocking.
+            query.LockedByUserId = actor.UserId ?? request.UserId;
 
             logger.LogInformation(
                 "Query {QueryId} locked by user {UserId}",
@@ -73,6 +76,12 @@ internal sealed class ToggleQueryLockHandler(
                 };
             }
 
+            // The lock holder or an Admin lifts it; a lock with no recorded holder is lifted by whoever may manage the query.
+            if (query.LockedByUserId != null && !actor.IsOwnerOrAdmin(query.LockedByUserId))
+            {
+                throw AccessRefusal.Of(logger, actor, "query", query.Id, "Only the user who locked the query or an Admin can unlock it.");
+            }
+
             query.IsLocked = false;
             query.LockedAt = null;
             query.LockedByUserId = null;
@@ -83,7 +92,7 @@ internal sealed class ToggleQueryLockHandler(
                 request.UserId);
         }
 
-        query.RecordChangeBy(await actorAccessor.GetCurrentAsync(cancellationToken), timeProvider);
+        query.RecordChangeBy(actor, timeProvider);
         await securityAudit.StageAsync(
             context,
             new SecurityAuditEntry(SecurityAuditActions.QueryLockChanged)
@@ -111,7 +120,7 @@ public record ToggleQueryLockCommand : IRequest<ToggleQueryLockResult>, IProject
 
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
-        // Unlocking takes Manage; the lock holder, its recorded owner, may unlock wherever it may write.
+        // Unlocking takes Manage, and the handler then lets only the lock holder or an Admin lift a held lock.
         new(ProjectResource.Query(QueryId), Lock ? ProjectAction.Write : ProjectAction.Manage)
     ];
 }

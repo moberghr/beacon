@@ -24,6 +24,9 @@ public class ApprovalRequestDetail
     public string? RequestedByUserId { get; set; }
     public string? RequestedByUserName { get; set; }
     public string? ReviewedByUserName { get; set; }
+
+    /// <summary>The reviewer's <c>Users.Id</c>, which names them when the label is a display name they can change; null while pending or when the user no longer resolves.</summary>
+    public int? ReviewedByBeaconUserId { get; set; }
     public DateTime? ReviewedAt { get; set; }
     public string? ReviewComment { get; set; }
     public string? ChangeSummary { get; set; }

@@ -1258,6 +1258,7 @@ public class ApiKeyLifecycleTests
             new DbContextOptionsBuilder<FakeBeaconContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
+                .AddInterceptors(new SqlCapture().OfflineInterceptors())
                 .Options;
 
         public override DbSet<TEntity> Set<TEntity>()

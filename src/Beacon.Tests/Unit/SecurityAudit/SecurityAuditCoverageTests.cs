@@ -78,7 +78,7 @@ public class SecurityAuditCoverageTests
     [TestCase(false)]
     public async Task ChangingAQuerysLock_IsRecorded_AndAttributedToTheCaller(bool locking)
     {
-        var query = new Query { Id = 5, Name = "loan book", IsLocked = !locking, LockedByUserId = locking ? null : "ext-ben" };
+        var query = new Query { Id = 5, Name = "loan book", IsLocked = !locking, LockedByUserId = locking ? null : "ext-ada" };
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
         var time = new FakeTimeProvider(Now);
         var handler = new ToggleQueryLockHandler(Factory(new Dictionary<Type, object> { [typeof(Query)] = Set([query]) }), TestProjectAccess.Actors(3, "ext-ada"), audit, time, NullLogger<ToggleQueryLockHandler>.Instance);
@@ -86,13 +86,47 @@ public class SecurityAuditCoverageTests
         var result = await handler.Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = locking, UserId = "ext-ada" }, CancellationToken.None);
 
         result.IsLocked.Should().Be(locking);
-        var changed = audit.Single("loan book", "ext-ada", "ext-ben");
+        var changed = audit.Single("loan book", "ext-ada");
         changed.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.QueryLockChanged, ResourceType = SecurityAuditResources.Query, ResourceId = "5", ActorUserId = (int?)3 },
             x => x.ExcludingMissingMembers());
         changed.DetailsJson.Should().Be($"{{\"locked\":{locking.ToString().ToLowerInvariant()}}}");
         query.ModifiedByUserId.Should().Be("ext-ada");
         query.ModifiedTime.Should().Be(Now.UtcDateTime);
+    }
+
+    [TestCase("ext-ben")]
+    [TestCase("3")]
+    [TestCase("EXT-ADA")]
+    public async Task UnlockingAQueryAnotherUserLocked_IsRefused_AndChangesNothing(string holder)
+    {
+        var query = new Query { Id = 5, Name = "loan book", IsLocked = true, LockedByUserId = holder };
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+        var handler = new ToggleQueryLockHandler(Factory(new Dictionary<Type, object> { [typeof(Query)] = Set([query]) }), TestProjectAccess.Actors(3, "ext-ada"), audit, new FakeTimeProvider(Now), NullLogger<ToggleQueryLockHandler>.Instance);
+
+        var act = () => handler.Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = false, UserId = "ext-ada" }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        query.IsLocked.Should().BeTrue();
+        query.LockedByUserId.Should().Be(holder);
+        audit.Events.Should().BeEmpty();
+    }
+
+    [TestCase("ext-ben", true)]
+    [TestCase(null, false)]
+    public async Task UnlockingAQuery_IsAllowed_ForAnAdminOrWhenNoHolderIsRecorded(string? holder, bool asAdmin)
+    {
+        var query = new Query { Id = 5, Name = "loan book", IsLocked = true, LockedByUserId = holder };
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+        var actor = new BeaconActor("ext-ada", asAdmin) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true, RoleLevel = asAdmin ? 3 : 2 };
+        var actors = new Mock<IBeaconActorAccessor>();
+        actors.Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>())).ReturnsAsync(actor);
+        var handler = new ToggleQueryLockHandler(Factory(new Dictionary<Type, object> { [typeof(Query)] = Set([query]) }), actors.Object, audit, new FakeTimeProvider(Now), NullLogger<ToggleQueryLockHandler>.Instance);
+
+        var result = await handler.Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = false, UserId = "ext-ada" }, CancellationToken.None);
+
+        result.IsLocked.Should().BeFalse();
+        query.LockedByUserId.Should().BeNull();
     }
 
     [Test]

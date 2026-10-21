@@ -386,6 +386,29 @@ public class ApprovalDecisionTests
         }, x => x.ExcludingMissingMembers());
     }
 
+    [Test]
+    public async Task TheDetail_OfADecidedRequest_NamesTheReviewerByUsersId()
+    {
+        var (store, _, _, request) = Pending(requestedBy: "ext-ben");
+        store.User(3, Ada, "Ada Lovelace");
+        await Service(store).ApproveAsync(request.Id, null, Shown(request), CancellationToken.None);
+
+        var detail = await Service(store).GetApprovalDetailAsync(request.Id, CancellationToken.None);
+
+        detail!.ReviewedByBeaconUserId.Should().Be(3);
+        detail.ReviewedByUserName.Should().Be("Ada Lovelace");
+    }
+
+    [Test]
+    public async Task TheDetail_OfAPendingRequest_HasNoReviewerId()
+    {
+        var (store, _, _, request) = Pending(requestedBy: "ext-ben");
+
+        var detail = await Service(store).GetApprovalDetailAsync(request.Id, CancellationToken.None);
+
+        detail!.ReviewedByBeaconUserId.Should().BeNull();
+    }
+
     // A request recorded before Beacon kept a change's base and content is reject-only; its detail says so, and names the
     // content its snapshot holds.
     [Test]
