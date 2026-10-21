@@ -181,13 +181,13 @@ How the write is done per engine:
 
 A run writes in one transaction on every engine: a failed write fails the run and rolls every row back, so a run either
 completes or writes nothing. On MySQL this holds for a transactional table (InnoDB); a MyISAM or MEMORY table cannot roll
-back, so a failed run keeps the rows written before the failure, and a Truncate & insert run the deleted rows stay deleted.
+back, so a failed run keeps the rows written before the failure.
 
-Truncate & insert empties a MySQL table with `DELETE`, because `TRUNCATE` would commit the transaction there. So the
-table's delete triggers fire and its `AUTO_INCREMENT` counter is not reset. A MySQL table that another table references
-by foreign key is refused (`TRUNCATE` refuses it too, while `DELETE` would cascade into, or set NULL in, the referencing
-rows): the run fails before anything is deleted. A table's foreign key to itself does not stop it. The check reads
-`information_schema`, which shows the write login only the referencing tables it holds a privilege on.
+Truncate & insert empties a MySQL table with `TRUNCATE TABLE`. The server refuses it for a table that another table
+references by foreign key, whatever the write login can see of that table, so the run fails and nothing is emptied or
+cascaded; a table's foreign key to itself does not stop it. On MySQL `TRUNCATE` commits implicitly and cannot be rolled
+back, so Beacon starts the transaction again right after it: a Truncate & insert run that fails after the table was
+emptied leaves the table empty, never partly written. Run it again once the cause is fixed.
 
 The rows are written as the source returns them:
 
@@ -285,11 +285,11 @@ uses, on the destination table only:
 |------|------------|-------|------------|
 | Insert only | `INSERT` (written with `COPY … FROM STDIN`) | `INSERT` | `INSERT` (bulk copy); `ALTER` on the table too when the job writes an identity column |
 | Insert or update | `INSERT`, `UPDATE`, `SELECT` on the written columns (`ON CONFLICT` reads them, also on a table whose columns are all key columns), and `TEMPORARY` on the database (rows are staged in a temporary table; PostgreSQL grants it to `PUBLIC` by default) | `INSERT`, `UPDATE`; `SELECT` on the first key column too when every column is a key column (the update assigns it to itself) | `SELECT`, `INSERT`, `UPDATE` (staged in a session temporary table); `ALTER` on the table too when the job writes an identity column (`IDENTITY_INSERT`) |
-| Truncate & insert | the `TRUNCATE` privilege, `INSERT` | `DELETE`, `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
+| Truncate & insert | the `TRUNCATE` privilege, `INSERT` | `DROP` on the table (MySQL requires it to truncate), `INSERT` | `ALTER` on the table (SQL Server requires it to truncate), `INSERT` |
 
 On PostgreSQL every mode also needs `USAGE` on the table's schema. Every mode also reads `information_schema` to check
 that the table exists (and, for Upsert, its primary key). Some of
-these grants are DDL-grade (`ALTER`, the `TRUNCATE` privilege), which is why such a login belongs on a write
+these grants are DDL-grade (`ALTER`, `DROP`, the `TRUNCATE` privilege), which is why such a login belongs on a write
 target that Beacon never reads, not on an ordinary data source.
 
 ## REST API

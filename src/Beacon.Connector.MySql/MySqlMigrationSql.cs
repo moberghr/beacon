@@ -38,31 +38,22 @@ internal static class MySqlMigrationSql
     }
 
     /// <summary>
-    /// Removes every row. <c>TRUNCATE</c> would commit the run's transaction implicitly on MySQL, so a later failure could
-    /// no longer roll the clearing back; <c>DELETE</c> stays inside it.
+    /// Removes every row. <c>TRUNCATE</c> is refused by the server when another table's foreign key references the table,
+    /// whatever the login can see of that table, so a clear never cascades into, or sets NULL in, rows elsewhere. It commits
+    /// the open transaction implicitly and cannot itself be rolled back, so <see cref="StartTransaction"/> follows it.
     /// </summary>
     public static string Clear(string? schema, string table)
     {
-        return $"DELETE FROM {Table(schema, table)}";
+        return $"TRUNCATE TABLE {Table(schema, table)}";
     }
 
-    /// <summary>The parameter carrying the destination's schema in <see cref="ReferencingForeignKeyCount"/> (NULL: the connection's database).</summary>
-    public const string SchemaParameter = "@schema";
-
-    /// <summary>The parameter carrying the destination's table name in <see cref="ReferencingForeignKeyCount"/>.</summary>
-    public const string TableParameter = "@table";
-
     /// <summary>
-    /// Counts the foreign keys of other tables that reference the destination. <c>TRUNCATE</c> refuses such a table, while
-    /// <see cref="Clear"/>'s <c>DELETE</c> would cascade into, or set NULL in, the referencing rows. A table's reference to
-    /// itself is not counted: the DELETE removes every row it could reach, as <c>TRUNCATE</c> allows.
+    /// Starts a transaction again after <see cref="Clear"/>'s implicit commit, so the rows written next are committed or
+    /// rolled back by the run's transaction.
     /// </summary>
-    public static string ReferencingForeignKeyCount()
+    public static string StartTransaction()
     {
-        return "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS "
-            + $"WHERE UNIQUE_CONSTRAINT_SCHEMA = COALESCE({SchemaParameter}, DATABASE()) "
-            + $"AND REFERENCED_TABLE_NAME = {TableParameter} "
-            + "AND NOT (CONSTRAINT_SCHEMA = UNIQUE_CONSTRAINT_SCHEMA AND TABLE_NAME = REFERENCED_TABLE_NAME)";
+        return "START TRANSACTION";
     }
 
     /// <summary>The name of the parameter that carries value <paramref name="index"/> of a command.</summary>

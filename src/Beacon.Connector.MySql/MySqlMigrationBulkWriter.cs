@@ -1,5 +1,4 @@
 using System.Data.Common;
-using System.Globalization;
 using System.Text.Json;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.DataMigration;
@@ -10,9 +9,10 @@ namespace Beacon.Connector.MySql;
 
 /// <summary>
 /// Writes migration rows into MySQL with multi-row parameterised <c>INSERT</c> commands, on the connection and inside the
-/// transaction Core opened. Upsert adds <c>ON DUPLICATE KEY UPDATE</c>; Clear deletes every row (<c>TRUNCATE</c> would commit
-/// the transaction) and refuses a table other tables reference by foreign key. Written against ADO.NET's base types only, so
-/// it does not depend on the MySQL driver.
+/// transaction Core opened. Upsert adds <c>ON DUPLICATE KEY UPDATE</c>; Clear runs <c>TRUNCATE TABLE</c>, which the server
+/// refuses for a table other tables reference by foreign key, and then starts the transaction again (TRUNCATE commits it
+/// implicitly), so a run that fails after the clear leaves the table empty, never partly written. Written against ADO.NET's
+/// base types only, so it does not depend on the MySQL driver.
 /// </summary>
 internal sealed class MySqlMigrationBulkWriter(ILogger<MySqlMigrationBulkWriter> logger) : IMigrationBulkWriter
 {
@@ -22,20 +22,13 @@ internal sealed class MySqlMigrationBulkWriter(ILogger<MySqlMigrationBulkWriter>
     {
         Require(target);
 
-        // DELETE would cascade into, or set NULL in, the rows of tables that reference this one, where TRUNCATE refuses.
-        await using var lookup = Command(target, MySqlMigrationSql.ReferencingForeignKeyCount());
-        AddParameter(lookup, MySqlMigrationSql.SchemaParameter, target.Schema);
-        AddParameter(lookup, MySqlMigrationSql.TableParameter, target.Table);
-        if (Convert.ToInt64(await lookup.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) > 0)
-        {
-            throw new InvalidOperationException(
-                $"The table {ForLog(target)} is referenced by a foreign key of another table, so Truncate would delete or change "
-                + "rows there. Use Insert or Upsert, or empty the table outside Beacon.");
-        }
-
+        // TRUNCATE commits the run's transaction implicitly; a transaction is started again on the same connection so the
+        // rows written next are committed or rolled back with the run. A failure after this point leaves the table empty.
         await using var command = Command(target, MySqlMigrationSql.Clear(target.Schema, target.Table));
-        var deleted = await command.ExecuteNonQueryAsync(cancellationToken);
-        logger.LogInformation("Deleted {RowCount} rows from {Table}", deleted, ForLog(target));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        await using var restart = Command(target, MySqlMigrationSql.StartTransaction());
+        await restart.ExecuteNonQueryAsync(cancellationToken);
+        logger.LogInformation("Truncated {Table}", ForLog(target));
     }
 
     public async Task<int> InsertAsync(MigrationWriteTarget target, MigrationRows rows, CancellationToken cancellationToken)

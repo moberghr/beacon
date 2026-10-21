@@ -12,7 +12,8 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// The commands the MySQL migration writer sends, on a recording connection (no database, §4.7): every name backtick-quoted,
 /// every value a parameter, every command in the run's transaction with its timeout, a command closed at each of its three
-/// limits (rows, parameters, payload) without splitting a row, DELETE to clear, and the rows processed counted.
+/// limits (rows, parameters, payload) without splitting a row, TRUNCATE then START TRANSACTION to
+/// clear, and the rows processed counted.
 /// </summary>
 [TestFixture]
 public class MySqlMigrationBulkWriterTests
@@ -115,50 +116,24 @@ public class MySqlMigrationBulkWriterTests
         _connection.Executions.Should().BeEmpty();
     }
 
-    // TRUNCATE commits implicitly on MySQL; DELETE stays inside the run's transaction, after the foreign-key lookup.
+    // The server refuses TRUNCATE of a table another table references; TRUNCATE commits implicitly, so the transaction is
+    // started again right after it for the rows that follow.
     [Test]
-    public async Task Clear_LooksUpReferencingForeignKeys_ThenDeletesEveryRow_InTheRunsTransaction()
+    public async Task Clear_TruncatesTheTable_ThenStartsATransactionAgain_InTheRunsTransaction()
     {
         await _writer.ClearAsync(_target, CancellationToken.None);
 
-        _connection.ExecutedCommands.Should().Equal(MySqlMigrationSql.ReferencingForeignKeyCount(), "DELETE FROM `sales`.`Orders`");
-        _connection.Executions[0].Parameters.Select(x => (x.ParameterName, x.Value)).Should().Equal(("@schema", "sales"), ("@table", "Orders"));
-        _connection.Executions[1].Parameters.Should().BeEmpty();
+        _connection.ExecutedCommands.Should().Equal("TRUNCATE TABLE `sales`.`Orders`", "START TRANSACTION");
+        _connection.Executions.Should().AllSatisfy(x => x.Parameters.Should().BeEmpty());
         EveryCommandRunsInTheTransactionWithTheTimeout();
     }
 
     [Test]
-    public void ReferencingForeignKeyCount_TakesTheNamesAsParameters_AndSkipsASelfReference()
-    {
-        MySqlMigrationSql.ReferencingForeignKeyCount().Should().Be(
-            "SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS "
-            + "WHERE UNIQUE_CONSTRAINT_SCHEMA = COALESCE(@schema, DATABASE()) "
-            + "AND REFERENCED_TABLE_NAME = @table "
-            + "AND NOT (CONSTRAINT_SCHEMA = UNIQUE_CONSTRAINT_SCHEMA AND TABLE_NAME = REFERENCED_TABLE_NAME)");
-    }
-
-    [Test]
-    public async Task Clear_WithoutASchema_LooksUpTheConnectionsDatabase()
+    public async Task Clear_WithoutASchema_TruncatesTheTableInTheConnectionsDatabase()
     {
         await _writer.ClearAsync(_target with { Schema = null }, CancellationToken.None);
 
-        _connection.Executions[0].Parameters.Select(x => (x.ParameterName, x.Value)).Should().Equal(("@schema", DBNull.Value), ("@table", "Orders"));
-        _connection.ExecutedCommands[1].Should().Be("DELETE FROM `Orders`");
-    }
-
-    // DELETE would cascade into, or set NULL in, the referencing rows where TRUNCATE refuses.
-    [Test]
-    public async Task Clear_OfATableAnotherTableReferences_Throws_WithoutDeleting()
-    {
-        using var connection = new RecordingDbConnection { Scalar = _ => 1L };
-        connection.Open();
-        using var transaction = connection.BeginTransaction();
-
-        var clear = () => _writer.ClearAsync(_target with { Connection = connection, Transaction = transaction }, CancellationToken.None);
-
-        await clear.Should().ThrowAsync<InvalidOperationException>().WithMessage("*sales.Orders*foreign key*");
-        connection.ExecutedCommands.Should().Equal(MySqlMigrationSql.ReferencingForeignKeyCount());
-        connection.Executions.Single().Transaction.Should().BeSameAs(transaction);
+        _connection.ExecutedCommands.Should().Equal("TRUNCATE TABLE `Orders`", "START TRANSACTION");
     }
 
     [Test]

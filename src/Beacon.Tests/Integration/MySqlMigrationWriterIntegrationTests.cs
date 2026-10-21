@@ -11,8 +11,8 @@ namespace Beacon.Tests.Integration;
 
 /// <summary>
 /// The MySQL migration writer against a real server: Truncate, Insert and Upsert (composite and all-key tables), NULLs for
-/// missing values, every processed row counted once, rows crossing a command boundary in one transaction, a Truncate
-/// rolled back with the transaction when a row fails, a Truncate refused on a table another table references, and the
+/// missing values, every processed row counted once, rows crossing a command boundary in one transaction, a failing row
+/// after a Truncate leaving the table empty, a Truncate the server refuses on a table another table references, and the
 /// values sources produce (dates and times, GUIDs, booleans, bytes, JSON, unsigned and non-ASCII values) stored as the
 /// column expects them. Set <see cref="ConnectionStringEnvVar"/> to a login that may create a
 /// database; the tests work in their own database (the writer's schema), dropped afterwards. Without it the tests are
@@ -140,9 +140,10 @@ public class MySqlMigrationWriterIntegrationTests
         (await ScalarAsync($"SELECT count(*) FROM `{_database}`.`Orders` WHERE tenant = 7 AND note LIKE 'u%'")).Should().Be((long)count);
     }
 
-    // DELETE stays inside the transaction: a failed write rolls the whole run back, the clearing with it.
+    // TRUNCATE commits implicitly and cannot be rolled back; the transaction the writer starts again after it is the one the
+    // run's transaction rolls back, so the rows written before the failing one are undone and the table is left empty.
     [Test]
-    public async Task Truncate_IsRolledBack_WhenARowFails()
+    public async Task Truncate_ThenAFailingRow_LeavesTheTableEmpty_WithNothingInserted()
     {
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync();
@@ -150,16 +151,21 @@ public class MySqlMigrationWriterIntegrationTests
         var target = new MigrationWriteTarget(connection, transaction, _database, "Orders", 30);
 
         await _writer.ClearAsync(target, CancellationToken.None);
-        var failing = () => _writer.InsertAsync(target, Rows(Order(5, 1, 1m, "ok"), Order(5, 1, 2m, "duplicate key")), CancellationToken.None);
+        (await _writer.InsertAsync(target, Rows(Order(5, 1, 1m, "first")), CancellationToken.None)).Should().Be(1);
+        var failing = () => _writer.InsertAsync(target, Rows(Order(5, 2, 1m, "ok"), Order(5, 2, 2m, "duplicate key")), CancellationToken.None);
         await failing.Should().ThrowAsync<MySqlException>();
         await transaction.RollbackAsync();
 
-        (await OrdersAsync()).Should().Equal("1|1|10.00|old", "1|2|20.00|keep");
+        // Read on the run's own connection too: it would still see its own rows had the rollback not reached the server.
+        await using var count = new MySqlCommand($"SELECT count(*) FROM `{_database}`.`Orders`", connection);
+        (await count.ExecuteScalarAsync()).Should().Be(0L);
+        (await ScalarAsync($"SELECT count(*) FROM `{_database}`.`Orders`")).Should().Be(0L);
     }
 
-    // DELETE would cascade into the referencing rows where TRUNCATE refuses: the run is refused before anything is deleted.
+    // The server refuses TRUNCATE of a table another table's foreign key references (error 1701), whatever the login can
+    // see of that table, so nothing cascades: both tables keep their rows.
     [Test]
-    public async Task Truncate_OfATableAnotherTableReferences_IsRefused_LeavingBothTablesIntact()
+    public async Task Truncate_OfATableAnotherTableReferences_IsRefusedByTheServer_LeavingBothTablesIntact()
     {
         await ExecuteAsync(
             $"CREATE TABLE `{_database}`.parents (id int NOT NULL PRIMARY KEY) ENGINE = InnoDB",
@@ -169,14 +175,14 @@ public class MySqlMigrationWriterIntegrationTests
 
         var truncate = () => WriteAsync("parents", target => _writer.ClearAsync(target, CancellationToken.None));
 
-        await truncate.Should().ThrowAsync<InvalidOperationException>().WithMessage("*parents*foreign key*");
+        (await truncate.Should().ThrowAsync<MySqlException>()).Which.Number.Should().Be(1701);
         (await RowsAsync($"SELECT id FROM `{_database}`.parents ORDER BY id")).Should().Equal("1", "2");
         (await RowsAsync($"SELECT id, parent_id FROM `{_database}`.children ORDER BY id")).Should().Equal("10|1", "20|2");
     }
 
-    // A table's reference to itself does not stop it (TRUNCATE allows it too); without a schema the connection's database is checked.
+    // A foreign key between columns of the same table does not stop TRUNCATE; without a schema the connection's database is used.
     [Test]
-    public async Task Truncate_OfASelfReferencingTable_InTheConnectionsDatabase_DeletesEveryRow()
+    public async Task Truncate_OfASelfReferencingTable_InTheConnectionsDatabase_RemovesEveryRow()
     {
         await ExecuteAsync(
             $"CREATE TABLE `{_database}`.nodes (id int NOT NULL PRIMARY KEY, parent_id int NULL, FOREIGN KEY (parent_id) REFERENCES `{_database}`.nodes (id) ON DELETE CASCADE) ENGINE = InnoDB",
