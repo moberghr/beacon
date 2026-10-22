@@ -81,7 +81,9 @@ internal sealed class UpdateAdminSettingsHandler(
             LlmRateLimitsEnabled = rateLimitsEnabled,
         };
 
-        await settingsService.SaveSettingsAsync(next, userContext.UserId, cancellationToken);
+        // Only an Admin's save stores and applies the limits: anyone else's leaves the stored or host-configured ones in
+        // force, also when an Admin changed them after this request read them.
+        await settingsService.SaveSettingsAsync(next, userContext.UserId, saveLimits: permissions.IsAdmin, cancellationToken);
     }
 
     private static bool SameLimits(AppSettingsData current, UpdateAdminSettingsCommand request, bool rateLimitsEnabled)
@@ -105,7 +107,8 @@ internal sealed class UpdateAdminSettingsHandler(
 /// Saves the admin settings. For an Admin or a SecurityAdmin; only an Admin changes the base URL, the LLM provider,
 /// endpoint, region, Bedrock authentication mode and credentials (403 otherwise, <see cref="LlmConnectionSettings"/>), and
 /// the LLM concurrency limit, requests and tokens per minute and whether those are enforced (the monthly budget is
-/// recorded only and stays a SecurityAdmin's too).
+/// recorded only and stays a SecurityAdmin's too). A SecurityAdmin sends the displayed limits back; the save neither
+/// stores nor applies them.
 /// </summary>
 [ProjectScopeExempt("gated by the SecurityAdmin permission: settings, no project data; the LLM connection stays an Admin's", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateAdminSettingsCommand(

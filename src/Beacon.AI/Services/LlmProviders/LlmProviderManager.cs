@@ -120,6 +120,15 @@ public class LlmProviderManager : ILlmConfigurationUpdater
 
     public void UpdateConfiguration(AppSettingsData settings)
     {
+        UpdateConfiguration(settings, applyLimits: true);
+    }
+
+    /// <summary>
+    /// Applies the settings; with <paramref name="applyLimits"/> false the limits in force are kept (a save by anyone but
+    /// an Admin), only the recorded monthly budget follows the settings.
+    /// </summary>
+    public void UpdateConfiguration(AppSettingsData settings, bool applyLimits)
+    {
         lock (_lock)
         {
             var previous = _config;
@@ -135,13 +144,18 @@ public class LlmProviderManager : ILlmConfigurationUpdater
                 BedrockAuthMode = settings.LlmBedrockAuthMode,
                 Model = settings.LlmModel ?? string.Empty,
                 FastModel = settings.LlmFastModel,
-                Limits = StoredLimits(previous.Limits, settings),
+                Limits = applyLimits
+                    ? StoredLimits(previous.Limits, settings)
+                    : previous.Limits with { MonthlyBudget = settings.LlmMonthlyBudget },
             };
 
             // Atomic publish of the new snapshot — readers via CurrentConfiguration / the
             // factory accessor will see either the old or the new instance, never a torn one.
             Interlocked.Exchange(ref _config, next);
-            ApplyLimits(next.Limits);
+            if (applyLimits)
+            {
+                ApplyLimits(next.Limits);
+            }
 
             // The active provider always matches the published configuration: when the new one cannot build a provider,
             // there is no active provider, never the previous one (which could run under other credentials).

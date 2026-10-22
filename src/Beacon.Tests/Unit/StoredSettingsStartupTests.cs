@@ -46,6 +46,7 @@ public class StoredSettingsStartupTests
                 LlmApiKey = "stored-key",
                 LlmModel = "stored-model",
                 LlmMaxConcurrentRequests = 7,
+                LlmLimitsStored = true,
             }),
             configuration,
             NullLogger<StoredSettingsApplier>.Instance,
@@ -58,6 +59,31 @@ public class StoredSettingsStartupTests
         manager.CurrentConfiguration.ApiKey.Should().Be("stored-key");
         manager.CurrentConfiguration.Model.Should().Be("stored-model");
         manager.CurrentConfiguration.Limits.MaxConcurrentRequests.Should().Be(7);
+    }
+
+    [Test]
+    public async Task AStoredProviderWithoutStoredLimits_KeepsTheHostLimits()
+    {
+        var hostLimits = new ProviderLimits { MaxConcurrentRequests = 1, RateLimitsEnabled = true, RequestsPerMinute = 10 };
+        var bootstrap = Bootstrap with { Limits = hostLimits };
+        var queue = new LlmRequestQueue(hostLimits);
+        LlmProviderManager? manager = null;
+        manager = new LlmProviderManager(
+            bootstrap,
+            TestLlmProviderFactory.Create(() => manager?.CurrentConfiguration ?? bootstrap),
+            queue,
+            NullLogger<LlmProviderManager>.Instance);
+        var applier = new StoredSettingsApplier(
+            Settings(new AppSettingsData { LlmProvider = AiProvider.Claude, LlmApiKey = "stored-key", LlmModel = "stored-model" }),
+            new BeaconConfiguration(),
+            NullLogger<StoredSettingsApplier>.Instance,
+            manager);
+
+        await applier.ApplyAsync(CancellationToken.None);
+
+        manager.CurrentConfiguration.Model.Should().Be("stored-model");
+        manager.CurrentConfiguration.Limits.Should().BeEquivalentTo(hostLimits, x => x.Excluding(y => y.MonthlyBudget));
+        queue.AppliedLimits.Should().Be(hostLimits);
     }
 
     [Test]

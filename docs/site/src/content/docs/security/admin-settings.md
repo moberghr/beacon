@@ -59,7 +59,7 @@ Credentials and the Azure endpoint are encrypted at rest with `Beacon:Encryption
 
 **Monthly budget (USD)** (default 100) is recorded, not enforced: Beacon keeps no record of spend, so calls continue past it. Use the provider's own spend limits for a hard cap.
 
-Over the API, `llmRateLimitsEnabled` left out or `null` keeps the stored switch. Only an Admin changes these four values (`403` otherwise); a SecurityAdmin sees them and saves the stored ones back. Once saved, the stored limits replace the host-configured ones (`Beacon:LLM:Limits`), also after a restart, and the first time they differ from the configured ones the host logs it at Information (numbers only).
+Over the API, `llmRateLimitsEnabled` left out or `null` keeps the stored switch. Only an Admin changes these four values (`403` otherwise): a SecurityAdmin sees them and sends the displayed ones back, and a SecurityAdmin's save neither stores nor applies them, so the host-configured limits, or the ones an Admin saved, stay in force. Once an Admin saves them, the stored limits replace the host-configured ones (`Beacon:LLM:Limits`), also after a restart, and the first time they differ from the configured ones the host logs it at Information (numbers only).
 
 Saving the settings records each changed value, the enforcement switch included (`LLM.RateLimitsEnabled`), in the change history and the security audit.
 
@@ -72,9 +72,9 @@ The page lists the latest changes from the settings history: when, which key, an
 1. The page sends `PUT /beacon/api/admin-settings`.
 2. `AppSettingsService` writes the values to `app_settings` (sensitive ones encrypted), records each changed key in `app_setting_history`, and clears its cache.
 3. The base URL in the running process (`BeaconConfiguration.BaseUrl`) is replaced.
-4. `ILlmConfigurationUpdater.UpdateConfiguration` hands the settings to `LlmProviderManager`, which builds a new provider and swaps it in atomically. `DelegatingLlmProvider`, the proxy every feature holds, uses the new provider for the next request.
+4. `ILlmConfigurationUpdater.UpdateConfiguration` hands the settings to `LlmProviderManager`, which builds a new provider and swaps it in atomically. A save by anyone but an Admin writes no LLM limit and keeps the limits in force. `DelegatingLlmProvider`, the proxy every feature holds, uses the new provider for the next request.
 
-**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. After a restart the stored settings replace the configured ones once they are read: a stored base URL, the stored LLM configuration when a provider was stored, and the stored LLM limits (concurrency, per-minute limits and their enforcement) also when no provider was stored. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
+**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. After a restart the stored settings replace the configured ones once they are read: a stored base URL, the stored LLM configuration when a provider was stored, and the LLM limits (concurrency, per-minute limits and their enforcement) only when an Admin stored them, also when no provider was stored. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
 
 Settings are cached in memory for one hour; a save clears the cache.
 
