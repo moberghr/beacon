@@ -476,7 +476,84 @@ public class AskSqlPipelineTests
         gate.Dialects.Should().NotBeEmpty().And.OnlyContain(x => x == dialect);
     }
 
-    private AskSqlPipeline CreatePipeline(Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null, ISqlExecutionGate? gate = null, IMcpStatementLog? statementLog = null)
+    [Test]
+    public async Task RunAsync_SchemaFailureWithTheLlmBudgetSpent_SkipsTheSchemaRepair()
+    {
+        const string unknownColumnSql = "SELECT bogus FROM orders";
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context",
+                DatabaseDialect = "PostgreSQL",
+                TotalTableCount = 1,
+                SchemaCatalog = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["orders"] = new(StringComparer.OrdinalIgnoreCase) { "id" }
+                }
+            });
+        Generates(unknownColumnSql);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, unknownColumnSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 row)\n", null, 1, true));
+
+        await RunWithBudgetOfOneAsync("schema");
+    }
+
+    [Test]
+    public async Task RunAsync_LintFindingsWithTheLlmBudgetSpent_SkipsTheLintRepair()
+    {
+        const string groupByMismatchSql = "SELECT o.customer_id, SUM(o.amount) AS total FROM public.orders o";
+        Generates(groupByMismatchSql);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, groupByMismatchSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 row)\n", null, 1, true));
+
+        await RunWithBudgetOfOneAsync("lint");
+    }
+
+    [Test]
+    public async Task RunAsync_EmptyResultWithTheLlmBudgetSpent_SkipsTheEmptyResultRepair()
+    {
+        Generates(GeneratedSql);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("No results returned.\n", null, 0, true));
+
+        await RunWithBudgetOfOneAsync("empty-result");
+    }
+
+    // Runs the pipeline with one LLM call, which the first generation takes, and checks that the trigger's repair was
+    // skipped for want of a call and nothing was asked for.
+    private async Task RunWithBudgetOfOneAsync(string trigger)
+    {
+        var budget = new AskLlmBudget(1);
+        var log = new LogRecorder();
+
+        var outcome = await CreatePipeline(logger: log.For<AskSqlPipeline>()).RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object,
+            new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
+
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        outcome.Repairs.Should().BeEmpty();
+        outcome.EmptyResultRetried.Should().BeFalse();
+        budget.Used.Should().Be(1);
+        log.Entries.Should().ContainSingle(x => x.Message == $"LLM call budget spent; {trigger} repair skipped");
+    }
+
+    private void Generates(string sql)
+    {
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(sql, ["orders"]));
+    }
+
+    private AskSqlPipeline CreatePipeline(
+        Beacon.Core.HostData.IHostDataSourceGuard? hostGuard = null,
+        ISqlExecutionGate? gate = null,
+        IMcpStatementLog? statementLog = null,
+        Microsoft.Extensions.Logging.ILogger<AskSqlPipeline>? logger = null)
     {
         return new AskSqlPipeline(
             _knowledgeGraph.Object,
@@ -486,6 +563,6 @@ public class AskSqlPipelineTests
             TestRowDataEgress.Discarding(),
             Options.Create(new McpDeploymentOptions()),
             statementLog ?? new McpStatementLog(),
-            NullLogger<AskSqlPipeline>.Instance);
+            logger ?? NullLogger<AskSqlPipeline>.Instance);
     }
 }

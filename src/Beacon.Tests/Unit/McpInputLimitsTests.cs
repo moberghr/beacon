@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using NUnit.Framework;
 using Beacon.Core.Configuration;
 using Beacon.Core.Services.Validation;
@@ -58,6 +59,77 @@ public class McpInputLimitsTests
         result.Failed.Should().BeTrue();
         result.Failures.Should().ContainSingle()
             .Which.Should().Contain("Beacon:Mcp:Ceilings:MaxQuestionChars");
+    }
+
+    [Test]
+    public void AskBudgets_Unconfigured_AreTheBuiltInDefaults()
+    {
+        var ceilings = new McpDeploymentOptions().Ceilings;
+
+        ceilings.AskTimeoutSeconds.Should().BeNull();
+        ceilings.AskMaxLlmCalls.Should().BeNull();
+        ceilings.EffectiveAskTimeoutSeconds.Should().Be(120);
+        ceilings.EffectiveAskMaxLlmCalls.Should().Be(12);
+    }
+
+    [Test]
+    public void AskBudgets_Configured_AreHonoured()
+    {
+        var ceilings = new McpCeilingOptions { AskTimeoutSeconds = 30, AskMaxLlmCalls = 3 };
+
+        ceilings.EffectiveAskTimeoutSeconds.Should().Be(30);
+        ceilings.EffectiveAskMaxLlmCalls.Should().Be(3);
+        _validator.Validate(null, new McpDeploymentOptions { Ceilings = ceilings }).Succeeded.Should().BeTrue();
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    [TestCase(3_601)]
+    public void AskTimeoutSecondsOutsideOneTo3600_FailsValidation(int value)
+    {
+        var result = _validator.Validate(null, new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskTimeoutSeconds = value } });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().ContainSingle()
+            .Which.Should().Contain("Beacon:Mcp:Ceilings:AskTimeoutSeconds").And.Contain("between 1 and 3600");
+    }
+
+    [TestCase(1)]
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void AskMaxLlmCallsBelowTwo_FailsValidation(int value)
+    {
+        var result = _validator.Validate(null, new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskMaxLlmCalls = value } });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().ContainSingle()
+            .Which.Should().Contain("Beacon:Mcp:Ceilings:AskMaxLlmCalls").And.Contain("at least 2");
+    }
+
+    [Test]
+    public void AskBudgets_AtTheirBounds_PassValidation()
+    {
+        var ceilings = new McpCeilingOptions { AskTimeoutSeconds = 3_600, AskMaxLlmCalls = 2 };
+
+        _validator.Validate(null, new McpDeploymentOptions { Ceilings = ceilings }).Succeeded.Should().BeTrue();
+        _validator.Validate(null, new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskTimeoutSeconds = 1 } }).Succeeded.Should().BeTrue();
+    }
+
+    [Test]
+    public void AskBudgets_BindFromConfiguration()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Beacon:Mcp:Ceilings:AskTimeoutSeconds"] = "45",
+                ["Beacon:Mcp:Ceilings:AskMaxLlmCalls"] = "6"
+            })
+            .Build();
+
+        var options = configuration.GetSection(McpDeploymentOptions.SectionName).Get<McpDeploymentOptions>()!;
+
+        options.Ceilings.EffectiveAskTimeoutSeconds.Should().Be(45);
+        options.Ceilings.EffectiveAskMaxLlmCalls.Should().Be(6);
     }
 
     [Test]

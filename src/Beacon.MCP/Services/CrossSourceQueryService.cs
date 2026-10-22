@@ -45,8 +45,18 @@ internal sealed class CrossSourceQueryService(
         McpSettingsData settings,
         bool execute,
         McpSignalBuilder signal,
+        AskLlmBudget? llmBudget,
         CancellationToken ct)
     {
+        // One generation per source and, when the results are executed, the join query: all of them must fit in the LLM
+        // budget before the first is made; a repair is made only while they stay covered.
+        var joinCalls = execute ? 1 : 0;
+        var generationsLeft = sources.Count;
+        if (llmBudget != null && llmBudget.Remaining < generationsLeft + joinCalls)
+        {
+            throw new AskLlmBudgetExceededException(llmBudget.MaxCalls);
+        }
+
         var text = "";
         var failedSources = new List<(string Name, string Reason)>();
 
@@ -62,6 +72,8 @@ internal sealed class CrossSourceQueryService(
                 llmProvider,
                 new LlmRowDataScope(projectId, [source.DataSourceId], smartContext.RowDataCategories));
 
+            llmBudget?.Consume();
+            generationsLeft--;
             var sqlResult = await sqlGenerationService.GenerateAsync(
                 sourceProvider, smartContext.FullContext, question, settings, ct);
             var sql = sqlResult.Sql;
@@ -84,8 +96,10 @@ internal sealed class CrossSourceQueryService(
                     source.DataSourceName, schemaVerdict.Message);
 
                 var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
-                var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                    sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct);
+                var retriedSql = llmBudget == null || llmBudget.TryConsume(keepInReserve: generationsLeft + joinCalls)
+                    ? await sqlGenerationService.RetryWithErrorAsync(
+                        sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct)
+                    : null;
 
                 var retryReport = retriedSql != null
                     ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings, generationRowSecurity) with
@@ -171,7 +185,7 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, rowSecurity, source, sql, sourceContext, question, settings, signal, ct);
+            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, rowSecurity, source, sql, sourceContext, question, settings, signal, llmBudget, joinCalls, ct);
 
             // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
@@ -215,6 +229,10 @@ internal sealed class CrossSourceQueryService(
                     return await provider.ExecuteReadOnlyQueryAsync(dataSource, limitedSql, new Dictionary<string, object?>(), timeoutCts.Token);
                 },
                 x => (x.Success ? x.Rows.Count : null, x.Success ? null : x.ErrorMessage ?? McpContentRedactor.ClassExecution));
+
+            // A provider reports a cancelled statement as a failed result: the call's own cancellation (the caller's, or
+            // the ask's time budget) ends the call instead of reading as this source's execution error.
+            ct.ThrowIfCancellationRequested();
 
             if (costRefusal != null)
             {
@@ -301,6 +319,7 @@ internal sealed class CrossSourceQueryService(
             MaxTokens = 1024
         };
 
+        llmBudget?.Consume();
         var joinResponse = await llmProvider.CompleteAsync(joinRequest, ct);
         var joinSql = SqlParsingHelper.CleanSqlResponse(joinResponse.Content);
         var translatedSql = memDb.TranslateFinalQuery(joinSql);
@@ -388,6 +407,8 @@ internal sealed class CrossSourceQueryService(
         string question,
         McpSettingsData settings,
         McpSignalBuilder signal,
+        AskLlmBudget? llmBudget,
+        int joinCalls,
         CancellationToken ct)
     {
         string? dryRunError;
@@ -430,6 +451,15 @@ internal sealed class CrossSourceQueryService(
             dataSource.Id,
             classOnly);
         signal.SetDryRunFailed(redactedError);
+
+        // Every generation is done by now, so the repair keeps only the join query's call covered; without room it is skipped
+        // and the statement runs as generated.
+        if (llmBudget != null && !llmBudget.TryConsume(keepInReserve: joinCalls))
+        {
+            logger.LogInformation("LLM call budget spent; dry-run repair skipped for data source {DataSourceId}", dataSource.Id);
+
+            return sql;
+        }
 
         var promptError = deploymentOptions.Value.ForbidRowDataToLlm ? classOnly : redactedError;
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";

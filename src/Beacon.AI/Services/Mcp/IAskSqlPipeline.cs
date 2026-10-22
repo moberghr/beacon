@@ -39,6 +39,12 @@ public sealed record AskSqlPipelineOptions(
     /// itself; null names the current caller.
     /// </summary>
     public string? CallerId { get; init; }
+
+    /// <summary>
+    /// The LLM calls the caller's request may still make; the pipeline takes one before each call it makes, asks for no
+    /// more self-consistency candidates than are left and skips a repair it has no call for. Null = not limited.
+    /// </summary>
+    public AskLlmBudget? LlmBudget { get; init; }
 }
 
 /// <summary>
@@ -70,4 +76,12 @@ public sealed record AskSqlOutcome(
     string? ClarificationHint,
     IReadOnlyList<SqlLintFinding> LintFindings,
     string? CorrectedSql,
-    IReadOnlyList<string> ColumnsUsed);
+    IReadOnlyList<string> ColumnsUsed)
+{
+    /// <summary>
+    /// Schema, dry-run and execution failures no repair was attempted for (no repair attempt or LLM call was left), each
+    /// with its redacted error, a null <see cref="AskRepairStep.RetriedSql"/> and <c>Succeeded = false</c>. Not in
+    /// <see cref="AskSqlOutcome.Repairs"/>; a caller records them as it records a repaired failure.
+    /// </summary>
+    public IReadOnlyList<AskRepairStep> UnrepairedFailures { get; init; } = [];
+}

@@ -96,15 +96,30 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             var validIds = dataSources
                 .Select(x => x.DataSourceId)
                 .ToHashSet();
-            var legitimateSources = parsed.Sources
+            // Each source once, in the model's order (its first mention), and no more than RoutingResult.MaxSources: each
+            // costs a generation (and possibly repairs) and a query against its database. The rest are reported as dropped.
+            var distinctSources = parsed.Sources
                 .Where(x => validIds.Contains(x.DatasourceId))
+                .DistinctBy(x => x.DatasourceId)
                 .ToList();
 
-            if (legitimateSources.Count == 0)
+            if (distinctSources.Count == 0)
             {
                 logger.LogWarning("Routing response contained only unknown data source IDs for this project; treating as undetermined");
                 return new RoutingResult { Sources = [] };
             }
+
+            if (distinctSources.Count > RoutingResult.MaxSources)
+            {
+                logger.LogInformation(
+                    "Routing named {Count} data sources; more than the {Kept} one ask joins",
+                    distinctSources.Count,
+                    RoutingResult.MaxSources);
+            }
+
+            var legitimateSources = distinctSources
+                .Take(RoutingResult.MaxSources)
+                .ToList();
 
             return new RoutingResult
             {
@@ -113,7 +128,8 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
                     DataSourceId = x.DatasourceId,
                     DataSourceName = dataSources.First(y => y.DataSourceId == x.DatasourceId).Name,
                     Reason = x.Reason ?? ""
-                }).ToList()
+                }).ToList(),
+                DroppedSourceCount = distinctSources.Count - legitimateSources.Count
             };
         }
         catch (Exception ex)

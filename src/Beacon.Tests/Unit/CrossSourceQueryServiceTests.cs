@@ -100,7 +100,7 @@ public class CrossSourceQueryServiceTests
         Generates("SELECT id FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         // The in-memory join runs as SQLite; every per-source gate runs in the warehouse's dialect.
@@ -116,7 +116,7 @@ public class CrossSourceQueryServiceTests
         Generates("SELECT id FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         _gate.Dialects[0].Should().Be("Snowflake");
@@ -132,7 +132,7 @@ public class CrossSourceQueryServiceTests
         Generates("DELETE FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeFalse();
         text.Should().Contain("Validation Error for warehouse");
@@ -151,7 +151,7 @@ public class CrossSourceQueryServiceTests
         Generates("SELECT id FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         _provider.Verify(
@@ -174,7 +174,7 @@ public class CrossSourceQueryServiceTests
         var log = new McpStatementLog();
 
         var (text, succeeded) = await CreateService(statementLog: log).ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         var statements = log.TakeAll();
@@ -199,7 +199,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = "permission denied for table orders (owner alice)" });
         var log = new McpStatementLog();
 
-        await CreateService(statementLog: log).ExecuteAsync(_llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+        await CreateService(statementLog: log).ExecuteAsync(_llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         log.TakeAll().Single(x => x.Purpose == McpStatementPurposes.SourceStep).ErrorClass.Should().Be(McpContentRedactor.ClassPermission);
     }
@@ -220,7 +220,7 @@ public class CrossSourceQueryServiceTests
         settings.MaxExplainCost = 100m;
 
         var (text, succeeded) = await CreateService(statementLog: log, costLimit: costLimit.Object).ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", settings, execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", settings, execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeFalse();
         text.Should().Contain($"**Refused for warehouse:** {refusal}");
@@ -244,7 +244,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync("SELECT id FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         _provider.Verify(
@@ -269,7 +269,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync("SELECT still_bogus FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeFalse();
         text.Should().Contain("Schema Validation Error");
@@ -293,7 +293,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync("DELETE FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         _provider.Verify(
@@ -315,7 +315,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new LlmResponse { Content = "DELETE FROM result1" });
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeFalse();
         text.Should().Contain("Validation Error for join query");
@@ -330,7 +330,7 @@ public class CrossSourceQueryServiceTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(statementTimeoutSeconds: 1), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(statementTimeoutSeconds: 1), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeFalse();
         text.Should().Contain("Join query timed out").And.NotContain("### Final Results");
@@ -347,7 +347,7 @@ public class CrossSourceQueryServiceTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
 
         var act = () => CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(statementTimeoutSeconds: 30), execute: true, _signal, cts.Token);
+            _llm.Object, Sources(), ProjectId, "q", Settings(statementTimeoutSeconds: 30), execute: true, _signal, null, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the caller's token stopped the join, not the 30 s timeout");
@@ -361,7 +361,7 @@ public class CrossSourceQueryServiceTests
         JoinsWith("WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT i FROM r");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().Contain($"### Final Results ({MaxRowLimit} rows");
@@ -377,7 +377,7 @@ public class CrossSourceQueryServiceTests
         JoinsWith($"WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < {MaxRowLimit}) SELECT i FROM r");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().Contain($"### Final Results ({MaxRowLimit} rows");
@@ -390,7 +390,7 @@ public class CrossSourceQueryServiceTests
         Generates("SELECT id FROM orders");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: false, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: false, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue();
         text.Should().Contain("Execution skipped");
@@ -406,7 +406,7 @@ public class CrossSourceQueryServiceTests
         ReturnsRows(new Dictionary<string, object?> { [resultColumn] = "alice@example.com", ["total"] = 5 });
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().NotContain("alice@example.com");
@@ -423,7 +423,7 @@ public class CrossSourceQueryServiceTests
         ReturnsRows(new Dictionary<string, object?> { ["contact"] = "alice@example.com", ["total"] = 5 });
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().NotContain("alice@example.com");
@@ -448,7 +448,7 @@ public class CrossSourceQueryServiceTests
         JoinsWith("SELECT r1.email, r1.email AS contact, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id ORDER BY r2.city");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().Contain("### Final Results (2 rows", "distinct join keys must not collide");
@@ -473,7 +473,7 @@ public class CrossSourceQueryServiceTests
         JoinsWith("SELECT r1.contact, r1.contact AS who, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id ORDER BY r2.city");
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, CancellationToken.None);
+            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: true), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().Contain("### Final Results (2 rows", "distinct join keys must not collide");
@@ -499,7 +499,7 @@ public class CrossSourceQueryServiceTests
         JoinsWith("SELECT r1.ref_code, r1.ref_code AS x, r2.city FROM result1 r1 JOIN result2 r2 ON r1.address_id = r2.address_id");
 
         var (text, succeeded) = await CreateService(hostGuard.Object).ExecuteAsync(
-            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+            _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         hostGuard.Verify(x => x.Check(HostKey, It.IsAny<string>()), Times.AtLeastOnce(), "the warehouse source is host-managed");
@@ -531,7 +531,7 @@ public class CrossSourceQueryServiceTests
         try
         {
             var (text, succeeded) = await CreateService(hostGuard, warehouseCatalog: []).ExecuteAsync(
-                _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+                _llm.Object, TwoSources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, null, CancellationToken.None);
 
             succeeded.Should().BeTrue(text);
             text.Should().NotContain("123456789");
@@ -550,7 +550,7 @@ public class CrossSourceQueryServiceTests
         ReturnsRows(new Dictionary<string, object?> { ["customer_email"] = "alice@example.com", ["total"] = 5 });
 
         var (text, succeeded) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue(text);
         text.Should().Contain("alice@example.com");
@@ -567,7 +567,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = ErrorQuotingAValue });
 
         var (text, _) = await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect), execute: true, _signal, null, CancellationToken.None);
 
         if (detect)
         {
@@ -588,7 +588,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = [ErrorQuotingAValue] });
 
         await CreateService().ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, null, CancellationToken.None);
 
         _signal.Build().DryRunError.Should().Be(RedactedError);
     }
@@ -611,11 +611,99 @@ public class CrossSourceQueryServiceTests
         var log = new LogRecorder();
 
         await CreateService(logger: log.For<CrossSourceQueryService>()).ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, null, CancellationToken.None);
 
         repairError.Should().Be(RedactedError);
         log.Entries.Should().Contain(x => x.Message == $"Dry-run failed for data source {DataSourceId}, retrying (Database error 22P02 (data exception).)");
         log.Contains("Horvat").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task LlmBudget_WithoutRoomForEverySourceAndTheJoin_FailsBeforeTheFirstGeneration()
+    {
+        Generates("SELECT id FROM orders");
+        var budget = new AskLlmBudget(2);
+
+        var act = () => CreateService().ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: true, _signal, budget, CancellationToken.None);
+
+        await act.Should().ThrowAsync<AskLlmBudgetExceededException>();
+        _sqlGen.Verify(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()), Times.Never);
+        budget.Used.Should().Be(0);
+    }
+
+    [Test]
+    public async Task LlmBudget_CoveringExactlyEverySourceAndTheJoin_PassesAndSpendsItAll()
+    {
+        GeneratesFor(WarehouseContext, "SELECT id FROM orders");
+        GeneratesFor(CrmContext, "SELECT city FROM addresses");
+        var budget = new AskLlmBudget(3);
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: true, _signal, budget, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        _llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        budget.Used.Should().Be(3);
+    }
+
+    // Only the warehouse source fails the schema check. Its retry needs a call beyond the CRM generation and the join:
+    // with 3 calls there is none, with 4 there is one; either way the join still gets its call.
+    [TestCase(3, 0)]
+    [TestCase(4, 1)]
+    public async Task LlmBudget_SchemaRetry_KeepsTheLaterGenerationsAndTheJoinCovered(int maxCalls, int retries)
+    {
+        GeneratesFor(WarehouseContext, "SELECT bogus FROM orders");
+        GeneratesFor(CrmContext, "SELECT city FROM addresses");
+        _sqlGen
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("SELECT bogus FROM orders");
+        var budget = new AskLlmBudget(maxCalls);
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: true, _signal, budget, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        _sqlGen.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(retries));
+        _llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        budget.Used.Should().Be(maxCalls);
+    }
+
+    [Test]
+    public async Task LlmBudget_WithoutExecution_ReservesNoJoinCall()
+    {
+        GeneratesFor(WarehouseContext, "SELECT id FROM orders");
+        GeneratesFor(CrmContext, "SELECT city FROM addresses");
+        var budget = new AskLlmBudget(2);
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: false, _signal, budget, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        _llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        budget.Used.Should().Be(2);
+    }
+
+    [Test]
+    public async Task LlmBudget_CoveringOnlyTheGenerationAndTheJoin_SkipsTheDryRunRepair_AndStillJoins()
+    {
+        Generates("SELECT id FROM orders");
+        _provider
+            .Setup(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = ["column does not exist"] });
+        var budget = new AskLlmBudget(2);
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, budget, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        _sqlGen.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Once, "the join query keeps its call");
+        budget.Used.Should().Be(2);
     }
 
     // While row data may not reach the provider, the dry-run repair prompt gets the error's class and code only; the stored
@@ -636,7 +724,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync((string?)null);
 
         await CreateService(forbidRowData: true).ExecuteAsync(
-            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, CancellationToken.None);
+            _llm.Object, Sources(), ProjectId, "q", PiiSettings(detect: false), execute: true, _signal, null, CancellationToken.None);
 
         repairError.Should().Be("Database error 22P02 (data exception).");
         _signal.Build().DryRunError.Should().Be(RedactedError);
@@ -656,7 +744,7 @@ public class CrossSourceQueryServiceTests
             .ReturnsAsync(new SqlGenerationResult("SELECT id FROM orders", ["orders"]));
         var service = CreateService(egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>()));
 
-        await service.ExecuteAsync(_llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: false, _signal, CancellationToken.None);
+        await service.ExecuteAsync(_llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: false, _signal, null, CancellationToken.None);
         await providers[WarehouseContext].CompleteAsync(new LlmRequest());
         await providers[CrmContext].CompleteAsync(new LlmRequest());
 
