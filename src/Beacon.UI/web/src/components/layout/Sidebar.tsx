@@ -141,6 +141,9 @@ export function Sidebar() {
   const sections = SECTIONS
     .map(section => ({ ...section, items: section.items.filter(item => (!access.gatewayMode || GATEWAY_SLUGS.includes(item.slug)) && (item.visible ?? readsProjectData)(access)) }))
     .filter(section => section.items.length > 0);
+  // The MCP gateway serves no user settings, and a host that owns sign-in also owns sign-out: with neither, no menu.
+  const offersSettings = !access.gatewayMode;
+  const hasMenu = offersSettings || !user?.externalLogin;
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -260,23 +263,25 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-border px-2 py-2 relative" ref={menuRef}>
-        {menuOpen && (
+        {menuOpen && hasMenu && (
           <div
             ref={menuPopRef}
             role="menu"
             onKeyDown={onMenuKeyDown}
             className="absolute bottom-full left-2 right-2 mb-1 rounded-sm border border-border bg-surface shadow-lg py-1 z-50"
           >
-            <Link
-              to="/settings"
-              role="menuitem"
-              tabIndex={-1}
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2"
-            >
-              <IconCog className="size-4 shrink-0 text-text-muted" />
-              <span>Settings</span>
-            </Link>
+            {offersSettings && (
+              <Link
+                to="/settings"
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-text hover:bg-surface-2"
+              >
+                <IconCog className="size-4 shrink-0 text-text-muted" />
+                <span>Settings</span>
+              </Link>
+            )}
             {/* A host that owns sign-in also owns sign-out; Beacon's would only clear its own cookie. */}
             {!user?.externalLogin && (
               <button
@@ -310,9 +315,9 @@ export function Sidebar() {
         <button
           ref={triggerRef}
           type="button"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen(o => !o)}
+          aria-haspopup={hasMenu ? 'menu' : undefined}
+          aria-expanded={hasMenu ? menuOpen : undefined}
+          onClick={() => hasMenu && setMenuOpen(o => !o)}
           className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-sm hover:bg-surface-2 text-left"
         >
           <div className="size-7 rounded-sm bg-brand-100 text-brand-700 grid place-items-center text-2xs font-semibold">
@@ -326,7 +331,7 @@ export function Sidebar() {
               {user?.roles && user.roles.length > 0 ? user.roles.join(' · ') : 'Authenticated'}
             </div>
           </div>
-          <ChevronDown className={cn('size-3.5 text-text-subtle transition-transform', menuOpen && 'rotate-180')} />
+          {hasMenu && <ChevronDown className={cn('size-3.5 text-text-subtle transition-transform', menuOpen && 'rotate-180')} />}
         </button>
       </div>
     </aside>

@@ -17,6 +17,8 @@ vi.mock('./routes/migration-jobs/MigrationJobsListPage', () => ({ default: () =>
 vi.mock('./routes/migration-jobs/NewMigrationJobPage', () => ({ default: () => <span>new migration job page</span> }));
 vi.mock('./routes/migration-jobs/MigrationJobDetailPage', () => ({ default: () => <span>migration job page</span> }));
 vi.mock('./routes/migration-history/MigrationHistoryPage', () => ({ default: () => <span>migration history page</span> }));
+vi.mock('./routes/settings/SettingsPage', () => ({ default: () => <span>user settings page</span> }));
+vi.mock('./routes/mcp/McpAuditPage', () => ({ default: () => <span>mcp audit page</span> }));
 
 function renderAppAt(path: string) {
   window.history.pushState({}, '', `/beacon${path}`);
@@ -54,5 +56,22 @@ describe('App routes', () => {
     expect(await screen.findByText('home page')).toBeInTheDocument();
     expect(screen.queryByText(page)).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/beacon/home');
+  });
+  it('opens the user settings in the full Beacon', async () => {
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: false }));
+
+    renderAppAt('/settings');
+
+    expect(await screen.findByText('user settings page')).toBeInTheDocument();
+  });
+
+  it('leads the user settings to the gateway landing page in gateway mode, whose server serves none', async () => {
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
+
+    renderAppAt('/settings');
+
+    expect(await screen.findByText('mcp audit page')).toBeInTheDocument();
+    expect(screen.queryByText('user settings page')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/beacon/mcp-audit');
   });
 });
