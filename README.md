@@ -293,7 +293,7 @@ All project references point to `Beacon.Core`. One MediatR handler backs each RE
 | `Beacon.Gateway` | Beacon as the MCP gateway of a host application: host users as callers, endpoints as tools, no data sources |
 | `Beacon.Testing` | Test tokens, test users and an MCP client for a gateway host's tests |
 | `Beacon.Doctor` | `beacon-doctor`, a .NET tool that checks a deployed MCP endpoint the way a client sees it |
-| `Beacon.Connector.*` | PostgreSQL, SQL Server, MySQL, Synapse, Snowflake, BigQuery, Databricks, CloudWatch, REST API |
+| `Beacon.Connector.*` | PostgreSQL, SQL Server, MySQL, Synapse, Snowflake, BigQuery, Databricks, CloudWatch, REST API; the PostgreSQL, SQL Server and MySQL connectors also carry the data-migration writers |
 | `Beacon.SampleProject` | The reference host (never shipped): Warp jobs, OIDC, OpenTelemetry |
 | `Beacon.SampleGateway` | The reference gateway host (never shipped): an orders application whose customers ask an AI client about their own orders |
 | `Beacon.Tests` | NUnit 4, Moq, FluentAssertions; EF translation tests and SQL goldens |
