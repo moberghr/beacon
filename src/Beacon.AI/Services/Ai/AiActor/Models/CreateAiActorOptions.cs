@@ -49,4 +49,10 @@ public class CreateAiActorOptions
     /// Whether to activate the actor immediately after creation
     /// </summary>
     public bool ActivateImmediately { get; set; } = true;
+
+    /// <summary>
+    /// Whether the actor's changes wait for a person's approval as a plan (the default) instead of running as it decides
+    /// them
+    /// </summary>
+    public bool RequiresApproval { get; set; } = true;
 }

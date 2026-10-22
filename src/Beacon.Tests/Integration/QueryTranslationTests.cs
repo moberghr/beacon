@@ -193,10 +193,12 @@ public class QueryTranslationTests : QueryTranslationTestBase
     public void GetPendingPlansAsync_Translates()
     {
         const int actorId = 42;
+        var cutoff = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc);
 
         AssertQueryTranslates(ctx => ctx.AiActorPlans
             .Where(p => p.AiActorId == actorId)
             .Where(p => p.Status == AiActorPlanStatus.PendingApproval)
+            .Where(p => p.ProposedAt > cutoff)
             .OrderByDescending(p => p.ProposedAt)
             .Select(p =>
                 new PendingPlanSummary
@@ -219,6 +221,7 @@ public class QueryTranslationTests : QueryTranslationTestBase
         var sql = Context.AiActorPlans
             .Where(p => p.AiActorId == actorId)
             .Where(p => p.Status == AiActorPlanStatus.PendingApproval)
+            .Where(p => p.ProposedAt > cutoff)
             .OrderByDescending(p => p.ProposedAt)
             .Select(p =>
                 new
@@ -233,6 +236,31 @@ public class QueryTranslationTests : QueryTranslationTestBase
 
         Assert.That(sql, Does.Contain("ai_actor"), "expected JOIN onto ai_actor for ActorName projection");
         Assert.That(sql, Does.Contain("ORDER BY"), "expected ORDER BY proposed_at");
+        Assert.That(sql, Does.Contain("proposed_at > "), "expected the expiry filter: an expired plan is no longer pending");
+    }
+
+    /// <summary>
+    /// Mirrors the pending-plan lookup at the end of an AI actor's cycle (<c>AiActorService.SaveCycleAsync</c>): the
+    /// newest plan of the actor still pending and not expired, by id only.
+    /// </summary>
+    [Test]
+    public void PendingPlanOfAnActor_Translates()
+    {
+        const int actorId = 42;
+        var cutoff = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc);
+
+        var sql = Context.AiActorPlans
+            .Where(x => x.AiActorId == actorId)
+            .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
+            .Where(x => x.ProposedAt > cutoff)
+            .OrderByDescending(x => x.ProposedAt)
+            .Select(x => (int?)x.Id)
+            .Take(1)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("a.status = 1"));
+        Assert.That(sql, Does.Contain("a.proposed_at > "));
+        Assert.That(sql, Does.Contain("LIMIT "));
     }
 
     /// <summary>

@@ -498,6 +498,7 @@ Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that
 |---|---|---|---|---|
 | `Beacon:Metadata:ForcedRefreshCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | After a successful forced metadata refresh of a data source, the next one answers `429` until this passes. Per process; Admins and DataSourceAdmins are not held to it. Validated at startup |
 | `Beacon:AiActors:ThinkCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | An AI actor's think cycle starts at most once per this many minutes, from its last think time. Background cycles within it are skipped; an on-demand cycle is refused with the time left. Validated at startup |
+| `Beacon:AiActors:PlanExpiryDays` | int | `7` | 1–365 | An AI actor's plan awaiting approval expires this many days after it was proposed: it is no longer listed as pending, and approving, rejecting or revising it answers `409`. Computed when read. Validated at startup |
 
 ## Subscription limits
 

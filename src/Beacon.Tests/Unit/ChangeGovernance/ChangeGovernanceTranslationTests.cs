@@ -336,7 +336,8 @@ public class ChangeGovernanceTranslationTests
             .And.Contain(sqlServer ? "[q1].[ApprovedContentHash] = [q0].[ContentHash]" : "q1.approved_content_hash = q0.content_hash");
     }
 
-    // An AI actor's plan is decided only from PendingApproval, in one conditional update recording who decided.
+    // An AI actor's plan is decided only from PendingApproval and before it expired, in one conditional update recording
+    // who decided.
     [TestCase(false, "AND a.status = 1")]
     [TestCase(true, "AND [a].[Status] = 1")]
     public async Task RejectingAPlan_IsAConditionalUpdateFromPendingApproval_Translates(bool sqlServer, string fromPending)
@@ -346,18 +347,25 @@ public class ChangeGovernanceTranslationTests
         await AiActorServices(capture).RejectPlanAsync(new RejectPlanOptions { PlanId = 31, UserId = "ext-ben", Reason = "no" }, CancellationToken.None);
 
         capture.Commands.Should().ContainSingle().Which.Should().EndWith(fromPending)
-            .And.Contain(sqlServer ? "[a].[ReviewedByUserId] = @" : "reviewed_by_user_id = @");
+            .And.Contain(sqlServer ? "[a].[ReviewedByUserId] = @" : "reviewed_by_user_id = @")
+            .And.Contain(sqlServer ? "[a].[ProposedAt] > @" : "a.proposed_at > @");
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task DecidingAPlanThatIsNoLongerPending_Is409(bool sqlServer)
+    // Nothing decided: a second read says whether the plan expired undecided or was decided already.
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public async Task DecidingAPlanThatIsNoLongerPending_Is409(bool sqlServer, bool expired)
     {
-        var capture = Capture(sqlServer).ThenRowsAffected(0);
+        var capture = Capture(sqlServer).ThenRowsAffected(0).ThenScalar(expired);
 
         var act = () => AiActorServices(capture).RejectPlanAsync(new RejectPlanOptions { PlanId = 31, UserId = "ext-ben", Reason = "no" }, CancellationToken.None);
 
-        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(AiActorService.PlanNotPendingMessage);
+        await act.Should().ThrowAsync<BeaconConflictException>()
+            .WithMessage(expired ? AiActorService.PlanExpiredMessage : AiActorService.PlanNotPendingMessage);
+        capture.Commands.Should().HaveCount(2);
+        capture.Commands[1].Should().Contain(sqlServer ? "[a].[ProposedAt] <= @" : "a.proposed_at <= @");
     }
 
     // The query's row is taken with a no-op update: a row lock on both providers, held until the transaction ends.

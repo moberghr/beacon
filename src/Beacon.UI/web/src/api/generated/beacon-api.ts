@@ -17210,6 +17210,7 @@ export interface ApprovalRequestDetail {
   requestedByUserId?: string | null;
   requestedByUserName?: string | null;
   reviewedByUserName?: string | null;
+  reviewedByBeaconUserId?: number | null;
   reviewedAt?: Date | null;
   reviewComment?: string | null;
   changeSummary?: string | null;
@@ -17319,6 +17320,7 @@ export interface ChangeApprovalDetail {
   status?: ApprovalStatus;
   requestedByUserName?: string | null;
   reviewedByUserName?: string | null;
+  reviewedByBeaconUserId?: number | null;
   reviewedAt?: Date | null;
   reviewComment?: string | null;
   changeSummary?: string | null;
@@ -17528,6 +17530,7 @@ export interface CreateAiActorCommand {
   maxSubscriptionsPerQuery?: number | null;
   defaultRecipientIds?: number[] | null;
   activateImmediately?: boolean | null;
+  requiresApproval?: boolean | null;
 
   [key: string]: any;
 }
@@ -17537,6 +17540,7 @@ export interface CreateAiActorResult {
   name?: string;
   status?: AiActorStatus;
   dataSourceId?: number;
+  requiresApproval?: boolean;
   createdTime?: Date;
 
   [key: string]: any;
@@ -18269,6 +18273,8 @@ export interface GetAiActorPlanResult {
   findings?: string[];
   proposedActions?: ProposedAction[];
   proposedAt?: Date;
+  expiresAt?: Date;
+  isExpired?: boolean;
   reviewedAt?: Date | null;
   reviewedByUserId?: string | null;
   reviewerComment?: string | null;
@@ -19384,6 +19390,7 @@ export interface PendingPlanSummary {
   analysis?: string;
   actionCount?: number;
   proposedAt?: Date;
+  expiresAt?: Date;
   version?: number;
   tokensUsed?: number;
   estimatedCost?: number;

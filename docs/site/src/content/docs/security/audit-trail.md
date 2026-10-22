@@ -144,7 +144,8 @@ query exposed to MCP callers as a tool, renamed, or withdrawn).
 versions); `approvals.change_submitted`, `approvals.change_approved`, `approvals.change_rejected` (change requests of
 migration jobs, Custom SQL rules and recipients, with the requests a submission supersedes);
 `approvals.ai_plan_submitted`, `approvals.ai_plan_approved`, `approvals.ai_plan_rejected` and
-`approvals.ai_plan_revision_requested` (AI actor plans).
+`approvals.ai_plan_revision_requested` (AI actor plans); `approvals.ai_actor_created` (an AI actor created, with its
+data source and whether its changes wait for approval).
 
 **Ownership** (`ownership`): `ownership.owner_changed`: the owner of a subscription, data contract or AI actor changed,
 with the previous and the new owner as `Users.Id`. Setting the owner a resource already has changes nothing and records
