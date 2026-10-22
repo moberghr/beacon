@@ -592,11 +592,13 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
 | `FastModel` | string | None | Model for the short classification calls on the `ask` path (intent classification and data-source routing). Empty or equal to `Model`: those calls use `Model`, as does every other call. If the fast model fails when called, the call is served once on `Model` |
-| `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts. Background work (documentation generation, indexing, learning, scheduled actor cycles, eval judging) holds at most half the slots (at least one) |
+| `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue; a value saved in Admin Settings replaces it without a restart. Background work (documentation generation, indexing, learning, scheduled actor cycles, eval judging) holds at most half the slots (at least one) |
 | `Limits:InteractiveQueueWaitSeconds` | int | `60` | How long an interactive call waits for a free slot before it fails with *The LLM is busy. Try again later.* (`LlmQueueSaturatedException`). Non-positive: the default; at most `3600` |
 | `Limits:BackgroundQueueWaitSeconds` | int | `300` | The same wait for background work. Non-positive: the default; at most `3600` |
 | `Limits:MaxQueuedRequests` | int | `200` | How many interactive calls may wait for a slot at once; background work may have half as many waiting (at least one). One more fails as busy at once. Non-positive: the default |
-| `Limits:TokensPerMinute`, `RequestsPerMinute`, `MonthlyBudget` | int, int, decimal | `80000`, `1000`, `100.00` | Recorded and shown in settings |
+| `Limits:RateLimitsEnabled` | bool | `false` | Enforce `TokensPerMinute` and `RequestsPerMinute` (a per-minute token bucket each; a call that cannot get its share within its queue wait fails as busy). Admin Settings' **Enforce requests/tokens per minute** replaces it once saved; like the other limits saved there, the stored value is applied again at startup |
+| `Limits:TokensPerMinute`, `RequestsPerMinute` | int, int | `80000`, `1000` | Applied only while `RateLimitsEnabled` is on; `0` or less is unlimited. A call reserves its prompt characters / 4 plus its maximum answer tokens and settles them with the reported usage |
+| `Limits:MonthlyBudget` | decimal | `100.00` | Recorded, not enforced (Beacon keeps no record of spend) |
 
 ```json
 {

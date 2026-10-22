@@ -22,4 +22,13 @@ public class AppSettingsData
     public int LlmTokensPerMinute { get; set; } = 80000;
     public int LlmRequestsPerMinute { get; set; } = 1000;
     public decimal LlmMonthlyBudget { get; set; } = 100.00m;
+
+    /// <summary>Whether <see cref="LlmRequestsPerMinute"/> and <see cref="LlmTokensPerMinute"/> are enforced; off by default.</summary>
+    public bool LlmRateLimitsEnabled { get; set; }
+
+    /// <summary>
+    /// Whether the LLM limits above were read from stored settings (an Admin saved them) rather than defaulted; not stored
+    /// itself. Stored limits replace the host-configured ones.
+    /// </summary>
+    public bool LlmLimitsStored { get; set; }
 }

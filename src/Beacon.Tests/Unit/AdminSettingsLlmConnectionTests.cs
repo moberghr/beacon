@@ -39,7 +39,10 @@ public class AdminSettingsLlmConnectionTests
                 LlmEndpoint = "https://llm.example",
                 LlmApiKey = "stored-key",
                 LlmRegion = "westeurope",
-                LlmBedrockAuthMode = BedrockAuthMode.IamRole
+                LlmBedrockAuthMode = BedrockAuthMode.IamRole,
+                LlmMaxConcurrentRequests = 4,
+                LlmTokensPerMinute = 1000,
+                LlmRequestsPerMinute = 60
             });
         _tester = new Mock<ILlmConnectionTester>();
         _tester
@@ -77,6 +80,79 @@ public class AdminSettingsLlmConnectionTests
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(LlmConnectionSettings.AdminOnlyMessage);
         _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase("maxConcurrent")]
+    [TestCase("requestsPerMinute")]
+    [TestCase("tokensPerMinute")]
+    [TestCase("enforced")]
+    public async Task ASecurityAdmin_ChangingTheLlmLimits_IsForbidden_AndNothingIsSaved(string field)
+    {
+        var command = field switch
+        {
+            "maxConcurrent" => Command() with { LlmMaxConcurrentRequests = 40 },
+            "requestsPerMinute" => Command() with { LlmRequestsPerMinute = 600 },
+            "tokensPerMinute" => Command() with { LlmTokensPerMinute = 0 },
+            _ => Command() with { LlmRateLimitsEnabled = true }
+        };
+
+        var act = () => Update(SecurityAdmin()).Handle(command, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UpdateAdminSettingsHandler.LimitsAdminOnlyMessage);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_SendingTheStoredLimitsBack_Saves()
+    {
+        await Update(SecurityAdmin()).Handle(Command(budget: 75) with { LlmRateLimitsEnabled = false }, CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(
+                It.Is<AppSettingsData>(y => y.LlmMonthlyBudget == 75 && y.LlmMaxConcurrentRequests == 4 && !y.LlmRateLimitsEnabled),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AnAdmin_SavesTheLlmLimits_AndWhetherTheyAreEnforced(bool enabled)
+    {
+        await Update(TestPermissions.Admin).Handle(
+            Command() with { LlmMaxConcurrentRequests = 12, LlmRequestsPerMinute = 30, LlmRateLimitsEnabled = enabled },
+            CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(
+                It.Is<AppSettingsData>(y => y.LlmRateLimitsEnabled == enabled && y.LlmMaxConcurrentRequests == 12 && y.LlmRequestsPerMinute == 30 && y.LlmTokensPerMinute == 1000),
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task ASaveWithoutTheEnforcementFlag_KeepsTheStoredOne()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData
+            {
+                BaseUrl = "https://beacon.example",
+                LlmProvider = AiProvider.AzureOpenAI,
+                LlmRegion = "westeurope",
+                LlmMaxConcurrentRequests = 4,
+                LlmTokensPerMinute = 1000,
+                LlmRequestsPerMinute = 60,
+                LlmRateLimitsEnabled = true
+            });
+
+        await Update(SecurityAdmin()).Handle(Command(model: "gpt-next"), CancellationToken.None);
+        await Update(TestPermissions.Admin).Handle(Command(model: "gpt-latest"), CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmRateLimitsEnabled), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
     }
 
     [Test]

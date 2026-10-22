@@ -17039,6 +17039,7 @@ export interface AdminSettingsView {
   llmTokensPerMinute: number;
   llmRequestsPerMinute: number;
   llmMonthlyBudget: number;
+  llmRateLimitsEnabled?: boolean;
 
   [key: string]: any;
 }
@@ -20679,6 +20680,7 @@ export interface UpdateAdminSettingsCommand {
   llmTokensPerMinute: number;
   llmRequestsPerMinute: number;
   llmMonthlyBudget: number;
+  llmRateLimitsEnabled?: boolean | null;
 
   [key: string]: any;
 }

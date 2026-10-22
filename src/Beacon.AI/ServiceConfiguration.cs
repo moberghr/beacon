@@ -35,8 +35,8 @@ public static class ServiceConfiguration
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
 
         // Request queue for rate limiting — registered BEFORE the delegating provider so
-        // DelegatingLlmProvider can resolve it. Uses bootstrap config; the concurrency and queue-wait
-        // limits are fixed for the singleton's lifetime (matches prior behaviour).
+        // DelegatingLlmProvider can resolve it. Built from the bootstrap config: its queue-wait limits stay those, while
+        // the manager hands it the concurrency and rate limits of every configuration an Admin saves.
         services.AddSingleton(sp =>
         {
             var config = sp.GetRequiredService<LlmConfiguration>();
@@ -45,7 +45,11 @@ public static class ServiceConfiguration
 
         // LLM Provider Manager (holds swappable provider, implements ILlmConfigurationUpdater).
         // Registered before the factory's accessor closure resolves it lazily.
-        services.AddSingleton<LlmProviderManager>();
+        services.AddSingleton(sp => new LlmProviderManager(
+            sp.GetRequiredService<LlmConfiguration>(),
+            sp.GetRequiredService<LlmProviderFactory>(),
+            sp.GetRequiredService<LlmRequestQueue>(),
+            sp.GetRequiredService<ILogger<LlmProviderManager>>()));
         services.AddSingleton<ILlmConfigurationUpdater>(sp => sp.GetRequiredService<LlmProviderManager>());
 
         // Connection tester for the admin settings "Test connection" button

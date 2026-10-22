@@ -27,6 +27,7 @@ export const ADMIN_SETTINGS_SCHEMA = z.object({
   llmTokensPerMinute: z.number().int().min(0),
   llmRequestsPerMinute: z.number().int().min(0),
   llmMonthlyBudget: z.number().min(0),
+  llmRateLimitsEnabled: z.boolean(),
 });
 
 export type FormValues = z.infer<typeof ADMIN_SETTINGS_SCHEMA>;
@@ -85,6 +86,7 @@ export function settingsToForm(s: AdminSettingsView | undefined): AdminSettingsF
       llmTokensPerMinute: 0,
       llmRequestsPerMinute: 0,
       llmMonthlyBudget: 0,
+      llmRateLimitsEnabled: false,
     };
   }
   return {
@@ -103,6 +105,7 @@ export function settingsToForm(s: AdminSettingsView | undefined): AdminSettingsF
     llmTokensPerMinute: s.llmTokensPerMinute,
     llmRequestsPerMinute: s.llmRequestsPerMinute,
     llmMonthlyBudget: s.llmMonthlyBudget,
+    llmRateLimitsEnabled: s.llmRateLimitsEnabled ?? false,
   };
 }
 
@@ -126,6 +129,7 @@ export function formToUpdatePayload(values: AdminSettingsFormValues): UpdateAdmi
     llmTokensPerMinute: values.llmTokensPerMinute,
     llmRequestsPerMinute: values.llmRequestsPerMinute,
     llmMonthlyBudget: values.llmMonthlyBudget,
+    llmRateLimitsEnabled: values.llmRateLimitsEnabled,
   };
 }
 

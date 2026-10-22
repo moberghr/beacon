@@ -52,7 +52,7 @@ an older install, is still used when the key fields are empty; in the IAM role m
 
 An Admin configures the provider at runtime in **Admin Settings** (`/beacon/admin-settings`), section **AI provider**:
 pick a provider card, fill in the fields it shows, use **Test connection**, then **Save changes**. Only an Admin changes
-the connection (provider, endpoint, region, credentials); a SecurityAdmin can change the models and the other settings
+the connection (provider, endpoint, region, credentials) and the concurrency and per-minute limits; a SecurityAdmin can change the models and the other settings
 and test the stored connection. Secrets are stored encrypted. The REST routes are `GET /beacon/api/admin-settings`
 (Auditor or SecurityAdmin), `PUT /beacon/api/admin-settings` and `POST /beacon/api/admin-settings/test-llm`
 (SecurityAdmin). See [Admin Settings](/security/admin-settings/).
@@ -73,7 +73,8 @@ The `Beacon:LLM` section (`Provider` = `OpenAI`, `Claude`, `AzureOpenAI` or `Bed
 [Integrate → AI](/integrate/ai/). Never put a provider key in source or a committed `appsettings.json`.
 
 Every LLM call goes through `LlmRequestQueue`. It allows at most `Limits:MaxConcurrentRequests` calls at once (default
-50, read once when the host starts); background work holds at most half of them. A call that finds no free slot within
+50; a value saved under **Max concurrent requests** in Admin Settings applies without a restart, and a lower one never
+cancels a running call); background work holds at most half of them. A call that finds no free slot within
 `Limits:InteractiveQueueWaitSeconds` (60; background work `Limits:BackgroundQueueWaitSeconds`, 300; at most an hour),
 or arrives while `Limits:MaxQueuedRequests` (200) interactive calls, or half as many background calls, already wait,
 fails with `LlmQueueSaturatedException` ("The LLM is busy. Try again later."). For Claude and Bedrock the queue is the
@@ -82,8 +83,9 @@ three times, waiting at least what `Retry-After` asks (up to 60 seconds), with a
 a call that still fails surfaces as `LlmTransientException` (an `AiServiceException`). OpenAI and Azure OpenAI retry
 themselves and the queue does not retry them again: a status they stopped retrying surfaces as an
 `HttpRequestException` carrying it, a connection failure or timeout as an `AiServiceException`. See
-[Integrate → AI](/integrate/ai/#the-request-queue). The other values under **Rate limits & budget** on the Admin Settings page (tokens per minute,
-requests per minute, monthly budget) are recorded and shown in settings. The **Fast model** serves the short classification calls on the `ask` path (intent classification and data-source routing); when it is empty, equals the main model, cannot be built or fails when called, they use the main model.
+[Integrate → AI](/integrate/ai/#the-request-queue). Tokens and requests per minute under **Rate limits & budget** on
+the Admin Settings page apply only while **Enforce requests/tokens per minute** is on (off by default; `0` is
+unlimited); the monthly budget is recorded, not enforced. The **Fast model** serves the short classification calls on the `ask` path (intent classification and data-source routing); when it is empty, equals the main model, cannot be built or fails when called, they use the main model.
 
 ## What Beacon uses the model for
 
@@ -160,11 +162,12 @@ check the region, the model id and that the host's AWS credentials may invoke th
 **Test connection reports that AI is unavailable.** The host did not set `UseAI = true` or did not call `AddBeaconAI`.
 
 **Calls fail after retries.** Rate-limit and transient errors are tried up to four times on OpenAI and Azure OpenAI and three times on Claude and Bedrock; persistent failures usually mean
-the provider's own quota. Lower `Beacon:LLM:Limits:MaxConcurrentRequests` and restart, or raise the quota with the
-provider.
+the provider's own quota. Lower **Max concurrent requests** in Admin Settings, or turn on **Enforce requests/tokens per
+minute** with the provider's quota, or raise the quota with the provider.
 
 **Calls fail with "The LLM is busy. Try again later."** Every slot stayed taken for the whole wait limit, or too many
-calls were already waiting. Retry later, or raise `Limits:MaxConcurrentRequests` (within the provider's quota) or the
+calls were already waiting, or the enforced requests or tokens per minute left no room within the wait. Retry later, or
+raise **Max concurrent requests** or the per-minute limits (within the provider's quota), or the
 `Limits:*QueueWaitSeconds` / `Limits:MaxQueuedRequests` limits and restart.
 
 **Debug logging.** Raise the log level for the AI namespaces:

@@ -43,7 +43,17 @@ describe('settingsToForm', () => {
     expect(out.llmBedrockAuthMode).toBe(BedrockAuthMode.IamRole);
     expect(out.llmMaxConcurrentRequests).toBe(5);
     expect(out.llmTokensPerMinute).toBe(0);
+    expect(out.llmRateLimitsEnabled).toBe(false);
     expect(out.llmApiKey).toBe('');
+  });
+
+  it.each([
+    [true, true],
+    [false, false],
+    [undefined, false],
+  ])('reads the stored rate-limit enforcement %j as %j', (stored, expected) => {
+    const out = settingsToForm({ ...settingsView(), llmRateLimitsEnabled: stored });
+    expect(out.llmRateLimitsEnabled).toBe(expected);
   });
 
   it('blanks every secret field even when the backend says it is set', () => {
@@ -94,7 +104,13 @@ describe('formToUpdatePayload', () => {
     llmTokensPerMinute: 0,
     llmRequestsPerMinute: 0,
     llmMonthlyBudget: 0,
+    llmRateLimitsEnabled: false,
   };
+
+  it('carries whether the rate limits are enforced', () => {
+    expect(formToUpdatePayload({ ...base, llmRateLimitsEnabled: true }).llmRateLimitsEnabled).toBe(true);
+    expect(formToUpdatePayload(base).llmRateLimitsEnabled).toBe(false);
+  });
 
   it('trims non-secret fields and nulls empty/whitespace ones', () => {
     const payload = formToUpdatePayload(base);
@@ -134,6 +150,7 @@ describe('formToTestPayload', () => {
       llmTokensPerMinute: 0,
       llmRequestsPerMinute: 0,
       llmMonthlyBudget: 0,
+      llmRateLimitsEnabled: false,
     };
     const payload = formToTestPayload(values);
     expect(payload.llmModel).toBe('claude');
@@ -199,3 +216,23 @@ describe('keepStoredConnection', () => {
     expect(payload.llmRegion).toBeNull();
   });
 });
+
+function settingsView(): AdminSettingsView {
+  return {
+    baseUrl: null,
+    llmProvider: AiProvider.OpenAI,
+    llmApiKeySet: false,
+    llmEndpointSet: false,
+    llmRegion: null,
+    llmSessionTokenSet: false,
+    llmAwsAccessKeyIdSet: false,
+    llmAwsSecretAccessKeySet: false,
+    llmBedrockAuthMode: BedrockAuthMode.IamRole,
+    llmModel: null,
+    llmFastModel: null,
+    llmMaxConcurrentRequests: 4,
+    llmTokensPerMinute: 0,
+    llmRequestsPerMinute: 0,
+    llmMonthlyBudget: 0,
+  };
+}

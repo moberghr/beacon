@@ -7,19 +7,20 @@ description: "The Admin settings page: the base URL and the LLM provider, change
 
 ## Who may do what
 
-The page is open to Admins and to two [functional permissions](/security/authorization/#functional-permissions): an **Auditor** reads it, a **SecurityAdmin** reads and changes it. The LLM connection and the base URL stay an Admin's.
+The page is open to Admins and to two [functional permissions](/security/authorization/#functional-permissions): an **Auditor** reads it, a **SecurityAdmin** reads and changes it. The LLM connection, the LLM concurrency and per-minute limits, and the base URL stay an Admin's.
 
 | Action | Route | Admin | SecurityAdmin | Auditor |
 |---|---|---|---|---|
 | Read the settings (secrets shown only as set or not set) and the change history | `GET /beacon/api/admin-settings` | ✓ | ✓ | ✓ |
 | List the LLM providers this host installed | `GET /beacon/api/admin-settings/llm-providers` | ✓ | ✓ | ✓ |
-| Change the models and the rate and budget values | `PUT /beacon/api/admin-settings` | ✓ | ✓ | – |
+| Change the models and the monthly budget | `PUT /beacon/api/admin-settings` | ✓ | ✓ | – |
+| Change **Max concurrent requests**, **Tokens per minute**, **Requests per minute** or **Enforce requests/tokens per minute** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
 | Change the **Base URL** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
 | Change the LLM **provider**, **endpoint**, **region**, Bedrock **authentication mode** or any **credential** | `PUT /beacon/api/admin-settings` | ✓ | – (`403`) | – |
 | Test the stored LLM connection | `POST /beacon/api/admin-settings/test-llm` | ✓ | ✓ | – |
 | Test with another provider, endpoint, region, authentication mode or credential | `POST /beacon/api/admin-settings/test-llm` | ✓ | – (`403`) | – |
 
-The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests with the stored credentials, and the base URL is the address of every link Beacon sends out, so only an Admin changes them. For anyone else the page shows those fields disabled with a note, and a request that changes any of them answers `403` and saves nothing. An Auditor sees the page read-only. API keys never reach these routes.
+The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests with the stored credentials, the base URL is the address of every link Beacon sends out, and the concurrency and per-minute limits decide how much LLM traffic runs at all, so only an Admin changes them. For anyone else the page shows those fields disabled with a note, and a request that changes any of them answers `403` and saves nothing. An Auditor sees the page read-only. API keys never reach these routes.
 
 ## The page
 
@@ -52,7 +53,15 @@ Credentials and the Azure endpoint are encrypted at rest with `Beacon:Encryption
 
 ### Rate limits & budget
 
-**Max concurrent requests**, **Tokens per minute**, **Requests per minute** and **Monthly budget (USD)** (defaults 50, 80,000, 1,000 and 100) are recorded and shown in settings. The LLM request queue takes its concurrency from `Beacon:LLM:Limits:MaxConcurrentRequests` when the host starts.
+**Max concurrent requests** (default 50) applies to the LLM request queue as soon as it is saved: a higher limit lets waiting calls run at once, a lower one takes effect as running calls finish (none is cancelled), and background work keeps at most half the slots.
+
+**Tokens per minute** and **Requests per minute** (defaults 80,000 and 1,000) apply only while **Enforce requests/tokens per minute** is on; it is off by default, and while it is off the two fields are recorded but not applied. When it is on, each call reserves one request and an estimate of its tokens (prompt characters divided by four, plus the call's maximum answer tokens) before it is sent, and the tokens are settled with the usage the provider reports. The reservation is taken before the call waits for a concurrency slot and held while it waits; a call that is never sent (refused, cancelled or timed out) gives it back. The tokens are settled only when the response reports its input tokens; otherwise the estimate stands. Calls the limits cannot admit at once wait in arrival order, so a large call is never overtaken by smaller ones; an interactive call may pass waiting background work, and background work leaves a quarter of each per-minute allowance for interactive calls. A call that cannot get its share within its queue wait fails with *The LLM is busy. Try again later.* `0` means unlimited for that dimension.
+
+**Monthly budget (USD)** (default 100) is recorded, not enforced: Beacon keeps no record of spend, so calls continue past it. Use the provider's own spend limits for a hard cap.
+
+Over the API, `llmRateLimitsEnabled` left out or `null` keeps the stored switch. Only an Admin changes these four values (`403` otherwise); a SecurityAdmin sees them and saves the stored ones back. Once saved, the stored limits replace the host-configured ones (`Beacon:LLM:Limits`), also after a restart, and the first time they differ from the configured ones the host logs it at Information (numbers only).
+
+Saving the settings records each changed value, the enforcement switch included (`LLM.RateLimitsEnabled`), in the change history and the security audit.
 
 ### Recent changes
 
@@ -65,7 +74,7 @@ The page lists the latest changes from the settings history: when, which key, an
 3. The base URL in the running process (`BeaconConfiguration.BaseUrl`) is replaced.
 4. `ILlmConfigurationUpdater.UpdateConfiguration` hands the settings to `LlmProviderManager`, which builds a new provider and swaps it in atomically. `DelegatingLlmProvider`, the proxy every feature holds, uses the new provider for the next request.
 
-**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. Keep `Beacon:LLM` and the base URL in your configuration in step with Admin settings, or save the settings again after a restart. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
+**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. After a restart the stored settings replace the configured ones once they are read: a stored base URL, the stored LLM configuration when a provider was stored, and the stored LLM limits (concurrency, per-minute limits and their enforcement) also when no provider was stored. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
 
 Settings are cached in memory for one hour; a save clears the cache.
 

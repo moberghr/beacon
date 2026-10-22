@@ -92,6 +92,7 @@ function AdminSettingsForm() {
 
   const provider = useWatch({ control, name: 'llmProvider' }) as AiProvider;
   const bedrockAuthMode = useWatch({ control, name: 'llmBedrockAuthMode' }) as BedrockAuthMode;
+  const rateLimitsEnabled = useWatch({ control, name: 'llmRateLimitsEnabled' });
   // The stored API key belongs to the stored provider: another one is never offered "leave blank to keep".
   const storedApiKeyApplies = (settings?.llmApiKeySet ?? false) && provider === settings?.llmProvider;
 
@@ -206,7 +207,7 @@ function AdminSettingsForm() {
               tone="info"
               icon={<Lock />}
               title="The LLM connection is an Admin's to change"
-              sub="Only an Admin changes the provider, endpoint, region, authentication mode or credentials. You can change the models, the other settings, and test the stored connection."
+              sub="Only an Admin changes the provider, endpoint, region, authentication mode or credentials, and the concurrency and per-minute limits. You can change the models, the other settings, and test the stored connection."
             />
           )}
 
@@ -291,18 +292,34 @@ function AdminSettingsForm() {
           )}
         </Section>
 
-        <Section title="Rate limits & budget" sub="Throttle LLM calls so a runaway query doesn't drain the budget.">
+        <Section
+          title="Rate limits & budget"
+          sub="The concurrency limit applies as soon as you save. Requests and tokens per minute apply only while enforced; 0 means unlimited."
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="Max concurrent requests" hint={errors.llmMaxConcurrentRequests?.message ? <span className="text-crit">{errors.llmMaxConcurrentRequests.message}</span> : undefined}>
-              <Input type="number" min={1} {...register('llmMaxConcurrentRequests', { valueAsNumber: true })} />
+              <Input type="number" min={1} disabled={connectionLocked} {...register('llmMaxConcurrentRequests', { valueAsNumber: true })} />
             </Field>
-            <Field label="Tokens per minute" hint={errors.llmTokensPerMinute?.message ? <span className="text-crit">{errors.llmTokensPerMinute.message}</span> : undefined}>
-              <Input type="number" min={0} {...register('llmTokensPerMinute', { valueAsNumber: true })} />
+            <label className="flex gap-2 items-center text-sm md:col-span-2">
+              <input type="checkbox" disabled={connectionLocked} {...register('llmRateLimitsEnabled')} />
+              Enforce requests/tokens per minute
+            </label>
+            <Field label="Tokens per minute" hint={rateLimitHint(errors.llmTokensPerMinute?.message, rateLimitsEnabled)}>
+              <Input type="number" min={0} disabled={connectionLocked || !rateLimitsEnabled} {...register('llmTokensPerMinute', { valueAsNumber: true })} />
             </Field>
-            <Field label="Requests per minute" hint={errors.llmRequestsPerMinute?.message ? <span className="text-crit">{errors.llmRequestsPerMinute.message}</span> : undefined}>
-              <Input type="number" min={0} {...register('llmRequestsPerMinute', { valueAsNumber: true })} />
+            <Field label="Requests per minute" hint={rateLimitHint(errors.llmRequestsPerMinute?.message, rateLimitsEnabled)}>
+              <Input type="number" min={0} disabled={connectionLocked || !rateLimitsEnabled} {...register('llmRequestsPerMinute', { valueAsNumber: true })} />
             </Field>
-            <Field label="Monthly budget (USD)" hint={errors.llmMonthlyBudget?.message ? <span className="text-crit">{errors.llmMonthlyBudget.message}</span> : undefined}>
+            <Field
+              label="Monthly budget (USD)"
+              hint={
+                errors.llmMonthlyBudget?.message ? (
+                  <span className="text-crit">{errors.llmMonthlyBudget.message}</span>
+                ) : (
+                  'Recorded, not enforced: Beacon does not track spend, so calls continue past this amount.'
+                )
+              }
+            >
               <Input type="number" min={0} step="0.01" {...register('llmMonthlyBudget', { valueAsNumber: true })} />
             </Field>
           </div>
@@ -372,3 +389,11 @@ function applyProviderDefaults(
   }
 }
 
+/** A per-minute limit's hint: its validation error, else a note that it is not applied while enforcement is off. */
+function rateLimitHint(error: string | undefined, enforced: boolean) {
+  if (error) {
+    return <span className="text-crit">{error}</span>;
+  }
+
+  return enforced ? undefined : 'Recorded, not enforced: turn on enforcement to apply it.';
+}

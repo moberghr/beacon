@@ -1507,6 +1507,7 @@ const adminHandlers = [
         llmTokensPerMinute: 100000,
         llmRequestsPerMinute: 60,
         llmMonthlyBudget: 0,
+        llmRateLimitsEnabled: false,
       },
       history: [],
     })),

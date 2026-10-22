@@ -64,6 +64,11 @@ public class AppSettingsService : IAppSettingsService
             LlmTokensPerMinute = GetInt("LLM.TokensPerMinute", 80000),
             LlmRequestsPerMinute = GetInt("LLM.RequestsPerMinute", 1000),
             LlmMonthlyBudget = GetDecimal("LLM.MonthlyBudget", 100.00m),
+            LlmRateLimitsEnabled = GetBool("LLM.RateLimitsEnabled"),
+            LlmLimitsStored = dict.ContainsKey("LLM.MaxConcurrentRequests")
+                || dict.ContainsKey("LLM.TokensPerMinute")
+                || dict.ContainsKey("LLM.RequestsPerMinute")
+                || dict.ContainsKey("LLM.RateLimitsEnabled"),
         };
 
         _cache.Set(CacheKey, data, CacheDuration);
@@ -80,6 +85,12 @@ public class AppSettingsService : IAppSettingsService
         {
             var v = GetValue(key);
             return v != null && int.TryParse(v, out var i) ? i : defaultValue;
+        }
+
+        bool GetBool(string key)
+        {
+            var v = GetValue(key);
+            return v != null && bool.TryParse(v, out var b) && b;
         }
 
         decimal GetDecimal(string key, decimal defaultValue)
@@ -175,6 +186,7 @@ public class AppSettingsService : IAppSettingsService
         SetValue("LLM.TokensPerMinute", settings.LlmTokensPerMinute.ToString(), false, "LLM");
         SetValue("LLM.RequestsPerMinute", settings.LlmRequestsPerMinute.ToString(), false, "LLM");
         SetValue("LLM.MonthlyBudget", settings.LlmMonthlyBudget.ToString(CultureInfo.InvariantCulture), false, "LLM");
+        SetValue("LLM.RateLimitsEnabled", settings.LlmRateLimitsEnabled.ToString(), false, "LLM");
 
         if (historyEntries.Count > 0)
         {
