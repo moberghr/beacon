@@ -32,5 +32,5 @@ public sealed class AiActorThinkCycleJobHandler(IAiActorServiceExtended aiActorS
     : IJobHandler<AiActorThinkCycleJob>
 {
     public Task HandleAsync(AiActorThinkCycleJob message, CancellationToken cancellationToken)
-        => aiActorService.ExecuteThinkCycleBackgroundAsync(message.ActorId, message.SubscriptionId);
+        => aiActorService.ExecuteThinkCycleBackgroundAsync(message.ActorId, message.SubscriptionId, cancellationToken);
 }

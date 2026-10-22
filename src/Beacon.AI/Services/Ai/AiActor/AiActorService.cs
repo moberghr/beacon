@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
@@ -32,6 +34,12 @@ public class AiActorService : IAiActorServiceExtended
     /// <summary>Recorded on a background think cycle skipped because the actor's creator may no longer run it.</summary>
     public const string OwnerNotAuthorizedMessage = "Skipped: owner not authorized.";
 
+    /// <summary>Why a think cycle did not start: the actor thought within the configured cooldown.</summary>
+    public const string ThinkCooldownMessage = "This AI actor thought recently; think cycles run at most once per cooldown.";
+
+    /// <summary>Why a think cycle did not start: the actor was archived or removed meanwhile.</summary>
+    public const string ActorUnavailableMessage = "This AI actor is no longer available.";
+
     /// <summary>The change source a refinement records on its query version.</summary>
     public const string AiActorChangeSource = "AiActor";
 
@@ -60,6 +68,9 @@ public class AiActorService : IAiActorServiceExtended
     private readonly ISecurityAuditRecorder _securityAudit;
     private readonly ISubscriptionScheduleCheck _scheduleCheck;
     private readonly ILogger<AiActorService> _logger;
+    private readonly IOptionsMonitor<AiActorOptions>? _options;
+    private readonly TimeProvider _timeProvider;
+    private readonly IAiActorThinkClaim _thinkClaim;
 
     private static readonly TimeSpan FailureSaveTimeout = TimeSpan.FromSeconds(30);
 
@@ -69,7 +80,7 @@ public class AiActorService : IAiActorServiceExtended
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    [Obsolete("Pass an ISubscriptionScheduleCheck: without one the default schedule limits apply.")]
+    [Obsolete("Use the constructor that takes the schedule check, think cooldown options, time provider and think claim: without them the default schedule limits apply.")]
     public AiActorService(
         IDbContextFactory<BeaconContext> contextFactory,
         ILlmProvider llmProvider,
@@ -100,7 +111,10 @@ public class AiActorService : IAiActorServiceExtended
             configuration,
             securityAudit,
             SubscriptionScheduleCheck.Default,
-            logger)
+            logger,
+            null,
+            null,
+            null)
     {
     }
 
@@ -119,8 +133,14 @@ public class AiActorService : IAiActorServiceExtended
         BeaconConfiguration configuration,
         ISecurityAuditRecorder securityAudit,
         ISubscriptionScheduleCheck scheduleCheck,
-        ILogger<AiActorService> logger)
+        ILogger<AiActorService> logger,
+        IOptionsMonitor<AiActorOptions>? options,
+        TimeProvider? timeProvider,
+        IAiActorThinkClaim? thinkClaim)
     {
+        _options = options;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _thinkClaim = thinkClaim ?? new EfAiActorThinkClaim(contextFactory);
         _contextFactory = contextFactory;
         _llmProvider = llmProvider;
         _metadataService = metadataService;
@@ -204,7 +224,8 @@ public class AiActorService : IAiActorServiceExtended
                 new
                 {
                     x.AiActorId,
-                    ActorStatus = (AiActorStatus?)x.AiActor!.Status
+                    ActorStatus = (AiActorStatus?)x.AiActor!.Status,
+                    x.AiActor!.LastThinkTime
                 })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -222,6 +243,12 @@ public class AiActorService : IAiActorServiceExtended
 
         var actorId = subscriptionInfo.AiActorId.Value;
 
+        if (CooldownRemaining(subscriptionInfo.LastThinkTime) is not null)
+        {
+            _logger.LogDebug("Skipping think cycle for actor {ActorId} - within the think cooldown", actorId);
+            return;
+        }
+
         // Enqueue the think cycle as a background job so the subscription-execution
         // pipeline does not block on LLM round-trips. The job runs under its own scope
         // and its own CancellationToken.
@@ -232,10 +259,20 @@ public class AiActorService : IAiActorServiceExtended
             subscriptionId, jobId, actorId);
     }
 
-    public async Task<AiActorThinkResult> ExecuteThinkCycleAsync(
+    public Task<AiActorThinkResult> ExecuteThinkCycleAsync(
         int actorId,
         int? triggeringSubscriptionId = null,
         CancellationToken cancellationToken = default)
+    {
+        // A cycle a caller asks for does not bypass the cooldown: it is answered with the time left.
+        return ExecuteThinkCycleCoreAsync(actorId, triggeringSubscriptionId, false, cancellationToken);
+    }
+
+    private async Task<AiActorThinkResult> ExecuteThinkCycleCoreAsync(
+        int actorId,
+        int? triggeringSubscriptionId,
+        bool background,
+        CancellationToken cancellationToken)
     {
         var startTime = DateTime.UtcNow;
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
@@ -261,6 +298,27 @@ public class AiActorService : IAiActorServiceExtended
             }
 
             return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, cancellationToken);
+        }
+
+        // At most one cycle per actor per cooldown. The in-memory check answers the common case; the conditional claim
+        // makes sure two hosts (or two job runs) cannot both start one.
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var remaining = CooldownRemaining(actor.LastThinkTime);
+        var claim = remaining is not null
+            ? ThinkClaimResult.Held
+            : Cooldown <= TimeSpan.Zero
+                ? ThinkClaimResult.Claimed
+                : await _thinkClaim.TryClaimAsync(actorId, now, now - Cooldown, cancellationToken);
+        if (claim != ThinkClaimResult.Claimed)
+        {
+            if (background)
+            {
+                _logger.LogDebug("Skipping think cycle for actor {ActorId} - within the think cooldown", actorId);
+            }
+
+            return AiActorThinkResult.CreateFailure(
+                0,
+                claim == ThinkClaimResult.Missing ? ActorUnavailableMessage : CooldownMessage(remaining));
         }
 
         // SaveChanges checkpoints in this method are deliberate:
@@ -379,7 +437,8 @@ public class AiActorService : IAiActorServiceExtended
             execution.CompletedAt = DateTime.UtcNow;
 
             // Update actor statistics
-            actor.LastThinkTime = DateTime.UtcNow;
+            // LastThinkTime is written only by the think claim, so a late completion cannot overwrite a newer claim; the
+            // completion time is on the execution record.
             actor.ThinkCount++;
             actor.TotalTokensUsed += execution.TokensUsed;
             actor.TotalCost += execution.EstimatedCost;
@@ -422,12 +481,20 @@ public class AiActorService : IAiActorServiceExtended
         }
     }
 
-    public async Task ExecuteThinkCycleBackgroundAsync(int actorId, int? triggeringSubscriptionId = null)
+    public Task ExecuteThinkCycleBackgroundAsync(int actorId, int? triggeringSubscriptionId = null)
+    {
+        return ExecuteThinkCycleBackgroundAsync(actorId, triggeringSubscriptionId, CancellationToken.None);
+    }
+
+    public async Task ExecuteThinkCycleBackgroundAsync(
+        int actorId,
+        int? triggeringSubscriptionId,
+        CancellationToken cancellationToken)
     {
         // A background cycle acts as the actor's creator as they are now, set before anything resolves the scope's caller.
-        await RunAsCreatorAsync(actorId);
+        await RunAsCreatorAsync(actorId, cancellationToken);
 
-        await ExecuteThinkCycleAsync(actorId, triggeringSubscriptionId);
+        await ExecuteThinkCycleCoreAsync(actorId, triggeringSubscriptionId, true, cancellationToken);
     }
 
     public async Task PauseActorAsync(int actorId, CancellationToken cancellationToken = default)
@@ -790,9 +857,32 @@ public class AiActorService : IAiActorServiceExtended
         await TrySaveFailureAsync(context);
     }
 
-    private async Task RunAsCreatorAsync(int actorId)
+    private TimeSpan Cooldown =>
+        TimeSpan.FromMinutes((_options?.CurrentValue ?? new AiActorOptions()).ThinkCooldownMinutes);
+
+    // Null when a cycle may start now; otherwise the time left of the cooldown since the actor last thought.
+    private TimeSpan? CooldownRemaining(DateTime? lastThinkTime)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync(CancellationToken.None);
+        if (lastThinkTime == null || Cooldown <= TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        var remaining = lastThinkTime.Value + Cooldown - _timeProvider.GetUtcNow().UtcDateTime;
+
+        return remaining > TimeSpan.Zero ? remaining : null;
+    }
+
+    private static string CooldownMessage(TimeSpan? remaining)
+    {
+        return remaining is { } left
+            ? $"{ThinkCooldownMessage} Try again in {Math.Ceiling(left.TotalMinutes)} minute(s)."
+            : $"{ThinkCooldownMessage} Another cycle has just started; try again shortly.";
+    }
+
+    private async Task RunAsCreatorAsync(int actorId, CancellationToken cancellationToken)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var actor = await context.AiActors
             .Where(x => x.Id == actorId)
@@ -801,7 +891,7 @@ public class AiActorService : IAiActorServiceExtended
                 {
                     x.CreatedByUserId
                 })
-            .FirstOrDefaultAsync(CancellationToken.None);
+            .FirstOrDefaultAsync(cancellationToken);
 
         // A missing actor fails its cycle as before; there is no creator to run as.
         if (actor != null)
@@ -920,7 +1010,7 @@ public class AiActorService : IAiActorServiceExtended
             execution.Phase = AiActorExecutionPhase.Completed;
             execution.CompletedAt = DateTime.UtcNow;
 
-            actor.LastThinkTime = DateTime.UtcNow;
+            // The initial setup does not count towards the think cooldown: LastThinkTime stays as it is.
             actor.ThinkCount++;
             actor.TotalTokensUsed += execution.TokensUsed;
             actor.TotalCost += execution.EstimatedCost;

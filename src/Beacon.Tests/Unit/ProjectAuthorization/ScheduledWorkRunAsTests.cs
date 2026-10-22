@@ -556,7 +556,11 @@ public class ScheduledWorkRunAsTests
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
             new RecordingSecurityAudit(),
-            NullLogger<AiActorService>.Instance);
+            SubscriptionScheduleCheck.Default,
+            NullLogger<AiActorService>.Instance,
+            null,
+            null,
+            new Beacon.Tests.Common.GrantingThinkClaim());
 
         await service.ExecuteThinkCycleBackgroundAsync(actor.Id);
     }

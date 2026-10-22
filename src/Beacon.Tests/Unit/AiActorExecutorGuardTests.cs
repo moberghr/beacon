@@ -273,7 +273,10 @@ public class AiActorExecutorGuardTests
             new Beacon.Core.BeaconConfiguration(),
             new RecordingSecurityAudit(),
             new SubscriptionScheduleCheck(Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.SubscriptionOptions()), new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 21, 0, 0, 0, TimeSpan.Zero))),
-            Mock.Of<ILogger<AiActorService>>());
+            Mock.Of<ILogger<AiActorService>>(),
+            null,
+            null,
+            null);
     }
 
     private sealed class ExecutorContext(DbSet<Query> queries, DbSet<Subscription> subscriptions) : BeaconContext(Options, "beacon")

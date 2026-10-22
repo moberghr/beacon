@@ -359,6 +359,12 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MigrationOptions>, Configuration.MigrationOptionsValidator>());
 
+        // AI actor think cooldown (Beacon:AiActors). ValidateOnStart so a cooldown out of range fails the host at boot.
+        services.AddOptions<Configuration.AiActorOptions>()
+            .Bind(configuration.GetSection(Configuration.AiActorOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.AiActorOptions>, Configuration.AiActorOptionsValidator>());
+
         // Forced metadata refreshes (Beacon:Metadata): a per-source cooldown. ValidateOnStart so a cooldown out of range
         // fails the host at boot.
         services.AddOptions<Configuration.MetadataRefreshOptions>()

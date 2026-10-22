@@ -113,6 +113,12 @@ total cost and the recent think cycles.
   a background job. Only an executed `CreateSubscription` action links a subscription to an actor, so an actor whose
   actions are proposed has no linked subscriptions and its cycles run on demand.
 
+**Cooldown.** An actor thinks at most once per `Beacon:AiActors:ThinkCooldownMinutes` (default `15`, `0` = off, at most
+`1440`; validated at startup), counted from its last think time. A cycle within the cooldown is skipped: a background
+one is only logged at Debug (actor id), and a subscription run within it is dropped, not deferred: nothing is enqueued for later. A cycle you request with
+`POST .../think` does **not** bypass it: it answers `success: false` with the minutes left. The cooldown starts when a cycle starts, so a failed cycle consumes it too; the initial setup of a new actor does not count towards it. The cycle claims the actor
+with one conditional update, so two hosts or job runs cannot both start one.
+
 A background cycle runs as the actor's creator. Before any LLM call or SQL, Beacon checks that the creator may still
 work ad hoc with the data source (Query in a project that links it). When the creator may not (disabled or archived,
 no longer a member of a restricted project, or only a Viewer), the cycle is recorded as `Skipped` with
@@ -181,6 +187,8 @@ LLM configuration or data source connectivity), then resume the actor.
 
 **Think cycles show `Skipped`.** The creator may no longer work ad hoc with the data source. Restore their access, or
 have an Admin or UserAdmin change the owner.
+
+**"This AI actor thought recently".** The cooldown above; wait for the minutes the message names or change `Beacon:AiActors:ThinkCooldownMinutes`.
 
 **No automatic think cycles.** Background cycles follow runs of subscriptions linked to the actor, and an actor whose
 actions are proposed has none. Start cycles with `POST /beacon/api/ai-actors/{id}/think`.
