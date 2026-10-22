@@ -43,13 +43,14 @@ public static class McpContentRedactor
         ClassUnknown
     };
 
+    // A tool's own argument errors, recognised by how Beacon words them: they name the argument, and an argument may be
+    // called anything ("timeout", "column_name", ...), so no keyword its name carries may classify them.
+    private static readonly string[] ArgumentErrorPrefixes = ["Invalid arguments:", "Missing required argument", "Missing required parameter"];
+
     // Ordered: the first matching row wins, so the more specific causes (cancellation, timeout, permission) are
     // tested before the broad schema/not-found keywords that almost every provider message also contains.
     private static readonly (string Class, string[] Keywords)[] Classifiers =
     [
-        // A tool's own argument errors first: they name the argument, and an argument may be called anything ("timeout",
-        // "column_name", ...), so no keyword its name carries may outrank them.
-        (ClassValidation, ["invalid argument", "required argument", "required parameter"]),
         // Timeout BEFORE cancelled on purpose: PostgreSQL reports a hit statement timeout as
         // "canceling statement due to statement timeout", which the bare "cancel" keyword would otherwise
         // classify as a user abort. A real user cancel ("canceling statement due to user request") carries no
@@ -79,6 +80,11 @@ public static class McpContentRedactor
         if (message.Length == 0 || ErrorClasses.Contains(message))
         {
             return message;
+        }
+
+        if (ArgumentErrorPrefixes.Any(x => message.StartsWith(x, StringComparison.OrdinalIgnoreCase)))
+        {
+            return ClassValidation;
         }
 
         foreach (var classifier in Classifiers)

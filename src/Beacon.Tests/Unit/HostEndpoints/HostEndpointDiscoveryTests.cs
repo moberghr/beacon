@@ -151,6 +151,18 @@ public class HostEndpointDiscoveryTests
     }
 
     [Test]
+    public async Task Description_ANoteThatThrows_FailsStartupNamingTheTool()
+    {
+        var start = () => HostEndpointTestHost.StartAsync(
+            [typeof(ThingsController)],
+            mapDefaultMinimalApis: false,
+            configure: x => x.DescriptionNote = tool => tool.Name == "thing_by_id" ? throw new InvalidOperationException("no note") : null);
+
+        (await start.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Message.Should().Contain("[thing_by_id]: HostEndpointToolOptions.DescriptionNote threw InvalidOperationException: no note");
+    }
+
+    [Test]
     public void ProtocolTool_CarriesReadOnlyAnnotations()
     {
         var tool = _host.Tool("thing_search").ToProtocolTool();

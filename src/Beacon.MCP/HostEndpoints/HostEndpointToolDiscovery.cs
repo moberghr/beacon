@@ -234,7 +234,7 @@ internal sealed partial class HostEndpointToolDiscovery(
             ?? $"Calls {httpMethod} {route} on the host application.";
 
         var tool = new HostEndpointToolNote(metadata.Name, httpMethod, route, metadata.ReadOnly);
-        var note = descriptionNote == null ? tool.DefaultNote : descriptionNote(tool);
+        var note = descriptionNote == null ? tool.DefaultNote : NoteOf(descriptionNote, tool);
         var description = string.IsNullOrWhiteSpace(note)
             ? summary.Trim()
             : $"{summary.Trim()}\n\n{note.Trim()}";
@@ -254,6 +254,20 @@ internal sealed partial class HostEndpointToolDiscovery(
             CallerBindings = callerBindings,
             CallerBoundNames = callerBound
         };
+    }
+
+    // The host's function runs once per tool at startup; a throw is reported like any other definition error, naming the
+    // endpoint, instead of failing startup with the host's bare exception.
+    private static string? NoteOf(Func<HostEndpointToolNote, string?> descriptionNote, HostEndpointToolNote tool)
+    {
+        try
+        {
+            return descriptionNote(tool);
+        }
+        catch (Exception ex)
+        {
+            throw new HostEndpointToolDefinitionException($"HostEndpointToolOptions.DescriptionNote threw {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>

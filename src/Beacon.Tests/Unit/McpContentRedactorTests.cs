@@ -38,6 +38,7 @@ public class McpContentRedactorTests
     [TestCase("HTTP 422 Unprocessable Entity", McpContentRedactor.ClassValidation)]
     [TestCase("HTTP 404 Not Found", McpContentRedactor.ClassNotFound)]
     [TestCase("HTTP 403 Forbidden", McpContentRedactor.ClassPermission)]
+    [TestCase("invalid input syntax for type integer: \"required argument\"", McpContentRedactor.ClassSyntax)]
     public void ErrorClassOf_MapsProviderMessagesOntoTheVocabulary(string message, string expected)
     {
         McpContentRedactor.ErrorClassOf(message).Should().Be(expected);
