@@ -26,7 +26,8 @@ internal sealed class IntentClassifier : IIntentClassifier
             SystemPrompt = "You are a question classifier. Respond with exactly one word.",
             Messages = [new ChatMessage(ConversationRole.User, classifyPrompt.Replace("{question}", question))],
             Temperature = 0.0m,
-            MaxTokens = 16
+            MaxTokens = 16,
+            Tier = LlmTier.Fast
         };
 
         var response = await llmProvider.CompleteAsync(request, ct);

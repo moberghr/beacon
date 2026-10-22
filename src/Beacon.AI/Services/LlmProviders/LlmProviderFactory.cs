@@ -93,6 +93,11 @@ public class LlmProviderFactory
         return RegistrationFor(configuration.Provider).Create(configuration, fast: false);
     }
 
+    internal ILlmProvider CreateFastProvider(LlmConfiguration configuration)
+    {
+        return RegistrationFor(configuration.Provider).Create(configuration, fast: true);
+    }
+
     // Beacon.Core's LlmProviderInstallation.NotInstalledMessage (the 400 for an uninstalled pick) words it the same:
     // Core cannot reference this assembly, so a test pins the two equal.
     internal static string NotInstalledMessage(AiProvider provider)

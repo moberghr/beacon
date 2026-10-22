@@ -15,6 +15,15 @@ public record LlmRequest
     public string? SystemPrompt { get; init; }
     public decimal Temperature { get; init; } = 0.3m;
     public int MaxTokens { get; init; } = 4096;
+
+    /// <summary>Which configured model serves the request; <see cref="LlmTier.Fast"/> is for short classification calls.</summary>
+    public LlmTier Tier { get; init; } = LlmTier.Default;
+}
+
+public enum LlmTier
+{
+    Default,
+    Fast
 }
 
 public record ChatMessage(ConversationRole Role, string Content);

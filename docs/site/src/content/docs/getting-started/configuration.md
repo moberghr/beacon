@@ -591,7 +591,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `Region` | string | None | Required for `Bedrock` |
 | `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
-| `FastModel` | string | None | Stored with the configuration, but no feature calls the fast provider yet, so setting it changes nothing today. Every call uses `Model` |
+| `FastModel` | string | None | Model for the short classification calls on the `ask` path (intent classification and data-source routing). Empty or equal to `Model`: those calls use `Model`, as does every other call. If the fast model fails when called, the call is served once on `Model` |
 | `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts |
 | `Limits:TokensPerMinute`, `RequestsPerMinute`, `MonthlyBudget` | int, int, decimal | `80000`, `1000`, `100.00` | Recorded and shown in settings |
 
