@@ -51,6 +51,9 @@ internal class DatabaseProvider(
     // How long one statement may run on the server (Beacon:Query:StatementTimeoutSeconds).
     private int StatementTimeoutSeconds { get; } = queryOptions.Value.StatementTimeoutSeconds;
 
+    // The most bytes one result may hold while it is read (Beacon:Query:MaxResultBytes).
+    private long MaxResultBytes { get; } = queryOptions.Value.MaxResultBytes;
+
     public DataSourceType SupportedType => DataSourceType.Database;
 
     public string GetQueryLanguageName() => "SQL";
@@ -233,7 +236,7 @@ internal class DatabaseProvider(
             switch (dataSource.DatabaseEngineType)
             {
                 case DatabaseEngineType.PostgreSQL:
-                    await ReadSingleStatementAsync(connection, $"EXPLAIN {query}", new Dictionary<string, object?>(), null, null, 30, cancellationToken);
+                    await ReadSingleStatementAsync(connection, $"EXPLAIN {query}", new Dictionary<string, object?>(), null, null, 30, MaxResultBytes, cancellationToken);
                     break;
 
                 case DatabaseEngineType.MySQL:
@@ -317,6 +320,7 @@ internal class DatabaseProvider(
                 transaction,
                 null,
                 StatementTimeoutSeconds,
+                MaxResultBytes,
                 cancellationToken);
 
             var plan = read.Rows.Count > 0 && read.Rows[0].Length > 0 ? read.Rows[0][0]?.ToString() : null;
@@ -463,8 +467,8 @@ internal class DatabaseProvider(
                 // statement (a COMMIT, a BEGIN READ WRITE) rather than splitting the text and running each — the READ ONLY
                 // session and transaction alone cannot stop a statement that ends the transaction and opens a writable one.
                 var read = usePostgreSqlReadOnlyTransaction
-                    ? await ReadSingleStatementAsync(connection, query, parameters, transaction, maxRows, StatementTimeoutSeconds, cancellationToken)
-                    : await ReadRowsAsync(connection, commandDefinition, maxRows, cancellationToken);
+                    ? await ReadSingleStatementAsync(connection, query, parameters, transaction, maxRows, StatementTimeoutSeconds, MaxResultBytes, cancellationToken)
+                    : await ReadRowsAsync(connection, commandDefinition, maxRows, MaxResultBytes, cancellationToken);
                 capped = read.Capped;
 
                 // A host data source's masked columns are masked by their POSITION in the result, before the rows are keyed
@@ -558,6 +562,17 @@ internal class DatabaseProvider(
                 Metadata = metadata
             };
         }
+        catch (ResultTooLargeException ex)
+        {
+            // The read stopped as the result passed the byte budget; its transaction was not committed. The message names
+            // the limit only.
+            logger.LogWarning(
+                "A result from data source {DataSourceId} passed the {MaxResultBytes}-byte read limit; the read was stopped and failed",
+                dataSource.Id,
+                MaxResultBytes);
+
+            return Failed(stopwatch, ex.Message);
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -573,21 +588,19 @@ internal class DatabaseProvider(
         }
     }
 
-    // Without a cap, the whole result is buffered. With one, at most maxRows rows are read: Dapper cancels the command of a
-    // reader it closes early, so a statement whose own LIMIT / TOP lies above the cap is not fetched in full. The driver
-    // may report that cancellation while the reader closes; the rows were read by then, and the caller judges a result
-    // that reached the cap as too large.
+    // At most maxRows rows are read (every row without a cap), and no more than maxResultBytes of them: Dapper cancels the
+    // command of a reader it closes early, so a statement whose own LIMIT / TOP lies above the cap is not fetched in full.
+    // The driver may report that cancellation while the reader closes; the rows were read by then, and the caller judges a
+    // result that reached the cap as too large. A result past the byte budget fails (ResultTooLargeException).
     private static async Task<ReadResult> ReadRowsAsync(
         DbConnection connection,
         CommandDefinition command,
         int? maxRows,
+        long maxResultBytes,
         CancellationToken cancellationToken)
     {
-        if (maxRows is not { } cap)
-        {
-            return FromDapperRows((await connection.QueryAsync(command)).AsList(), false);
-        }
-
+        var cap = maxRows ?? int.MaxValue;
+        var budget = new ResultByteBudget(maxResultBytes);
         var rows = new List<dynamic>();
         var reader = connection
             .QueryUnbufferedAsync(command.CommandText, command.Parameters, (DbTransaction?)command.Transaction, command.CommandTimeout)
@@ -595,9 +608,17 @@ internal class DatabaseProvider(
             .GetAsyncEnumerator();
         try
         {
-            while (rows.Count < cap && await reader.MoveNextAsync())
+            while (rows.Count < cap && !budget.Exceeded && await reader.MoveNextAsync())
             {
-                rows.Add(reader.Current);
+                // Dapper hands a row over whole, so its values are counted once it is read.
+                object row = reader.Current;
+                if (row is not IDictionary<string, object?> fields)
+                {
+                    throw new InvalidOperationException("A result row was not read as named values, so its size could not be counted.");
+                }
+
+                rows.Add(row);
+                budget.Add(fields.Values);
             }
         }
         finally
@@ -606,18 +627,23 @@ internal class DatabaseProvider(
             {
                 await reader.DisposeAsync();
             }
-            catch (Exception) when (rows.Count >= cap)
+            catch (Exception) when (rows.Count >= cap || budget.Exceeded)
             {
-                // The statement was cancelled after the cap was reached; its rows are already read.
+                // The statement was cancelled after the cap or the byte budget was reached; its rows are already read.
             }
         }
 
-        return FromDapperRows(rows, rows.Count >= cap);
+        if (budget.Exceeded)
+        {
+            throw new ResultTooLargeException(maxResultBytes);
+        }
+
+        return FromDapperRows(rows, maxRows != null && rows.Count >= cap);
     }
 
     /// <summary>
     /// Runs <paramref name="statement"/> as a batch holding exactly one command, reading at most <paramref name="maxRows"/>
-    /// rows as <see cref="ReadRowsAsync"/> does. A batch command is never split into statements: the PostgreSQL driver
+    /// rows and <paramref name="maxResultBytes"/> as <see cref="ReadRowsAsync"/> does. A batch command is never split into statements: the PostgreSQL driver
     /// refuses a command text that holds a second statement, and text it does not split reaches the server as one
     /// extended-protocol Parse message, which PostgreSQL refuses when it holds more than one statement — so neither
     /// verdict rests on Beacon's own parser. Parameters bind by name, a null as SQL NULL.
@@ -629,6 +655,7 @@ internal class DatabaseProvider(
         DbTransaction? transaction,
         int? maxRows,
         int timeoutSeconds,
+        long maxResultBytes,
         CancellationToken cancellationToken)
     {
         if (!connection.CanCreateBatch)
@@ -653,6 +680,7 @@ internal class DatabaseProvider(
 
         var rows = new List<object?[]>();
         var cap = maxRows ?? int.MaxValue;
+        var budget = new ResultByteBudget(maxResultBytes);
         var reader = await batch.ExecuteReaderAsync(cancellationToken);
         var columns = new List<string>();
         try
@@ -662,18 +690,21 @@ internal class DatabaseProvider(
                 columns.Add(reader.GetName(i));
             }
 
-            while (rows.Count < cap && await reader.ReadAsync(cancellationToken))
+            while (rows.Count < cap && !budget.Exceeded && await reader.ReadAsync(cancellationToken))
             {
+                // Each value is counted as it is read, so the read stops at the value that passes the budget.
+                budget.AddRow(reader.FieldCount);
                 var row = new object?[reader.FieldCount];
-                for (var i = 0; i < reader.FieldCount; i++)
+                for (var i = 0; i < reader.FieldCount && !budget.Exceeded; i++)
                 {
                     row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                    budget.AddValue(row[i]);
                 }
 
                 rows.Add(row);
             }
 
-            if (rows.Count >= cap)
+            if (rows.Count >= cap || budget.Exceeded)
             {
                 // Stop the rest of the statement instead of letting the reader drain it on close.
                 batch.Cancel();
@@ -685,10 +716,15 @@ internal class DatabaseProvider(
             {
                 await reader.DisposeAsync();
             }
-            catch (Exception) when (rows.Count >= cap)
+            catch (Exception) when (rows.Count >= cap || budget.Exceeded)
             {
-                // The statement was cancelled after the cap was reached; its rows are already read.
+                // The statement was cancelled after the cap or the byte budget was reached; its rows are already read.
             }
+        }
+
+        if (budget.Exceeded)
+        {
+            throw new ResultTooLargeException(maxResultBytes);
         }
 
         return new ReadResult(columns, rows, maxRows != null && rows.Count >= cap);

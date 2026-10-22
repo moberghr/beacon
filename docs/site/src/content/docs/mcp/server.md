@@ -346,7 +346,7 @@ The MCP server enforces several safety measures:
 | **PII detection** | Detects and masks sensitive values in results | On; locked on by default (`Beacon:Mcp:ForcePiiDetection`) |
 | **Query timeout** | Each statement `query`, `ask` and the saved-query tools run may take the project's **Statement timeout** (other Beacon paths use `Beacon:Query:StatementTimeoutSeconds`, default 120) | 30 seconds |
 | **Plan cost** | On a PostgreSQL data source, each statement `query`, `ask` and the saved-query tools run is first planned with `EXPLAIN (FORMAT JSON)` (never `ANALYZE`; the same read-only, single-statement path and statement timeout as the statement, with its parameters) and refused before it runs when the planner's estimated total cost exceeds the project's **Max EXPLAIN cost**, with a message naming the estimate and the limit; the refusal is audited. An estimate that fails fails the call as the statement would. Other engines ignore the setting | No limit |
-| **Result size** | The text and the structured result of `query`, `ask` and the saved-query tools are held together to the project's **Max result size**: the structured result takes at most half, the text (heading, markdown table and notes) the rest. A larger result returns fewer rows, marked as truncated by size (`truncated` plus `rows_omitted_for_size`, `rowsOmittedForSize` on saved-query tools, and a note in the text) | 262,144 bytes |
+| **Result size** | The text and the structured result of `query`, `ask` and the saved-query tools are held together to the project's **Max result size**: the structured result takes at most half, the text (heading, markdown table and notes) the rest. A larger result returns fewer rows, marked as truncated by size (`truncated` plus `rows_omitted_for_size`, `rowsOmittedForSize` on saved-query tools, and a note in the text). Not the deployment's `Beacon:Query:MaxResultBytes` (256 MiB), the budget a result is read under from the data source, past which the run fails (see [Configuration](/getting-started/configuration/#query-execution-row-cap)) | 262,144 bytes |
 | **Concurrent queries** | One credential (an API key, else a mapped caller, else a Beacon user) may run up to the project's **Max concurrent queries per API key** `query`, `ask`, `dry_run` and saved-query calls at once on each Beacon instance; another call is refused at once with *Too many concurrent queries for this credential; retry shortly.* and audited | 4 |
 | **Audit logging** | Every tool call is recorded by `McpAuditService` with user, timing, and parameters (see [MCP observability and audit](/mcp/observability-and-audit/)) | Always on |
 | **Usage signals** | `ask`, `query`, and `dry_run` calls are recorded by `McpSignalService` to feed the learning loop | Always on |
@@ -452,12 +452,26 @@ The tabs:
 - Override the description returned by `tools/list` for `get_context`, `ask`, `query`, `get_documentation`, and `search`. Leave a field blank to keep the built-in description. Overrides are applied to the live tool list, so connected clients see your wording. `dry_run`, `get_query_context`, and `feedback` currently use their built-in descriptions only.
 
 **Guardrails**
-- **Max row limit**: the ceiling on rows returned (default: 1000). It must be at least 1; a save with a lower value, globally or for a project, is rejected with `400`. A lower value stored before this check is read as 1, so `query`, `dry_run`, `ask`, cross-source queries and evaluations all cap at one row, never run uncapped and never refuse the cap itself.
+- **Max row limit**: the ceiling on rows returned (default: 1000). It must be between 1 and 10,000,000; a save outside that range, globally or for a project, is rejected with `400`. A lower value stored before this check is read as 1, so `query`, `dry_run`, `ask`, cross-source queries and evaluations all cap at one row, never run uncapped and never refuse the cap itself.
 - **Read-only enforcement**: the SELECT-only restriction; locked on by default (see below)
-- **PII detection**: enable/disable, plus custom PII regex patterns; detection is locked on by default (see below)
+- **PII detection**: enable/disable, plus custom PII regex patterns; detection is locked on by default (see below). A custom pattern that cannot be evaluated over a query (invalid, or not finished within its one-second timeout) refuses the query, naming the pattern by its position; as a column check it marks the column as PII. A new pattern is at most 500 characters and must not use lookarounds, backreferences or atomic groups (it runs on the linear-time regex engine); a save with one is rejected with `400`. A pattern stored before these checks keeps working, on the backtracking engine under the timeout, and does not block a save that leaves it in place
 - **Row data sent to the LLM provider**: sample-value collection and value grounding, both off by default (see [What reaches the LLM provider](#what-reaches-the-llm-provider))
 - **Execution**: the two retention switches, **Retain question and SQL text in signals and audit** and **Allow the feedback tool to store question and SQL text** (see [Content retention](#content-retention)); and **Statement timeout (s)** (default 30), **Max result size (bytes)** (default 262144), **Max EXPLAIN cost** (blank = no limit) and **Max concurrent queries per API key** (default 4). The statement timeout, result size and concurrent-query limit apply to the MCP SQL tools (see the guardrails table above); the EXPLAIN cost limit is enforced on PostgreSQL data sources, where a statement whose planner-estimated total cost exceeds it is refused before it runs, and other engines ignore it
 - **Learning**: **Enable learning**, auto-approve threshold (stored; auto-approval is decided by replay), injection budget, and signal retention
+
+**Ranges.** Every numeric setting is checked when it is saved, globally or as a project override (an empty override inherits and is not checked); a value outside its range is rejected with `400` and a message naming the field and the range. A save names the first field out of range; fix it first, then save again to see the next. A deployment ceiling is not a bound here: a value above it is saved and clamped when the settings are read.
+
+| Setting | Allowed |
+|---------|---------|
+| `maxRowLimit` | 1–10,000,000 |
+| `statementTimeoutSeconds` | 1–3600 |
+| `learningSignalRetentionDays` | 1–36,500 |
+| `learningAutoApproveThreshold` | 0–1 |
+| `maxExplainCost` | blank (no limit), or 0–9,999,999,999,999,999.99 |
+| `maxResultBytes`, `maxConcurrentQueriesPerKey`, `selfConsistencyCandidateCount`, `selfConsistencyMinTables`, `exemplarTopK`, `glossaryTopK`, `docChunkTopK`, `goldenExemplarTopK`, `docChunkWindowSentences`, `learningReplayMinFlips` | at least 1 |
+| `learningInjectionBudgetChars`, `goldenExemplarBudgetChars`, `valueGroundingMaxProbes`, `docChunkOverlapSentences` | at least 0 (0 = none) |
+
+A statement timeout, result size or concurrency limit of 0 or less stored before these checks is read as its default (30 seconds, 262,144 bytes, 4) globally, and as no override (the global value) for a project; a statement timeout above 3600 seconds is read as 3600. Each such field is reported as clamped. The **Max result size** here bounds what an MCP tool returns; the deployment's `Beacon:Query:MaxResultBytes` bounds what is read from the data source.
 
 **Context preview**
 - Render the grounding context for a project exactly as the tools would assemble it. This is useful for spotting missing documentation before an agent hits it.

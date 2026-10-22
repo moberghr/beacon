@@ -27,9 +27,6 @@ internal sealed class EvalReadOnlySqlExecutor(
     IRowSecurityResolver rowSecurityResolver,
     McpSettingsData settings) : IAskSqlExecutor
 {
-    // Per-statement execution ceiling, matching the MCP query executor.
-    private static readonly TimeSpan ExecutionTimeout = TimeSpan.FromSeconds(30);
-
     private DataSource? _dataSource;
 
     public async Task<AskExecutionResult> ExecuteAsync(int dataSourceId, string sql, int maxRows, CancellationToken ct)
@@ -75,7 +72,8 @@ internal sealed class EvalReadOnlySqlExecutor(
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(ExecutionTimeout);
+        // The effective statement timeout, as the MCP query executor applies it.
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
 
         // §1.5 backstop — the read-only execution path (database-level READ ONLY transaction on PostgreSQL;
         // other engines forward to normal execution and rely on the parser gates above).

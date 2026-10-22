@@ -34,6 +34,7 @@ internal sealed class CrossSourceQueryService(
     IOptions<McpDeploymentOptions> deploymentOptions,
     IMcpStatementLog statementLog,
     IQueryCostLimit costLimit,
+    IOptions<QueryExecutionOptions> queryOptions,
     ILoggerFactory loggerFactory,
     ILogger<CrossSourceQueryService> logger) : ICrossSourceQueryService
 {
@@ -148,7 +149,10 @@ internal sealed class CrossSourceQueryService(
             return (text + FormatFailedSourcesNote(failedSources), false);
         }
 
-        using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>());
+        using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>())
+        {
+            MaxResultBytes = queryOptions.Value.MaxResultBytes
+        };
         var anyExecuted = false;
         var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
         // Each source's PII result columns (by name or by its SQL's aliasing), masked on the JOINED rows below where
@@ -340,7 +344,20 @@ internal sealed class CrossSourceQueryService(
             return (text, false);
         }
 
-        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(joinReport.FinalSql, settings.StatementTimeoutSeconds, joinRowCap + 1, ct);
+        List<IDictionary<string, object?>> joinResults;
+        double execTimeMs;
+        bool timedOut;
+        try
+        {
+            (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(joinReport.FinalSql, settings.StatementTimeoutSeconds, joinRowCap + 1, ct);
+        }
+        catch (ResultTooLargeException ex)
+        {
+            // The message names the byte limit only.
+            text += $"**Error:** {ex.Message}\n";
+
+            return (text, false);
+        }
 
         if (timedOut)
         {

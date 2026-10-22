@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -9,6 +10,7 @@ using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.SavedQueries;
 
@@ -62,6 +64,7 @@ internal sealed class SavedQueryToolExecutor(
     IProjectAccessEvaluator projectAccess,
     IRowSecurityResolver rowSecurityResolver,
     IQueryCostLimit costLimit,
+    IOptions<QueryExecutionOptions> queryOptions,
     ILoggerFactory loggerFactory) : ISavedQueryToolExecutor
 {
     /// <summary>The most rows one intermediate step of a multi-step query may return before the call fails.</summary>
@@ -234,7 +237,10 @@ internal sealed class SavedQueryToolExecutor(
         int? firstDataSourceId,
         CancellationToken cancellationToken)
     {
-        using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>());
+        using var memDb = new InMemoryDatabaseManager(loggerFactory.CreateLogger<InMemoryDatabaseManager>())
+        {
+            MaxResultBytes = queryOptions.Value.MaxResultBytes
+        };
         foreach (var (stepOrder, dataSource, rows) in stepResults)
         {
             await memDb.CreateTableFromResults(
@@ -262,7 +268,18 @@ internal sealed class SavedQueryToolExecutor(
             return SavedQueryToolExecution.Failed($"The final query failed validation: {report.BlockReason ?? "the SQL was rejected."}", tablesUsed, firstDataSourceId);
         }
 
-        var (results, _, timedOut) = await memDb.ExecuteQueryAsync(report.FinalSql, settings.StatementTimeoutSeconds, maxRows + 1, cancellationToken);
+        List<IDictionary<string, object?>> results;
+        bool timedOut;
+        try
+        {
+            (results, _, timedOut) = await memDb.ExecuteQueryAsync(report.FinalSql, settings.StatementTimeoutSeconds, maxRows + 1, cancellationToken);
+        }
+        catch (ResultTooLargeException ex)
+        {
+            // The message names the byte limit only.
+            return SavedQueryToolExecution.Failed(ex.Message, tablesUsed, firstDataSourceId);
+        }
+
         if (timedOut)
         {
             return SavedQueryToolExecution.Failed("The final query timed out.", tablesUsed, firstDataSourceId);

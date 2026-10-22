@@ -127,6 +127,41 @@ public class QueryExecutionServicePiiMaskingTests
         StructuredRowValues(result).Should().Contain("Alice").And.NotContain(RawEmail);
     }
 
+    // The statement passed the gate, but its PII check after the run is refused (a custom pattern could not be evaluated
+    // this time): what it would have named cannot be known, so every cell of every column is masked.
+    [Test]
+    public async Task ExecuteAsync_ThePiiCheckAfterTheRunIsRefused_MasksEveryCellOfEveryColumn()
+    {
+        var real = new QueryGuardrailService();
+        var guardrail = new Mock<IQueryGuardrailService>();
+        guardrail
+            .Setup(x => x.ValidateQuery(It.IsAny<string>(), It.IsAny<QueryGuardrailOptions?>()))
+            .Returns(new Beacon.Core.Services.Security.QueryValidationResult(false, QueryGuardrailService.CustomPatternNotEvaluatedMessage(1)));
+        guardrail
+            .Setup(x => x.IsPiiColumn(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>?>()))
+            .Returns((string column, IReadOnlyList<string>? patterns) => real.IsPiiColumn(column, patterns));
+        guardrail
+            .Setup(x => x.MaskPiiValues(It.IsAny<Dictionary<string, object?>>(), It.IsAny<IEnumerable<string>>()))
+            .Returns((Dictionary<string, object?> row, IEnumerable<string> columns) => real.MaskPiiValues(row, columns));
+        var service = BuildService(
+            piiDetectionOn: true,
+            rows:
+            [
+                new Dictionary<string, object?> { ["id"] = 4242, ["name"] = "Alice", ["city"] = "Zagreb" },
+                new Dictionary<string, object?> { ["id"] = 4343, ["name"] = "Bruno", ["city"] = "Split" }
+            ],
+            guardrail: guardrail.Object);
+
+        var result = await service.ExecuteAsync(1, "SELECT id, name, city FROM users", 100, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var values = StructuredRowValues(result);
+        values.Should().HaveCount(6);
+        values.Should().NotContain(["4242", "4343", "Alice", "Bruno", "Zagreb", "Split"]);
+        values.Should().OnlyContain(x => x != null && x.Contains("***"));
+        result.FormattedResult.Should().NotContain("Alice").And.NotContain("Zagreb").And.NotContain("4242");
+    }
+
     [Test]
     public async Task ExecuteAsync_PiiDetectionOff_ReturnsRawValues()
     {
@@ -548,7 +583,8 @@ public class QueryExecutionServicePiiMaskingTests
         IQueryCostLimit? costLimit = null,
         IHostDataSourceGuard? hostGuard = null,
         string? hostManagedKey = null,
-        string? configuredDatabase = null)
+        string? configuredDatabase = null,
+        IQueryGuardrailService? guardrail = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -592,7 +628,7 @@ public class QueryExecutionServicePiiMaskingTests
         return new QueryExecutionService(
             factory.Object,
             providerFactory.Object,
-            new QueryGuardrailService(),
+            guardrail ?? new QueryGuardrailService(),
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, ActiveProjectId = activeProjectId, AllowedProjectIds = [activeProjectId] }, new McpStatementLog(), costLimit ?? TestQueryCostLimit.Passing,
             guard,

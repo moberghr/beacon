@@ -68,6 +68,66 @@ public class McpEffectiveSettingsTests
         result.Effective.CustomPiiPatterns.Should().Equal("iban");
     }
 
+    // A stored value no reader can use resolves to the built-in default, before the ceilings, so it never reaches a
+    // CancelAfter or a concurrency limit as 0 or less.
+    [TestCase(0)]
+    [TestCase(-5)]
+    public void Resolve_AStoredUnusableLimit_IsTheBuiltInDefault(int stored)
+    {
+        var global = new McpSettingsData { StatementTimeoutSeconds = stored, MaxResultBytes = stored, MaxConcurrentQueriesPerKey = stored };
+
+        var result = McpSettingsProvider.Resolve(global, null, NoLocks());
+
+        result.Effective.StatementTimeoutSeconds.Should().Be(30);
+        result.Effective.MaxResultBytes.Should().Be(262144);
+        result.Effective.MaxConcurrentQueriesPerKey.Should().Be(4);
+        result.ClampedFields.Should().BeEquivalentTo("StatementTimeoutSeconds", "MaxResultBytes", "MaxConcurrentQueriesPerKey");
+    }
+
+    // A project override of 0 or less is no override: the project inherits the global value, and the field is reported as
+    // clamped.
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void Resolve_AProjectOverrideOfZeroOrLess_InheritsTheGlobalValue_AndIsReportedClamped(int stored)
+    {
+        var global = new McpSettingsData { StatementTimeoutSeconds = 45, MaxResultBytes = 100_000, MaxConcurrentQueriesPerKey = 3 };
+        var project = new McpProjectSettingsData { StatementTimeoutSeconds = stored, MaxResultBytes = stored, MaxConcurrentQueriesPerKey = stored };
+
+        var result = McpSettingsProvider.Resolve(global, project, NoLocks());
+
+        result.Effective.StatementTimeoutSeconds.Should().Be(45);
+        result.Effective.MaxResultBytes.Should().Be(100_000);
+        result.Effective.MaxConcurrentQueriesPerKey.Should().Be(3);
+        result.ClampedFields.Should().BeEquivalentTo("StatementTimeoutSeconds", "MaxResultBytes", "MaxConcurrentQueriesPerKey");
+    }
+
+    [Test]
+    public void Resolve_AProjectsUnusableOverride_InheritsTheGlobalValue_ThenClampedToTheCeiling()
+    {
+        var global = new McpSettingsData { StatementTimeoutSeconds = 45 };
+        var project = new McpProjectSettingsData { StatementTimeoutSeconds = 0, MaxConcurrentQueriesPerKey = 0 };
+        var options = new McpDeploymentOptions
+        {
+            ForceReadOnly = false,
+            ForcePiiDetection = false,
+            Ceilings = new McpCeilingOptions { StatementTimeoutSeconds = 20 }
+        };
+
+        var result = McpSettingsProvider.Resolve(global, project, options);
+
+        result.Effective.StatementTimeoutSeconds.Should().Be(20, "the global 45 is above the ceiling");
+        result.Effective.MaxConcurrentQueriesPerKey.Should().Be(4);
+        result.ClampedFields.Should().Contain("StatementTimeoutSeconds").And.Contain("MaxConcurrentQueriesPerKey");
+    }
+
+    [Test]
+    public void Resolve_AStoredTimeoutAboveAnHour_IsReadAsAnHour()
+    {
+        var result = McpSettingsProvider.Resolve(new McpSettingsData { StatementTimeoutSeconds = int.MaxValue }, null, NoLocks());
+
+        result.Effective.StatementTimeoutSeconds.Should().Be(3600);
+    }
+
     [Test]
     public void Resolve_DoesNotMutateTheGlobalInput()
     {

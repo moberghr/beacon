@@ -7,6 +7,12 @@ namespace Beacon.Core.Helpers;
 
 public static class DbConnectionFactory
 {
+    /// <summary>The connect timeout a connection gets when its connection string sets none, or 0 (wait forever).</summary>
+    public const int DefaultConnectTimeoutSeconds = 15;
+
+    /// <summary>The longest connect timeout a connection string may set; a longer one is lowered to it.</summary>
+    public const int MaxConnectTimeoutSeconds = 30;
+
     private static readonly ConcurrentDictionary<DatabaseEngineType, Func<string, DbConnection>> _factories = new();
 
     private static readonly ConcurrentDictionary<DatabaseEngineType, Action<DbConnection>> _poolClearers = new();
@@ -108,6 +114,19 @@ public static class DbConnectionFactory
         return engineType == DatabaseEngineType.MySQL
             ? new[] { connectionString, WithoutStatementBatches(connectionString) }.Distinct(StringComparer.Ordinal).ToList()
             : [connectionString];
+    }
+
+    /// <summary>
+    /// How long opening a connection may wait, from what its connection string sets (<paramref name="configuredSeconds"/>,
+    /// in the driver's own key, which a connector reads with the driver's builder): unset or 0 (wait forever) is
+    /// <see cref="DefaultConnectTimeoutSeconds"/>, more than <see cref="MaxConnectTimeoutSeconds"/> is lowered to it, anything
+    /// else is kept. An unreachable server then fails the call in seconds instead of holding it.
+    /// </summary>
+    public static int ConnectTimeoutSeconds(long configuredSeconds)
+    {
+        return configuredSeconds <= 0
+            ? DefaultConnectTimeoutSeconds
+            : (int)Math.Min(configuredSeconds, MaxConnectTimeoutSeconds);
     }
 
     /// <summary>

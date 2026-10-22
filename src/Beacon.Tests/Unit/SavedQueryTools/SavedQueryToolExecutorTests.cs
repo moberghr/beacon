@@ -1,6 +1,7 @@
 using Beacon.Connector.PostgreSql;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
@@ -19,6 +20,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
@@ -598,6 +600,21 @@ public class SavedQueryToolExecutorTests
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout stopped the join");
     }
 
+    // The final query's result is read under Beacon:Query:MaxResultBytes: one past it fails the call, naming the limit.
+    [Test]
+    public async Task AFinalQuery_PastTheByteBudget_FailsTheCall()
+    {
+        _results.Enqueue([Row(("id", 1L))]);
+        var tool = Tool("numbers", [Step(1, 10, "SELECT id FROM loans")], [ProjectId], finalQuery: EndlessRowsFinalQuery);
+
+        var result = await Executor(new McpSettingsData { MaxRowLimit = 1000 }, queryOptions: new QueryExecutionOptions { MaxResultBytes = 1000 })
+            .ExecuteAsync(tool, ProjectId, Args(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Be("The result is larger than the 1000-byte limit (Beacon:Query:MaxResultBytes); select fewer columns or rows.");
+        result.Rows.Should().BeEmpty();
+    }
+
     [Test]
     public async Task AFinalQuery_StopsWhenTheCallerCancels()
     {
@@ -712,7 +729,8 @@ public class SavedQueryToolExecutorTests
         IHostDataSourceGuard? hostGuard = null,
         ProjectAccessScope? access = null,
         ISharedSourceSettings? sharedSources = null,
-        IQueryCostLimit? costLimit = null)
+        IQueryCostLimit? costLimit = null,
+        QueryExecutionOptions? queryOptions = null)
     {
         var factory = new Mock<IDataSourceProviderFactory>();
         factory
@@ -731,6 +749,7 @@ public class SavedQueryToolExecutorTests
             TestProjectAccess.Evaluator(access ?? TestProjectAccess.ReadableIn(ProjectId)),
             TestRowSecurity.Resolver,
             costLimit ?? TestQueryCostLimit.Passing,
+            Options.Create(queryOptions ?? new QueryExecutionOptions()),
             NullLoggerFactory.Instance);
     }
 

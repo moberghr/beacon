@@ -283,6 +283,24 @@ public class SqlExecutionGateTests
         enforcedAnyway.BlockReason.Should().NotContain("deployment lock", "the stored settings enforce read-only themselves");
     }
 
+    // Judged again without read-only enforcement, the statement keeps its PII detection: a custom pattern that cannot be
+    // evaluated still refuses it, and that refusal is the verdict, not the read-only one or the lock's.
+    [Test]
+    public void Evaluate_UnderTheReadOnlyLock_AWriteWithACustomPiiPatternThatCannotBeEvaluated_IsRefusedForThePattern()
+    {
+        var stored = new McpSettingsData { EnforceReadOnly = false, EnablePiiDetection = true, CustomPiiPatterns = ["("] };
+        var resolved = Beacon.Core.Services.McpSettingsProvider.Resolve(stored, null, new McpDeploymentOptions()).Effective;
+
+        var report = _gate.Evaluate(SqlGateRequest.FromSettings("DELETE FROM orders", "PostgreSQL", resolved, TestRowSecurity.NotApplicable));
+
+        resolved.ReadOnlyPinnedByLock.Should().BeTrue();
+        report.Blocked.Should().BeTrue();
+        report.Verdicts.ReadOnly.Message.Should().Be(QueryGuardrailService.CustomPatternNotEvaluatedMessage(1));
+        report.BlockReason.Should().Contain(QueryGuardrailService.CustomPatternNotEvaluatedMessage(1))
+            .And.NotContain("deployment lock")
+            .And.NotContain("Write operations");
+    }
+
     [Test]
     public void Evaluate_UnderTheDefaultReadOnlyLock_TheInMemoryJoin_IsJudgedReadOnly()
     {

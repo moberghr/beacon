@@ -99,8 +99,10 @@ internal sealed class McpSettingsProvider(
 
         if (project != null)
         {
-            OverlayProject(effective, project);
+            OverlayProject(effective, project, clamped);
         }
+
+        UseDefaultsForUnusableValues(effective, clamped);
 
         ApplyCeilings(effective, options.Ceilings ?? new McpCeilingOptions(), clamped);
 
@@ -113,7 +115,7 @@ internal sealed class McpSettingsProvider(
         return new McpEffectiveSettings(effective, locked, clamped);
     }
 
-    private static void OverlayProject(McpSettingsData effective, McpProjectSettingsData project)
+    private static void OverlayProject(McpSettingsData effective, McpProjectSettingsData project, HashSet<string> clamped)
     {
         effective.MaxRowLimit = project.MaxRowLimit ?? effective.MaxRowLimit;
         effective.EnforceReadOnly = project.EnforceReadOnly ?? effective.EnforceReadOnly;
@@ -151,11 +153,53 @@ internal sealed class McpSettingsProvider(
         effective.SelfConsistencyMinTables = project.SelfConsistencyMinTables ?? effective.SelfConsistencyMinTables;
 
         effective.RetainQueryContent = project.RetainQueryContent ?? effective.RetainQueryContent;
-        effective.StatementTimeoutSeconds = project.StatementTimeoutSeconds ?? effective.StatementTimeoutSeconds;
-        effective.MaxResultBytes = project.MaxResultBytes ?? effective.MaxResultBytes;
+        effective.StatementTimeoutSeconds = UsableOverride(project.StatementTimeoutSeconds, effective.StatementTimeoutSeconds, nameof(effective.StatementTimeoutSeconds), clamped);
+        effective.MaxResultBytes = UsableOverride(project.MaxResultBytes, effective.MaxResultBytes, nameof(effective.MaxResultBytes), clamped);
         effective.MaxExplainCost = project.MaxExplainCost ?? effective.MaxExplainCost;
-        effective.MaxConcurrentQueriesPerKey = project.MaxConcurrentQueriesPerKey ?? effective.MaxConcurrentQueriesPerKey;
+        effective.MaxConcurrentQueriesPerKey = UsableOverride(project.MaxConcurrentQueriesPerKey, effective.MaxConcurrentQueriesPerKey, nameof(effective.MaxConcurrentQueriesPerKey), clamped);
         effective.AllowExplicitFeedbackContent = project.AllowExplicitFeedbackContent ?? effective.AllowExplicitFeedbackContent;
+    }
+
+    // A project override no reader can use (0 or less, written before the write handlers checked the ranges,
+    // McpSettingsRanges) is no override: the global value applies, and the field is reported as clamped.
+    private static int UsableOverride(int? value, int inherited, string field, HashSet<string> clamped)
+    {
+        if (value is not { } number)
+        {
+            return inherited;
+        }
+
+        if (number < 1)
+        {
+            clamped.Add(field);
+
+            return inherited;
+        }
+
+        return number;
+    }
+
+    // A stored global value no reader can use is the built-in default: a statement timeout of 0 or less would cancel every
+    // statement at once, a concurrency of 0 refuse every call, a result budget of 0 return no rows. A timeout above the
+    // longest one saved is read as that. Every substituted field is reported as clamped.
+    private static void UseDefaultsForUnusableValues(McpSettingsData effective, HashSet<string> clamped)
+    {
+        var defaults = new McpSettingsData();
+        effective.StatementTimeoutSeconds = Usable(effective.StatementTimeoutSeconds, defaults.StatementTimeoutSeconds, McpSettingsRanges.StatementTimeoutSecondsMaximum, nameof(effective.StatementTimeoutSeconds), clamped);
+        effective.MaxResultBytes = Usable(effective.MaxResultBytes, defaults.MaxResultBytes, int.MaxValue, nameof(effective.MaxResultBytes), clamped);
+        effective.MaxConcurrentQueriesPerKey = Usable(effective.MaxConcurrentQueriesPerKey, defaults.MaxConcurrentQueriesPerKey, int.MaxValue, nameof(effective.MaxConcurrentQueriesPerKey), clamped);
+    }
+
+    private static int Usable(int value, int fallback, int maximum, string field, HashSet<string> clamped)
+    {
+        if (value >= 1 && value <= maximum)
+        {
+            return value;
+        }
+
+        clamped.Add(field);
+
+        return value < 1 ? fallback : maximum;
     }
 
     private static void ApplyCeilings(McpSettingsData effective, McpCeilingOptions ceilings, HashSet<string> clamped)
