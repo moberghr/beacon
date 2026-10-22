@@ -212,7 +212,7 @@ vote is marked so although the `ask` goes on with the single candidate).
 |---|---|
 | `beacon.ask.intent` | `beacon.ask.intent` (`DataQuery` or `Knowledge`) |
 | `beacon.ask.routing` | `beacon.ask.sources` (data sources considered) |
-| `beacon.ask.generation` | `beacon.ask.tables` (distinct tables the candidate reads) |
+| `beacon.ask.generation` | `beacon.ask.tables` (distinct tables the candidate reads), `beacon.ask.context_chars` (characters of the schema context sent), `beacon.ask.tables_shown` and `beacon.ask.tables_omitted` (tables the context describes, and tables `Ceilings:AskSchemaContextChars` left out; these three are set before the call, so a failed generation carries them too) |
 | `beacon.ask.self_consistency` | `beacon.ask.candidates` (candidates voted on) |
 | `beacon.ask.repair` | `beacon.ask.repair.trigger` (`schema`, `lint`, `dry-run`, `execution`, `empty-result`), `beacon.ask.produced_sql` (whether a statement came back) |
 | `beacon.ask.execution` | `beacon.ask.statement.purpose` (`initial`, `repair`, `candidate`), `beacon.result.rows`, `beacon.outcome` |

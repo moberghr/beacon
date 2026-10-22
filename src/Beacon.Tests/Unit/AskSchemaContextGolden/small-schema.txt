@@ -1,0 +1,52 @@
+# Data Source: Sales DB (PostgreSQL)
+Tables: 3
+
+### sales.customers
+  The customers table
+  Columns:
+    - (id: integer, PK, NOT NULL)
+    - (name: text)
+
+### sales.order_items
+  The order_items table
+  Columns:
+    - (order_id: text)
+    - (product: text)
+    - (quantity: text)
+
+### sales.orders
+  The orders table
+  Columns:
+    - (id: integer, PK, NOT NULL)
+    - (customer_id: text)
+    - (status: text)
+
+
+## Join Paths (verified)
+- sales.customers → sales.orders
+    sales.customers.id = sales.orders.customer_id
+- sales.customers → sales.orders → sales.order_items
+    sales.customers.id = sales.orders.customer_id
+    sales.orders.id = sales.order_items.order_id
+- sales.orders → sales.order_items
+    sales.orders.id = sales.order_items.order_id
+
+## Value matches
+- sales.orders.status: 'shipped'
+
+## Verified query examples (authoritative)
+
+-- Q: how many orders per customer
+SELECT c.name, count(*) FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id GROUP BY c.name ORDER BY 2 DESC
+
+
+## Learned Patterns (from usage)
+
+### Common Queries
+- "orders per customer"
+  → `SELECT customer_id, count(*) FROM sales.orders GROUP BY customer_id`
+
+
+## Business Glossary
+
+- **active customer**: A customer with an order in the last 90 days (→ sales.customers)

@@ -162,6 +162,16 @@ public record SmartSchemaContext
     /// some. Empty when the context carries none.
     /// </summary>
     public IReadOnlyList<string> RowDataCategories { get; init; } = [];
+
+    /// <summary>Tables whose description <see cref="FullContext"/> carries in full or compact form.</summary>
+    public int TablesShown { get; init; }
+
+    /// <summary>
+    /// Tables the ask schema-context budget (<c>Beacon:Mcp:Ceilings:AskSchemaContextChars</c>) left out of
+    /// <see cref="FullContext"/>, most relevant first, as <c>schema.table</c> (the table name alone on an API source). The
+    /// context names them on one line; a repair over SQL that reads one gets its exact schema. Empty under the budget.
+    /// </summary>
+    public IReadOnlyList<string> TablesNotShown { get; init; } = [];
 }
 
 public record LearnedPatternInfo(

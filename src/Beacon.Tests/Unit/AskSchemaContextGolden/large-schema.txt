@@ -1,0 +1,142 @@
+# Data Source: Sales DB (PostgreSQL)
+Total tables: 48
+
+## Relevant Tables (full schema)
+
+### sales.customers
+  The customers table
+  Columns:
+    - (id: integer, PK, NOT NULL)
+    - (name: text)
+
+### sales.order_items
+  The order_items table
+  Columns:
+    - (order_id: text)
+    - (product: text)
+    - (quantity: text)
+
+### sales.orders
+  The orders table
+  Columns:
+    - (id: integer, PK, NOT NULL)
+    - (customer_id: text)
+    - (status: text)
+
+
+## Other Tables (name and primary keys only)
+
+  - public.t0001 (PK: id) -- The t0001 table
+    Columns: id, note
+  - public.t0002 (PK: id) -- The t0002 table
+    Columns: id, note
+  - public.t0003 (PK: id) -- The t0003 table
+    Columns: id, note
+  - public.t0004 (PK: id) -- The t0004 table
+    Columns: id, note
+  - public.t0005 (PK: id) -- The t0005 table
+    Columns: id, note
+  - public.t0006 (PK: id) -- The t0006 table
+    Columns: id, note
+  - public.t0007 (PK: id) -- The t0007 table
+    Columns: id, note
+  - public.t0008 (PK: id) -- The t0008 table
+    Columns: id, note
+  - public.t0009 (PK: id) -- The t0009 table
+    Columns: id, note
+  - public.t0010 (PK: id) -- The t0010 table
+    Columns: id, note
+  - public.t0011 (PK: id) -- The t0011 table
+    Columns: id, note
+  - public.t0012 (PK: id) -- The t0012 table
+    Columns: id, note
+  - public.t0013 (PK: id) -- The t0013 table
+    Columns: id, note
+  - public.t0014 (PK: id) -- The t0014 table
+    Columns: id, note
+  - public.t0015 (PK: id) -- The t0015 table
+    Columns: id, note
+  - public.t0016 (PK: id) -- The t0016 table
+    Columns: id, note
+  - public.t0017 (PK: id) -- The t0017 table
+    Columns: id, note
+  - public.t0018 (PK: id) -- The t0018 table
+    Columns: id, note
+  - public.t0019 (PK: id) -- The t0019 table
+    Columns: id, note
+  - public.t0020 (PK: id) -- The t0020 table
+    Columns: id, note
+  - public.t0021 (PK: id) -- The t0021 table
+    Columns: id, note
+  - public.t0022 (PK: id) -- The t0022 table
+    Columns: id, note
+  - public.t0023 (PK: id) -- The t0023 table
+    Columns: id, note
+  - public.t0024 (PK: id) -- The t0024 table
+    Columns: id, note
+  - public.t0025 (PK: id) -- The t0025 table
+    Columns: id, note
+  - public.t0026 (PK: id) -- The t0026 table
+    Columns: id, note
+  - public.t0027 (PK: id) -- The t0027 table
+    Columns: id, note
+  - public.t0028 (PK: id) -- The t0028 table
+    Columns: id, note
+  - public.t0029 (PK: id) -- The t0029 table
+    Columns: id, note
+  - public.t0030 (PK: id) -- The t0030 table
+    Columns: id, note
+  - public.t0031 (PK: id) -- The t0031 table
+    Columns: id, note
+  - public.t0032 (PK: id) -- The t0032 table
+    Columns: id, note
+  - public.t0033 (PK: id) -- The t0033 table
+    Columns: id, note
+  - public.t0034 (PK: id) -- The t0034 table
+    Columns: id, note
+  - public.t0035 (PK: id) -- The t0035 table
+    Columns: id, note
+  - public.t0036 (PK: id) -- The t0036 table
+    Columns: id, note
+  - public.t0037 (PK: id) -- The t0037 table
+    Columns: id, note
+  - public.t0038 (PK: id) -- The t0038 table
+    Columns: id, note
+  - public.t0039 (PK: id) -- The t0039 table
+    Columns: id, note
+  - public.t0040 (PK: id) -- The t0040 table
+    Columns: id, note
+  - public.t0041 (PK: id) -- The t0041 table
+    Columns: id, note
+  - public.t0042 (PK: id) -- The t0042 table
+    Columns: id, note
+  - public.t0043 (PK: id) -- The t0043 table
+    Columns: id, note
+  - public.t0044 (PK: id) -- The t0044 table
+    Columns: id, note
+  - public.t0045 (PK: id) -- The t0045 table
+    Columns: id, note
+
+## Join Paths (verified)
+- sales.customers → sales.orders
+    sales.customers.id = sales.orders.customer_id
+
+## Value matches
+- sales.orders.status: 'shipped'
+
+## Verified query examples (authoritative)
+
+-- Q: how many orders per customer
+SELECT c.name, count(*) FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id GROUP BY c.name ORDER BY 2 DESC
+
+
+## Learned Patterns (from usage)
+
+### Common Queries
+- "orders per customer"
+  → `SELECT customer_id, count(*) FROM sales.orders GROUP BY customer_id`
+
+
+## Business Glossary
+
+- **active customer**: A customer with an order in the last 90 days (→ sales.customers)

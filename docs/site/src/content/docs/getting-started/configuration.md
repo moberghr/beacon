@@ -696,7 +696,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
       "ForcePiiDetection": true,
       "ForceNoContentRetention": false,
       "ForbidRowDataToLlm": false,
-      "Ceilings": { "MaxRowLimit": 1000, "MaxSqlChars": 100000, "MaxQuestionChars": 4000, "AskTimeoutSeconds": 120, "AskMaxLlmCalls": 12 },
+      "Ceilings": { "MaxRowLimit": 1000, "MaxSqlChars": 100000, "MaxQuestionChars": 4000, "AskTimeoutSeconds": 120, "AskMaxLlmCalls": 12, "AskSchemaContextChars": 120000 },
       "Audit": { "Required": true, "RetentionDays": 400, "RequestIdHeader": "X-Request-Id", "RequireContent": false }
     }
   }
@@ -713,6 +713,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `Ceilings:MaxQuestionChars` | int | `4000` (always applies) | Longest question `ask` accepts |
 | `Ceilings:AskTimeoutSeconds` | int | `120` (always applies) | Wall-clock time one `ask` call may take, its statements included; past it the call returns an error; 1 to 3600 when set |
 | `Ceilings:AskMaxLlmCalls` | int | `12` (always applies) | Logical LLM calls one `ask` call may make (a provider's transport retries are not counted); fewer self-consistency candidates and skipped repairs keep it within them, and a call with none left before it generated SQL returns an error; at least 2 when set (the intent classification and the first SQL generation) |
+| `Ceilings:AskSchemaContextChars` | int | `120000` (always applies) | Longest schema context one `ask` sends to the LLM, in characters (about 30,000 tokens at the default); over it whole table descriptions are left out, least relevant to the question first, and one line inside the cap names them. When the grounding sections leave no room for the most relevant table they are left out first (learned patterns, glossary, verified examples, value matches, join paths), and that table is sent even if it alone is longer than the cap. At least 10000 when set |
 | `Audit:Required` | bool | `false` | Fail closed: withhold a tool result whose audit row could not be written |
 | `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; greater than 0 when set. The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
 | `Audit:RequestIdHeader` | string | `X-Request-Id` | Upstream correlation header stored with each audit row; empty reads none |

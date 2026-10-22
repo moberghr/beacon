@@ -339,6 +339,72 @@ public class LlmTelemetryTests
     }
 
     [Test]
+    public async Task AskPipeline_TagsTheGenerationStageSpan_WithTheContextSizeAndTableCounts()
+    {
+        var context = new SmartSchemaContext
+        {
+            FullContext = "schema-context " + SystemMarker,
+            DatabaseDialect = "PostgreSQL",
+            TotalTableCount = 6,
+            TablesShown = 4,
+            TablesNotShown = ["public.audit_log", "public.archive"]
+        };
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
+        var sqlGeneration = new Mock<ISqlGenerationService>();
+        sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["sales"]));
+
+        using var parent = TestSource.StartActivity("test");
+        await Pipeline(sqlGeneration, knowledgeGraph).RunAsync(
+            new Mock<ILlmProvider>().Object, DataSourceId, ProjectId, Question, new McpSettingsData(), SucceedingExecutor(rows: 1).Object, new AskSqlPipelineOptions(), CancellationToken.None);
+        parent!.Stop();
+
+        var generation = Spans(parent, BeaconTelemetry.AskStageActivityPrefix + BeaconTelemetry.AskStageGeneration).Should().ContainSingle().Subject;
+        generation.GetTagItem(BeaconTelemetry.AskContextCharsTag).Should().Be(context.FullContext.Length);
+        generation.GetTagItem(BeaconTelemetry.AskTablesShownTag).Should().Be(4);
+        generation.GetTagItem(BeaconTelemetry.AskTablesOmittedTag).Should().Be(2);
+        AssertNoContent(generation);
+    }
+
+    [Test]
+    public async Task AskPipeline_FailedGeneration_StillTagsTheGenerationStageSpanWithTheContextSize()
+    {
+        var context = new SmartSchemaContext
+        {
+            FullContext = "schema-context " + SystemMarker,
+            DatabaseDialect = "PostgreSQL",
+            TotalTableCount = 3,
+            TablesShown = 2,
+            TablesNotShown = ["public.archive"]
+        };
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
+        var sqlGeneration = new Mock<ISqlGenerationService>();
+        sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ThrowsAsync(new AiServiceException("context window exceeded"));
+
+        using var parent = TestSource.StartActivity("test");
+        var run = () => Pipeline(sqlGeneration, knowledgeGraph).RunAsync(
+            new Mock<ILlmProvider>().Object, DataSourceId, ProjectId, Question, new McpSettingsData(), SucceedingExecutor(rows: 1).Object, new AskSqlPipelineOptions(), CancellationToken.None);
+        await run.Should().ThrowAsync<AiServiceException>();
+        parent!.Stop();
+
+        var generation = Spans(parent, BeaconTelemetry.AskStageActivityPrefix + BeaconTelemetry.AskStageGeneration).Should().ContainSingle().Subject;
+        generation.Status.Should().Be(ActivityStatusCode.Error);
+        generation.GetTagItem(BeaconTelemetry.AskContextCharsTag).Should().Be(context.FullContext.Length);
+        generation.GetTagItem(BeaconTelemetry.AskTablesShownTag).Should().Be(2);
+        generation.GetTagItem(BeaconTelemetry.AskTablesOmittedTag).Should().Be(1);
+        AssertNoContent(generation);
+    }
+
+    [Test]
     public async Task AskPipeline_EmitsTheSelfConsistencyStageSpan_WithTheCandidateCount()
     {
         var settings = new McpSettingsData { EnableSelfConsistency = true, SelfConsistencyCandidateCount = 3 };

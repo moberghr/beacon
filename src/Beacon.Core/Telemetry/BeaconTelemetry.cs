@@ -67,6 +67,9 @@ public static class BeaconTelemetry
     public const string AskRepairTriggerTag = "beacon.ask.repair.trigger";
     public const string AskCandidatesTag = "beacon.ask.candidates";
     public const string AskTablesTag = "beacon.ask.tables";
+    public const string AskContextCharsTag = "beacon.ask.context_chars";
+    public const string AskTablesShownTag = "beacon.ask.tables_shown";
+    public const string AskTablesOmittedTag = "beacon.ask.tables_omitted";
     public const string AskSourcesTag = "beacon.ask.sources";
     public const string AskIntentTag = "beacon.ask.intent";
     public const string AskStatementPurposeTag = "beacon.ask.statement.purpose";

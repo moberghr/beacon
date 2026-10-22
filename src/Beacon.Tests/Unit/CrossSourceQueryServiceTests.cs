@@ -50,6 +50,7 @@ public class CrossSourceQueryServiceTests
     private const string WarehouseContext = "schema context";
     private const string CrmContext = "crm schema context";
     private const string HostKey = "efcore:Warehouse";
+    private const string NotShownSchemas = "# Table Schemas\n### public.regions\n";
 
     // Counts to a billion one row at a time: far past every deadline in these tests.
     private const string LongRunningJoin = "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r";
@@ -59,6 +60,7 @@ public class CrossSourceQueryServiceTests
     private Mock<ILlmProvider> _llm = null!;
     private McpSignalBuilder _signal = null!;
     private RecordingSqlGate _gate = null!;
+    private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private DataSourceType _warehouseType;
     private DatabaseEngineType? _warehouseEngine;
     private string _warehouseDialect = null!;
@@ -256,6 +258,71 @@ public class CrossSourceQueryServiceTests
             Times.Once);
         _signal.Build().SchemaValidationFailed.Should().BeTrue();
         _signal.Build().RetrySucceeded.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task SchemaFailure_RepairOverSqlReadingATableTheContextLeftOut_GetsThatTablesExactSchema()
+    {
+        string? repairTables = null;
+        Generates("SELECT o.bogus, r.name FROM orders o JOIN regions r ON r.id = o.id");
+        _sqlGen
+            .Setup(x => x.RetryWithErrorAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), "SELECT o.bogus, r.name FROM orders o JOIN regions r ON r.id = o.id", It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback((ILlmProvider _, string _, string _, string _, string _, string? tablesContext, string _, CancellationToken _) => repairTables = tablesContext)
+            .ReturnsAsync((string?)null);
+
+        await CreateService(warehouseTablesNotShown: ["public.regions"]).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
+
+        repairTables.Should().Be(NotShownSchemas);
+        _knowledgeGraph.Verify(x => x.GetTablesContextAsync(
+            DataSourceId, ProjectId, It.Is<IEnumerable<string>>(y => y.SequenceEqual(new[] { "public.regions" })), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task DryRunRepair_OverSqlReadingATableTheContextLeftOut_GetsThatTablesExactSchema()
+    {
+        string? repairTables = null;
+        Generates("SELECT id FROM orders");
+        _provider
+            .SetupSequence(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = ["relation missing"] })
+            .ReturnsAsync(new ProviderValidationResult { IsValid = true });
+        _sqlGen
+            .Setup(x => x.RetryWithErrorAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), "SELECT id FROM orders", It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback((ILlmProvider _, string _, string _, string _, string _, string? tablesContext, string _, CancellationToken _) => repairTables = tablesContext)
+            .ReturnsAsync((string?)null);
+
+        await CreateService(warehouseTablesNotShown: ["public.orders"]).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
+
+        repairTables.Should().Be(NotShownSchemas);
+    }
+
+    [Test]
+    public async Task DryRunRepair_OverSqlReadingOnlyShownTables_GetsNoTableSchemas()
+    {
+        var repairTables = "unset";
+        Generates("SELECT id FROM orders");
+        _provider
+            .SetupSequence(x => x.ValidateQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderValidationResult { IsValid = false, Errors = ["relation missing"] })
+            .ReturnsAsync(new ProviderValidationResult { IsValid = true });
+        _sqlGen
+            .Setup(x => x.RetryWithErrorAsync(
+                It.IsAny<ILlmProvider>(), It.IsAny<string>(), "SELECT id FROM orders", It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback((ILlmProvider _, string _, string _, string _, string _, string? tablesContext, string _, CancellationToken _) => repairTables = tablesContext!)
+            .ReturnsAsync((string?)null);
+
+        await CreateService(warehouseTablesNotShown: ["public.regions"]).ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, null, CancellationToken.None);
+
+        repairTables.Should().BeNull();
+        _knowledgeGraph.Verify(x => x.GetTablesContextAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -837,7 +904,8 @@ public class CrossSourceQueryServiceTests
         Microsoft.Extensions.Logging.ILogger<CrossSourceQueryService>? logger = null,
         bool forbidRowData = false,
         IMcpStatementLog? statementLog = null,
-        IQueryCostLimit? costLimit = null)
+        IQueryCostLimit? costLimit = null,
+        IReadOnlyList<string>? warehouseTablesNotShown = null)
     {
         var warehouseHostKey = hostGuard == null ? null : HostKey;
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -858,8 +926,13 @@ public class CrossSourceQueryServiceTests
                 FullContext = WarehouseContext,
                 DatabaseDialect = _warehouseDialect,
                 SchemaCatalog = warehouseCatalog ?? Catalog(),
-                RowDataCategories = [LlmRowDataCategories.SampleValues]
+                RowDataCategories = [LlmRowDataCategories.SampleValues],
+                TablesNotShown = warehouseTablesNotShown ?? []
             });
+        knowledgeGraph
+            .Setup(x => x.GetTablesContextAsync(DataSourceId, ProjectId, It.IsAny<IEnumerable<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(NotShownSchemas);
+        _knowledgeGraph = knowledgeGraph;
         knowledgeGraph
             .Setup(x => x.GetSmartContextForAskAsync(CrmDataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext
