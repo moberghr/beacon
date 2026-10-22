@@ -12,6 +12,9 @@ cheaper: they call a tool instead of shipping `queries/*.sql` files or asking `a
 
 1. Write the query as usual. Parameters are `{name}` placeholders in the step SQL, with a type (Number, DateTime,
    String) and a description. The description becomes the argument's description in the tool schema.
+   A placeholder is `{identifier}` (letters, digits, underscore, starting with a letter or underscore); newly exposing a
+   query whose placeholder has another shape is refused with the parameter's name, and editing the query to a valid
+   placeholder fixes it. A tool that is already exposed keeps running and can be edited or disabled as stored.
 2. Get a version **approved** (see [the approval rule](#which-version-runs)). With the approval workflow enabled,
    saving SQL changes submits a version for approval; an Approver (or an Admin) other than the requester approves it on
    **Approvals** (`/beacon/approvals`; see [Queries → Approval workflow](/features/queries/#approval-workflow)).

@@ -221,6 +221,13 @@ internal partial class QueryService
         // Whether the save changes what runs: the full executable content (the step set, its order, names, data sources,
         // SQL and parameters, and the final query) the save would store, against the stored query.
         var proposedSteps = ProposedSteps(query, queryData);
+
+        // The parameters the save would store, the legacy single-step form included, before the workflow branch below.
+        foreach (var step in proposedSteps)
+        {
+            CheckStepParameters(step);
+        }
+
         var live = QueryContentHash.Of(query);
         var proposed = QueryContentHash.Of(queryData.FinalQuery, proposedSteps);
         var sqlChanged = !live.SameAs(proposed);
@@ -303,7 +310,6 @@ internal partial class QueryService
         if (!queryData.Steps.Any() && !string.IsNullOrEmpty(queryData.SqlValue))
         {
             QueryValidator.CheckForFlaggedWords(queryData.SqlValue, readOnlyAstValidator.MaxSqlChars);
-            QueryValidator.CheckForParameters(queryData.SqlValue, queryData.Parameters);
 
             // Update the first (and typically only) step for backward compatibility
             var firstStep = query.Steps.OrderBy(s => s.StepOrder).First();

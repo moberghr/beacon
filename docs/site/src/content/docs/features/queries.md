@@ -47,6 +47,14 @@ lists it as a parameter of that step (default type String); you can set each par
 String), description and placeholder text, or add one by hand. A subscription supplies a value for each parameter, and
 checks when it is saved that the value reads as the parameter's type.
 
+A placeholder is `{`, a name of letters, digits and underscores (it must start with a letter or underscore, so `{1}` is
+refused although the editor's auto-detect accepts digits; 63 characters at most) and `}`, with no spaces. An empty
+placeholder is refused, and two parameters of a step cannot share one. Beacon enforces this when a query is created or
+edited (every step of a multi-step save, and the legacy single-step form), when an AI actor proposes a change, and when a
+query is newly exposed as an MCP tool; every placeholder must also appear in its step's SQL. Queries stored before the
+rule keep working unchanged, and restoring an old version keeps its placeholders as stored, also on an exposed tool;
+editing a query asks for a valid placeholder, and an AI actor cannot refine such a query until a person has edited it.
+
 Beacon never pastes the value into the SQL. It replaces the placeholder with a bound database parameter (`@p0`, `@p1`,
 …) and sends the value separately, as text. So:
 

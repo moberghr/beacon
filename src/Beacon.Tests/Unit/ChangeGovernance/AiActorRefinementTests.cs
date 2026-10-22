@@ -189,6 +189,66 @@ public class AiActorRefinementTests
         _versions.VerifyNoOtherCalls();
     }
 
+    // The stored placeholder {n} is part of the refined step: the refinement must still contain it, in either mode.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ARefinement_ThatDropsAStoredPlaceholderFromItsSql_FailsWithTheReason_AndChangesNothing(bool workflowOn)
+    {
+        var store = OwnedQuery();
+        store.Query.Steps[0].SqlValue = "SELECT {n}";
+        AddStoredParameter(store, "{n}");
+        var provider = ValidatingProvider(valid: true);
+
+        var action = await Service(store, workflowOn ? WorkflowOn() : new BeaconConfiguration(), proposals: workflowOn ? ProposalCheck(store, provider) : null)
+            .ExecuteOrProposeAsync(Actor(), Refine("SELECT 2"), [], CancellationToken.None);
+
+        action.Success.Should().BeFalse();
+        action.ErrorMessage.Should().StartWith("Refined query validation failed").And.Contain("missing required parameters");
+        store.Query.Steps[0].SqlValue.Should().Be("SELECT {n}");
+        store.Saved.Should().BeEmpty();
+        _queries.VerifyNoOtherCalls();
+        _versions.VerifyNoOtherCalls();
+        provider.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task ARefinement_ThatKeepsItsStoredPlaceholder_WithTheWorkflowOff_Succeeds()
+    {
+        var store = OwnedQuery();
+        store.Query.Steps[0].SqlValue = "SELECT {n}";
+        AddStoredParameter(store, "{n}");
+        DraftRuns(true);
+
+        var action = await Service(store, new BeaconConfiguration()).ExecuteOrProposeAsync(Actor(), Refine("SELECT {n} + 1"), [], CancellationToken.None);
+
+        action.Success.Should().BeTrue(action.ErrorMessage);
+        store.Query.Steps[0].SqlValue.Should().Be("SELECT {n} + 1");
+    }
+
+    // A stored placeholder a save would refuse cannot be repaired by the model: the refinement stops before any draft
+    // runs, with a message that tells a person to edit the query.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ARefinement_OfAQueryWithALegacyPlaceholder_FailsBeforeAnythingIsCalled(bool workflowOn)
+    {
+        var store = OwnedQuery();
+        store.Query.Steps[0].SqlValue = "SELECT branch_id";
+        AddStoredParameter(store, "branch_id");
+
+        var action = await Service(store, workflowOn ? WorkflowOn() : new BeaconConfiguration())
+            .ExecuteOrProposeAsync(Actor(), Refine("SELECT branch_id + 1"), [], CancellationToken.None);
+
+        action.Success.Should().BeFalse();
+        action.ErrorMessage.Should().Be(AiActorService.LegacyPlaceholderRefusal);
+        store.Saved.Should().BeEmpty();
+        _queries.VerifyNoOtherCalls();
+        _proposals.VerifyNoOtherCalls();
+        _versions.VerifyNoOtherCalls();
+    }
+
+    private static void AddStoredParameter(GovernanceStore store, string placeholder) =>
+        store.Query.Steps[0].Parameters.Add(new QueryStepParameter { QueryStepId = GovernanceStore.StepId, Name = "n", Type = ParameterType.Number, Placeholder = placeholder });
+
     // End to end with the workflow on, in strict mode, for an actor that needs no plan approval: the proposal check is the
     // real one and the source's provider offers its non-executing validation only, so a run of the SQL — or a preview of
     // the draft — would fail the action. The SQL is validated once by the source, never run, and submitted.

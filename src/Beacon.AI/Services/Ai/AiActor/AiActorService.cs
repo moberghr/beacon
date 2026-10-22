@@ -10,6 +10,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Worker;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Validators;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Models.Subscriptions;
@@ -1826,6 +1827,9 @@ public class AiActorService : IAiActorServiceExtended
         action.ResultEntityId = subscription.Id;
     }
 
+    internal const string LegacyPlaceholderRefusal =
+        "The query has a parameter placeholder in an old format; a person must edit the query before it can be refined.";
+
     private async Task ExecuteRefineQueryAsync(
         Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
@@ -1885,6 +1889,18 @@ public class AiActorService : IAiActorServiceExtended
         if (firstStep == null)
         {
             action.ErrorMessage = $"Query {queryId} has no steps to refine";
+            return;
+        }
+
+        // A save would refuse a stored placeholder that is not {identifier}, and the model cannot repair it: stop here so the
+        // actor neither spends a model call on it nor retries.
+        var hasLegacyPlaceholder = query.Steps
+            .SelectMany(x => x.Parameters)
+            .Any(x => !QueryParameterPlaceholder.IsValid(x.Placeholder));
+        if (hasLegacyPlaceholder)
+        {
+            action.ErrorMessage = LegacyPlaceholderRefusal;
+            _logger.LogWarning("AI Actor {ActorId} cannot refine query {QueryId}: a stored parameter placeholder has an old format", actor.Id, queryId);
             return;
         }
 
@@ -2016,6 +2032,24 @@ public class AiActorService : IAiActorServiceExtended
             if (_configuration.ApprovalWorkflow.Enabled)
             {
                 return await _proposalCheck.RejectionAsync(draft, cancellationToken);
+            }
+
+            // The workflow-off save writes the steps itself, so a save's parameter rule (placeholder shape, distinct, in
+            // the SQL) is applied here; the workflow-on check above applies it through the proposal check.
+            foreach (var step in steps)
+            {
+                QueryValidator.CheckForParameters(
+                    step.SqlValue,
+                    step.Parameters
+                        .Select(x =>
+                            new QueryParameterData
+                            {
+                                Name = x.Name,
+                                Type = x.Type,
+                                Description = x.Description ?? "",
+                                Placeholder = x.Placeholder ?? ""
+                            })
+                        .ToList());
             }
 
             var result = await _queryService.PreviewQuery(queryId, draft, ValidationPage.Instance, cancellationToken);

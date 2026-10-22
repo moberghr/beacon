@@ -9,6 +9,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
@@ -117,6 +118,80 @@ public class QueryServiceReadOnlyGateTests
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("Final query rejected*");
         spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [TestCase("branch_id")]
+    [TestCase("{a-b}")]
+    [TestCase("{1}")]
+    public async Task CreateQuery_WithAMisshapenPlaceholder_ThrowsAndPersistsNothing(string placeholder)
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+        var query = NewQuery(null);
+        query.Steps[0].SqlValue = $"SELECT id FROM orders WHERE branch = {placeholder}";
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "branch", Type = ParameterType.Number, Placeholder = placeholder });
+
+        var act = () => service.CreateQuery(query, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("Parameter 'branch' has an invalid placeholder*");
+        spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task CreateQuery_WithAPlaceholderTheSqlLacks_ThrowsAndPersistsNothing()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+        var query = NewQuery(null);
+        query.Steps[0].SqlValue = "SELECT id FROM orders";
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "branch", Type = ParameterType.Number, Placeholder = "{missing}" });
+
+        var act = () => service.CreateQuery(query, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("*missing required parameters*");
+        spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task AddQueryStep_WithAMisshapenPlaceholder_ThrowsBeforeAnythingIsWritten()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+        var stepData = new QueryStepData { Name = "step", SqlValue = "SELECT branch_id FROM orders", DataSourceId = 1 };
+        stepData.Parameters.Add(new QueryStepParameterData { Name = "branch", Type = ParameterType.Number, Placeholder = "branch_id" });
+
+        var act = () => service.AddQueryStep(1, stepData, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("Parameter 'branch' has an invalid placeholder*");
+        spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task UpdateQueryStep_WithAMisshapenPlaceholder_ThrowsBeforeAnythingIsWritten()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+        var stepData = new QueryStepData { Name = "step", SqlValue = "SELECT branch_id FROM orders", DataSourceId = 1 };
+        stepData.Parameters.Add(new QueryStepParameterData { Name = "branch", Type = ParameterType.Number, Placeholder = "branch_id" });
+
+        var act = () => service.UpdateQueryStep(1, 1, stepData, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("Parameter 'branch' has an invalid placeholder*");
+        spy.SaveChangesCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task CreateQuery_WithAValidPlaceholderInTheSql_Saves()
+    {
+        var spy = new ContextSpy();
+        var service = BuildService(spy);
+        var query = NewQuery(null);
+        query.Steps[0].SqlValue = "SELECT id FROM orders WHERE branch = {branch_id}";
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "branch", Type = ParameterType.Number, Placeholder = "{branch_id}" });
+
+        var response = await service.CreateQuery(query, CancellationToken.None);
+
+        response.Success.Should().BeTrue();
     }
 
     [Test]

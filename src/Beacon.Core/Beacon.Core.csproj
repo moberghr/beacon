@@ -21,6 +21,7 @@
 		<InternalsVisibleTo Include="Beacon.SampleProject" />
 		<InternalsVisibleTo Include="Beacon.Api" />
 		<InternalsVisibleTo Include="Beacon.MCP" />
+		<InternalsVisibleTo Include="Beacon.AI" />
 		<InternalsVisibleTo Include="Beacon.Tests" />
 	</ItemGroup>
 

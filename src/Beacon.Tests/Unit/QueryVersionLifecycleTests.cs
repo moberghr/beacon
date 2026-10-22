@@ -116,6 +116,35 @@ public class QueryVersionLifecycleTests
             .And.ContainSingle(x => x.ChangeSource == QueryVersionService.BaselineSource && x.Status == QueryVersionStatus.Archived);
     }
 
+    // A restore puts a version back as it was stored: a placeholder saved before the shape rule is kept, not refused.
+    [Test]
+    public async Task RestoreVersionAsync_KeepsAStoredPlaceholderOfAnOlderShape()
+    {
+        var store = new Store();
+        var old = Version(1, QueryVersionStatus.Archived);
+        old.StepsJson = System.Text.Json.JsonSerializer.Serialize(
+            new List<QueryStepSnapshot>
+            {
+                new()
+                {
+                    StepOrder = 1,
+                    SqlValue = "SELECT branch_id FROM orders",
+                    DataSourceId = 3,
+                    DataSourceName = "warehouse",
+                    Name = "Step 1",
+                    Parameters = [new QueryStepParameterSnapshot { Name = "branch", Type = ParameterType.Number, Placeholder = "branch_id" }]
+                }
+            },
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        store.Versions.AddRange([old, Version(2, QueryVersionStatus.Active)]);
+
+        await store.VersionService().RestoreVersionAsync(old.Id, "u1", CancellationToken.None);
+
+        var restored = store.Saved.OfType<QueryStep>().Should().ContainSingle().Subject;
+        restored.SqlValue.Should().Be("SELECT branch_id FROM orders");
+        restored.Parameters.Should().ContainSingle().Which.Placeholder.Should().Be("branch_id");
+    }
+
     [Test]
     public async Task UpdateQuery_SqlEdit_WritesOneActiveVersionAndNoArchivedCopy()
     {

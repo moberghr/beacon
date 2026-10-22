@@ -68,6 +68,22 @@ public class QueryProposalCheckTests
         provider.VerifyNoOtherCalls();
     }
 
+    [TestCase("branch_id", "SELECT id FROM orders WHERE branch = branch_id", "Parameter 'branch' has an invalid placeholder*")]
+    [TestCase("{a b}", "SELECT id FROM orders WHERE branch = {a b}", "Parameter 'branch' has an invalid placeholder*")]
+    [TestCase("{missing}", "SELECT id FROM orders", "*missing required parameters*")]
+    public async Task AProposalWithABadPlaceholder_IsRefused_BeforeTheSourceIsReached(string placeholder, string sql, string message)
+    {
+        var store = new GovernanceStore();
+        var provider = Provider(Valid());
+        var proposal = Proposal(sql);
+        proposal.Steps[0].Parameters = [new QueryStepParameterData { Name = "branch", Type = ParameterType.Number, Placeholder = placeholder }];
+
+        var rejection = await Check(store, provider).RejectionAsync(proposal, CancellationToken.None);
+
+        rejection.Should().Match(message);
+        provider.VerifyNoOtherCalls();
+    }
+
     // What the gate or the save check refuses never reaches the source.
     [TestCase("DELETE FROM orders")]
     [TestCase("SELECT 1; SELECT 2")]
